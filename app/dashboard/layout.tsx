@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut } from "lucide-react";
+import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 const navItems = [
@@ -127,8 +127,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         ))}
       </nav>
 
-      {/* Sign out */}
-      <div className="p-3 border-t border-[#e8e2d9]">
+      {/* Settings + Sign out */}
+      <div className="p-3 border-t border-[#e8e2d9] space-y-0.5">
+        <NavLink
+          label="Settings"
+          href="/dashboard/settings"
+          icon={Settings}
+          active={isActive("/dashboard/settings")}
+          onClick={() => setMenuOpen(false)}
+        />
         <button
           onClick={handleSignOut}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#7a6f65] hover:bg-red-50 hover:text-red-600 w-full transition-colors"

@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useEffect, useState } from "react";
-import { LogOut, User, BookOpen, Bell, HelpCircle, ChevronRight } from "lucide-react";
+import { LogOut, User, Users, Bell, HelpCircle, ChevronRight, Settings } from "lucide-react";
 
 type Profile = { display_name: string | null };
 
@@ -31,10 +32,11 @@ export default function MorePage() {
   }
 
   const menuItems = [
-    { icon: User,     label: "Account & Profile",   sub: email,          action: () => {} },
-    { icon: BookOpen, label: "Children & Subjects",  sub: "Manage learners", action: () => {} },
-    { icon: Bell,     label: "Notifications",        sub: "Off",          action: () => {} },
-    { icon: HelpCircle, label: "Help & Feedback",   sub: "Get support",  action: () => {} },
+    { icon: Settings,    label: "Settings",             sub: "Family name, children, colors", href: "/dashboard/settings" },
+    { icon: User,        label: "Account",              sub: email,                           href: "/dashboard/settings" },
+    { icon: Users,       label: "Children",             sub: "Add or edit children",          href: "/dashboard/settings" },
+    { icon: Bell,        label: "Notifications",        sub: "Off",                           href: null },
+    { icon: HelpCircle,  label: "Help & Feedback",      sub: "support@rootedhomeschool.com",  href: null },
   ];
 
   return (
@@ -61,20 +63,31 @@ export default function MorePage() {
 
       {/* Menu items */}
       <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
-        {menuItems.map(({ icon: Icon, label, sub, action }) => (
-          <button
-            key={label}
-            onClick={action}
-            className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#f8f5f0] transition-colors text-left"
-          >
-            <Icon size={18} className="text-[#7a6f65] shrink-0" strokeWidth={1.8} />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-[#2d2926]">{label}</p>
-              {sub && <p className="text-xs text-[#b5aca4] truncate">{sub}</p>}
+        {menuItems.map(({ icon: Icon, label, sub, href }) => {
+          const inner = (
+            <>
+              <Icon size={18} className="text-[#7a6f65] shrink-0" strokeWidth={1.8} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-[#2d2926]">{label}</p>
+                {sub && <p className="text-xs text-[#b5aca4] truncate">{sub}</p>}
+              </div>
+              <ChevronRight size={16} className="text-[#c8bfb5] shrink-0" />
+            </>
+          );
+          return href ? (
+            <Link
+              key={label}
+              href={href}
+              className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#f8f5f0] transition-colors text-left"
+            >
+              {inner}
+            </Link>
+          ) : (
+            <div key={label} className="flex items-center gap-4 px-5 py-4 opacity-60">
+              {inner}
             </div>
-            <ChevronRight size={16} className="text-[#c8bfb5] shrink-0" />
-          </button>
-        ))}
+          );
+        })}
       </div>
 
       {/* Sign out */}

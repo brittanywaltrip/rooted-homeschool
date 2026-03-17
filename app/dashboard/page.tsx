@@ -25,6 +25,12 @@ type BookLog = {
   payload: { title: string; child_id?: string; date: string };
 };
 
+type Subject = {
+  id: string;
+  name: string;
+  color: string | null;
+};
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const QUOTES = [
@@ -67,6 +73,35 @@ function getGreeting() {
   if (h < 12) return "Good morning";
   if (h < 17) return "Good afternoon";
   return "Good evening";
+}
+
+// ─── Floating Leaves Celebration ──────────────────────────────────────────────
+
+function FloatingLeaves({ active }: { active: boolean }) {
+  if (!active) return null;
+  const items = [
+    { emoji: "🍃", left: "28%", delay: "0s" },
+    { emoji: "🌿", left: "40%", delay: "0.1s" },
+    { emoji: "🍃", left: "52%", delay: "0.2s" },
+    { emoji: "🌱", left: "35%", delay: "0.15s" },
+    { emoji: "🍀", left: "60%", delay: "0.25s" },
+    { emoji: "🍃", left: "47%", delay: "0.05s" },
+    { emoji: "🌿", left: "65%", delay: "0.3s" },
+    { emoji: "🌱", left: "22%", delay: "0.18s" },
+  ];
+  return (
+    <div className="fixed inset-0 pointer-events-none z-[60]" aria-hidden>
+      {items.map((item, i) => (
+        <span
+          key={i}
+          className="leaf-float-up absolute text-2xl"
+          style={{ left: item.left, bottom: "35%", animationDelay: item.delay }}
+        >
+          {item.emoji}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 // ─── Tree SVG ─────────────────────────────────────────────────────────────────
@@ -292,6 +327,16 @@ export default function TodayPage() {
   const [bookChild, setBookChild] = useState("");
   const [savingBook, setSavingBook] = useState(false);
 
+  // Lessons modal
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [showLessonModal, setShowLessonModal] = useState(false);
+  const [lessonChildId, setLessonChildId] = useState("");
+  const [lessonSubject, setLessonSubject] = useState("");
+  const [lessonTitle, setLessonTitle] = useState("");
+  const [lessonHours, setLessonHours] = useState("");
+  const [savingLesson, setSavingLesson] = useState(false);
+  const [celebrating, setCelebrating] = useState(false);
+
   const loadData = useCallback(async () => {
     const {
       data: { user },
@@ -355,6 +400,14 @@ export default function TodayPage() {
       .filter("payload->>date", "eq", today);
 
     setTodayBooks((todayBooksData as unknown as BookLog[]) ?? []);
+
+    // Subjects for autocomplete
+    const { data: subjectsData } = await supabase
+      .from("subjects")
+      .select("id, name, color")
+      .eq("user_id", user.id)
+      .order("name");
+    setSubjects((subjectsData as Subject[]) ?? []);
 
     // Today's reflection
     const { data: reflectionData } = await supabase
@@ -423,6 +476,72 @@ export default function TodayPage() {
       }
     }
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
+  }
+
+  function openLessonModal() {
+    setLessonChildId(children.length === 1 ? children[0].id : "");
+    setLessonSubject("");
+    setLessonTitle("");
+    setLessonHours("");
+    setShowLessonModal(true);
+  }
+
+  async function saveLesson() {
+    if (!lessonTitle.trim()) return;
+    setSavingLesson(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingLesson(false); return; }
+
+    // Find or create subject
+    let subjectId: string | null = null;
+    if (lessonSubject.trim()) {
+      const existing = subjects.find(
+        (s) => s.name.toLowerCase() === lessonSubject.trim().toLowerCase()
+      );
+      if (existing) {
+        subjectId = existing.id;
+      } else {
+        const { data: newSubject } = await supabase
+          .from("subjects")
+          .insert({ user_id: user.id, name: lessonSubject.trim() })
+          .select("id, name, color")
+          .single();
+        if (newSubject) {
+          setSubjects((prev) => [...prev, newSubject as Subject]);
+          subjectId = newSubject.id;
+        }
+      }
+    }
+
+    // Insert lesson
+    const { data: newLesson } = await supabase
+      .from("lessons")
+      .insert({
+        user_id: user.id,
+        child_id: lessonChildId || null,
+        subject_id: subjectId,
+        title: lessonTitle.trim(),
+        hours: lessonHours ? parseFloat(lessonHours) : null,
+        completed: true,
+        date: today,
+      })
+      .select("id, title, completed, child_id, hours, subjects(name, color)")
+      .single();
+
+    if (newLesson) {
+      setLessons((prev) => [...prev, newLesson as unknown as Lesson]);
+      if (lessonChildId) {
+        setLeafCounts((prev) => ({
+          ...prev,
+          [lessonChildId]: (prev[lessonChildId] ?? 0) + 1,
+        }));
+      }
+      setCelebrating(true);
+      setTimeout(() => setCelebrating(false), 1600);
+    }
+
+    setSavingLesson(false);
+    setShowLessonModal(false);
   }
 
   async function saveReflection() {
@@ -549,11 +668,19 @@ export default function TodayPage() {
           <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
             Today&apos;s Lessons
           </h2>
-          {totalToday > 0 && (
-            <span className="text-xs text-[#5c7f63] font-medium bg-[#e8f0e9] px-2 py-0.5 rounded-full">
-              {completedToday}/{totalToday} done
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {totalToday > 0 && (
+              <span className="text-xs text-[#5c7f63] font-medium bg-[#e8f0e9] px-2 py-0.5 rounded-full">
+                {completedToday}/{totalToday} done
+              </span>
+            )}
+            <button
+              onClick={openLessonModal}
+              className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
+            >
+              + Add Lesson
+            </button>
+          </div>
         </div>
 
         {filteredLessons.length > 0 ? (
@@ -671,6 +798,81 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* Lesson modal */}
+      {showLessonModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-[#2d2926]">📚 Add a Lesson</h2>
+              <button onClick={() => setShowLessonModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+            </div>
+            {children.length > 0 && (
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                <select
+                  value={lessonChildId}
+                  onChange={(e) => setLessonChildId(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                >
+                  <option value="">All / unassigned</option>
+                  {children.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Subject</label>
+              <input
+                value={lessonSubject}
+                onChange={(e) => setLessonSubject(e.target.value)}
+                list="subjects-list"
+                placeholder="e.g. Math, Reading, Science"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+              />
+              <datalist id="subjects-list">
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.name} />
+                ))}
+              </datalist>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Lesson title *</label>
+              <input
+                value={lessonTitle}
+                onChange={(e) => setLessonTitle(e.target.value)}
+                placeholder="e.g. Chapter 4 reading"
+                autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Hours spent (optional)</label>
+              <input
+                value={lessonHours}
+                onChange={(e) => setLessonHours(e.target.value)}
+                type="number"
+                min="0"
+                max="24"
+                step="0.5"
+                placeholder="e.g. 1.5"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowLessonModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+                Cancel
+              </button>
+              <button onClick={saveLesson} disabled={savingLesson || !lessonTitle.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                {savingLesson ? "Saving…" : "Save Lesson 🍃"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Daily Reflection ──────────────────────────────── */}
       <div>
         <div className="flex items-center gap-2 mb-3">
@@ -715,6 +917,8 @@ export default function TodayPage() {
 
       {/* Bottom padding */}
       <div className="h-4" />
+
+      <FloatingLeaves active={celebrating} />
     </div>
   );
 }

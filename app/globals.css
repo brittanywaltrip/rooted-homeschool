@@ -121,6 +121,21 @@ input:-webkit-autofill:focus {
   animation: butterfly 4s ease-in-out infinite;
 }
 
+/* ─── Leaf celebration ───────────────────────────────────────────────────────── */
+
+@keyframes leaf-float-up {
+  0%   { transform: translateY(0px) rotate(0deg)   scale(0.3); opacity: 0; }
+  18%  { transform: translateY(-18px) rotate(-14deg) scale(1.25); opacity: 1; }
+  65%  { transform: translateY(-80px) rotate(22deg)  scale(1.05); opacity: 0.9; }
+  100% { transform: translateY(-130px) rotate(-8deg) scale(0.75); opacity: 0; }
+}
+
+.leaf-float-up {
+  animation: leaf-float-up 1.35s ease-out forwards;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* ─── Print styles ───────────────────────────────────────────────────────────── */
 
 @media print {
