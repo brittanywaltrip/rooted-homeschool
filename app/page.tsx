@@ -325,7 +325,7 @@ export default function Home() {
       <section
         className="relative flex flex-col items-center justify-center text-center text-white px-6 py-28 min-h-[92vh]"
         style={{
-          backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.52) 0%, rgba(10,28,14,0.40) 55%, rgba(15,35,18,0.55) 100%), url('https://images.unsplash.com/photo-1448375240586-882707db888b?w=1920&q=80')`,
+          backgroundImage: `linear-gradient(160deg, rgba(10,25,15,0.72) 0%, rgba(18,40,22,0.52) 35%, rgba(25,50,28,0.42) 65%, rgba(8,20,12,0.68) 100%), url('https://images.unsplash.com/photo-1448375240586-882707db888b?w=1920&q=80')`,
           backgroundSize: "cover",
           backgroundPosition: "center",
         }}
@@ -336,6 +336,7 @@ export default function Home() {
           style={{ background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.25) 100%)" }}
           aria-hidden="true"
         />
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(180deg, transparent 20%, rgba(140,90,20,0.06) 65%, rgba(8,20,12,0.25) 100%)" }} aria-hidden="true" />
 
         <div className="relative z-10 flex flex-col items-center max-w-3xl">
           {/* Beta badge */}
@@ -344,23 +345,28 @@ export default function Home() {
             Now in Beta · Join Free
           </div>
 
+          <p className="anim-fade-in-up delay-100 text-[11px] font-semibold uppercase tracking-[0.28em] text-white/55 mb-5">
+            The homeschool companion families love
+          </p>
+
           {/* H1 */}
           <h1
             className="anim-fade-in-up delay-150 text-5xl sm:text-6xl lg:text-[5rem] font-bold leading-[1.08] mb-6"
             style={{
               fontFamily: "var(--font-display)",
-              textShadow: "0 2px 24px rgba(0,0,0,0.35)",
+              textShadow: "0 2px 32px rgba(0,0,0,0.5), 0 1px 8px rgba(0,0,0,0.3)",
+              letterSpacing: "-0.02em",
             }}
           >
             Stay Rooted.{" "}
-            <em className="not-italic" style={{ color: "#a8d8a0" }}>Teach with</em>{" "}
+            <em className="not-italic" style={{ color: "#86c98a" }}>Teach with</em>{" "}
             Intention.
           </h1>
 
           {/* Subhead */}
           <p
-            className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/82 mb-10 leading-relaxed max-w-[34rem]"
-            style={{ textShadow: "0 1px 10px rgba(0,0,0,0.30)" }}
+            className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]"
+            style={{ textShadow: "0 1px 12px rgba(0,0,0,0.35)", letterSpacing: "0.01em" }}
           >
             The calm, all-in-one companion for homeschool families. Plan lessons,
             celebrate growth, and generate compliance reports — without the overwhelm.
@@ -371,12 +377,14 @@ export default function Home() {
             <Link
               href="/signup"
               className="inline-flex items-center justify-center gap-2 bg-white text-[#3d5c42] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all shadow-lg shadow-black/25 text-base"
+              style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35), 0 0 48px rgba(134,201,138,0.12)" }}
             >
               Start Free — It&apos;s Free →
             </Link>
             <a
               href="#features"
-              className="inline-flex items-center justify-center gap-2 border-2 border-white/55 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base backdrop-blur-sm"
+              className="inline-flex items-center justify-center gap-2 border border-white/35 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base"
+              style={{ backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.06)" }}
             >
               See How It Works
             </a>
