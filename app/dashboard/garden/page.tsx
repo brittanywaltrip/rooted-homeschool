@@ -336,7 +336,7 @@ export default function GardenPage() {
             </filter>
           </defs>
           {/* Watercolor-textured background */}
-          <rect width="400" height="225" fill="url(#skyGrad)" filter="url(#watercolor)" />
+          <rect width="400" height="225" fill="url(#skyGrad)" />
         </svg>
 
         {/* Sun */}
