@@ -204,7 +204,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Family avatar + name */}
       <div className="px-4 py-3 border-b border-[#f0ede8] flex items-center gap-3">
         <div className="w-8 h-8 rounded-full bg-[#5c7f63] flex items-center justify-center shrink-0 text-sm font-bold text-white">
-          {displayName ? displayName.charAt(0).toUpperCase() : "🌿"}
+          {displayName
+            ? (() => {
+                const words = displayName.replace(/\bfamily\b/gi, "").trim().split(/\s+/).filter(Boolean);
+                return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "🌿";
+              })()
+            : "🌿"}
         </div>
         <div className="min-w-0">
           <p className="text-[11px] text-[#b5aca4] leading-none mb-0.5">
