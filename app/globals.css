@@ -42,3 +42,98 @@ input:-webkit-autofill:focus {
   -webkit-box-shadow: 0 0 0px 1000px #fefcf9 inset;
   -webkit-text-fill-color: #2d2926;
 }
+
+/* ─── Garden animations ─────────────────────────────────────────────────────── */
+
+@keyframes garden-sway {
+  0%, 100% { transform: rotate(-1.2deg); }
+  50%       { transform: rotate(1.2deg); }
+}
+@keyframes garden-sway-alt {
+  0%, 100% { transform: rotate(1deg); }
+  50%       { transform: rotate(-1deg); }
+}
+@keyframes cloud-drift {
+  0%, 100% { transform: translateX(0px); }
+  50%       { transform: translateX(14px); }
+}
+@keyframes cloud-drift-slow {
+  0%, 100% { transform: translateX(0px); }
+  50%       { transform: translateX(-10px); }
+}
+@keyframes sun-glow {
+  0%, 100% { opacity: 0.85; filter: drop-shadow(0 0 10px rgba(255,210,50,0.5)); }
+  50%       { opacity: 1;    filter: drop-shadow(0 0 22px rgba(255,210,50,0.85)); }
+}
+@keyframes sun-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes badge-float {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50%       { transform: translateY(-4px) scale(1.06); }
+}
+@keyframes sparkle {
+  0%, 100% { opacity: 0; transform: scale(0.4) rotate(0deg); }
+  50%       { opacity: 1; transform: scale(1) rotate(180deg); }
+}
+@keyframes leaf-shimmer {
+  0%, 100% { opacity: 0.8; }
+  50%       { opacity: 1; }
+}
+@keyframes butterfly {
+  0%, 100% { transform: translateX(0) translateY(0) rotate(-5deg); }
+  25%       { transform: translateX(8px) translateY(-6px) rotate(5deg); }
+  75%       { transform: translateX(-5px) translateY(-3px) rotate(-3deg); }
+}
+
+.garden-sway {
+  animation: garden-sway 3.5s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+.garden-sway-alt {
+  animation: garden-sway-alt 4.5s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+.cloud-drift {
+  animation: cloud-drift 9s ease-in-out infinite;
+}
+.cloud-drift-slow {
+  animation: cloud-drift-slow 13s ease-in-out infinite;
+}
+.sun-glow {
+  animation: sun-glow 4s ease-in-out infinite;
+}
+.sun-rays-spin {
+  animation: sun-spin 25s linear infinite;
+  transform-origin: center;
+}
+.badge-float {
+  animation: badge-float 2.5s ease-in-out infinite;
+}
+.sparkle {
+  animation: sparkle 2s ease-in-out infinite;
+}
+.leaf-shimmer {
+  animation: leaf-shimmer 3s ease-in-out infinite;
+}
+.butterfly {
+  animation: butterfly 4s ease-in-out infinite;
+}
+
+/* ─── Print styles ───────────────────────────────────────────────────────────── */
+
+@media print {
+  aside, nav, .no-print, header {
+    display: none !important;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .print-content {
+    margin: 0 !important;
+    padding: 24px !important;
+    max-width: 100% !important;
+  }
+}

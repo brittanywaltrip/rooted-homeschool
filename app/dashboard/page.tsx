@@ -20,6 +20,11 @@ type Lesson = {
   subjects: { name: string; color: string | null } | null;
 };
 
+type BookLog = {
+  id: string;
+  payload: { title: string; child_id?: string; date: string };
+};
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const QUOTES = [
@@ -280,6 +285,13 @@ export default function TodayPage() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Books
+  const [todayBooks, setTodayBooks] = useState<BookLog[]>([]);
+  const [showBookModal, setShowBookModal] = useState(false);
+  const [bookTitle, setBookTitle] = useState("");
+  const [bookChild, setBookChild] = useState("");
+  const [savingBook, setSavingBook] = useState(false);
+
   const loadData = useCallback(async () => {
     const {
       data: { user },
@@ -318,18 +330,31 @@ export default function TodayPage() {
 
     setLessons((lessonsData as unknown as Lesson[]) ?? []);
 
-    // All completed lessons (for leaf counts)
-    const { data: completed } = await supabase
-      .from("lessons")
-      .select("child_id")
-      .eq("user_id", user.id)
-      .eq("completed", true);
+    // All completed lessons + book events (for leaf counts)
+    const [{ data: completed }, { data: bookEvents }] = await Promise.all([
+      supabase.from("lessons").select("child_id").eq("user_id", user.id).eq("completed", true),
+      supabase.from("app_events").select("payload").eq("user_id", user.id).eq("type", "book_read"),
+    ]);
 
     const counts: Record<string, number> = {};
     completed?.forEach((l) => {
       counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
     });
+    bookEvents?.forEach((e) => {
+      const cid = e.payload?.child_id;
+      if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
+    });
     setLeafCounts(counts);
+
+    // Today's books
+    const { data: todayBooksData } = await supabase
+      .from("app_events")
+      .select("id, payload")
+      .eq("user_id", user.id)
+      .eq("type", "book_read")
+      .filter("payload->>date", "eq", today);
+
+    setTodayBooks((todayBooksData as unknown as BookLog[]) ?? []);
 
     // Today's reflection
     const { data: reflectionData } = await supabase
@@ -375,6 +400,29 @@ export default function TodayPage() {
       counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
     });
     setLeafCounts(counts);
+  }
+
+  async function saveBook() {
+    if (!bookTitle.trim()) return;
+    setSavingBook(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingBook(false); return; }
+
+    const payload = { title: bookTitle.trim(), child_id: bookChild || undefined, date: today };
+    const { data } = await supabase
+      .from("app_events")
+      .insert({ user_id: user.id, type: "book_read", payload })
+      .select("id, payload")
+      .single();
+
+    if (data) {
+      setTodayBooks((prev) => [...prev, data as unknown as BookLog]);
+      // +1 leaf for the child if assigned
+      if (bookChild) {
+        setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
+      }
+    }
+    setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
   }
 
   async function saveReflection() {
@@ -530,6 +578,98 @@ export default function TodayPage() {
           </div>
         )}
       </div>
+
+      {/* ── Books Read Today ──────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
+            Books Read Today
+          </h2>
+          <button
+            onClick={() => setShowBookModal(true)}
+            className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
+          >
+            + Log a Book
+          </button>
+        </div>
+
+        {todayBooks.length > 0 ? (
+          <div className="space-y-2">
+            {todayBooks.map((b) => (
+              <div key={b.id} className="flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3">
+                <span className="text-lg">📖</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
+                  {b.payload.child_id && (
+                    <p className="text-xs text-[#7a6f65]">
+                      {children.find((c) => c.id === b.payload.child_id)?.name}
+                    </p>
+                  )}
+                </div>
+                <span className="text-xs text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">+1 🍃</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 flex items-center gap-3">
+            <span className="text-2xl">📚</span>
+            <div>
+              <p className="text-sm font-medium text-[#2d2926]">No books logged yet today</p>
+              <p className="text-xs text-[#b5aca4]">Each book earns a leaf on the garden tree.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Book modal */}
+      {showBookModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-[#2d2926]">📖 Log a Book</h2>
+              <button onClick={() => setShowBookModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Book title *</label>
+              <input
+                value={bookTitle}
+                onChange={(e) => setBookTitle(e.target.value)}
+                placeholder="e.g. Charlotte's Web"
+                autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+              />
+            </div>
+            {children.length > 0 && (
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who read it?</label>
+                <select
+                  value={bookChild}
+                  onChange={(e) => setBookChild(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                >
+                  <option value="">Everyone / unassigned</option>
+                  {children.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <p className="text-xs text-[#7a6f65] bg-[#e8f0e9] rounded-xl px-3 py-2">
+              🍃 This book will add a leaf to {bookChild ? children.find((c) => c.id === bookChild)?.name + "'s" : "the"} garden tree.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setShowBookModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+                Cancel
+              </button>
+              <button onClick={saveBook} disabled={savingBook || !bookTitle.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                {savingBook ? "Saving…" : "Log Book 🍃"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Daily Reflection ──────────────────────────────── */}
       <div>
