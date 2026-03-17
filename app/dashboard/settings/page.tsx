@@ -601,6 +601,26 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      {/* ── Admin (only shown to admin email) ───────────────── */}
+      {userEmail === "garfieldbrittany@gmail.com" && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-[#2d2926]">Admin</h2>
+            <span className="h-px flex-1 bg-[#e8e2d9]" />
+          </div>
+          <a
+            href="/admin/resources"
+            className="flex items-center justify-between bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 hover:border-[#5c7f63] hover:bg-[#f8fcf8] transition-colors group"
+          >
+            <div>
+              <p className="text-sm font-medium text-[#2d2926]">⚙️ Manage Resources</p>
+              <p className="text-xs text-[#7a6f65] mt-0.5">Edit discounts, field trips, printables, and science projects</p>
+            </div>
+            <span className="text-[#b5aca4] group-hover:text-[#5c7f63] text-lg">→</span>
+          </a>
+        </section>
+      )}
+
       <div className="h-4" />
     </div>
   );

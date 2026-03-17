@@ -12,52 +12,16 @@ const GRADE_TAGS: GradeTag[] = ["All Ages", "K–2", "3–5", "6–8", "9–12"]
 
 type RegLevel = "none" | "low" | "moderate" | "high";
 
-// ─── Data ─────────────────────────────────────────────────────────────────────
-
-const TEACHER_DISCOUNTS = [
-  { name: "Michaels Educator Discount",               savings: "15% off",     grade: "All Ages" as GradeTag, url: "https://www.michaels.com/coupon-policy-and-price-guarantee#teacher-discount", desc: "15% off your entire purchase for homeschool educators. Show homeschool documentation at checkout or customer service.", tags: ["Art", "Crafts", "Supplies"] },
-  { name: "Apple Education Pricing",                  savings: "Up to 10%",   grade: "All Ages" as GradeTag, url: "https://www.apple.com/us-hed/shop", desc: "Up to 10% off Macs and iPads for homeschool families through Apple's education store. Ships directly to your door.", tags: ["Tech"] },
-  { name: "Books-A-Million Educator Discount",        savings: "20% off",     grade: "All Ages" as GradeTag, url: "https://www.booksamillion.com/educators", desc: "20% off in-store for homeschool educators with an educator card. Apply online or at your local store.", tags: ["Books"] },
-  { name: "JoAnn Fabrics Teacher Discount",           savings: "15% off",     grade: "All Ages" as GradeTag, url: "https://www.joann.com/teacher-discount/", desc: "15% off every day for homeschool educators. Show a homeschool ID or letter at checkout — no minimum purchase required.", tags: ["Art", "Crafts"] },
-  { name: "Office Depot / OfficeMax Teacher Rewards", savings: "5–10% back",  grade: "All Ages" as GradeTag, url: "https://www.officedepot.com/l/teacher-rewards", desc: "Free membership gives 5–10% back in rewards on eligible purchases. Valid for homeschool families with educator verification.", tags: ["Supplies", "Tech"] },
-  { name: "Staples Teacher Rewards",                  savings: "5% back",     grade: "All Ages" as GradeTag, url: "https://www.staples.com/sbd/cre/marketing/teacherrewards/", desc: "Free program offering 5% back in rewards on purchases. Enroll online and start earning immediately.", tags: ["Supplies", "Tech"] },
-  { name: "ThriftBooks 4 Teachers",                   savings: "Buy 4 get 1", grade: "All Ages" as GradeTag, url: "https://www.thriftbooks.com/programs/educators/", desc: "Buy 4 books, get 1 free for homeschool educators. Verified used books at deep discounts — great for building your library.", tags: ["Books"] },
-  { name: "Half Price Books Educator Discount",       savings: "10% off",     grade: "All Ages" as GradeTag, url: "https://www.halfpricebooks.com/educator-discount/", desc: "10% off year-round with an educator discount card. Apply in-store with homeschool documentation.", tags: ["Books"] },
-];
-
-const VIRTUAL_FIELD_TRIPS = [
-  { name: "Smithsonian Museum of Natural History", grade: "All Ages" as GradeTag, url: "https://naturalhistory.si.edu/visit/virtual-tour",                                     desc: "Explore virtual tours of dinosaurs, ocean life, human origins, and gem collections — all from home." },
-  { name: "Google Arts & Culture",                 grade: "All Ages" as GradeTag, url: "https://artsandculture.google.com",                                                      desc: "Virtual museum tours from the Louvre, MoMA, the Vatican Museums, and hundreds more. Also includes street-level art walks." },
-  { name: "NASA Virtual Tours",                    grade: "6–8"      as GradeTag, url: "https://www.nasa.gov/learning-resources/virtual-tours",                                  desc: "Tour the Kennedy Space Center, Jet Propulsion Lab, and explore the International Space Station in 360°." },
-  { name: "San Diego Zoo Virtual Safari",          grade: "K–2"      as GradeTag, url: "https://zoo.sandiegozoo.org/virtual-field-trips",                                        desc: "Live animal cams, educational videos, and virtual field trips for giraffes, pandas, and more." },
-  { name: "Monterey Bay Aquarium Live Cams",       grade: "All Ages" as GradeTag, url: "https://www.montereybayaquarium.org/animals/live-cams",                                  desc: "Watch sharks, jellyfish, sea otters, and kelp forests live 24/7. Lesson plans available on their educator site." },
-  { name: "The Louvre Museum, Paris",              grade: "9–12"     as GradeTag, url: "https://www.louvre.fr/en/online-tours",                                                  desc: "Explore collections with guided virtual tours, artwork close-ups, and curatorial commentary. No French required!" },
-  { name: "Yellowstone National Park",             grade: "3–5"      as GradeTag, url: "https://www.nps.gov/yell/learn/photosmultimedia/virtualtours.htm",                       desc: "Ranger-led virtual programs, live webcams of geysers and wildlife, and downloadable field journals for kids." },
-  { name: "Cincinnati Zoo Home Safari",            grade: "K–2"      as GradeTag, url: "https://cincinnatizoo.org/home-safari",                                                  desc: "Daily live streams featuring animals and zookeepers. Archive of past safaris available for on-demand viewing." },
-  { name: "National Geographic Classroom",         grade: "6–8"      as GradeTag, url: "https://www.nationalgeographic.org/education/classroom-resources",                      desc: "Short documentary videos, photo essays, and interactives on geography, science, culture, and nature." },
-];
-
-const FREE_PRINTABLES = [
-  { name: "Khan Academy",                     grade: "3–5"      as GradeTag, url: "https://www.khanacademy.org",                                         desc: "Printable math worksheets that align with their video lessons, from kindergarten through high school.", subjects: ["Math"] },
-  { name: "Education.com",                    grade: "All Ages" as GradeTag, url: "https://www.education.com",                                            desc: "Thousands of worksheets, games, and lesson plans organized by grade and subject. Free tier is generous.", subjects: ["All subjects"] },
-  { name: "Math-Drills.com",                  grade: "3–5"      as GradeTag, url: "https://www.math-drills.com",                                          desc: "Thousands of free math worksheets covering arithmetic, algebra, geometry, and more. No account needed.", subjects: ["Math"] },
-  { name: "ReadWorks",                        grade: "3–5"      as GradeTag, url: "https://www.readworks.org",                                            desc: "Free reading comprehension passages and question sets for K–12. Scientifically-based literacy resources.", subjects: ["Reading", "ELA"] },
-  { name: "Teachers Pay Teachers (Free)",     grade: "All Ages" as GradeTag, url: "https://www.teacherspayteachers.com/Browse/Price-Range/Free",           desc: "Filter for free resources — thousands of units, lesson plans, and printables created by educators.", subjects: ["All subjects"] },
-  { name: "Worksheet Works",                  grade: "K–2"      as GradeTag, url: "https://www.worksheetworks.com",                                       desc: "Customizable math and language arts worksheets you can tailor to your child's level and preferences.", subjects: ["Math", "ELA"] },
-  { name: "Starfall",                         grade: "K–2"      as GradeTag, url: "https://www.starfall.com",                                             desc: "Free phonics and early reading activities, games, and printables for ages 3–8.", subjects: ["Reading", "Phonics"] },
-  { name: "CK-12",                            grade: "6–8"      as GradeTag, url: "https://www.ck12.org",                                                 desc: "Free, customizable digital textbooks, practice problems, and simulations for every grade and subject.", subjects: ["All subjects", "STEM"] },
-];
-
-const SCIENCE_PROJECTS = [
-  { title: "Baking Soda Volcano",           grade: "K–2" as GradeTag, url: "https://www.sciencebuddies.org/science-fair-projects/project-ideas/Chem_p10/chemistry/baking-soda-vinegar-volcano", difficulty: "Easy",   time: "30 min",    materials: "Baking soda, vinegar, dish soap, food coloring", desc: "A classic chemical reaction that demonstrates acid-base chemistry. Add dish soap to make a dramatic foam eruption." },
-  { title: "Crystal Growing",               grade: "3–5" as GradeTag, url: "https://www.sciencebuddies.org/science-fair-projects/project-ideas/Chem_p015/chemistry/crystal-growing",              difficulty: "Medium", time: "3–7 days",  materials: "Borax or table salt, string, hot water, jar",   desc: "Create beautiful crystals by supersaturating a water solution. Different salts create different crystal shapes." },
-  { title: "Water Filtration System",       grade: "6–8" as GradeTag, url: "https://www.sciencebuddies.org/science-fair-projects/project-ideas/EnvSci_p016",                                      difficulty: "Medium", time: "1 hour",    materials: "Plastic bottles, sand, gravel, cotton balls, muddy water", desc: "Build a multi-layer filter to clean muddy water. Teaches environmental science and engineering design." },
-  { title: "Egg Float / Sink Experiment",   grade: "K–2" as GradeTag, url: "https://www.sciencebuddies.org/science-fair-projects/project-ideas/OceanSci_p012",                                    difficulty: "Easy",   time: "20 min",    materials: "Eggs, water, salt, two containers",             desc: "Explore density by dissolving different amounts of salt in water. An egg floats in salty water but sinks in fresh." },
-  { title: "Chromatography Art",            grade: "3–5" as GradeTag, url: "https://www.sciencebuddies.org/science-fair-projects/project-ideas/Chem_p007",                                        difficulty: "Easy",   time: "30 min",    materials: "Coffee filters, washable markers, water, pencil", desc: "Separate ink colors using water absorption. Produces beautiful art while teaching about chemical separation." },
-  { title: "Homemade Electromagnet",        grade: "6–8" as GradeTag, url: "https://www.sciencebuddies.org/science-fair-projects/project-ideas/Elec_p014",                                        difficulty: "Medium", time: "45 min",    materials: "Iron nail, copper wire, 9V battery, paper clips", desc: "Wrap copper wire around an iron nail, connect to a battery, and pick up paper clips. Teaches electromagnetism." },
-  { title: "Bean in a Bag Germination",     grade: "K–2" as GradeTag, url: "https://www.sciencebuddies.org/science-fair-projects/project-ideas/PlantBio_p021",                                    difficulty: "Easy",   time: "5–10 days", materials: "Ziplock bag, bean seeds, damp paper towel, tape", desc: "Tape a damp paper towel with a bean seed inside a sunny window. Watch the root and shoot emerge over days." },
-  { title: "Homemade Slime",                grade: "K–2" as GradeTag, url: "https://www.sciencebuddies.org/science-fair-projects/project-ideas/Chem_p108",                                        difficulty: "Easy",   time: "20 min",    materials: "Elmer's glue, baking soda, contact lens solution", desc: "Create a substance that acts like both a liquid and a solid. Teaches chemistry and the properties of polymers." },
-];
+type DbResource = {
+  id: string;
+  category: string;
+  title: string;
+  description: string;
+  url: string;
+  grade_level: string;
+  badge_text: string;
+  metadata: Record<string, unknown>;
+};
 
 const STATE_REQS: Record<string, { level: RegLevel; summary: string }> = {
   "Alaska":        { level: "none",     summary: "No notice required. No testing or assessment required." },
@@ -188,6 +152,19 @@ export default function ResourcesPage() {
   const [selectedLevel,  setSelectedLevel]  = useState<RegLevel | "all">("all");
   const [savedMap,       setSavedMap]       = useState<Record<string, string>>({});
   const [loadingSaved,   setLoadingSaved]   = useState(true);
+  const [dbResources,    setDbResources]    = useState<DbResource[]>([]);
+
+  // Load DB resources
+  useEffect(() => {
+    supabase
+      .from("resources")
+      .select("id, category, title, description, url, grade_level, badge_text, metadata")
+      .eq("active", true)
+      .order("sort_order", { ascending: true })
+      .then(({ data }) => {
+        if (data) setDbResources(data as DbResource[]);
+      });
+  }, []);
 
   // Load saved resources
   useEffect(() => {
@@ -232,23 +209,27 @@ export default function ResourcesPage() {
   const freshDrops = getFreshDrops();
 
   // Grade filtering helpers
-  function matchesGrade(grade: GradeTag) {
+  function matchesGrade(grade: string) {
     return !gradeFilter || grade === gradeFilter;
   }
 
-  // Saved items collected across all resource types
-  const savedItems = [
-    ...TEACHER_DISCOUNTS.filter((d) => savedMap[d.name]).map((d) => ({ ...d, type: "Discount",   emoji: "💰" })),
-    ...VIRTUAL_FIELD_TRIPS.filter((t) => savedMap[t.name]).map((t) => ({ ...t, type: "Field Trip", emoji: "🌍", tags: [] as string[], savings: "" })),
-    ...FREE_PRINTABLES.filter((p) => savedMap[p.name]).map((p) => ({ ...p, type: "Printables",  emoji: "🖨️", savings: "", tags: p.subjects })),
-    ...SCIENCE_PROJECTS.filter((p) => savedMap[p.title]).map((p) => ({ ...p, name: p.title, type: "Science",    emoji: "🔬", savings: "", tags: [] as string[] })),
-    ...FRESH_DROPS_POOL.filter((f) => savedMap[f.name]).map((f) => ({ ...f, savings: "", tags: [] as string[] })),
-  ];
+  // DB-backed resource lists by category
+  const filteredDiscounts  = dbResources.filter((r) => r.category === "discounts"   && matchesGrade(r.grade_level));
+  const filteredTrips      = dbResources.filter((r) => r.category === "field_trips" && matchesGrade(r.grade_level));
+  const filteredPrintables = dbResources.filter((r) => r.category === "printables"  && matchesGrade(r.grade_level));
+  const filteredScience    = dbResources.filter((r) => r.category === "science"     && matchesGrade(r.grade_level));
 
-  const filteredDiscounts   = TEACHER_DISCOUNTS.filter((d) => matchesGrade(d.grade));
-  const filteredTrips       = VIRTUAL_FIELD_TRIPS.filter((t) => matchesGrade(t.grade));
-  const filteredPrintables  = FREE_PRINTABLES.filter((p) => matchesGrade(p.grade));
-  const filteredScience     = SCIENCE_PROJECTS.filter((p) => matchesGrade(p.grade));
+  // Saved items from DB resources + fresh drops pool
+  const savedItems = [
+    ...dbResources.filter((r) => savedMap[r.id]).map((r) => ({
+      id: r.id, name: r.title, desc: r.description, url: r.url,
+      type: r.category === "discounts" ? "Discount" : r.category === "field_trips" ? "Field Trip" : r.category === "printables" ? "Printables" : "Science",
+      emoji: r.category === "discounts" ? "💰" : r.category === "field_trips" ? "🌍" : r.category === "printables" ? "🖨️" : "🔬",
+    })),
+    ...FRESH_DROPS_POOL.filter((f) => savedMap[f.name]).map((f) => ({
+      id: f.name, name: f.name, desc: f.desc, url: f.url, type: f.type, emoji: f.emoji,
+    })),
+  ];
 
   const filteredStates = Object.entries(STATE_REQS).filter(([name, { level }]) => {
     const matchesName  = name.toLowerCase().includes(stateSearch.toLowerCase());
@@ -364,33 +345,38 @@ export default function ResourcesPage() {
           {filteredDiscounts.length === 0 && (
             <p className="text-sm text-[#b5aca4] text-center py-8">No resources match that grade filter.</p>
           )}
-          {filteredDiscounts.map((d) => (
-            <div key={d.name} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
-              <div className="flex items-start justify-between gap-3 mb-1.5">
-                <a href={d.url} target="_blank" rel="noopener noreferrer"
-                  className="font-semibold text-[#2d2926] text-sm hover:text-[#3d5c42] hover:underline transition-colors">
-                  {d.name} ↗
-                </a>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="text-xs font-bold text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">
-                    {d.savings}
+          {filteredDiscounts.map((d) => {
+            const tags = (d.metadata?.tags as string[] | undefined) ?? [];
+            return (
+              <div key={d.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <a href={d.url} target="_blank" rel="noopener noreferrer"
+                    className="font-semibold text-[#2d2926] text-sm hover:text-[#3d5c42] hover:underline transition-colors">
+                    {d.title} ↗
+                  </a>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {d.badge_text && (
+                      <span className="text-xs font-bold text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">
+                        {d.badge_text}
+                      </span>
+                    )}
+                    <BookmarkButton resourceId={d.id} savedMap={savedMap} onToggle={toggleSave} />
+                  </div>
+                </div>
+                <p className="text-xs text-[#7a6f65] leading-relaxed mb-2">{d.description}</p>
+                <div className="flex gap-1.5 flex-wrap items-center">
+                  <span className="text-[10px] font-medium text-[#8b6f47] bg-[#f5ede0] px-2 py-0.5 rounded-full">
+                    {d.grade_level}
                   </span>
-                  <BookmarkButton resourceId={d.name} savedMap={savedMap} onToggle={toggleSave} />
+                  {tags.map((t) => (
+                    <span key={t} className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">
+                      {t}
+                    </span>
+                  ))}
                 </div>
               </div>
-              <p className="text-xs text-[#7a6f65] leading-relaxed mb-2">{d.desc}</p>
-              <div className="flex gap-1.5 flex-wrap items-center">
-                <span className="text-[10px] font-medium text-[#8b6f47] bg-[#f5ede0] px-2 py-0.5 rounded-full">
-                  {d.grade}
-                </span>
-                {d.tags.map((t) => (
-                  <span key={t} className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -404,20 +390,20 @@ export default function ResourcesPage() {
             <p className="text-sm text-[#b5aca4] text-center py-8">No resources match that grade filter.</p>
           )}
           {filteredTrips.map((t) => (
-            <div key={t.name} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
+            <div key={t.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
               <div className="flex items-start justify-between gap-3 mb-1">
                 <a href={t.url} target="_blank" rel="noopener noreferrer"
                   className="font-semibold text-[#2d2926] text-sm hover:text-[#3d5c42] hover:underline transition-colors">
-                  {t.name} ↗
+                  {t.title} ↗
                 </a>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <span className="text-[10px] text-[#8b6f47] bg-[#f5ede0] px-2 py-0.5 rounded-full">
-                    {t.grade}
+                    {t.grade_level}
                   </span>
-                  <BookmarkButton resourceId={t.name} savedMap={savedMap} onToggle={toggleSave} />
+                  <BookmarkButton resourceId={t.id} savedMap={savedMap} onToggle={toggleSave} />
                 </div>
               </div>
-              <p className="text-xs text-[#7a6f65] leading-relaxed">{t.desc}</p>
+              <p className="text-xs text-[#7a6f65] leading-relaxed">{t.description}</p>
             </div>
           ))}
         </div>
@@ -432,28 +418,31 @@ export default function ResourcesPage() {
           {filteredPrintables.length === 0 && (
             <p className="text-sm text-[#b5aca4] text-center py-8">No resources match that grade filter.</p>
           )}
-          {filteredPrintables.map((p) => (
-            <div key={p.name} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
-              <div className="flex items-start justify-between gap-3 mb-1">
-                <a href={p.url} target="_blank" rel="noopener noreferrer"
-                  className="font-semibold text-[#2d2926] text-sm hover:text-[#3d5c42] hover:underline transition-colors">
-                  {p.name} ↗
-                </a>
-                <BookmarkButton resourceId={p.name} savedMap={savedMap} onToggle={toggleSave} />
-              </div>
-              <p className="text-xs text-[#7a6f65] leading-relaxed mb-2">{p.desc}</p>
-              <div className="flex gap-1.5 flex-wrap">
-                <span className="text-[10px] font-medium text-[#8b6f47] bg-[#f5ede0] px-2 py-0.5 rounded-full">
-                  {p.grade}
-                </span>
-                {p.subjects.map((s) => (
-                  <span key={s} className="text-[10px] bg-[#e8f0e9] text-[#5c7f63] px-2 py-0.5 rounded-full">
-                    {s}
+          {filteredPrintables.map((p) => {
+            const subjects = (p.metadata?.subjects as string[] | undefined) ?? [];
+            return (
+              <div key={p.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <a href={p.url} target="_blank" rel="noopener noreferrer"
+                    className="font-semibold text-[#2d2926] text-sm hover:text-[#3d5c42] hover:underline transition-colors">
+                    {p.title} ↗
+                  </a>
+                  <BookmarkButton resourceId={p.id} savedMap={savedMap} onToggle={toggleSave} />
+                </div>
+                <p className="text-xs text-[#7a6f65] leading-relaxed mb-2">{p.description}</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-medium text-[#8b6f47] bg-[#f5ede0] px-2 py-0.5 rounded-full">
+                    {p.grade_level}
                   </span>
-                ))}
+                  {subjects.map((s) => (
+                    <span key={s} className="text-[10px] bg-[#e8f0e9] text-[#5c7f63] px-2 py-0.5 rounded-full">
+                      {s}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -463,39 +452,50 @@ export default function ResourcesPage() {
           {filteredScience.length === 0 && (
             <p className="text-sm text-[#b5aca4] text-center py-8">No resources match that grade filter.</p>
           )}
-          {filteredScience.map((p) => (
-            <div key={p.title} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <a href={p.url} target="_blank" rel="noopener noreferrer"
-                  className="font-semibold text-[#2d2926] text-sm hover:text-[#3d5c42] hover:underline transition-colors">
-                  {p.title} ↗
-                </a>
-                <div className="flex gap-1.5 shrink-0 items-center">
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                    p.difficulty === "Easy"
-                      ? "bg-[#e8f0e9] text-[#3d5c42]"
-                      : "bg-[#f5ede0] text-[#8b6f47]"
-                  }`}>
-                    {p.difficulty}
+          {filteredScience.map((p) => {
+            const difficulty = p.badge_text;
+            const time = (p.metadata?.time as string | undefined) ?? "";
+            const materials = (p.metadata?.materials as string | undefined) ?? "";
+            return (
+              <div key={p.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <a href={p.url} target="_blank" rel="noopener noreferrer"
+                    className="font-semibold text-[#2d2926] text-sm hover:text-[#3d5c42] hover:underline transition-colors">
+                    {p.title} ↗
+                  </a>
+                  <div className="flex gap-1.5 shrink-0 items-center">
+                    {difficulty && (
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                        difficulty === "Easy"
+                          ? "bg-[#e8f0e9] text-[#3d5c42]"
+                          : "bg-[#f5ede0] text-[#8b6f47]"
+                      }`}>
+                        {difficulty}
+                      </span>
+                    )}
+                    {time && (
+                      <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">
+                        {time}
+                      </span>
+                    )}
+                    <BookmarkButton resourceId={p.id} savedMap={savedMap} onToggle={toggleSave} />
+                  </div>
+                </div>
+                <p className="text-xs text-[#7a6f65] leading-relaxed mb-2">{p.description}</p>
+                <div className="flex gap-1.5 flex-wrap items-center">
+                  <span className="text-[10px] font-medium text-[#8b6f47] bg-[#f5ede0] px-2 py-0.5 rounded-full">
+                    {p.grade_level}
                   </span>
-                  <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">
-                    {p.time}
-                  </span>
-                  <BookmarkButton resourceId={p.title} savedMap={savedMap} onToggle={toggleSave} />
+                  {materials && (
+                    <p className="text-[10px] text-[#b5aca4]">
+                      <span className="font-medium text-[#7a6f65]">Materials: </span>
+                      {materials}
+                    </p>
+                  )}
                 </div>
               </div>
-              <p className="text-xs text-[#7a6f65] leading-relaxed mb-2">{p.desc}</p>
-              <div className="flex gap-1.5 flex-wrap items-center">
-                <span className="text-[10px] font-medium text-[#8b6f47] bg-[#f5ede0] px-2 py-0.5 rounded-full">
-                  {p.grade}
-                </span>
-                <p className="text-[10px] text-[#b5aca4]">
-                  <span className="font-medium text-[#7a6f65]">Materials: </span>
-                  {p.materials}
-                </p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -591,10 +591,10 @@ export default function ResourcesPage() {
             </div>
           ) : (
             savedItems.map((item) => (
-              <div key={item.name} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
+              <div key={item.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
                 <div className="flex items-start justify-between gap-3 mb-1">
-                  {"url" in item && item.url ? (
-                    <a href={item.url as string} target="_blank" rel="noopener noreferrer"
+                  {item.url ? (
+                    <a href={item.url} target="_blank" rel="noopener noreferrer"
                       className="font-semibold text-[#2d2926] text-sm hover:text-[#3d5c42] hover:underline transition-colors">
                       {item.name} ↗
                     </a>
@@ -606,7 +606,7 @@ export default function ResourcesPage() {
                       {item.type}
                     </span>
                     <BookmarkButton
-                      resourceId={item.name}
+                      resourceId={item.id}
                       savedMap={savedMap}
                       onToggle={toggleSave}
                     />
