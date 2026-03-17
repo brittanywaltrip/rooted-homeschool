@@ -819,6 +819,23 @@ export default function TodayPage() {
 
       {/* ── Growth Tree Card ──────────────────────────────── */}
       <GrowthTreeCard leaves={treeLeaves} childName={treeLabel} />
+
+      {children.length > 0 && Object.values(leafCounts).reduce((a, b) => a + b, 0) === 0 && (
+        <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
+          <div className="flex items-start gap-4">
+            <span className="text-3xl">🌱</span>
+            <div className="flex-1">
+              <h3 className="font-bold text-[#2d2926] mb-1">Welcome to Rooted! Here&apos;s where to start:</h3>
+              <ol className="text-sm text-[#5c7f63] space-y-1.5 mt-2">
+                <li>1️⃣ <strong>Log today&apos;s lessons</strong> — tap &quot;+ Add Lesson&quot; below to get your first leaf 🍃</li>
+                <li>2️⃣ <strong>Set a Finish Line goal</strong> — track if you&apos;re on pace to finish your curriculum on time 🎯</li>
+                <li>3️⃣ <strong>Explore Resources</strong> — free field trips, discounts, and printables curated for homeschoolers 📚</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      )}
+
       <FinishLineSection />
 
       {/* ── Today's Lessons ───────────────────────────────── */}

@@ -890,6 +890,25 @@ export default function Home() {
         </p>
       </section>
 
+      {/* ── 8b. FOUNDER STORY ──────────────────────────────────────────── */}
+      <section className="px-6 sm:px-8 py-16 max-w-3xl mx-auto">
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-3xl p-8 sm:p-12 flex flex-col sm:flex-row gap-8 items-center">
+          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#e8f5ea] to-[#5c7f63] flex items-center justify-center text-4xl shrink-0 shadow-md">
+            🌿
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">From the founder</p>
+            <h2 className="text-xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
+              Built by a homeschool mom, for homeschool families.
+            </h2>
+            <p className="text-[#7a6f65] leading-relaxed text-sm mb-4">
+              Hi, I&apos;m Brittany — homeschool mom to Zoe and Emma, and the founder of Rooted. I built this because every app I tried felt like a chore. Tracking lessons shouldn&apos;t add to the overwhelm — it should celebrate the learning happening every single day. Rooted is what I actually wanted: something calm, beautiful, and built for real families like mine.
+            </p>
+            <p className="text-sm font-semibold text-[#5c7f63]">— Brittany, founder &amp; homeschool mom 🌱</p>
+          </div>
+        </div>
+      </section>
+
       {/* ── 9. WAITLIST CTA ────────────────────────────────────────────────── */}
       <section className="px-6 sm:px-8 pb-24">
         <div
@@ -978,6 +997,16 @@ export default function Home() {
               <Link href="/signup"  className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Sign Up</Link>
               <Link href="/privacy" className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Privacy</Link>
               <Link href="/terms"   className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Terms</Link>
+            </div>
+            <div className="flex items-center justify-center gap-4 mt-2">
+              <a href="https://instagram.com/rootedhomeschool" target="_blank" rel="noopener noreferrer"
+                className="text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors flex items-center gap-1">
+                📸 Instagram
+              </a>
+              <a href="https://facebook.com/rootedhomeschool" target="_blank" rel="noopener noreferrer"
+                className="text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors flex items-center gap-1">
+                👥 Facebook
+              </a>
             </div>
 
             {/* Copyright */}
