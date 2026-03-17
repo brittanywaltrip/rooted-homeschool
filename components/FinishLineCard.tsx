@@ -1,5 +1,7 @@
 'use client'
+import { useState } from 'react'
 import { Pencil } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 interface FinishLineCardProps {
   goal: {
@@ -14,9 +16,23 @@ interface FinishLineCardProps {
     created_at: string
   }
   onEdit: () => void
+  onUpdate: () => void
 }
 
-export default function FinishLineCard({ goal, onEdit }: FinishLineCardProps) {
+export default function FinishLineCard({ goal, onEdit, onUpdate }: FinishLineCardProps) {
+  const [bumping, setBumping] = useState(false)
+
+  async function bumpLesson() {
+    if (bumping || goal.current_lesson >= goal.total_lessons) return
+    setBumping(true)
+    await supabase
+      .from('curriculum_goals')
+      .update({ current_lesson: goal.current_lesson + 1, updated_at: new Date().toISOString() })
+      .eq('id', goal.id)
+    setBumping(false)
+    onUpdate()
+  }
+
   const today = new Date()
   const target = new Date(goal.target_date)
   const created = new Date(goal.created_at)
@@ -71,12 +87,28 @@ export default function FinishLineCard({ goal, onEdit }: FinishLineCardProps) {
         </button>
       </div>
       <div className="mt-3">
-        <div className="flex justify-between text-xs mb-1" style={{ color: '#7a6f65' }}>
+        <div className="flex justify-between items-center text-xs mb-1" style={{ color: '#7a6f65' }}>
           <span>Lesson {goal.current_lesson} of {goal.total_lessons}</span>
-          <span>Goal: {formatDate(target)}</span>
+          <div className="flex items-center gap-2">
+            <span>Goal: {formatDate(target)}</span>
+            {goal.current_lesson < goal.total_lessons && (
+              <button
+                onClick={bumpLesson}
+                disabled={bumping}
+                className="text-xs font-semibold px-2 py-0.5 rounded-full transition-colors disabled:opacity-50"
+                style={{ background: '#e8f0e9', color: '#5c7f63' }}
+                title="Mark one lesson complete"
+              >
+                {bumping ? '…' : '+1 ✓'}
+              </button>
+            )}
+          </div>
         </div>
         <div className="h-1.5 rounded-full" style={{ background: '#e8f0e9' }}>
-          <div className="h-1.5 rounded-full transition-all" style={{ width: `${progress}%`, background: accentColor }} />
+          <div
+            className="h-1.5 rounded-full transition-all"
+            style={{ width: `${progress}%`, background: accentColor }}
+          />
         </div>
       </div>
     </div>

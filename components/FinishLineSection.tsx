@@ -53,7 +53,7 @@ export default function FinishLineSection() {
         </div>
       ) : (
         <div className="space-y-3">
-          {goals.map((goal) => <FinishLineCard key={goal.id} goal={goal} onEdit={() => setEditingGoal(goal)} />)}
+          {goals.map((goal) => <FinishLineCard key={goal.id} goal={goal} onEdit={() => setEditingGoal(goal)} onUpdate={loadGoals} />)}
         </div>
       )}
       {showAddModal && <FinishLineModal children={children} onClose={() => setShowAddModal(false)} onSaved={loadGoals} />}

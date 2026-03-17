@@ -109,7 +109,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         .eq("id", session.user.id)
         .maybeSingle();
       setFamilyName(
-        profile?.display_name || session.user.user_metadata?.family_name || ""
+        profile?.display_name || session.user.user_metadata?.family_name || "Your Family"
       );
 
       // ── Partner detection ──────────────────────────────────────────────────
