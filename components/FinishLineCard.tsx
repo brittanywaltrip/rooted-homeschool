@@ -40,8 +40,8 @@ export default function FinishLineCard({ goal, onEdit, onUpdate }: FinishLineCar
   const daysRemaining = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
   const weeksRemaining = daysRemaining / 7
   const lessonsRemaining = goal.total_lessons - goal.current_lesson
-  const weeksElapsed = Math.max((today.getTime() - created.getTime()) / (1000 * 60 * 60 * 24 * 7), 0.5)
-  const currentPace = goal.current_lesson / weeksElapsed
+  const weeksElapsed = Math.max((today.getTime() - created.getTime()) / (1000 * 60 * 60 * 24 * 7), 1)
+  const currentPace = goal.current_lesson > 0 ? goal.current_lesson / weeksElapsed : 0
   const weeklyNeeded = weeksRemaining > 0 ? lessonsRemaining / weeksRemaining : 0
 
   const projectedFinish = currentPace > 0
@@ -59,6 +59,8 @@ export default function FinishLineCard({ goal, onEdit, onUpdate }: FinishLineCar
   let message = ''
   if (goal.current_lesson === 0) {
     message = `🌱 Start logging lessons to see if ${goal.child_name} is on track to finish ${goal.curriculum_name}.`
+  } else if (goal.current_lesson < 3) {
+    message = `🌱 Keep going! Log a few more lessons and ${goal.child_name}'s pace will be calculated automatically.`
   } else if (isOnTrack && projectedFinish) {
     message = `🌿 At your current pace, ${goal.child_name} will finish ${goal.curriculum_name} by ${formatDate(projectedFinish)} — right on time!`
   } else if (projectedFinish) {
