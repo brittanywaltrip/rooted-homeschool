@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#2d5c38"/>
+      <stop offset="35%"  stop-color="#3d7a4a"/>
+      <stop offset="70%"  stop-color="#5c7f63"/>
+      <stop offset="100%" stop-color="#4a9e6a"/>
+    </linearGradient>
+    <!-- Leaf shapes decorative -->
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Decorative leaf ellipses -->
+  <ellipse cx="1080" cy="100" rx="220" ry="150" fill="white" opacity="0.06" transform="rotate(-30 1080 100)"/>
+  <ellipse cx="120"  cy="530" rx="190" ry="130" fill="white" opacity="0.06" transform="rotate(20 120 530)"/>
+  <ellipse cx="600"  cy="-30" rx="180" ry="120" fill="white" opacity="0.05" transform="rotate(-10 600 -30)"/>
+  <ellipse cx="950"  cy="580" rx="160" ry="100" fill="white" opacity="0.05" transform="rotate(15 950 580)"/>
+
+  <!-- Dot grid texture -->
+  <pattern id="dots" x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse">
+    <circle cx="2" cy="2" r="1.5" fill="white" opacity="0.07"/>
+  </pattern>
+  <rect width="1200" height="630" fill="url(#dots)"/>
+
+  <!-- Leaf logo icon -->
+  <g transform="translate(560, 160)">
+    <!-- Leaf shape -->
+    <path d="M40 0 C70 0 95 20 100 50 C105 80 90 110 70 120 C50 130 20 125 8 108 C-4 91 0 60 10 40 C20 18 25 0 40 0 Z"
+          fill="white" opacity="0.95"/>
+    <!-- Leaf vein -->
+    <path d="M40 0 L40 120 M15 35 Q40 55 65 35 M10 65 Q40 85 70 65 M15 95 Q40 108 65 95"
+          stroke="#5c7f63" stroke-width="3" fill="none" opacity="0.7"/>
+  </g>
+
+  <!-- App name -->
+  <text x="600" y="330" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="28" font-weight="700" fill="white" opacity="0.75" text-anchor="middle" letter-spacing="6">
+    ROOTED HOMESCHOOL
+  </text>
+
+  <!-- Main headline -->
+  <text x="600" y="410" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="56" font-weight="800" fill="white" text-anchor="middle">
+    Homeschool Family Update
+  </text>
+
+  <!-- Tagline -->
+  <text x="600" y="468" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="26" font-weight="400" fill="white" opacity="0.75" text-anchor="middle">
+    Stay Rooted. Teach with Intention.
+  </text>
+
+  <!-- Bottom pill decoration -->
+  <rect x="460" y="510" width="280" height="46" rx="23" fill="white" opacity="0.15"/>
+  <text x="600" y="539" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="18" font-weight="600" fill="white" text-anchor="middle">
+    rootedhomeschoolapp.com
+  </text>
+</svg>

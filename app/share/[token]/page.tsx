@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
 
 type Update = {
   family_name: string | null
@@ -28,15 +29,62 @@ const PHOTOS = [
   { seed: 'art6',      alt: 'Creative project' },
 ]
 
-export default async function SharePage({ params }: { params: Promise<{ token: string }> }) {
-  const { token } = await params
+const BASE_URL = 'https://www.rootedhomeschoolapp.com'
 
-  const supabase = createClient(
+function supabaseAdmin() {
+  return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
+}
 
-  const { data, error } = await supabase
+export async function generateMetadata(
+  { params }: { params: Promise<{ token: string }> }
+): Promise<Metadata> {
+  const { token } = await params
+  const { data } = await supabaseAdmin()
+    .from('family_updates')
+    .select('family_name, date_from, date_to, narrative')
+    .eq('token', token)
+    .maybeSingle()
+
+  if (!data) return {}
+
+  const family = data.family_name
+    ? (data.family_name.toLowerCase().endsWith('family')
+        ? data.family_name
+        : `The ${data.family_name} Family`)
+    : 'A Rooted Family'
+
+  const title       = `${family}'s Homeschool Update`
+  const description = data.narrative?.slice(0, 150).trimEnd() + (data.narrative?.length > 150 ? '…' : '')
+  const ogImageUrl  = `${BASE_URL}/api/og?family=${encodeURIComponent(family)}&from=${data.date_from}&to=${data.date_to}`
+  const pageUrl     = `${BASE_URL}/share/${token}`
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      url: pageUrl,
+      siteName: 'Rooted Homeschool',
+      images: [{ url: ogImageUrl, width: 1200, height: 630, alt: title }],
+      type: 'article',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: [ogImageUrl],
+    },
+  }
+}
+
+export default async function SharePage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params
+
+  const { data, error } = await supabaseAdmin()
     .from('family_updates')
     .select('family_name, date_from, date_to, narrative, stats, created_at')
     .eq('token', token)
