@@ -325,13 +325,9 @@ export default function Home() {
       <section
         className="relative flex flex-col items-center justify-center text-center text-white px-6 py-28 min-h-[92vh]"
         style={{
-          backgroundImage: [
-            "linear-gradient(to bottom, rgba(0,0,0,0.52) 0%, rgba(10,28,14,0.40) 55%, rgba(15,35,18,0.52) 100%)",
-            "url('https://images.unsplash.com/photo-1448375240586-882707db888b?w=1920&q=80')",
-          ].join(", "),
+          backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.52) 0%, rgba(10,28,14,0.40) 55%, rgba(15,35,18,0.55) 100%), url('https://images.unsplash.com/photo-1448375240586-882707db888b?w=1920&q=80')`,
           backgroundSize: "cover",
-          backgroundPosition: "center center",
-          backgroundAttachment: "fixed",
+          backgroundPosition: "center",
         }}
       >
         {/* Vignette edges */}
