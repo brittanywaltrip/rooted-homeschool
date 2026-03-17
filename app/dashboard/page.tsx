@@ -825,11 +825,16 @@ export default function TodayPage() {
           <div className="flex items-start gap-4">
             <span className="text-3xl">🌱</span>
             <div className="flex-1">
-              <h3 className="font-bold text-[#2d2926] mb-1">Welcome to Rooted! Here&apos;s where to start:</h3>
-              <ol className="text-sm text-[#5c7f63] space-y-1.5 mt-2">
-                <li>1️⃣ <strong>Log today&apos;s lessons</strong> — tap &quot;+ Add Lesson&quot; below to get your first leaf 🍃</li>
-                <li>2️⃣ <strong>Set a Finish Line goal</strong> — track if you&apos;re on pace to finish your curriculum on time 🎯</li>
-                <li>3️⃣ <strong>Explore Resources</strong> — free field trips, discounts, and printables curated for homeschoolers 📚</li>
+              <h3 className="font-bold text-[#2d2926] mb-1">
+                Welcome to Rooted{familyName ? `, ${familyName}` : ''}! Here&apos;s where to start:
+              </h3>
+              <p className="text-sm text-[#5c7f63] mb-3 leading-relaxed">
+                Your garden is planted and ready to grow. Every lesson you log earns a leaf 🍃
+              </p>
+              <ol className="text-sm text-[#3d5c42] space-y-1.5">
+                <li className="flex items-start gap-2"><span>1️⃣</span><span><strong>Log today&apos;s lessons</strong> — tap &quot;+ Add Lesson&quot; below to get your first leaf</span></li>
+                <li className="flex items-start gap-2"><span>2️⃣</span><span><strong>Set a Finish Line goal</strong> — track if you&apos;re on pace to finish your curriculum on time 🎯</span></li>
+                <li className="flex items-start gap-2"><span>3️⃣</span><span><strong>Explore Resources</strong> — free field trips, discounts, and printables curated for homeschoolers 📚</span></li>
               </ol>
             </div>
           </div>
