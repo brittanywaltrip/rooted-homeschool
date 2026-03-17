@@ -72,9 +72,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router   = useRouter();
   const pathname = usePathname();
   const [checking,        setChecking]        = useState(true);
-  const [menuOpen,        setMenuOpen]        = useState(false);
-  const [familyName,      setFamilyName]      = useState("");
-  const [resourcesBadge,  setResourcesBadge]  = useState(false);
+  const [menuOpen,           setMenuOpen]           = useState(false);
+  const [familyName,         setFamilyName]         = useState("");
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
+  const [resourcesBadge,     setResourcesBadge]     = useState(false);
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
     isPartner: false,
     effectiveUserId: "",
@@ -102,15 +103,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setResourcesBadge(true);
       }
 
-      // Load family name
+      // Load family name + subscription status
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name")
+        .select("display_name, subscription_status")
         .eq("id", session.user.id)
         .maybeSingle();
       setFamilyName(
         profile?.display_name || session.user.user_metadata?.family_name || ""
       );
+      setSubscriptionStatus(profile?.subscription_status ?? null);
 
       // ── Partner detection ──────────────────────────────────────────────────
       // Check sessionStorage cache first (avoids extra DB call on nav)
@@ -247,6 +249,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           Child View
         </Link>
       </div>
+
+      {/* Upgrade to Pro */}
+      {subscriptionStatus !== 'active' && (
+        <div className="px-3 pb-2">
+          <Link
+            href="/upgrade"
+            onClick={() => setMenuOpen(false)}
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-[#5c7f63] to-[#3d8c5c] text-white hover:from-[#3d5c42] hover:to-[#2d6644] transition-colors shadow-sm"
+          >
+            <span className="text-base">✨</span>
+            Upgrade to Pro
+          </Link>
+        </div>
+      )}
 
       {/* Settings + Sign out */}
       <div className="p-3 border-t border-[#e8e2d9] space-y-0.5">
