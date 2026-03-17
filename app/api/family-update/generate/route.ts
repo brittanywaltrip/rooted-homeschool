@@ -25,6 +25,10 @@ export async function POST(req: NextRequest) {
 
   const prompt = `You are writing a warm, heartfelt family update for a homeschooling family. Write 2-3 short paragraphs (total ~120 words) that celebrate their learning journey in a personal, joyful tone — like a letter to grandparents. Do not use bullet points or headers.
 
+Important rules:
+- Do NOT start with any salutation, greeting, or opener like "Dear ones", "Hello", "Hi friends", "Greetings", or anything similar. Jump straight into the content.
+- The title of the narrative is always "What We've Been Up To" — do not include a title in your response, just the paragraphs.
+
 Family: ${familyName || 'Our Family'}
 Date range: ${fromLabel} – ${toLabel}
 Lessons completed: ${stats.lessons}
@@ -34,7 +38,7 @@ Projects logged: ${stats.projects}
 ${booksText}
 ${projectsText}
 
-Write the narrative now. Start with something warm and specific. End with a forward-looking sentence about what's coming next. Do not mention Rooted or any app.`
+Write the narrative now. Start with something warm and specific about what they did. End with a forward-looking sentence about what's coming next. Do not mention Rooted or any app.`
 
   const message = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',

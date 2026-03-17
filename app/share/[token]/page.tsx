@@ -307,6 +307,11 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
           </div>
 
           <div className="px-8 pt-7 pb-8 sm:px-10">
+            {/* Section title */}
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#8aaa8c] mb-4">
+              What We&apos;ve Been Up To
+            </p>
+
             {/* Opening quote */}
             <div
               aria-hidden
