@@ -124,20 +124,22 @@ function GardenTree({ stageIndex }: { stageIndex: number }) {
 function Sun() {
   return (
     <div className="absolute top-4 right-5 sun-glow" style={{ width: 56, height: 56 }}>
-      <svg viewBox="0 0 56 56" className="w-full h-full">
+      <svg viewBox="0 0 56 56" className="w-full h-full" overflow="visible">
+        {/* Soft radial glow behind sun */}
+        <circle cx="28" cy="28" r="26" fill="#f0c060" opacity="0.15" />
         <g className="sun-rays-spin" style={{ transformOrigin: "28px 28px" }}>
           {[0, 45, 90, 135].map((a) => (
-            <line key={a} x1="28" y1="6" x2="28" y2="1" stroke="#ffc93d" strokeWidth="2.5"
-              strokeLinecap="round" transform={`rotate(${a} 28 28)`} />
+            <line key={a} x1="28" y1="6" x2="28" y2="1" stroke="#d4a843" strokeWidth="2.5"
+              strokeLinecap="round" transform={`rotate(${a} 28 28)`} opacity="0.7" />
           ))}
           {[22.5, 67.5, 112.5, 157.5].map((a) => (
-            <line key={a} x1="28" y1="7.5" x2="28" y2="3" stroke="#ffd86b" strokeWidth="1.5"
-              strokeLinecap="round" transform={`rotate(${a} 28 28)`} />
+            <line key={a} x1="28" y1="7.5" x2="28" y2="3" stroke="#e8c060" strokeWidth="1.5"
+              strokeLinecap="round" transform={`rotate(${a} 28 28)`} opacity="0.5" />
           ))}
         </g>
-        <circle cx="28" cy="28" r="14" fill="#ffd854" />
-        <circle cx="28" cy="28" r="10" fill="#ffec8a" />
-        <circle cx="24" cy="24" r="2.5" fill="#fff5a0" opacity="0.6" />
+        <circle cx="28" cy="28" r="14" fill="#d4a843" opacity="0.6" />
+        <circle cx="28" cy="28" r="10" fill="#e8c060" opacity="0.7" />
+        <circle cx="24" cy="24" r="2.5" fill="#f0d080" opacity="0.35" />
       </svg>
     </div>
   );
@@ -153,11 +155,11 @@ function Cloud({ x, y, scale = 1, delay = 0, alt = false }: {
         transformOrigin: "left center", animationDelay: `${delay}s` }}
     >
       <svg viewBox="0 0 90 42" width="90" height="42">
-        <ellipse cx="45" cy="30" rx="43" ry="13" fill="white" opacity="0.88" />
-        <ellipse cx="26" cy="26" rx="20" ry="17" fill="white" opacity="0.88" />
-        <ellipse cx="60" cy="24" rx="18" ry="18" fill="white" opacity="0.88" />
-        <ellipse cx="45" cy="20" rx="28" ry="18" fill="white" opacity="0.9" />
-        <ellipse cx="45" cy="30" rx="43" ry="13" fill="rgba(200,230,255,0.2)" />
+        <ellipse cx="45" cy="30" rx="43" ry="13" fill="#e8e4d8" opacity="0.7" />
+        <ellipse cx="26" cy="26" rx="20" ry="17" fill="#e8e4d8" opacity="0.7" />
+        <ellipse cx="60" cy="24" rx="18" ry="18" fill="#e8e4d8" opacity="0.7" />
+        <ellipse cx="45" cy="20" rx="28" ry="18" fill="#e8e4d8" opacity="0.7" />
+        <ellipse cx="45" cy="30" rx="43" ry="13" fill="rgba(180,160,120,0.1)" />
       </svg>
     </div>
   );
@@ -173,7 +175,7 @@ function Flower({ x, color = "#ff9ec4" }: { x: number; color?: string }) {
           <ellipse key={a} cx="9" cy="9" rx="2" ry="4" fill={color} opacity="0.7"
             transform={`rotate(${a} 9 9)`} />
         ))}
-        <circle cx="9" cy="9" r="2" fill="#ffd854" />
+        <circle cx="9" cy="9" r="2" fill="#d4a843" />
       </svg>
     </div>
   );
@@ -301,7 +303,7 @@ export default function GardenPage() {
       <div
         className="relative w-full overflow-hidden rounded-3xl shadow-md"
         style={{
-          background: "linear-gradient(180deg, #5bafd4 0%, #82cde8 25%, #b2e4f0 50%, #c8ecb8 72%, #7ec46a 100%)",
+          background: "linear-gradient(180deg, #1a3a2a 0%, #2d5a3d 40%, #4a7c59 72%, #2d4a1e 100%)",
           aspectRatio: "16/9",
           minHeight: 200,
         }}
@@ -324,25 +326,25 @@ export default function GardenPage() {
           <svg viewBox="0 0 400 100" preserveAspectRatio="xMidYMax slice" className="w-full h-full">
             {/* Back hill */}
             <path d="M0 55 Q80 32 160 50 Q240 68 320 44 Q380 28 400 48 L400 100 L0 100 Z"
-              fill="#7bc469" opacity="0.55" />
+              fill="#2d4a1e" opacity="0.8" />
             {/* Mid ground */}
             <path d="M0 65 Q100 48 200 62 Q300 76 400 58 L400 100 L0 100 Z"
-              fill="#5c8a57" />
+              fill="#3d5c2a" />
             {/* Soil edge */}
             <path d="M0 65 Q100 48 200 62 Q300 76 400 58" fill="none"
-              stroke="#7fc469" strokeWidth="1.5" opacity="0.8" />
+              stroke="#3d5c2a" strokeWidth="1.5" opacity="0.8" />
             {/* Soil */}
             <path d="M0 75 Q100 68 200 73 Q300 78 400 70 L400 100 L0 100 Z"
-              fill="#4a7040" />
+              fill="#1a3014" />
           </svg>
         </div>
 
         {/* Decorative flowers */}
-        <Flower x={3}  color="#ff9ec4" />
-        <Flower x={6}  color="#ffd166" />
-        <Flower x={88} color="#a8d8ea" />
-        <Flower x={92} color="#ff9ec4" />
-        <Flower x={95} color="#ffd166" />
+        <Flower x={3}  color="#c4697a" />
+        <Flower x={6}  color="#e8d5b0" />
+        <Flower x={88} color="#c4697a" />
+        <Flower x={92} color="#e8d5b0" />
+        <Flower x={95} color="#c4697a" />
 
         {/* Trees */}
         {children.length === 0 ? (
