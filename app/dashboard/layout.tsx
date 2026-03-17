@@ -263,7 +263,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           onClick={handleSignOut}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#7a6f65] hover:bg-red-50 hover:text-red-600 w-full transition-colors"
         >
-          <LogOut size={16} strokeWidth={1.8} />
+          <div className="w-4 h-4 rounded-full bg-[#e8f0e9] flex items-center justify-center shrink-0 text-[9px] font-bold text-[#5c7f63]">
+            {(() => {
+              const words = displayName.replace(/\bfamily\b/gi, "").trim().split(/\s+/).filter(Boolean);
+              return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "🌿";
+            })()}
+          </div>
           Sign Out
         </button>
       </div>
