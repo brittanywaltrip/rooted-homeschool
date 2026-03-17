@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       payment_method_types: ['card'],
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: 'https://www.rootedhomeschoolapp.com/dashboard?upgraded=true',
+      success_url: 'https://www.rootedhomeschoolapp.com/dashboard/welcome',
       cancel_url: 'https://www.rootedhomeschoolapp.com/upgrade',
       customer_email: user.email,
       metadata: { userId: user.id },
