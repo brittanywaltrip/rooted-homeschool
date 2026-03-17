@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { usePartner } from "@/lib/partner-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -202,20 +203,19 @@ function getTreeX(index: number, total: number): number {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function GardenPage() {
+  const { effectiveUserId } = usePartner();
   const [children, setChildren]   = useState<Child[]>([]);
   const [leafCounts, setLeafCounts] = useState<Record<string, number>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading]     = useState(true);
 
   useEffect(() => {
+    if (!effectiveUserId) return;
     async function load() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const { data: kids } = await supabase
         .from("children")
         .select("id, name, color")
-        .eq("user_id", user.id)
+        .eq("user_id", effectiveUserId)
         .eq("archived", false)
         .order("sort_order");
 
@@ -223,18 +223,10 @@ export default function GardenPage() {
       setChildren(kids_);
       if (kids_.length > 0) setSelectedId(kids_[0].id);
 
-      const { data: completed } = await supabase
-        .from("lessons")
-        .select("child_id")
-        .eq("user_id", user.id)
-        .eq("completed", true);
-
-      // Also count book_read events as +1 leaf each
-      const { data: bookEvents } = await supabase
-        .from("app_events")
-        .select("payload")
-        .eq("user_id", user.id)
-        .eq("type", "book_read");
+      const [{ data: completed }, { data: bookEvents }] = await Promise.all([
+        supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
+        supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+      ]);
 
       const counts: Record<string, number> = {};
       completed?.forEach((l) => {
@@ -249,7 +241,7 @@ export default function GardenPage() {
       setLoading(false);
     }
     load();
-  }, []);
+  }, [effectiveUserId]);
 
   const selectedChild = children.find((c) => c.id === selectedId);
   const selectedLeaves = selectedId ? (leafCounts[selectedId] ?? 0) : 0;

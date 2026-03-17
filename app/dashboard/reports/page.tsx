@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { FileText, Printer, Calendar, Clock, BookOpen, CheckSquare } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { usePartner } from "@/lib/partner-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -179,6 +180,7 @@ function PrintReport({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
+  const { effectiveUserId } = usePartner();
   const [children,   setChildren]   = useState<Child[]>([]);
   const [subjects,   setSubjects]   = useState<Subject[]>([]);
   const [lessons,    setLessons]    = useState<Lesson[]>([]);
@@ -192,10 +194,8 @@ export default function ReportsPage() {
   const [showPreview,   setShowPreview]   = useState(false);
 
   useEffect(() => {
+    if (!effectiveUserId) return;
     async function load() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const [
         { data: kids },
         { data: subjs },
@@ -203,11 +203,11 @@ export default function ReportsPage() {
         { data: att },
         { data: bookEvts },
       ] = await Promise.all([
-        supabase.from("children").select("id, name").eq("user_id", user.id).eq("archived", false).order("sort_order"),
-        supabase.from("subjects").select("id, name, color").eq("user_id", user.id),
-        supabase.from("lessons").select("id, child_id, subject_id, title, date, scheduled_date, completed, hours").eq("user_id", user.id),
-        supabase.from("attendance").select("id, child_id, day, present").eq("user_id", user.id),
-        supabase.from("app_events").select("payload").eq("user_id", user.id).eq("type", "book_read"),
+        supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
+        supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId),
+        supabase.from("lessons").select("id, child_id, subject_id, title, date, scheduled_date, completed, hours").eq("user_id", effectiveUserId),
+        supabase.from("attendance").select("id, child_id, day, present").eq("user_id", effectiveUserId),
+        supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
       ]);
 
       setChildren(kids ?? []);
@@ -218,7 +218,7 @@ export default function ReportsPage() {
       setLoading(false);
     }
     load();
-  }, []);
+  }, [effectiveUserId]);
 
   const activeChild = selectedChild === "all" ? null : (children.find((c) => c.id === selectedChild) ?? null);
 

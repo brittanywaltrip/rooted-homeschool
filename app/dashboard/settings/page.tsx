@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Pencil, Trash2, Check, X, Plus, GripVertical } from "lucide-react";
+import { Pencil, Trash2, Check, X, Plus, GripVertical, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -87,6 +87,13 @@ export default function SettingsPage() {
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
   const [deletingId,   setDeletingId]   = useState<string | null>(null);
 
+  // Partner access
+  const [partnerEmail,      setPartnerEmail]      = useState("");
+  const [savedPartnerEmail, setSavedPartnerEmail] = useState("");
+  const [savingPartner,     setSavingPartner]     = useState(false);
+  const [partnerSaved,      setPartnerSaved]      = useState(false);
+  const [partnerError,      setPartnerError]      = useState("");
+
   // ── Load data ─────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
@@ -97,13 +104,16 @@ export default function SettingsPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("display_name")
+      .select("display_name, partner_email")
       .eq("id", user.id)
       .maybeSingle();
 
     setFamilyName(
       profile?.display_name ?? user.user_metadata?.family_name ?? ""
     );
+    const pe = (profile as { display_name?: string; partner_email?: string } | null)?.partner_email ?? "";
+    setPartnerEmail(pe);
+    setSavedPartnerEmail(pe);
 
     const { data: kids } = await supabase
       .from("children")
@@ -219,6 +229,35 @@ export default function SettingsPage() {
     }
     setDeletingId(null);
     setDeleteId(null);
+  }
+
+  // ── Partner access ────────────────────────────────────────────────────────
+
+  async function savePartnerEmail() {
+    setSavingPartner(true);
+    setPartnerError("");
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingPartner(false); return; }
+
+    const { error } = await supabase
+      .from("profiles")
+      .upsert(
+        { id: user.id, partner_email: partnerEmail.trim() || null },
+        { onConflict: "id" }
+      );
+
+    if (error) {
+      setPartnerError(
+        error.message.includes("partner_email")
+          ? "Column missing. Run this SQL in Supabase: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS partner_email text;"
+          : error.message
+      );
+    } else {
+      setSavedPartnerEmail(partnerEmail.trim());
+      setPartnerSaved(true);
+      setTimeout(() => setPartnerSaved(false), 2500);
+    }
+    setSavingPartner(false);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -480,6 +519,71 @@ export default function SettingsPage() {
               {addingChild ? "Adding…" : "Add Child"}
             </button>
           </form>
+        </div>
+      </section>
+
+      {/* ── Partner Access ──────────────────────────────────── */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-[#2d2926]">Partner Access</h2>
+          <span className="h-px flex-1 bg-[#e8e2d9]" />
+        </div>
+
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0">
+              <Users size={16} className="text-[#5c7f63]" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-[#2d2926] mb-0.5">Invite a Partner</p>
+              <p className="text-xs text-[#7a6f65] leading-relaxed">
+                Enter your co-parent&apos;s email address. When they sign up or log in with that
+                email, they&apos;ll see your family&apos;s dashboard in read-only mode.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
+              Partner email address
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={partnerEmail}
+                onChange={(e) => setPartnerEmail(e.target.value)}
+                placeholder="partner@email.com"
+                className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+              />
+              <button
+                onClick={savePartnerEmail}
+                disabled={savingPartner}
+                className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
+                  partnerSaved
+                    ? "bg-[#e8f0e9] text-[#3d5c42]"
+                    : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                }`}
+              >
+                {partnerSaved ? "✓ Saved" : savingPartner ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+
+          {partnerError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+              {partnerError}
+            </p>
+          )}
+
+          {savedPartnerEmail && !partnerError && (
+            <div className="bg-[#e8f0e9] rounded-xl px-3 py-2.5">
+              <p className="text-xs text-[#3d5c42] font-medium mb-0.5">Partner invite active</p>
+              <p className="text-xs text-[#5c7f63]">
+                <span className="font-medium">{savedPartnerEmail}</span> can log in at rootedhomeschoolapp.com
+                to view your family&apos;s dashboard in read-only mode.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 

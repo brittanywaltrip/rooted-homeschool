@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Camera, BookOpen, FolderOpen, Sparkles, Download, X, ImageIcon } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { usePartner } from "@/lib/partner-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,7 @@ const MEMORY_TYPES = [
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MemoriesPage() {
+  const { isPartner, effectiveUserId } = usePartner();
   const [memories,    setMemories]    = useState<Memory[]>([]);
   const [children,    setChildren]    = useState<Child[]>([]);
   const [activeType,  setActiveType]  = useState("all");
@@ -58,20 +60,19 @@ export default function MemoriesPage() {
   // ── Load data ───────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!effectiveUserId) return;
 
     const [{ data: kids }, { data: events }] = await Promise.all([
       supabase
         .from("children")
         .select("id, name, color")
-        .eq("user_id", user.id)
+        .eq("user_id", effectiveUserId)
         .eq("archived", false)
         .order("sort_order"),
       supabase
         .from("app_events")
         .select("id, type, payload, created_at")
-        .eq("user_id", user.id)
+        .eq("user_id", effectiveUserId)
         .in("type", ["memory_photo", "memory_project", "memory_book"])
         .order("created_at", { ascending: false }),
     ]);
@@ -79,7 +80,7 @@ export default function MemoriesPage() {
     setChildren(kids ?? []);
     setMemories((events as unknown as Memory[]) ?? []);
     setLoading(false);
-  }, []);
+  }, [effectiveUserId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -201,27 +202,29 @@ export default function MemoriesPage() {
       </div>
 
       {/* Add buttons */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { type: "photo"   as const, icon: Camera,     label: "Add Photo",   color: "#5c7f63" },
-          { type: "project" as const, icon: FolderOpen,  label: "Log Project", color: "#8b6f47" },
-          { type: "book"    as const, icon: BookOpen,   label: "Log Book",    color: "#4a7a8a" },
-        ].map(({ type, icon: Icon, label, color }) => (
-          <button
-            key={type}
-            onClick={() => openModal(type)}
-            className="flex flex-col items-center gap-2 bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#f8f5f0] rounded-2xl p-4 transition-colors"
-          >
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: color + "20" }}
+      {!isPartner && (
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { type: "photo"   as const, icon: Camera,     label: "Add Photo",   color: "#5c7f63" },
+            { type: "project" as const, icon: FolderOpen,  label: "Log Project", color: "#8b6f47" },
+            { type: "book"    as const, icon: BookOpen,   label: "Log Book",    color: "#4a7a8a" },
+          ].map(({ type, icon: Icon, label, color }) => (
+            <button
+              key={type}
+              onClick={() => openModal(type)}
+              className="flex flex-col items-center gap-2 bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#f8f5f0] rounded-2xl p-4 transition-colors"
             >
-              <Icon size={18} style={{ color }} strokeWidth={1.8} />
-            </div>
-            <span className="text-xs font-medium text-[#2d2926]">{label}</span>
-          </button>
-        ))}
-      </div>
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center"
+                style={{ backgroundColor: color + "20" }}
+              >
+                <Icon size={18} style={{ color }} strokeWidth={1.8} />
+              </div>
+              <span className="text-xs font-medium text-[#2d2926]">{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* AI Summary teaser */}
       <div className="bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">

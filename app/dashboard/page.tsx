@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { usePartner } from "@/lib/partner-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -308,6 +309,7 @@ function LessonRow({
 export default function TodayPage() {
   const today = new Date().toISOString().split("T")[0];
   const quote = QUOTES[new Date().getDay() % QUOTES.length];
+  const { isPartner, effectiveUserId } = usePartner();
 
   const [familyName, setFamilyName] = useState("");
   const [children, setChildren] = useState<Child[]>([]);
@@ -338,47 +340,37 @@ export default function TodayPage() {
   const [celebrating, setCelebrating] = useState(false);
 
   const loadData = useCallback(async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!effectiveUserId) return;
 
     // Profile / family name
     const { data: profile } = await supabase
       .from("profiles")
       .select("display_name")
-      .eq("id", user.id)
+      .eq("id", effectiveUserId)
       .maybeSingle();
-
-    setFamilyName(
-      profile?.display_name ||
-        user.user_metadata?.family_name ||
-        ""
-    );
+    setFamilyName(profile?.display_name || "");
 
     // Children
     const { data: childrenData } = await supabase
       .from("children")
       .select("id, name, color")
-      .eq("user_id", user.id)
+      .eq("user_id", effectiveUserId)
       .eq("archived", false)
       .order("sort_order");
-
     setChildren(childrenData ?? []);
 
     // Today's lessons
     const { data: lessonsData } = await supabase
       .from("lessons")
       .select("id, title, completed, child_id, hours, subjects(name, color)")
-      .eq("user_id", user.id)
+      .eq("user_id", effectiveUserId)
       .or(`date.eq.${today},scheduled_date.eq.${today}`);
-
     setLessons((lessonsData as unknown as Lesson[]) ?? []);
 
     // All completed lessons + book events (for leaf counts)
     const [{ data: completed }, { data: bookEvents }] = await Promise.all([
-      supabase.from("lessons").select("child_id").eq("user_id", user.id).eq("completed", true),
-      supabase.from("app_events").select("payload").eq("user_id", user.id).eq("type", "book_read"),
+      supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
+      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
     ]);
 
     const counts: Record<string, number> = {};
@@ -395,17 +387,16 @@ export default function TodayPage() {
     const { data: todayBooksData } = await supabase
       .from("app_events")
       .select("id, payload")
-      .eq("user_id", user.id)
+      .eq("user_id", effectiveUserId)
       .eq("type", "book_read")
       .filter("payload->>date", "eq", today);
-
     setTodayBooks((todayBooksData as unknown as BookLog[]) ?? []);
 
     // Subjects for autocomplete
     const { data: subjectsData } = await supabase
       .from("subjects")
       .select("id, name, color")
-      .eq("user_id", user.id)
+      .eq("user_id", effectiveUserId)
       .order("name");
     setSubjects((subjectsData as Subject[]) ?? []);
 
@@ -413,17 +404,16 @@ export default function TodayPage() {
     const { data: reflectionData } = await supabase
       .from("daily_reflections")
       .select("reflection")
-      .eq("user_id", user.id)
+      .eq("user_id", effectiveUserId)
       .eq("date", today)
       .maybeSingle();
-
     if (reflectionData) {
       setReflectionText(reflectionData.reflection ?? "");
       setReflectionExists(true);
     }
 
     setLoading(false);
-  }, [today]);
+  }, [today, effectiveUserId]);
 
   useEffect(() => {
     loadData();
@@ -674,12 +664,14 @@ export default function TodayPage() {
                 {completedToday}/{totalToday} done
               </span>
             )}
-            <button
-              onClick={openLessonModal}
-              className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
-            >
-              + Add Lesson
-            </button>
+            {!isPartner && (
+              <button
+                onClick={openLessonModal}
+                className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
+              >
+                + Add Lesson
+              </button>
+            )}
           </div>
         </div>
 
@@ -712,12 +704,14 @@ export default function TodayPage() {
           <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
             Books Read Today
           </h2>
-          <button
-            onClick={() => setShowBookModal(true)}
-            className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
-          >
-            + Log a Book
-          </button>
+          {!isPartner && (
+            <button
+              onClick={() => setShowBookModal(true)}
+              className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
+            >
+              + Log a Book
+            </button>
+          )}
         </div>
 
         {todayBooks.length > 0 ? (

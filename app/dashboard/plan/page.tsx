@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { usePartner } from "@/lib/partner-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -123,6 +124,7 @@ function DayColumn({
   isWeekend,
   onAdd,
   onToggle,
+  hideAdd = false,
 }: {
   day: Date;
   lessons: Lesson[];
@@ -132,6 +134,7 @@ function DayColumn({
   isWeekend: boolean;
   onAdd: (day: Date) => void;
   onToggle: (id: string, current: boolean) => void;
+  hideAdd?: boolean;
 }) {
   const dayName  = day.toLocaleDateString("en-US", { weekday: "short" });
   const dayNum   = day.getDate();
@@ -202,19 +205,21 @@ function DayColumn({
       </div>
 
       {/* Add button */}
-      <div className="px-1.5 pb-2">
-        <button
-          onClick={() => onAdd(day)}
-          className={`w-full flex items-center justify-center gap-1 py-1.5 rounded-xl text-[11px] font-semibold transition-colors ${
-            isToday
-              ? "text-[#5c7f63] hover:bg-[#d4ead4]"
-              : "text-[#c8bfb5] hover:text-[#5c7f63] hover:bg-[#f0ede8]"
-          }`}
-        >
-          <Plus size={11} strokeWidth={2.5} />
-          Add
-        </button>
-      </div>
+      {!hideAdd && (
+        <div className="px-1.5 pb-2">
+          <button
+            onClick={() => onAdd(day)}
+            className={`w-full flex items-center justify-center gap-1 py-1.5 rounded-xl text-[11px] font-semibold transition-colors ${
+              isToday
+                ? "text-[#5c7f63] hover:bg-[#d4ead4]"
+                : "text-[#c8bfb5] hover:text-[#5c7f63] hover:bg-[#f0ede8]"
+            }`}
+          >
+            <Plus size={11} strokeWidth={2.5} />
+            Add
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -222,6 +227,7 @@ function DayColumn({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PlanPage() {
+  const { isPartner, effectiveUserId } = usePartner();
   const todayMidnight = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
   const todayStr = toDateStr(todayMidnight);
 
@@ -251,9 +257,8 @@ export default function PlanPage() {
   // ── Load ──────────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
+    if (!effectiveUserId) return;
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
 
     const ws = new Date(weekStart);
     const we = new Date(weekStart);
@@ -269,20 +274,20 @@ export default function PlanPage() {
     ] = await Promise.all([
       supabase
         .from("children").select("id, name, color")
-        .eq("user_id", user.id).eq("archived", false).order("sort_order"),
+        .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase
         .from("subjects").select("id, name, color")
-        .eq("user_id", user.id).order("name"),
+        .eq("user_id", effectiveUserId).order("name"),
       supabase
         .from("lessons")
         .select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
-        .eq("user_id", user.id)
+        .eq("user_id", effectiveUserId)
         .gte("scheduled_date", weekStartStr)
         .lte("scheduled_date", weekEndStr),
       supabase
         .from("lessons")
         .select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
-        .eq("user_id", user.id)
+        .eq("user_id", effectiveUserId)
         .is("scheduled_date", null)
         .gte("date", weekStartStr)
         .lte("date", weekEndStr),
@@ -295,7 +300,7 @@ export default function PlanPage() {
       ...((byDateOnly  as unknown as Lesson[]) ?? []),
     ]);
     setLoading(false);
-  }, [weekStart]);
+  }, [weekStart, effectiveUserId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -483,8 +488,9 @@ export default function PlanPage() {
                   isToday={isToday}
                   isPast={isPast}
                   isWeekend={isWeekend}
-                  onAdd={openAddModal}
-                  onToggle={toggleLesson}
+                  onAdd={isPartner ? () => {} : openAddModal}
+                  onToggle={isPartner ? () => {} : toggleLesson}
+                  hideAdd={isPartner}
                 />
               );
             })}

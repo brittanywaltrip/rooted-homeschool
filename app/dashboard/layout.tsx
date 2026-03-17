@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 
 const navItems = [
   { label: "Today",     href: "/dashboard",            icon: Sun       },
@@ -43,29 +44,77 @@ function NavLink({
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
-  const [checking,  setChecking]  = useState(true);
-  const [menuOpen,  setMenuOpen]  = useState(false);
-  const [familyName, setFamilyName] = useState("");
+  const [checking,    setChecking]    = useState(true);
+  const [menuOpen,    setMenuOpen]    = useState(false);
+  const [familyName,  setFamilyName]  = useState("");
+  const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
+    isPartner: false,
+    effectiveUserId: "",
+    ownerName: "",
+  });
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) {
         router.replace("/login");
-      } else {
-        setChecking(false);
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("display_name")
-          .eq("id", session.user.id)
-          .maybeSingle();
-        setFamilyName(
-          profile?.display_name || session.user.user_metadata?.family_name || ""
-        );
+        return;
       }
+
+      // Load family name
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("display_name")
+        .eq("id", session.user.id)
+        .maybeSingle();
+      setFamilyName(
+        profile?.display_name || session.user.user_metadata?.family_name || ""
+      );
+
+      // ── Partner detection ──────────────────────────────────────────────────
+      // Check sessionStorage cache first (avoids extra DB call on nav)
+      const cached = sessionStorage.getItem("rooted_partner");
+      if (cached) {
+        const parsed: PartnerContextType = JSON.parse(cached);
+        setPartnerCtx(parsed);
+        setChecking(false);
+        return;
+      }
+
+      // Check if this user's email appears as partner_email in any profile.
+      // Requires: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS partner_email text;
+      const email = session.user.email;
+      if (email) {
+        const { data: ownerProfile, error: partnerErr } = await supabase
+          .from("profiles")
+          .select("id, display_name")
+          .eq("partner_email", email)
+          .maybeSingle();
+
+        if (!partnerErr && ownerProfile) {
+          const ctx: PartnerContextType = {
+            isPartner: true,
+            effectiveUserId: ownerProfile.id,
+            ownerName: ownerProfile.display_name || "",
+          };
+          sessionStorage.setItem("rooted_partner", JSON.stringify(ctx));
+          setPartnerCtx(ctx);
+          setChecking(false);
+          return;
+        }
+      }
+
+      // Normal user
+      setPartnerCtx({
+        isPartner: false,
+        effectiveUserId: session.user.id,
+        ownerName: "",
+      });
+      setChecking(false);
     });
   }, [router]);
 
   async function handleSignOut() {
+    sessionStorage.removeItem("rooted_partner");
     await supabase.auth.signOut();
     router.replace("/login");
   }
@@ -87,6 +136,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
+  const displayName = partnerCtx.isPartner
+    ? partnerCtx.ownerName
+    : familyName;
+
   const sidebarContent = (
     <>
       {/* Brand */}
@@ -107,10 +160,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
 
       {/* Family name */}
-      {familyName && (
+      {displayName && (
         <div className="px-5 py-3 border-b border-[#f0ede8]">
-          <p className="text-xs text-[#b5aca4]">Signed in as</p>
-          <p className="text-sm font-medium text-[#5c7f63] truncate">{familyName}</p>
+          <p className="text-xs text-[#b5aca4]">
+            {partnerCtx.isPartner ? "Viewing family" : "Signed in as"}
+          </p>
+          <p className="text-sm font-medium text-[#5c7f63] truncate">{displayName}</p>
         </div>
       )}
 
@@ -128,15 +183,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         ))}
       </nav>
 
+      {/* Child View button */}
+      <div className="px-3 pb-1">
+        <Link
+          href="/child"
+          onClick={() => setMenuOpen(false)}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-[#e8f5ea] to-[#f0f7e8] text-[#3d5c42] hover:from-[#d4ead4] hover:to-[#e4f0d4] transition-colors"
+        >
+          <span className="text-base">🌱</span>
+          Child View
+        </Link>
+      </div>
+
       {/* Settings + Sign out */}
       <div className="p-3 border-t border-[#e8e2d9] space-y-0.5">
-        <NavLink
-          label="Settings"
-          href="/dashboard/settings"
-          icon={Settings}
-          active={isActive("/dashboard/settings")}
-          onClick={() => setMenuOpen(false)}
-        />
+        {!partnerCtx.isPartner && (
+          <NavLink
+            label="Settings"
+            href="/dashboard/settings"
+            icon={Settings}
+            active={isActive("/dashboard/settings")}
+            onClick={() => setMenuOpen(false)}
+          />
+        )}
         <button
           onClick={handleSignOut}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#7a6f65] hover:bg-red-50 hover:text-red-600 w-full transition-colors"
@@ -149,47 +218,60 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 
   return (
-    <div className="min-h-screen bg-[#f8f7f4] flex">
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex flex-col w-52 bg-[#fefcf9] border-r border-[#e8e2d9] fixed top-0 left-0 h-full z-40">
-        {sidebarContent}
-      </aside>
+    <PartnerContext.Provider value={partnerCtx}>
+      <div className="min-h-screen bg-[#f8f7f4] flex">
+        {/* Desktop sidebar */}
+        <aside className="hidden md:flex flex-col w-52 bg-[#fefcf9] border-r border-[#e8e2d9] fixed top-0 left-0 h-full z-40">
+          {sidebarContent}
+        </aside>
 
-      {/* Mobile backdrop */}
-      {menuOpen && (
-        <div
-          className="fixed inset-0 bg-black/25 z-40 md:hidden backdrop-blur-sm"
-          onClick={() => setMenuOpen(false)}
-        />
-      )}
+        {/* Mobile backdrop */}
+        {menuOpen && (
+          <div
+            className="fixed inset-0 bg-black/25 z-40 md:hidden backdrop-blur-sm"
+            onClick={() => setMenuOpen(false)}
+          />
+        )}
 
-      {/* Mobile drawer */}
-      <aside
-        className={`fixed top-0 left-0 h-full w-52 bg-[#fefcf9] border-r border-[#e8e2d9] z-50 flex flex-col transition-transform duration-200 md:hidden ${
-          menuOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        {sidebarContent}
-      </aside>
+        {/* Mobile drawer */}
+        <aside
+          className={`fixed top-0 left-0 h-full w-52 bg-[#fefcf9] border-r border-[#e8e2d9] z-50 flex flex-col transition-transform duration-200 md:hidden ${
+            menuOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          {sidebarContent}
+        </aside>
 
-      {/* Main */}
-      <main className="flex-1 md:ml-52 flex flex-col min-h-screen">
-        {/* Mobile top bar */}
-        <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9] sticky top-0 z-30">
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="text-[#7a6f65] p-0.5"
-          >
-            {menuOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
-          <div className="flex items-center gap-2">
-            <span className="text-base">🌿</span>
-            <span className="text-sm font-bold text-[#2d2926]">Rooted</span>
+        {/* Main */}
+        <main className="flex-1 md:ml-52 flex flex-col min-h-screen">
+          {/* Mobile top bar */}
+          <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9] sticky top-0 z-30">
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="text-[#7a6f65] p-0.5"
+            >
+              {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-base">🌿</span>
+              <span className="text-sm font-bold text-[#2d2926]">Rooted</span>
+            </div>
           </div>
-        </div>
 
-        <div className="flex-1">{children}</div>
-      </main>
-    </div>
+          {/* Partner banner */}
+          {partnerCtx.isPartner && (
+            <div className="bg-[#e8f5ea] border-b border-[#b8d9bc] px-4 py-2.5 flex items-center gap-2">
+              <span className="text-sm">👀</span>
+              <p className="text-xs font-medium text-[#3d5c42]">
+                Viewing{partnerCtx.ownerName ? ` ${partnerCtx.ownerName}'s` : ""} family dashboard as a partner
+                <span className="ml-2 text-[#5c7f63] opacity-80">· read-only</span>
+              </p>
+            </div>
+          )}
+
+          <div className="flex-1">{children}</div>
+        </main>
+      </div>
+    </PartnerContext.Provider>
   );
 }
