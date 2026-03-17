@@ -14,7 +14,10 @@ const PRICE_IDS: Record<string, string> = {
 export async function POST(req: NextRequest) {
   // Verify user via Bearer token
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
-  if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!token) {
+    console.error('[checkout] No authorization header')
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,21 +25,36 @@ export async function POST(req: NextRequest) {
   )
 
   const { data: { user }, error } = await supabase.auth.getUser(token)
-  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (error || !user) {
+    console.error('[checkout] Auth error:', error?.message)
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
-  const { plan } = await req.json()
+  const body = await req.json()
+  const { plan } = body
+  console.log('[checkout] plan:', plan, '| userId:', user.id)
+
   const priceId = PRICE_IDS[plan]
-  if (!priceId) return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
+  if (!priceId) {
+    console.error('[checkout] Invalid plan or missing price ID for:', plan)
+    return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
+  }
+  console.log('[checkout] priceId:', priceId)
 
-  const session = await stripe.checkout.sessions.create({
-    payment_method_types: ['card'],
-    mode: 'subscription',
-    line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?upgraded=true`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/upgrade`,
-    customer_email: user.email,
-    metadata: { userId: user.id },
-  })
-
-  return NextResponse.json({ url: session.url })
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?upgraded=true`,
+      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/upgrade`,
+      customer_email: user.email,
+      metadata: { userId: user.id },
+    })
+    console.log('[checkout] session created:', session.id)
+    return NextResponse.json({ url: session.url })
+  } catch (err) {
+    console.error('[checkout] Stripe error:', err)
+    return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 })
+  }
 }
