@@ -326,7 +326,7 @@ export default function Home() {
       </header>
 
       {/* ── 2. HERO ────────────────────────────────────────────────────────── */}
-      <section className="relative flex flex-col items-center justify-center text-center px-6 py-28 min-h-[92vh] overflow-hidden" style={{ background: "linear-gradient(175deg, #0d2818 0%, #1a4a28 20%, #2d6a3a 45%, #3a7a45 65%, #2d5c35 85%, #1a3a22 100%)" }}>
+      <section className="relative flex flex-col items-center justify-center text-center px-6 py-28 min-h-[92vh] overflow-hidden" style={{ background: "linear-gradient(175deg, #0d2818 0%, #1a4a28 20%, #3d7a4a 45%, #4a8a55 65%, #2d5c35 85%, #1a3a22 100%)" }}>
 
         {/* Animated forest background elements */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
@@ -344,7 +344,7 @@ export default function Home() {
           ))}
 
           {/* Left large pine tree */}
-          <svg className="absolute bottom-0 left-[-2%] h-[90%] w-auto opacity-25" viewBox="0 0 160 500" fill="none">
+          <svg className="absolute bottom-0 left-[-2%] h-[90%] w-auto opacity-40" viewBox="0 0 160 500" fill="none">
             <rect x="72" y="400" width="16" height="100" fill="#3d2010"/>
             <polygon points="80,20 20,180 140,180" fill="#1a4a20"/>
             <polygon points="80,80 15,240 145,240" fill="#1e5a25"/>
@@ -354,17 +354,17 @@ export default function Home() {
           </svg>
 
           {/* Right large pine tree */}
-          <svg className="absolute bottom-0 right-[-2%] h-[80%] w-auto opacity-20" viewBox="0 0 140 500" fill="none">
+          <svg className="absolute bottom-0 right-[-2%] h-[80%] w-auto opacity-35" viewBox="0 0 140 500" fill="none">
             <rect x="62" y="400" width="16" height="100" fill="#3d2010"/>
-            <polygon points="70,30 18,170 122,170" fill="#162040"/>
-            <polygon points="70,90 12,230 128,230" fill="#1a2a48"/>
-            <polygon points="70,160 8,285 132,285" fill="#1e3450"/>
-            <polygon points="70,230 4,340 136,340" fill="#243858"/>
-            <polygon points="70,305 0,400 140,400" fill="#2a4060"/>
+            <polygon points="70,30 18,170 122,170" fill="#0d2818"/>
+            <polygon points="70,90 12,230 128,230" fill="#162a1e"/>
+            <polygon points="70,160 8,285 132,285" fill="#1e3828"/>
+            <polygon points="70,230 4,340 136,340" fill="#243e2e"/>
+            <polygon points="70,305 0,400 140,400" fill="#2a4835"/>
           </svg>
 
           {/* Left mid pine */}
-          <svg className="absolute bottom-0 left-[12%] h-[60%] w-auto opacity-[0.18]" viewBox="0 0 100 400" fill="none">
+          <svg className="absolute bottom-0 left-[12%] h-[60%] w-auto opacity-30" viewBox="0 0 100 400" fill="none">
             <rect x="45" y="320" width="10" height="80" fill="#3d2010"/>
             <polygon points="50,30 10,150 90,150" fill="#1a4a20"/>
             <polygon points="50,90 5,200 95,200" fill="#1e5225"/>
@@ -373,7 +373,7 @@ export default function Home() {
           </svg>
 
           {/* Right mid pine */}
-          <svg className="absolute bottom-0 right-[14%] h-[55%] w-auto opacity-[0.15]" viewBox="0 0 100 400" fill="none">
+          <svg className="absolute bottom-0 right-[14%] h-[55%] w-auto opacity-25" viewBox="0 0 100 400" fill="none">
             <rect x="45" y="320" width="10" height="80" fill="#3d2010"/>
             <polygon points="50,40 12,155 88,155" fill="#122038"/>
             <polygon points="50,100 8,210 92,210" fill="#162840"/>
@@ -382,10 +382,13 @@ export default function Home() {
           </svg>
 
           {/* Moonlight glow */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] opacity-15 rounded-full" style={{ background: "radial-gradient(ellipse at center, rgba(200,220,160,0.6) 0%, transparent 70%)" }}/>
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] opacity-25 rounded-full" style={{ background: "radial-gradient(ellipse at center, rgba(180,220,160,0.5) 0%, transparent 70%)" }}/>
 
           {/* Ground fog/mist */}
           <div className="absolute bottom-0 left-0 right-0 h-32" style={{ background: "linear-gradient(to top, rgba(45,100,50,0.4) 0%, transparent 100%)" }}/>
+
+          {/* Forest floor */}
+          <div className="absolute bottom-0 left-0 right-0 h-16" style={{ background: "linear-gradient(to top, #0d2010 0%, transparent 100%)" }}/>
         </div>
 
         {/* Vignette */}
