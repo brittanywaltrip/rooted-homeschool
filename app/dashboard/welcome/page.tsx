@@ -111,7 +111,7 @@ export default function WelcomePage() {
 
         {/* Welcome heading */}
         <div className="mb-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5c7f63] mb-2">Welcome to the family</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5c7f63] mb-2">So glad you&apos;re here</p>
           <h1 className="text-4xl font-bold text-[#2d2926] leading-tight mb-1">
             {displayName}
           </h1>
