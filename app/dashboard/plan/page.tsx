@@ -47,16 +47,23 @@ function LessonCard({
   lesson,
   childObj,
   onToggle,
+  onEdit,
+  onDelete,
+  isPartner,
 }: {
-  lesson: Lesson;
+  lesson:   Lesson;
   childObj: Child | undefined;
   onToggle: (id: string, current: boolean) => void;
+  onEdit:   (lesson: Lesson) => void;
+  onDelete: (id: string) => void;
+  isPartner: boolean;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const subColor = lesson.subjects?.color ?? "#7a9e7e";
 
   return (
     <div
-      className={`rounded-xl p-2 border-l-[3px] transition-all ${
+      className={`rounded-xl p-2 border-l-[3px] transition-all relative ${
         lesson.completed ? "opacity-55" : "shadow-sm"
       }`}
       style={{
@@ -108,6 +115,38 @@ function LessonCard({
             )}
           </div>
         </div>
+
+        {/* Three-dot menu */}
+        {!isPartner && (
+          <div className="relative shrink-0">
+            <button
+              onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+              className="w-5 h-5 rounded flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-xs leading-none"
+              aria-label="Lesson options"
+            >
+              ···
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
+                <div className="absolute right-0 top-6 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[100px]">
+                  <button
+                    onClick={() => { onEdit(lesson); setMenuOpen(false); }}
+                    className="w-full text-left px-3 py-2 text-xs text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
+                  >
+                    ✏️ Edit
+                  </button>
+                  <button
+                    onClick={() => { onDelete(lesson.id); setMenuOpen(false); }}
+                    className="w-full text-left px-3 py-2 text-xs text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    🗑 Delete
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -116,31 +155,27 @@ function LessonCard({
 // ─── Day Column ───────────────────────────────────────────────────────────────
 
 function DayColumn({
-  day,
-  lessons,
-  children,
-  isToday,
-  isPast,
-  isWeekend,
-  onAdd,
-  onToggle,
-  hideAdd = false,
+  day, lessons, children, isToday, isPast, isWeekend,
+  onAdd, onToggle, onEdit, onDelete, hideAdd, isPartner,
 }: {
-  day: Date;
-  lessons: Lesson[];
-  children: Child[];
-  isToday: boolean;
-  isPast: boolean;
+  day:       Date;
+  lessons:   Lesson[];
+  children:  Child[];
+  isToday:   boolean;
+  isPast:    boolean;
   isWeekend: boolean;
-  onAdd: (day: Date) => void;
-  onToggle: (id: string, current: boolean) => void;
-  hideAdd?: boolean;
+  onAdd:     (day: Date) => void;
+  onToggle:  (id: string, current: boolean) => void;
+  onEdit:    (lesson: Lesson) => void;
+  onDelete:  (id: string) => void;
+  hideAdd?:  boolean;
+  isPartner: boolean;
 }) {
-  const dayName  = day.toLocaleDateString("en-US", { weekday: "short" });
-  const dayNum   = day.getDate();
-  const done     = lessons.filter((l) => l.completed).length;
-  const total    = lessons.length;
-  const allDone  = total > 0 && done === total;
+  const dayName = day.toLocaleDateString("en-US", { weekday: "short" });
+  const dayNum  = day.getDate();
+  const done    = lessons.filter((l) => l.completed).length;
+  const total   = lessons.length;
+  const allDone = total > 0 && done === total;
 
   return (
     <div
@@ -157,11 +192,9 @@ function DayColumn({
       }}
     >
       {/* Day header */}
-      <div
-        className={`px-2 pt-3 pb-2.5 flex flex-col items-center border-b ${
-          isToday ? "border-[#b8d9bc] bg-[#e8f5ea]" : "border-[#f0ede8]"
-        }`}
-      >
+      <div className={`px-2 pt-3 pb-2.5 flex flex-col items-center border-b ${
+        isToday ? "border-[#b8d9bc] bg-[#e8f5ea]" : "border-[#f0ede8]"
+      }`}>
         <span className={`text-[10px] font-bold uppercase tracking-widest ${
           isToday   ? "text-[#3d5c42]" :
           isPast    ? "text-[#c8bfb5]" :
@@ -170,7 +203,6 @@ function DayColumn({
         }`}>
           {dayName}
         </span>
-
         <span className={`text-2xl font-bold leading-tight mt-0.5 ${
           isToday ? "text-[#3d5c42]" :
           isPast  ? "text-[#c8bfb5]" :
@@ -178,11 +210,7 @@ function DayColumn({
         }`}>
           {dayNum}
         </span>
-
-        {isToday && (
-          <span className="w-1.5 h-1.5 rounded-full bg-[#5c7f63] mt-1" />
-        )}
-
+        {isToday && <span className="w-1.5 h-1.5 rounded-full bg-[#5c7f63] mt-1" />}
         {total > 0 && (
           <span className={`text-[9px] mt-1 font-semibold ${
             allDone ? "text-[#5c7f63]" : "text-[#b5aca4]"
@@ -200,6 +228,9 @@ function DayColumn({
             lesson={l}
             childObj={children.find((c) => c.id === l.child_id)}
             onToggle={onToggle}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            isPartner={isPartner}
           />
         ))}
       </div>
@@ -231,13 +262,13 @@ export default function PlanPage() {
   const todayMidnight = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
   const todayStr = toDateStr(todayMidnight);
 
-  const [weekStart,   setWeekStart]   = useState(() => getMondayOf(new Date()));
-  const [lessons,     setLessons]     = useState<Lesson[]>([]);
-  const [children,    setChildren]    = useState<Child[]>([]);
-  const [subjects,    setSubjects]    = useState<Subject[]>([]);
-  const [loading,     setLoading]     = useState(true);
+  const [weekStart, setWeekStart] = useState(() => getMondayOf(new Date()));
+  const [lessons,   setLessons]   = useState<Lesson[]>([]);
+  const [children,  setChildren]  = useState<Child[]>([]);
+  const [subjects,  setSubjects]  = useState<Subject[]>([]);
+  const [loading,   setLoading]   = useState(true);
 
-  // Modal state
+  // Add modal
   const [showModal,   setShowModal]   = useState(false);
   const [modalDate,   setModalDate]   = useState(new Date());
   const [formChild,   setFormChild]   = useState("");
@@ -245,6 +276,14 @@ export default function PlanPage() {
   const [formTitle,   setFormTitle]   = useState("");
   const [formHours,   setFormHours]   = useState("");
   const [saving,      setSaving]      = useState(false);
+
+  // Edit modal
+  const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
+  const [editTitle,     setEditTitle]     = useState("");
+  const [editSubject,   setEditSubject]   = useState("");
+  const [editHours,     setEditHours]     = useState("");
+  const [editChildId,   setEditChildId]   = useState("");
+  const [savingEdit,    setSavingEdit]    = useState(false);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
@@ -272,25 +311,19 @@ export default function PlanPage() {
       { data: byScheduled },
       { data: byDateOnly },
     ] = await Promise.all([
-      supabase
-        .from("children").select("id, name, color")
+      supabase.from("children").select("id, name, color")
         .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-      supabase
-        .from("subjects").select("id, name, color")
+      supabase.from("subjects").select("id, name, color")
         .eq("user_id", effectiveUserId).order("name"),
-      supabase
-        .from("lessons")
+      supabase.from("lessons")
         .select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId)
-        .gte("scheduled_date", weekStartStr)
-        .lte("scheduled_date", weekEndStr),
-      supabase
-        .from("lessons")
+        .gte("scheduled_date", weekStartStr).lte("scheduled_date", weekEndStr),
+      supabase.from("lessons")
         .select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId)
         .is("scheduled_date", null)
-        .gte("date", weekStartStr)
-        .lte("date", weekEndStr),
+        .gte("date", weekStartStr).lte("date", weekEndStr),
     ]);
 
     setChildren(kids ?? []);
@@ -304,39 +337,27 @@ export default function PlanPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── Navigation ────────────────────────────────────────────────────────────
+  // ── Week navigation ───────────────────────────────────────────────────────
 
-  function prevWeek() {
-    setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; });
-  }
-  function nextWeek() {
-    setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; });
-  }
-  function goToToday() {
-    setWeekStart(getMondayOf(new Date()));
-  }
+  function prevWeek() { setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; }); }
+  function nextWeek() { setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; }); }
+  function goToToday() { setWeekStart(getMondayOf(new Date())); }
 
-  // ── Toggle complete ───────────────────────────────────────────────────────
+  // ── Toggle ────────────────────────────────────────────────────────────────
 
   async function toggleLesson(id: string, current: boolean) {
-    setLessons((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, completed: !current } : l))
-    );
+    setLessons((prev) => prev.map((l) => (l.id === id ? { ...l, completed: !current } : l)));
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
   }
 
-  // ── Open modal ────────────────────────────────────────────────────────────
+  // ── Add lesson ────────────────────────────────────────────────────────────
 
   function openAddModal(day: Date) {
     setModalDate(day);
     setFormChild(children.length === 1 ? children[0].id : "");
-    setFormSubject("");
-    setFormTitle("");
-    setFormHours("");
+    setFormSubject(""); setFormTitle(""); setFormHours("");
     setShowModal(true);
   }
-
-  // ── Save lesson ───────────────────────────────────────────────────────────
 
   async function saveLesson() {
     if (!formTitle.trim()) return;
@@ -345,59 +366,97 @@ export default function PlanPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSaving(false); return; }
 
-    // Find or create subject
     let subjectId: string | null = null;
     if (formSubject.trim()) {
-      const existing = subjects.find(
-        (s) => s.name.toLowerCase() === formSubject.trim().toLowerCase()
-      );
+      const existing = subjects.find((s) => s.name.toLowerCase() === formSubject.trim().toLowerCase());
       if (existing) {
         subjectId = existing.id;
       } else {
-        const { data: newSub } = await supabase
-          .from("subjects")
-          .insert({ user_id: user.id, name: formSubject.trim() })
-          .select("id, name, color")
-          .single();
-        if (newSub) {
-          setSubjects((prev) => [...prev, newSub as Subject]);
-          subjectId = newSub.id;
-        }
+        const { data: newSub } = await supabase.from("subjects")
+          .insert({ user_id: user.id, name: formSubject.trim() }).select("id, name, color").single();
+        if (newSub) { setSubjects((prev) => [...prev, newSub as Subject]); subjectId = newSub.id; }
       }
     }
 
     const dateStr = toDateStr(modalDate);
-
-    const { data: newLesson } = await supabase
-      .from("lessons")
+    const { data: newLesson } = await supabase.from("lessons")
       .insert({
-        user_id:        user.id,
-        child_id:       formChild || null,
-        subject_id:     subjectId,
-        title:          formTitle.trim(),
-        hours:          formHours ? parseFloat(formHours) : null,
-        completed:      false,
-        date:           dateStr,
-        scheduled_date: dateStr,
+        user_id: user.id, child_id: formChild || null, subject_id: subjectId,
+        title: formTitle.trim(), hours: formHours ? parseFloat(formHours) : null,
+        completed: false, date: dateStr, scheduled_date: dateStr,
       })
       .select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
       .single();
 
-    if (newLesson) {
-      setLessons((prev) => [...prev, newLesson as unknown as Lesson]);
-    }
+    if (newLesson) setLessons((prev) => [...prev, newLesson as unknown as Lesson]);
 
     setSaving(false);
     setShowModal(false);
+  }
+
+  // ── Edit lesson ───────────────────────────────────────────────────────────
+
+  function openEdit(lesson: Lesson) {
+    setEditingLesson(lesson);
+    setEditTitle(lesson.title);
+    setEditSubject(lesson.subjects?.name ?? "");
+    setEditHours(lesson.hours != null ? String(lesson.hours) : "");
+    setEditChildId(lesson.child_id ?? "");
+  }
+
+  async function saveEdit() {
+    if (!editingLesson || !editTitle.trim()) return;
+    setSavingEdit(true);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingEdit(false); return; }
+
+    let subjectId: string | null = null;
+    if (editSubject.trim()) {
+      const existing = subjects.find((s) => s.name.toLowerCase() === editSubject.trim().toLowerCase());
+      if (existing) {
+        subjectId = existing.id;
+      } else {
+        const { data: newSub } = await supabase.from("subjects")
+          .insert({ user_id: user.id, name: editSubject.trim() }).select("id, name, color").single();
+        if (newSub) { setSubjects((prev) => [...prev, newSub as Subject]); subjectId = newSub.id; }
+      }
+    }
+
+    await supabase.from("lessons").update({
+      title: editTitle.trim(), subject_id: subjectId,
+      hours: editHours ? parseFloat(editHours) : null,
+      child_id: editChildId || null,
+    }).eq("id", editingLesson.id);
+
+    setLessons((prev) => prev.map((l) => {
+      if (l.id !== editingLesson.id) return l;
+      const subName = editSubject.trim();
+      return {
+        ...l,
+        title:    editTitle.trim(),
+        subjects: subName ? { name: subName, color: l.subjects?.color ?? null } : null,
+        hours:    editHours ? parseFloat(editHours) : null,
+        child_id: editChildId || l.child_id,
+      };
+    }));
+
+    setSavingEdit(false);
+    setEditingLesson(null);
+  }
+
+  // ── Delete lesson ─────────────────────────────────────────────────────────
+
+  async function deleteLesson(id: string) {
+    setLessons((prev) => prev.filter((l) => l.id !== id));
+    await supabase.from("lessons").delete().eq("id", id);
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const lessonsByDay = weekDays.reduce<Record<string, Lesson[]>>((acc, day) => {
     const key = toDateStr(day);
-    acc[key] = lessons.filter(
-      (l) => (l.scheduled_date ?? l.date) === key
-    );
+    acc[key] = lessons.filter((l) => (l.scheduled_date ?? l.date) === key);
     return acc;
   }, {});
 
@@ -421,30 +480,22 @@ export default function PlanPage() {
           </p>
           <h1 className="text-2xl font-bold text-[#2d2926]">Plan 📋</h1>
         </div>
-
-        {/* Week navigation */}
         <div className="flex items-center gap-1.5">
           {!isCurrentWeek && (
-            <button
-              onClick={goToToday}
-              className="text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors mr-1"
-            >
+            <button onClick={goToToday}
+              className="text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors mr-1">
               This week
             </button>
           )}
-          <button
-            onClick={prevWeek}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-          >
+          <button onClick={prevWeek}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
             <ChevronLeft size={16} />
           </button>
           <span className="text-sm font-semibold text-[#2d2926] whitespace-nowrap px-1">
             {formatWeekRange(weekStart)}
           </span>
-          <button
-            onClick={nextWeek}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-          >
+          <button onClick={nextWeek}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
             <ChevronRight size={16} />
           </button>
         </div>
@@ -490,7 +541,10 @@ export default function PlanPage() {
                   isWeekend={isWeekend}
                   onAdd={isPartner ? () => {} : openAddModal}
                   onToggle={isPartner ? () => {} : toggleLesson}
+                  onEdit={openEdit}
+                  onDelete={deleteLesson}
                   hideAdd={isPartner}
+                  isPartner={isPartner}
                 />
               );
             })}
@@ -498,7 +552,6 @@ export default function PlanPage() {
         </div>
       )}
 
-      {/* Empty state hint */}
       {!loading && totalWeek === 0 && (
         <div className="text-center py-4">
           <p className="text-sm text-[#b5aca4]">
@@ -516,91 +569,106 @@ export default function PlanPage() {
                 <h2 className="font-bold text-[#2d2926]">📋 Add a Lesson</h2>
                 <p className="text-xs text-[#7a6f65] mt-0.5">{modalDateLabel}</p>
               </div>
-              <button
-                onClick={() => setShowModal(false)}
-                className="text-[#b5aca4] hover:text-[#7a6f65] mt-0.5"
-              >
+              <button onClick={() => setShowModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] mt-0.5">
                 <X size={18} />
               </button>
             </div>
-
-            {/* Child */}
             {children.length > 0 && (
               <div>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
-                <select
-                  value={formChild}
-                  onChange={(e) => setFormChild(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                >
+                <select value={formChild} onChange={(e) => setFormChild(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
                   <option value="">All / unassigned</option>
-                  {children.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
+                  {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
             )}
-
-            {/* Subject */}
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Subject</label>
-              <input
-                value={formSubject}
-                onChange={(e) => setFormSubject(e.target.value)}
-                list="plan-subjects"
-                placeholder="e.g. Math, Reading, Science"
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-              />
+              <input value={formSubject} onChange={(e) => setFormSubject(e.target.value)}
+                list="plan-subjects" placeholder="e.g. Math, Reading, Science"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
               <datalist id="plan-subjects">
                 {subjects.map((s) => <option key={s.id} value={s.name} />)}
               </datalist>
             </div>
-
-            {/* Title */}
             <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-                Lesson title *
-              </label>
-              <input
-                value={formTitle}
-                onChange={(e) => setFormTitle(e.target.value)}
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Lesson title *</label>
+              <input value={formTitle} onChange={(e) => setFormTitle(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && !saving && saveLesson()}
-                placeholder="e.g. Chapter 5 — Fractions"
-                autoFocus
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-              />
+                placeholder="e.g. Chapter 5 — Fractions" autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
-
-            {/* Hours */}
             <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-                Estimated hours (optional)
-              </label>
-              <input
-                value={formHours}
-                onChange={(e) => setFormHours(e.target.value)}
-                type="number"
-                min="0"
-                max="24"
-                step="0.5"
-                placeholder="e.g. 1.5"
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-              />
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Estimated hours (optional)</label>
+              <input value={formHours} onChange={(e) => setFormHours(e.target.value)}
+                type="number" min="0" max="24" step="0.5" placeholder="e.g. 1.5"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
-
             <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => setShowModal(false)}
-                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-              >
+              <button onClick={() => setShowModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
                 Cancel
               </button>
-              <button
-                onClick={saveLesson}
-                disabled={saving || !formTitle.trim()}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
-              >
+              <button onClick={saveLesson} disabled={saving || !formTitle.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {saving ? "Saving…" : "Add to Plan 📋"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Lesson Modal ────────────────────────────────── */}
+      {editingLesson && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-[#2d2926]">✏️ Edit Lesson</h2>
+              <button onClick={() => setEditingLesson(null)} className="text-[#b5aca4] hover:text-[#7a6f65]">
+                <X size={18} />
+              </button>
+            </div>
+            {children.length > 0 && (
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                <select value={editChildId} onChange={(e) => setEditChildId(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
+                  <option value="">All / unassigned</option>
+                  {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Subject</label>
+              <input value={editSubject} onChange={(e) => setEditSubject(e.target.value)}
+                list="plan-edit-subjects" placeholder="e.g. Math, Reading, Science"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              <datalist id="plan-edit-subjects">
+                {subjects.map((s) => <option key={s.id} value={s.name} />)}
+              </datalist>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Lesson title *</label>
+              <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !savingEdit && saveEdit()}
+                placeholder="Lesson title" autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Estimated hours (optional)</label>
+              <input value={editHours} onChange={(e) => setEditHours(e.target.value)}
+                type="number" min="0" max="24" step="0.5" placeholder="e.g. 1.5"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setEditingLesson(null)}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+                Cancel
+              </button>
+              <button onClick={saveEdit} disabled={savingEdit || !editTitle.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                {savingEdit ? "Saving…" : "Save Changes"}
               </button>
             </div>
           </div>

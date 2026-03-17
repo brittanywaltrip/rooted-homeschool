@@ -6,11 +6,7 @@ import { usePartner } from "@/lib/partner-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Child = {
-  id: string;
-  name: string;
-  color: string | null;
-};
+type Child = { id: string; name: string; color: string | null };
 
 type Lesson = {
   id: string;
@@ -26,11 +22,7 @@ type BookLog = {
   payload: { title: string; child_id?: string; date: string };
 };
 
-type Subject = {
-  id: string;
-  name: string;
-  color: string | null;
-};
+type Subject = { id: string; name: string; color: string | null };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -62,10 +54,7 @@ function getStageIndex(leaves: number) {
 
 function formatDate(date: Date) {
   return date.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
   });
 }
 
@@ -108,30 +97,16 @@ function FloatingLeaves({ active }: { active: boolean }) {
 // ─── Tree SVG ─────────────────────────────────────────────────────────────────
 
 function TreeIllustration({ stageIndex }: { stageIndex: number }) {
-  const stage = stageIndex + 1; // 1–5
+  const stage = stageIndex + 1;
   return (
     <svg viewBox="0 0 100 110" className="w-full h-full" aria-hidden>
-      {/* Ground */}
       <ellipse cx="50" cy="98" rx="28" ry="5" fill="#d4b896" opacity="0.4" />
-
-      {/* Stage 1 — Seed */}
       {stage >= 1 && stage < 2 && (
         <g>
-          <path
-            d="M44 86 Q50 76 56 86 Q50 96 44 86"
-            fill="#8b6f47"
-          />
-          <path
-            d="M50 78 Q53 70 50 64"
-            stroke="#7a9e7e"
-            strokeWidth="1.5"
-            fill="none"
-            strokeLinecap="round"
-          />
+          <path d="M44 86 Q50 76 56 86 Q50 96 44 86" fill="#8b6f47" />
+          <path d="M50 78 Q53 70 50 64" stroke="#7a9e7e" strokeWidth="1.5" fill="none" strokeLinecap="round" />
         </g>
       )}
-
-      {/* Stage 2 — Sprout */}
       {stage >= 2 && (
         <g>
           <rect x="48" y="66" width="4" height="32" rx="2" fill="#8b6f47" />
@@ -139,8 +114,6 @@ function TreeIllustration({ stageIndex }: { stageIndex: number }) {
           <path d="M50 75 Q66 64 61 50 Q50 60 50 75" fill="#5c7f63" />
         </g>
       )}
-
-      {/* Stage 3 — Sapling */}
       {stage >= 3 && (
         <g>
           <rect x="47" y="54" width="6" height="14" rx="3" fill="#8b6f47" />
@@ -150,8 +123,6 @@ function TreeIllustration({ stageIndex }: { stageIndex: number }) {
           <circle cx="50" cy="26" r="11" fill="#3d5c42" />
         </g>
       )}
-
-      {/* Stage 4 — Growing */}
       {stage >= 4 && (
         <g>
           <rect x="46" y="54" width="8" height="14" rx="4" fill="#8b6f47" />
@@ -163,8 +134,6 @@ function TreeIllustration({ stageIndex }: { stageIndex: number }) {
           <circle cx="50" cy="20" r="13" fill="#3d5c42" />
         </g>
       )}
-
-      {/* Stage 5 — Thriving */}
       {stage >= 5 && (
         <g>
           <rect x="45" y="56" width="10" height="14" rx="5" fill="#8b6f47" />
@@ -186,58 +155,34 @@ function TreeIllustration({ stageIndex }: { stageIndex: number }) {
 
 // ─── Growth Tree Card ──────────────────────────────────────────────────────────
 
-function GrowthTreeCard({
-  leaves,
-  childName,
-}: {
-  leaves: number;
-  childName: string;
-}) {
+function GrowthTreeCard({ leaves, childName }: { leaves: number; childName: string }) {
   const stageIdx = getStageIndex(leaves);
-  const stage = STAGES[stageIdx];
+  const stage    = STAGES[stageIdx];
   const nextStage = STAGES[stageIdx + 1];
-  const progress = nextStage
-    ? ((leaves - stage.min) / (nextStage.min - stage.min)) * 100
-    : 100;
+  const progress  = nextStage ? ((leaves - stage.min) / (nextStage.min - stage.min)) * 100 : 100;
 
   return (
     <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 flex gap-5 items-center">
-      {/* Tree illustration */}
-      <div className="w-24 h-24 shrink-0"  >
+      <div className="w-24 h-24 shrink-0">
         <TreeIllustration stageIndex={stageIdx} />
       </div>
-
-      {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium uppercase tracking-widest text-[#5c7f63] mb-0.5">
-          {childName}
-        </p>
-        <h3 className="text-xl font-bold text-[#2d2926] leading-tight">
-          {stage.name}
-        </h3>
+        <p className="text-xs font-medium uppercase tracking-widest text-[#5c7f63] mb-0.5">{childName}</p>
+        <h3 className="text-xl font-bold text-[#2d2926] leading-tight">{stage.name}</h3>
         <p className="text-sm text-[#5c7f63] mb-3">{stage.desc}</p>
-
-        {/* Leaf count */}
         <div className="flex items-center gap-2 mb-2">
           <span className="text-base">🍃</span>
           <span className="text-sm font-semibold text-[#2d2926]">
             {leaves} {leaves === 1 ? "leaf" : "leaves"}
           </span>
           {nextStage && (
-            <span className="text-xs text-[#7a6f65]">
-              · {nextStage.min - leaves} to {nextStage.name}
-            </span>
+            <span className="text-xs text-[#7a6f65]">· {nextStage.min - leaves} to {nextStage.name}</span>
           )}
         </div>
-
-        {/* Progress bar */}
         <div className="w-full h-1.5 bg-white/60 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: `${Math.min(progress, 100)}%`,
-              backgroundColor: stage.color,
-            }}
+            style={{ width: `${Math.min(progress, 100)}%`, backgroundColor: stage.color }}
           />
         </div>
       </div>
@@ -250,26 +195,28 @@ function GrowthTreeCard({
 function LessonRow({
   lesson,
   onToggle,
+  onEdit,
+  onDelete,
+  isPartner,
 }: {
   lesson: Lesson;
   onToggle: (id: string, current: boolean) => void;
+  onEdit:   (lesson: Lesson) => void;
+  onDelete: (id: string) => void;
+  isPartner: boolean;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const subjectColor = lesson.subjects?.color ?? "#7a9e7e";
 
   return (
-    <div
-      className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors ${
-        lesson.completed
-          ? "bg-[#f0f7f1] border-[#c2dbc5]"
-          : "bg-[#fefcf9] border-[#e8e2d9]"
-      }`}
-    >
+    <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors relative ${
+      lesson.completed ? "bg-[#f0f7f1] border-[#c2dbc5]" : "bg-[#fefcf9] border-[#e8e2d9]"
+    }`}>
+      {/* Checkbox */}
       <button
         onClick={() => onToggle(lesson.id, lesson.completed)}
         className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-          lesson.completed
-            ? "bg-[#5c7f63] border-[#5c7f63]"
-            : "border-[#c8bfb5] hover:border-[#5c7f63]"
+          lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5] hover:border-[#5c7f63]"
         }`}
         aria-label={lesson.completed ? "Mark incomplete" : "Mark complete"}
       >
@@ -280,25 +227,52 @@ function LessonRow({
         )}
       </button>
 
+      {/* Content */}
       <div className="flex-1 min-w-0">
-        <p
-          className={`text-sm font-medium truncate ${
-            lesson.completed ? "text-[#7a9e7e] line-through" : "text-[#2d2926]"
-          }`}
-        >
+        <p className={`text-sm font-medium truncate ${
+          lesson.completed ? "text-[#7a9e7e] line-through" : "text-[#2d2926]"
+        }`}>
           {lesson.title}
         </p>
         {lesson.subjects && (
-          <p className="text-xs mt-0.5" style={{ color: subjectColor }}>
-            {lesson.subjects.name}
-          </p>
+          <p className="text-xs mt-0.5" style={{ color: subjectColor }}>{lesson.subjects.name}</p>
         )}
       </div>
 
       {lesson.hours != null && lesson.hours > 0 && (
-        <span className="text-xs text-[#b5aca4] shrink-0">
-          {lesson.hours}h
-        </span>
+        <span className="text-xs text-[#b5aca4] shrink-0">{lesson.hours}h</span>
+      )}
+
+      {/* Three-dot menu — only for non-partners */}
+      {!isPartner && (
+        <div className="relative shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+            className="w-6 h-6 rounded-full flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-base leading-none pb-0.5"
+            aria-label="Lesson options"
+          >
+            ···
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-8 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[110px]">
+                <button
+                  onClick={() => { onEdit(lesson); setMenuOpen(false); }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
+                >
+                  ✏️ Edit
+                </button>
+                <button
+                  onClick={() => { onDelete(lesson.id); setMenuOpen(false); }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  🗑 Delete
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
@@ -311,55 +285,54 @@ export default function TodayPage() {
   const quote = QUOTES[new Date().getDay() % QUOTES.length];
   const { isPartner, effectiveUserId } = usePartner();
 
-  const [familyName, setFamilyName] = useState("");
-  const [children, setChildren] = useState<Child[]>([]);
-  const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [leafCounts, setLeafCounts] = useState<Record<string, number>>({});
-  const [selectedChildId, setSelectedChildId] = useState<string>("all");
-  const [reflectionText, setReflectionText] = useState("");
+  const [familyName,       setFamilyName]       = useState("");
+  const [children,         setChildren]         = useState<Child[]>([]);
+  const [lessons,          setLessons]          = useState<Lesson[]>([]);
+  const [leafCounts,       setLeafCounts]       = useState<Record<string, number>>({});
+  const [selectedChildId,  setSelectedChildId]  = useState<string>("all");
+  const [reflectionText,   setReflectionText]   = useState("");
   const [reflectionExists, setReflectionExists] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [saving,           setSaving]           = useState(false);
+  const [savedFlash,       setSavedFlash]       = useState(false);
+  const [loading,          setLoading]          = useState(true);
 
   // Books
-  const [todayBooks, setTodayBooks] = useState<BookLog[]>([]);
+  const [todayBooks,    setTodayBooks]    = useState<BookLog[]>([]);
   const [showBookModal, setShowBookModal] = useState(false);
-  const [bookTitle, setBookTitle] = useState("");
-  const [bookChild, setBookChild] = useState("");
-  const [savingBook, setSavingBook] = useState(false);
+  const [bookTitle,     setBookTitle]     = useState("");
+  const [bookChild,     setBookChild]     = useState("");
+  const [savingBook,    setSavingBook]    = useState(false);
 
-  // Lessons modal
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [showLessonModal, setShowLessonModal] = useState(false);
-  const [lessonChildId, setLessonChildId] = useState("");
-  const [lessonSubject, setLessonSubject] = useState("");
-  const [lessonTitle, setLessonTitle] = useState("");
-  const [lessonHours, setLessonHours] = useState("");
-  const [savingLesson, setSavingLesson] = useState(false);
-  const [celebrating, setCelebrating] = useState(false);
+  // Add lesson modal
+  const [subjects,         setSubjects]         = useState<Subject[]>([]);
+  const [showLessonModal,  setShowLessonModal]  = useState(false);
+  const [lessonChildId,    setLessonChildId]    = useState("");
+  const [lessonSubject,    setLessonSubject]    = useState("");
+  const [lessonTitle,      setLessonTitle]      = useState("");
+  const [lessonHours,      setLessonHours]      = useState("");
+  const [savingLesson,     setSavingLesson]     = useState(false);
+  const [celebrating,      setCelebrating]      = useState(false);
+
+  // Edit lesson modal
+  const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
+  const [editTitle,     setEditTitle]     = useState("");
+  const [editSubject,   setEditSubject]   = useState("");
+  const [editHours,     setEditHours]     = useState("");
+  const [editChildId,   setEditChildId]   = useState("");
+  const [savingEdit,    setSavingEdit]    = useState(false);
 
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
 
-    // Profile / family name
     const { data: profile } = await supabase
-      .from("profiles")
-      .select("display_name")
-      .eq("id", effectiveUserId)
-      .maybeSingle();
+      .from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle();
     setFamilyName(profile?.display_name || "");
 
-    // Children
     const { data: childrenData } = await supabase
-      .from("children")
-      .select("id, name, color")
-      .eq("user_id", effectiveUserId)
-      .eq("archived", false)
-      .order("sort_order");
+      .from("children").select("id, name, color")
+      .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order");
     setChildren(childrenData ?? []);
 
-    // Today's lessons
     const { data: lessonsData } = await supabase
       .from("lessons")
       .select("id, title, completed, child_id, hours, subjects(name, color)")
@@ -367,46 +340,33 @@ export default function TodayPage() {
       .or(`date.eq.${today},scheduled_date.eq.${today}`);
     setLessons((lessonsData as unknown as Lesson[]) ?? []);
 
-    // All completed lessons + book events (for leaf counts)
     const [{ data: completed }, { data: bookEvents }] = await Promise.all([
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
       supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
     ]);
 
     const counts: Record<string, number> = {};
-    completed?.forEach((l) => {
-      counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
-    });
+    completed?.forEach((l) => { counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
     bookEvents?.forEach((e) => {
       const cid = e.payload?.child_id;
       if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
     });
     setLeafCounts(counts);
 
-    // Today's books
     const { data: todayBooksData } = await supabase
-      .from("app_events")
-      .select("id, payload")
-      .eq("user_id", effectiveUserId)
-      .eq("type", "book_read")
+      .from("app_events").select("id, payload")
+      .eq("user_id", effectiveUserId).eq("type", "book_read")
       .filter("payload->>date", "eq", today);
     setTodayBooks((todayBooksData as unknown as BookLog[]) ?? []);
 
-    // Subjects for autocomplete
     const { data: subjectsData } = await supabase
-      .from("subjects")
-      .select("id, name, color")
-      .eq("user_id", effectiveUserId)
-      .order("name");
+      .from("subjects").select("id, name, color")
+      .eq("user_id", effectiveUserId).order("name");
     setSubjects((subjectsData as Subject[]) ?? []);
 
-    // Today's reflection
     const { data: reflectionData } = await supabase
-      .from("daily_reflections")
-      .select("reflection")
-      .eq("user_id", effectiveUserId)
-      .eq("date", today)
-      .maybeSingle();
+      .from("daily_reflections").select("reflection")
+      .eq("user_id", effectiveUserId).eq("date", today).maybeSingle();
     if (reflectionData) {
       setReflectionText(reflectionData.reflection ?? "");
       setReflectionExists(true);
@@ -415,35 +375,99 @@ export default function TodayPage() {
     setLoading(false);
   }, [today, effectiveUserId]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // ── Lesson actions ────────────────────────────────────────────────────────
 
   async function toggleLesson(id: string, current: boolean) {
-    setLessons((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, completed: !current } : l))
-    );
-    await supabase
-      .from("lessons")
-      .update({ completed: !current })
-      .eq("id", id);
+    setLessons((prev) => prev.map((l) => (l.id === id ? { ...l, completed: !current } : l)));
+    await supabase.from("lessons").update({ completed: !current }).eq("id", id);
 
-    // Refresh leaf counts
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { data: completed } = await supabase
-      .from("lessons")
-      .select("child_id")
-      .eq("user_id", user.id)
-      .eq("completed", true);
+      .from("lessons").select("child_id").eq("user_id", user.id).eq("completed", true);
     const counts: Record<string, number> = {};
-    completed?.forEach((l) => {
-      counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
-    });
+    completed?.forEach((l) => { counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
     setLeafCounts(counts);
   }
+
+  function openEdit(lesson: Lesson) {
+    setEditingLesson(lesson);
+    setEditTitle(lesson.title);
+    setEditSubject(lesson.subjects?.name ?? "");
+    setEditHours(lesson.hours != null ? String(lesson.hours) : "");
+    setEditChildId(lesson.child_id ?? "");
+  }
+
+  async function saveEdit() {
+    if (!editingLesson || !editTitle.trim()) return;
+    setSavingEdit(true);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingEdit(false); return; }
+
+    // Find or create subject
+    let subjectId: string | null = null;
+    if (editSubject.trim()) {
+      const existing = subjects.find(
+        (s) => s.name.toLowerCase() === editSubject.trim().toLowerCase()
+      );
+      if (existing) {
+        subjectId = existing.id;
+      } else {
+        const { data: newSub } = await supabase
+          .from("subjects").insert({ user_id: user.id, name: editSubject.trim() })
+          .select("id, name, color").single();
+        if (newSub) {
+          setSubjects((prev) => [...prev, newSub as Subject]);
+          subjectId = newSub.id;
+        }
+      }
+    }
+
+    await supabase.from("lessons").update({
+      title:      editTitle.trim(),
+      subject_id: subjectId,
+      hours:      editHours ? parseFloat(editHours) : null,
+      child_id:   editChildId || null,
+    }).eq("id", editingLesson.id);
+
+    // Update local state optimistically
+    setLessons((prev) => prev.map((l) => {
+      if (l.id !== editingLesson.id) return l;
+      const subName = editSubject.trim();
+      return {
+        ...l,
+        title:    editTitle.trim(),
+        subjects: subName ? { name: subName, color: l.subjects?.color ?? null } : null,
+        hours:    editHours ? parseFloat(editHours) : null,
+        child_id: editChildId || l.child_id,
+      };
+    }));
+
+    setSavingEdit(false);
+    setEditingLesson(null);
+  }
+
+  async function deleteLesson(id: string) {
+    const lesson = lessons.find((l) => l.id === id);
+
+    // Optimistic removal
+    setLessons((prev) => prev.filter((l) => l.id !== id));
+
+    // Decrement leaf count if this completed lesson counted toward it
+    if (lesson?.completed && lesson.child_id) {
+      setLeafCounts((prev) => ({
+        ...prev,
+        [lesson.child_id]: Math.max(0, (prev[lesson.child_id] ?? 0) - 1),
+      }));
+    }
+
+    await supabase.from("lessons").delete().eq("id", id);
+  }
+
+  // ── Add lesson ────────────────────────────────────────────────────────────
 
   async function saveBook() {
     if (!bookTitle.trim()) return;
@@ -453,14 +477,11 @@ export default function TodayPage() {
 
     const payload = { title: bookTitle.trim(), child_id: bookChild || undefined, date: today };
     const { data } = await supabase
-      .from("app_events")
-      .insert({ user_id: user.id, type: "book_read", payload })
-      .select("id, payload")
-      .single();
+      .from("app_events").insert({ user_id: user.id, type: "book_read", payload })
+      .select("id, payload").single();
 
     if (data) {
       setTodayBooks((prev) => [...prev, data as unknown as BookLog]);
-      // +1 leaf for the child if assigned
       if (bookChild) {
         setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
       }
@@ -470,9 +491,7 @@ export default function TodayPage() {
 
   function openLessonModal() {
     setLessonChildId(children.length === 1 ? children[0].id : "");
-    setLessonSubject("");
-    setLessonTitle("");
-    setLessonHours("");
+    setLessonSubject(""); setLessonTitle(""); setLessonHours("");
     setShowLessonModal(true);
   }
 
@@ -482,7 +501,6 @@ export default function TodayPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingLesson(false); return; }
 
-    // Find or create subject
     let subjectId: string | null = null;
     if (lessonSubject.trim()) {
       const existing = subjects.find(
@@ -492,10 +510,8 @@ export default function TodayPage() {
         subjectId = existing.id;
       } else {
         const { data: newSubject } = await supabase
-          .from("subjects")
-          .insert({ user_id: user.id, name: lessonSubject.trim() })
-          .select("id, name, color")
-          .single();
+          .from("subjects").insert({ user_id: user.id, name: lessonSubject.trim() })
+          .select("id, name, color").single();
         if (newSubject) {
           setSubjects((prev) => [...prev, newSubject as Subject]);
           subjectId = newSubject.id;
@@ -503,17 +519,16 @@ export default function TodayPage() {
       }
     }
 
-    // Insert lesson
     const { data: newLesson } = await supabase
       .from("lessons")
       .insert({
-        user_id: user.id,
-        child_id: lessonChildId || null,
+        user_id:    user.id,
+        child_id:   lessonChildId || null,
         subject_id: subjectId,
-        title: lessonTitle.trim(),
-        hours: lessonHours ? parseFloat(lessonHours) : null,
-        completed: true,
-        date: today,
+        title:      lessonTitle.trim(),
+        hours:      lessonHours ? parseFloat(lessonHours) : null,
+        completed:  true,
+        date:       today,
       })
       .select("id, title, completed, child_id, hours, subjects(name, color)")
       .single();
@@ -536,18 +551,11 @@ export default function TodayPage() {
 
   async function saveReflection() {
     setSaving(true);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
     await supabase.from("daily_reflections").upsert(
-      {
-        user_id: user.id,
-        date: today,
-        reflection: reflectionText,
-        updated_at: new Date().toISOString(),
-      },
+      { user_id: user.id, date: today, reflection: reflectionText, updated_at: new Date().toISOString() },
       { onConflict: "user_id,date" }
     );
 
@@ -557,24 +565,22 @@ export default function TodayPage() {
     setTimeout(() => setSavedFlash(false), 2000);
   }
 
-  // Derived: filtered lessons + growth tree data
-  const filteredLessons =
-    selectedChildId === "all"
-      ? lessons
-      : lessons.filter((l) => l.child_id === selectedChildId);
+  // ── Derived ───────────────────────────────────────────────────────────────
 
-  const treeLeaves =
-    selectedChildId === "all"
-      ? Object.values(leafCounts).reduce((a, b) => a + b, 0)
-      : leafCounts[selectedChildId] ?? 0;
+  const filteredLessons = selectedChildId === "all"
+    ? lessons
+    : lessons.filter((l) => l.child_id === selectedChildId);
 
-  const treeLabel =
-    selectedChildId === "all"
-      ? familyName ? `${familyName} Family` : "Your Family"
-      : children.find((c) => c.id === selectedChildId)?.name ?? "";
+  const treeLeaves = selectedChildId === "all"
+    ? Object.values(leafCounts).reduce((a, b) => a + b, 0)
+    : leafCounts[selectedChildId] ?? 0;
+
+  const treeLabel = selectedChildId === "all"
+    ? (familyName ? `${familyName} Family` : "Your Family")
+    : (children.find((c) => c.id === selectedChildId)?.name ?? "");
 
   const completedToday = filteredLessons.filter((l) => l.completed).length;
-  const totalToday = filteredLessons.length;
+  const totalToday     = filteredLessons.length;
 
   if (loading) {
     return (
@@ -589,14 +595,14 @@ export default function TodayPage() {
 
   return (
     <div className="max-w-2xl px-5 py-7 space-y-6">
+
       {/* ── Date & Greeting ──────────────────────────────── */}
       <div>
         <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">
           {formatDate(new Date())}
         </p>
         <h1 className="text-2xl font-bold text-[#2d2926]">
-          {getGreeting()}
-          {familyName ? `, ${familyName}` : ""}! 👋
+          {getGreeting()}{familyName ? `, ${familyName}` : ""}! 👋
         </h1>
         {totalToday > 0 && (
           <p className="text-sm text-[#7a6f65] mt-1">
@@ -610,9 +616,7 @@ export default function TodayPage() {
         <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
           Today&apos;s Thought
         </p>
-        <p className="text-sm text-[#5c7f63] italic leading-relaxed">
-          &ldquo;{quote}&rdquo;
-        </p>
+        <p className="text-sm text-[#5c7f63] italic leading-relaxed">&ldquo;{quote}&rdquo;</p>
       </div>
 
       {/* ── Child Filter Tabs ─────────────────────────────── */}
@@ -637,11 +641,7 @@ export default function TodayPage() {
                   ? "text-white border-transparent"
                   : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:text-[#2d2926]"
               }`}
-              style={
-                selectedChildId === child.id
-                  ? { backgroundColor: child.color ?? "#5c7f63" }
-                  : {}
-              }
+              style={selectedChildId === child.id ? { backgroundColor: child.color ?? "#5c7f63" } : {}}
             >
               {child.name}
             </button>
@@ -682,18 +682,17 @@ export default function TodayPage() {
                 key={lesson.id}
                 lesson={lesson}
                 onToggle={toggleLesson}
+                onEdit={openEdit}
+                onDelete={deleteLesson}
+                isPartner={isPartner}
               />
             ))}
           </div>
         ) : (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-8 flex flex-col items-center text-center">
             <span className="text-3xl mb-2">📖</span>
-            <p className="text-sm font-medium text-[#2d2926] mb-1">
-              No lessons scheduled today
-            </p>
-            <p className="text-xs text-[#b5aca4]">
-              Head to Plan to add lessons to your day.
-            </p>
+            <p className="text-sm font-medium text-[#2d2926] mb-1">No lessons scheduled today</p>
+            <p className="text-xs text-[#b5aca4]">Head to Plan to add lessons to your day.</p>
           </div>
         )}
       </div>
@@ -742,7 +741,46 @@ export default function TodayPage() {
         )}
       </div>
 
-      {/* Book modal */}
+      {/* ── Daily Reflection ──────────────────────────────── */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
+            Daily Reflection
+          </h2>
+          {reflectionExists && (
+            <span className="text-xs text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">saved</span>
+          )}
+        </div>
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden focus-within:border-[#5c7f63] focus-within:ring-2 focus-within:ring-[#5c7f63]/20 transition">
+          <textarea
+            value={reflectionText}
+            onChange={(e) => setReflectionText(e.target.value)}
+            placeholder="How did today's learning go? What went well? What would you do differently?"
+            rows={4}
+            className="w-full px-4 pt-4 pb-2 text-sm text-[#2d2926] placeholder-[#c8bfb5] bg-transparent resize-none focus:outline-none leading-relaxed"
+          />
+          <div className="flex items-center justify-between px-4 py-2.5 border-t border-[#f0ede8]">
+            <p className="text-xs text-[#c8bfb5]">
+              {reflectionText.length > 0 ? `${reflectionText.length} characters` : "Your thoughts are safe here"}
+            </p>
+            <button
+              onClick={saveReflection}
+              disabled={saving || reflectionText.trim().length === 0}
+              className={`text-sm font-medium px-4 py-1.5 rounded-lg transition-colors ${
+                savedFlash
+                  ? "bg-[#e8f0e9] text-[#3d5c42]"
+                  : "bg-[#5c7f63] hover:bg-[#3d5c42] text-white disabled:opacity-40"
+              }`}
+            >
+              {savedFlash ? "✓ Saved" : saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="h-4" />
+
+      {/* ── Book modal ────────────────────────────────────── */}
       {showBookModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
@@ -753,10 +791,8 @@ export default function TodayPage() {
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Book title *</label>
               <input
-                value={bookTitle}
-                onChange={(e) => setBookTitle(e.target.value)}
-                placeholder="e.g. Charlotte's Web"
-                autoFocus
+                value={bookTitle} onChange={(e) => setBookTitle(e.target.value)}
+                placeholder="e.g. Charlotte's Web" autoFocus
                 className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
               />
             </div>
@@ -764,14 +800,11 @@ export default function TodayPage() {
               <div>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who read it?</label>
                 <select
-                  value={bookChild}
-                  onChange={(e) => setBookChild(e.target.value)}
+                  value={bookChild} onChange={(e) => setBookChild(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
                 >
                   <option value="">Everyone / unassigned</option>
-                  {children.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
+                  {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
             )}
@@ -792,7 +825,7 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* Lesson modal */}
+      {/* ── Add Lesson modal ──────────────────────────────── */}
       {showLessonModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
@@ -803,55 +836,33 @@ export default function TodayPage() {
             {children.length > 0 && (
               <div>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
-                <select
-                  value={lessonChildId}
-                  onChange={(e) => setLessonChildId(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                >
+                <select value={lessonChildId} onChange={(e) => setLessonChildId(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
                   <option value="">All / unassigned</option>
-                  {children.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
+                  {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
             )}
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Subject</label>
-              <input
-                value={lessonSubject}
-                onChange={(e) => setLessonSubject(e.target.value)}
-                list="subjects-list"
-                placeholder="e.g. Math, Reading, Science"
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-              />
+              <input value={lessonSubject} onChange={(e) => setLessonSubject(e.target.value)}
+                list="subjects-list" placeholder="e.g. Math, Reading, Science"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
               <datalist id="subjects-list">
-                {subjects.map((s) => (
-                  <option key={s.id} value={s.name} />
-                ))}
+                {subjects.map((s) => <option key={s.id} value={s.name} />)}
               </datalist>
             </div>
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Lesson title *</label>
-              <input
-                value={lessonTitle}
-                onChange={(e) => setLessonTitle(e.target.value)}
-                placeholder="e.g. Chapter 4 reading"
-                autoFocus
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-              />
+              <input value={lessonTitle} onChange={(e) => setLessonTitle(e.target.value)}
+                placeholder="e.g. Chapter 4 reading" autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Hours spent (optional)</label>
-              <input
-                value={lessonHours}
-                onChange={(e) => setLessonHours(e.target.value)}
-                type="number"
-                min="0"
-                max="24"
-                step="0.5"
-                placeholder="e.g. 1.5"
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-              />
+              <input value={lessonHours} onChange={(e) => setLessonHours(e.target.value)}
+                type="number" min="0" max="24" step="0.5" placeholder="e.g. 1.5"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
             <div className="flex gap-2">
               <button onClick={() => setShowLessonModal(false)}
@@ -867,50 +878,58 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Daily Reflection ──────────────────────────────── */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
-            Daily Reflection
-          </h2>
-          {reflectionExists && (
-            <span className="text-xs text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">
-              saved
-            </span>
-          )}
-        </div>
-
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden focus-within:border-[#5c7f63] focus-within:ring-2 focus-within:ring-[#5c7f63]/20 transition">
-          <textarea
-            value={reflectionText}
-            onChange={(e) => setReflectionText(e.target.value)}
-            placeholder="How did today's learning go? What went well? What would you do differently?"
-            rows={4}
-            className="w-full px-4 pt-4 pb-2 text-sm text-[#2d2926] placeholder-[#c8bfb5] bg-transparent resize-none focus:outline-none leading-relaxed"
-          />
-          <div className="flex items-center justify-between px-4 py-2.5 border-t border-[#f0ede8]">
-            <p className="text-xs text-[#c8bfb5]">
-              {reflectionText.length > 0
-                ? `${reflectionText.length} characters`
-                : "Your thoughts are safe here"}
-            </p>
-            <button
-              onClick={saveReflection}
-              disabled={saving || reflectionText.trim().length === 0}
-              className={`text-sm font-medium px-4 py-1.5 rounded-lg transition-colors ${
-                savedFlash
-                  ? "bg-[#e8f0e9] text-[#3d5c42]"
-                  : "bg-[#5c7f63] hover:bg-[#3d5c42] text-white disabled:opacity-40"
-              }`}
-            >
-              {savedFlash ? "✓ Saved" : saving ? "Saving…" : "Save"}
-            </button>
+      {/* ── Edit Lesson modal ─────────────────────────────── */}
+      {editingLesson && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-[#2d2926]">✏️ Edit Lesson</h2>
+              <button onClick={() => setEditingLesson(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+            </div>
+            {children.length > 0 && (
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                <select value={editChildId} onChange={(e) => setEditChildId(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
+                  <option value="">All / unassigned</option>
+                  {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Subject</label>
+              <input value={editSubject} onChange={(e) => setEditSubject(e.target.value)}
+                list="edit-subjects-list" placeholder="e.g. Math, Reading, Science"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              <datalist id="edit-subjects-list">
+                {subjects.map((s) => <option key={s.id} value={s.name} />)}
+              </datalist>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Lesson title *</label>
+              <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="Lesson title" autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Hours spent (optional)</label>
+              <input value={editHours} onChange={(e) => setEditHours(e.target.value)}
+                type="number" min="0" max="24" step="0.5" placeholder="e.g. 1.5"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setEditingLesson(null)}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+                Cancel
+              </button>
+              <button onClick={saveEdit} disabled={savingEdit || !editTitle.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                {savingEdit ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* Bottom padding */}
-      <div className="h-4" />
+      )}
 
       <FloatingLeaves active={celebrating} />
     </div>
