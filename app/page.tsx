@@ -235,6 +235,10 @@ export default function Home() {
           0%, 100% { transform: translateX(-50%) translateY(0); }
           50%       { transform: translateX(-50%) translateY(8px); }
         }
+        @keyframes pulse {
+          0%, 100% { opacity: 0.2; transform: scale(1); }
+          50% { opacity: 0.6; transform: scale(1.3); }
+        }
         @keyframes badgeShimmer {
           0%   { background-position: -200% center; }
           100% { background-position:  200% center; }
@@ -322,25 +326,71 @@ export default function Home() {
       </header>
 
       {/* ── 2. HERO ────────────────────────────────────────────────────────── */}
-      <section
-        className="relative flex flex-col items-center justify-center text-center text-white px-6 py-28 min-h-[92vh]"
-        style={{
-          backgroundImage: `linear-gradient(160deg, rgba(10,25,15,0.72) 0%, rgba(18,40,22,0.52) 35%, rgba(25,50,28,0.42) 65%, rgba(8,20,12,0.68) 100%), url('https://images.unsplash.com/photo-1448375240586-882707db888b?w=1920&q=80')`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      >
-        {/* Vignette edges */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{ background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.25) 100%)" }}
-          aria-hidden="true"
-        />
-        <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(180deg, transparent 20%, rgba(140,90,20,0.06) 65%, rgba(8,20,12,0.25) 100%)" }} aria-hidden="true" />
+      <section className="relative flex flex-col items-center justify-center text-center px-6 py-28 min-h-[92vh] overflow-hidden" style={{ background: "linear-gradient(160deg, #1a3a2a 0%, #2d5c3a 25%, #3d7a4a 50%, #4a8a55 70%, #5c9a60 100%)" }}>
 
+        {/* Animated forest background elements */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+          {/* Stars/fireflies */}
+          {[
+            { top: "15%", left: "8%", size: 3, delay: "0s" },
+            { top: "25%", left: "18%", size: 2, delay: "0.5s" },
+            { top: "10%", left: "35%", size: 2.5, delay: "1s" },
+            { top: "20%", left: "55%", size: 2, delay: "0.3s" },
+            { top: "12%", left: "72%", size: 3, delay: "0.8s" },
+            { top: "30%", left: "88%", size: 2, delay: "0.2s" },
+            { top: "8%", left: "92%", size: 2.5, delay: "1.2s" },
+          ].map((s, i) => (
+            <div key={i} className="absolute rounded-full bg-white" style={{ top: s.top, left: s.left, width: s.size, height: s.size, opacity: 0.4, animation: `pulse ${2 + i * 0.3}s ease-in-out infinite`, animationDelay: s.delay }} />
+          ))}
+
+          {/* Large illustrated trees - left side */}
+          <svg className="absolute bottom-0 left-0 h-[85%] w-auto opacity-30" viewBox="0 0 200 400" fill="none">
+            <rect x="88" y="280" width="24" height="120" rx="8" fill="#5c3d1e"/>
+            <circle cx="100" cy="220" r="80" fill="#2d5c2a"/>
+            <circle cx="70" cy="250" r="55" fill="#3d6a35"/>
+            <circle cx="130" cy="250" r="55" fill="#3d6a35"/>
+            <circle cx="100" cy="160" r="65" fill="#4a7a40"/>
+            <circle cx="75" cy="185" r="45" fill="#5c8a4a"/>
+            <circle cx="125" cy="185" r="45" fill="#5c8a4a"/>
+          </svg>
+
+          {/* Large illustrated trees - right side */}
+          <svg className="absolute bottom-0 right-0 h-[75%] w-auto opacity-25" viewBox="0 0 200 400" fill="none">
+            <rect x="88" y="300" width="20" height="100" rx="7" fill="#5c3d1e"/>
+            <circle cx="100" cy="240" r="70" fill="#1e4a1e"/>
+            <circle cx="72" cy="265" r="50" fill="#2d5c2a"/>
+            <circle cx="128" cy="265" r="50" fill="#2d5c2a"/>
+            <circle cx="100" cy="185" r="60" fill="#3d6a35"/>
+            <circle cx="78" cy="210" r="42" fill="#4a7a40"/>
+            <circle cx="122" cy="210" r="42" fill="#4a7a40"/>
+          </svg>
+
+          {/* Smaller mid trees */}
+          <svg className="absolute bottom-0 left-[15%] h-[55%] w-auto opacity-20" viewBox="0 0 120 300" fill="none">
+            <rect x="54" y="200" width="12" height="100" rx="5" fill="#5c3d1e"/>
+            <circle cx="60" cy="160" r="50" fill="#2d5c2a"/>
+            <circle cx="60" cy="120" r="42" fill="#3d6a35"/>
+          </svg>
+
+          <svg className="absolute bottom-0 right-[18%] h-[48%] w-auto opacity-20" viewBox="0 0 120 300" fill="none">
+            <rect x="54" y="200" width="12" height="100" rx="5" fill="#5c3d1e"/>
+            <circle cx="60" cy="155" r="48" fill="#1e4a1e"/>
+            <circle cx="60" cy="115" r="40" fill="#2d5c2a"/>
+          </svg>
+
+          {/* Ground fog/mist */}
+          <div className="absolute bottom-0 left-0 right-0 h-32" style={{ background: "linear-gradient(to top, rgba(92,154,96,0.3) 0%, transparent 100%)" }}/>
+
+          {/* Soft light ray from top */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-full opacity-10" style={{ background: "linear-gradient(180deg, rgba(255,255,200,0.8) 0%, transparent 60%)" }}/>
+        </div>
+
+        {/* Vignette */}
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.35) 100%)" }} aria-hidden="true"/>
+
+        {/* Content */}
         <div className="relative z-10 flex flex-col items-center max-w-3xl">
-          {/* Beta badge */}
-          <div className="anim-fade-in-up delay-0 inline-flex items-center gap-2 bg-white/12 backdrop-blur-sm border border-white/20 text-white/90 text-[11px] font-semibold px-4 py-1.5 rounded-full mb-8 tracking-widest uppercase">
+          <div className="anim-fade-in-up delay-0 inline-flex items-center gap-2 bg-white/12 backdrop-blur-sm border border-white/20 text-white/90 text-[11px] font-semibold px-4 py-1.5 rounded-full mb-6 tracking-widest uppercase">
             <span className="w-1.5 h-1.5 rounded-full bg-[#7ec46a] inline-block shrink-0" />
             Now in Beta · Join Free
           </div>
@@ -349,61 +399,34 @@ export default function Home() {
             The homeschool companion families love
           </p>
 
-          {/* H1 */}
-          <h1
-            className="anim-fade-in-up delay-150 text-5xl sm:text-6xl lg:text-[5rem] font-bold leading-[1.08] mb-6"
-            style={{
-              fontFamily: "var(--font-display)",
-              textShadow: "0 2px 32px rgba(0,0,0,0.5), 0 1px 8px rgba(0,0,0,0.3)",
-              letterSpacing: "-0.02em",
-            }}
-          >
+          <h1 className="anim-fade-in-up delay-150 text-5xl sm:text-6xl lg:text-[5rem] font-bold leading-[1.08] mb-6 text-white" style={{ fontFamily: "var(--font-display)", textShadow: "0 2px 32px rgba(0,0,0,0.4)", letterSpacing: "-0.02em" }}>
             Stay Rooted.{" "}
             <em className="not-italic" style={{ color: "#86c98a" }}>Teach with</em>{" "}
             Intention.
           </h1>
 
-          {/* Subhead */}
-          <p
-            className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]"
-            style={{ textShadow: "0 1px 12px rgba(0,0,0,0.35)", letterSpacing: "0.01em" }}
-          >
-            The calm, all-in-one companion for homeschool families. Plan lessons,
-            celebrate growth, and generate compliance reports — without the overwhelm.
+          <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
+            The calm, all-in-one companion for homeschool families. Plan lessons, celebrate growth, and generate compliance reports — without the overwhelm.
           </p>
 
-          {/* CTAs */}
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
-            <Link
-              href="/signup"
-              className="inline-flex items-center justify-center gap-2 bg-white text-[#3d5c42] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all shadow-lg shadow-black/25 text-base"
-              style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35), 0 0 48px rgba(134,201,138,0.12)" }}
-            >
+            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#3d5c42] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35), 0 0 48px rgba(134,201,138,0.12)" }}>
               Start Free — It&apos;s Free →
             </Link>
-            <a
-              href="#features"
-              className="inline-flex items-center justify-center gap-2 border border-white/35 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base"
-              style={{ backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.06)" }}
-            >
+            <a href="#features" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base" style={{ border: "1px solid rgba(255,255,255,0.35)", backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.06)" }}>
               See How It Works
             </a>
           </div>
 
-          {/* Social proof */}
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
-            <span>🌱</span>
-            Join 200+ families already growing
+            <span>🌱</span> Join 200+ families already growing
           </p>
         </div>
 
         {/* Scroll indicator */}
-        <div
-          className="scroll-bounce absolute bottom-8 left-1/2 text-white/40"
-          aria-hidden="true"
-        >
+        <div className="scroll-bounce absolute bottom-8 left-1/2 text-white/40" aria-hidden="true">
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <path d="M11 4v14M4 12l7 7 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M11 4v14M4 12l7 7 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
       </section>
