@@ -1,8 +1,10 @@
 import Link from "next/link";
+import HashRedirect from "./components/HashRedirect";
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-[#f8f7f4] text-[#2d2926]">
+      <HashRedirect />
       {/* Header */}
       <header className="px-6 py-5 flex items-center justify-between max-w-4xl mx-auto">
         <div className="flex items-center gap-2">

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-type View = "form" | "success" | "invalid";
+type View = "form" | "success";
 
 export default function ResetPasswordPage() {
   const router  = useRouter();
@@ -14,18 +14,38 @@ export default function ResetPasswordPage() {
   const [confirm,  setConfirm]  = useState("");
   const [error,    setError]    = useState("");
   const [loading,  setLoading]  = useState(false);
-  const [ready,    setReady]    = useState(false); // session established from link
+  const [ready,    setReady]    = useState(false);
+  const [tokenErr, setTokenErr] = useState(false);
 
-  // Supabase appends #access_token=...&type=recovery to the URL.
-  // The client SDK picks this up automatically on load.
+  // Supabase appends the tokens as a URL hash fragment.
+  // We parse them manually and call setSession so the client is authenticated
+  // before the user submits the new password.
   useEffect(() => {
+    const hash   = window.location.hash.slice(1);
+    const params = new URLSearchParams(hash);
+    const accessToken  = params.get("access_token");
+    const refreshToken = params.get("refresh_token") ?? "";
+    const type         = params.get("type");
+
+    if (accessToken && type === "recovery") {
+      supabase.auth
+        .setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ error }) => {
+          if (error) setTokenErr(true);
+          else setReady(true);
+        });
+      return;
+    }
+
+    // Fallback: listen for PASSWORD_RECOVERY event if the SDK processes the
+    // hash itself (e.g. on page reload when session is already active)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") setReady(true);
     });
 
-    // If already in a recovery session (e.g. page reload), check now
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) setReady(true);
+      else if (!accessToken) setTokenErr(true);
     });
 
     return () => subscription.unsubscribe();
@@ -61,7 +81,7 @@ export default function ResetPasswordPage() {
 
       <div className="w-full max-w-sm bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl shadow-sm p-8">
 
-        {/* ── Success ──────────────────────────────────────────────────── */}
+        {/* ── Success ───────────────────────────────────────────────────── */}
         {view === "success" && (
           <div className="text-center py-2">
             <div className="w-14 h-14 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-4">
@@ -69,7 +89,7 @@ export default function ResetPasswordPage() {
             </div>
             <h1 className="text-xl font-bold text-[#2d2926] mb-2">Password updated!</h1>
             <p className="text-sm text-[#7a6f65] mb-6">
-              Your password has been changed. You can now log in with your new password.
+              Your password has been changed. You&apos;re now logged in.
             </p>
             <button
               onClick={() => router.push("/dashboard")}
@@ -80,20 +100,37 @@ export default function ResetPasswordPage() {
           </div>
         )}
 
-        {/* ── Set new password form ─────────────────────────────────────── */}
-        {view === "form" && (
+        {/* ── Invalid / expired link ─────────────────────────────────────── */}
+        {view === "form" && tokenErr && (
+          <div className="text-center py-2">
+            <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
+              <span className="text-2xl">🔗</span>
+            </div>
+            <h1 className="text-xl font-bold text-[#2d2926] mb-2">Link expired or invalid</h1>
+            <p className="text-sm text-[#7a6f65] mb-6">
+              Password reset links expire after 1 hour. Request a new one from the login page.
+            </p>
+            <Link
+              href="/login"
+              className="block w-full text-center bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-medium py-3 rounded-xl transition-colors text-sm"
+            >
+              Back to Login
+            </Link>
+          </div>
+        )}
+
+        {/* ── Set new password form ──────────────────────────────────────── */}
+        {view === "form" && !tokenErr && (
           <>
             <h1 className="text-2xl font-bold text-[#2d2926] mb-1">Set new password</h1>
             <p className="text-sm text-[#7a6f65] mb-7">
               Choose a strong password for your account.
             </p>
 
-            {!ready && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
-                <p className="text-sm text-amber-700">
-                  Waiting for the reset link to authenticate… if this persists, go back to your
-                  email and click the link again.
-                </p>
+            {!ready && !tokenErr && (
+              <div className="bg-[#f8f7f4] border border-[#e8e2d9] rounded-xl px-4 py-3 mb-4 flex items-center gap-2">
+                <span className="w-4 h-4 border-2 border-[#5c7f63]/30 border-t-[#5c7f63] rounded-full animate-spin shrink-0" />
+                <p className="text-sm text-[#7a6f65]">Verifying your reset link…</p>
               </div>
             )}
 
