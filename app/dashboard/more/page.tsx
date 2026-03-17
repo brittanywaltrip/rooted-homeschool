@@ -51,7 +51,12 @@ export default function MorePage() {
       {/* Profile card */}
       <div className="bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 flex items-center gap-4">
         <div className="w-12 h-12 rounded-full bg-[#5c7f63] flex items-center justify-center text-white text-lg font-bold">
-          🌿
+          {profile?.display_name
+            ? (() => {
+                const words = profile.display_name.replace(/\bfamily\b/gi, "").trim().split(/\s+/).filter(Boolean);
+                return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "🌿";
+              })()
+            : "🌿"}
         </div>
         <div>
           <p className="font-semibold text-[#2d2926]">

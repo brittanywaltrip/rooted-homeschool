@@ -500,9 +500,11 @@ export default function TodayPage() {
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
 
-    const { data: profile } = await supabase
-      .from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle();
-    setFamilyName(profile?.display_name || "");
+    const [{ data: profile }, { data: { user: authUser } }] = await Promise.all([
+      supabase.from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle(),
+      supabase.auth.getUser(),
+    ]);
+    setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
 
     const { data: childrenData } = await supabase
       .from("children").select("id, name, color")
