@@ -1026,6 +1026,7 @@ export default function Home() {
               <Link href="/signup"  className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Sign Up</Link>
               <Link href="/privacy" className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Privacy</Link>
               <Link href="/terms"   className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Terms</Link>
+              <Link href="/contact" className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Contact</Link>
             </div>
             <div className="flex items-center justify-center gap-4 mt-2">
               <a href="https://instagram.com/rootedhomeschool" target="_blank" rel="noopener noreferrer"

@@ -48,6 +48,10 @@ export default function PrivacyPage() {
             <p className="leading-relaxed">If you have questions about this Privacy Policy or your data, please contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>. We are a small family-run company and will respond personally to every inquiry.</p>
           </section>
         </div>
+
+        <div className="mt-12 pt-8 border-t border-[#e8e2d9] text-center">
+          <p className="text-sm text-[#7a6f65]">Questions? <a href="/contact" className="text-[#5c7f63] hover:underline">Contact us</a> or email <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a></p>
+        </div>
       </div>
     </main>
   )
