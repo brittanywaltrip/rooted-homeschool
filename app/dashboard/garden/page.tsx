@@ -321,9 +321,9 @@ export default function GardenPage() {
         >
           <defs>
             <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#fef3e8" />
-              <stop offset="30%"  stopColor="#b8d8f0" />
-              <stop offset="65%"  stopColor="#8ec8e8" />
+              <stop offset="0%"   stopColor="#e8f4fc" />
+              <stop offset="30%"  stopColor="#93c9e8" />
+              <stop offset="65%"  stopColor="#72b8e0" />
               <stop offset="100%" stopColor="#c8e8d0" />
             </linearGradient>
             <filter id="watercolor" x="-5%" y="-5%" width="110%" height="110%">
