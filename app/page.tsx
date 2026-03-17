@@ -326,63 +326,66 @@ export default function Home() {
       </header>
 
       {/* ── 2. HERO ────────────────────────────────────────────────────────── */}
-      <section className="relative flex flex-col items-center justify-center text-center px-6 py-28 min-h-[92vh] overflow-hidden" style={{ background: "linear-gradient(160deg, #1a3a2a 0%, #2d5c3a 25%, #3d7a4a 50%, #4a8a55 70%, #5c9a60 100%)" }}>
+      <section className="relative flex flex-col items-center justify-center text-center px-6 py-28 min-h-[92vh] overflow-hidden" style={{ background: "linear-gradient(175deg, #0d2818 0%, #1a4a28 20%, #2d6a3a 45%, #3a7a45 65%, #2d5c35 85%, #1a3a22 100%)" }}>
 
         {/* Animated forest background elements */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
           {/* Stars/fireflies */}
           {[
-            { top: "15%", left: "8%", size: 3, delay: "0s" },
-            { top: "25%", left: "18%", size: 2, delay: "0.5s" },
-            { top: "10%", left: "35%", size: 2.5, delay: "1s" },
-            { top: "20%", left: "55%", size: 2, delay: "0.3s" },
-            { top: "12%", left: "72%", size: 3, delay: "0.8s" },
-            { top: "30%", left: "88%", size: 2, delay: "0.2s" },
-            { top: "8%", left: "92%", size: 2.5, delay: "1.2s" },
+            { top: "15%", left: "8%", size: 2.5, delay: "0s" },
+            { top: "25%", left: "18%", size: 1.5, delay: "0.5s" },
+            { top: "10%", left: "35%", size: 2, delay: "1s" },
+            { top: "20%", left: "55%", size: 1.5, delay: "0.3s" },
+            { top: "12%", left: "72%", size: 2.5, delay: "0.8s" },
+            { top: "30%", left: "88%", size: 1.5, delay: "0.2s" },
+            { top: "8%", left: "92%", size: 2, delay: "1.2s" },
           ].map((s, i) => (
-            <div key={i} className="absolute rounded-full bg-white" style={{ top: s.top, left: s.left, width: s.size, height: s.size, opacity: 0.4, animation: `pulse ${2 + i * 0.3}s ease-in-out infinite`, animationDelay: s.delay }} />
+            <div key={i} className="absolute rounded-full bg-white" style={{ top: s.top, left: s.left, width: s.size, height: s.size, opacity: 0.25, animation: `pulse ${2 + i * 0.3}s ease-in-out infinite`, animationDelay: s.delay }} />
           ))}
 
-          {/* Large illustrated trees - left side */}
-          <svg className="absolute bottom-0 left-0 h-[85%] w-auto opacity-30" viewBox="0 0 200 400" fill="none">
-            <rect x="88" y="280" width="24" height="120" rx="8" fill="#5c3d1e"/>
-            <circle cx="100" cy="220" r="80" fill="#2d5c2a"/>
-            <circle cx="70" cy="250" r="55" fill="#3d6a35"/>
-            <circle cx="130" cy="250" r="55" fill="#3d6a35"/>
-            <circle cx="100" cy="160" r="65" fill="#4a7a40"/>
-            <circle cx="75" cy="185" r="45" fill="#5c8a4a"/>
-            <circle cx="125" cy="185" r="45" fill="#5c8a4a"/>
+          {/* Left large pine tree */}
+          <svg className="absolute bottom-0 left-[-2%] h-[90%] w-auto opacity-25" viewBox="0 0 160 500" fill="none">
+            <rect x="72" y="400" width="16" height="100" fill="#3d2010"/>
+            <polygon points="80,20 20,180 140,180" fill="#1a4a20"/>
+            <polygon points="80,80 15,240 145,240" fill="#1e5a25"/>
+            <polygon points="80,150 10,300 150,300" fill="#245e2a"/>
+            <polygon points="80,220 5,360 155,360" fill="#2a6830"/>
+            <polygon points="80,300 0,420 160,420" fill="#306838"/>
           </svg>
 
-          {/* Large illustrated trees - right side */}
-          <svg className="absolute bottom-0 right-0 h-[75%] w-auto opacity-25" viewBox="0 0 200 400" fill="none">
-            <rect x="88" y="300" width="20" height="100" rx="7" fill="#5c3d1e"/>
-            <circle cx="100" cy="240" r="70" fill="#1e4a1e"/>
-            <circle cx="72" cy="265" r="50" fill="#2d5c2a"/>
-            <circle cx="128" cy="265" r="50" fill="#2d5c2a"/>
-            <circle cx="100" cy="185" r="60" fill="#3d6a35"/>
-            <circle cx="78" cy="210" r="42" fill="#4a7a40"/>
-            <circle cx="122" cy="210" r="42" fill="#4a7a40"/>
+          {/* Right large pine tree */}
+          <svg className="absolute bottom-0 right-[-2%] h-[80%] w-auto opacity-20" viewBox="0 0 140 500" fill="none">
+            <rect x="62" y="400" width="16" height="100" fill="#3d2010"/>
+            <polygon points="70,30 18,170 122,170" fill="#162040"/>
+            <polygon points="70,90 12,230 128,230" fill="#1a2a48"/>
+            <polygon points="70,160 8,285 132,285" fill="#1e3450"/>
+            <polygon points="70,230 4,340 136,340" fill="#243858"/>
+            <polygon points="70,305 0,400 140,400" fill="#2a4060"/>
           </svg>
 
-          {/* Smaller mid trees */}
-          <svg className="absolute bottom-0 left-[15%] h-[55%] w-auto opacity-20" viewBox="0 0 120 300" fill="none">
-            <rect x="54" y="200" width="12" height="100" rx="5" fill="#5c3d1e"/>
-            <circle cx="60" cy="160" r="50" fill="#2d5c2a"/>
-            <circle cx="60" cy="120" r="42" fill="#3d6a35"/>
+          {/* Left mid pine */}
+          <svg className="absolute bottom-0 left-[12%] h-[60%] w-auto opacity-[0.18]" viewBox="0 0 100 400" fill="none">
+            <rect x="45" y="320" width="10" height="80" fill="#3d2010"/>
+            <polygon points="50,30 10,150 90,150" fill="#1a4a20"/>
+            <polygon points="50,90 5,200 95,200" fill="#1e5225"/>
+            <polygon points="50,155 0,265 100,265" fill="#245228"/>
+            <polygon points="50,225 0,330 100,330" fill="#2a5c2e"/>
           </svg>
 
-          <svg className="absolute bottom-0 right-[18%] h-[48%] w-auto opacity-20" viewBox="0 0 120 300" fill="none">
-            <rect x="54" y="200" width="12" height="100" rx="5" fill="#5c3d1e"/>
-            <circle cx="60" cy="155" r="48" fill="#1e4a1e"/>
-            <circle cx="60" cy="115" r="40" fill="#2d5c2a"/>
+          {/* Right mid pine */}
+          <svg className="absolute bottom-0 right-[14%] h-[55%] w-auto opacity-[0.15]" viewBox="0 0 100 400" fill="none">
+            <rect x="45" y="320" width="10" height="80" fill="#3d2010"/>
+            <polygon points="50,40 12,155 88,155" fill="#122038"/>
+            <polygon points="50,100 8,210 92,210" fill="#162840"/>
+            <polygon points="50,165 4,270 96,270" fill="#1a3048"/>
+            <polygon points="50,235 0,335 100,335" fill="#1e3850"/>
           </svg>
+
+          {/* Moonlight glow */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] opacity-15 rounded-full" style={{ background: "radial-gradient(ellipse at center, rgba(200,220,160,0.6) 0%, transparent 70%)" }}/>
 
           {/* Ground fog/mist */}
-          <div className="absolute bottom-0 left-0 right-0 h-32" style={{ background: "linear-gradient(to top, rgba(92,154,96,0.3) 0%, transparent 100%)" }}/>
-
-          {/* Soft light ray from top */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-full opacity-10" style={{ background: "linear-gradient(180deg, rgba(255,255,200,0.8) 0%, transparent 60%)" }}/>
+          <div className="absolute bottom-0 left-0 right-0 h-32" style={{ background: "linear-gradient(to top, rgba(45,100,50,0.4) 0%, transparent 100%)" }}/>
         </div>
 
         {/* Vignette */}
