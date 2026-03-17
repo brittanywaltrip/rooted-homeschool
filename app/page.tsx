@@ -17,8 +17,8 @@ function TodayMockup() {
       </div>
       <div className="p-4 space-y-3">
         <div>
-          <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Monday, March 16</p>
-          <p className="text-sm font-bold text-[#2d2926]">Good morning, Smith! 👋</p>
+          <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Tuesday, March 17</p>
+          <p className="text-sm font-bold text-[#2d2926]">Good morning, Waltrip! 👋</p>
         </div>
         {/* tree card */}
         <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] rounded-xl p-3 flex gap-3 items-center">
@@ -74,7 +74,7 @@ function GardenMockup() {
         {/* ground */}
         <div className="absolute bottom-0 left-0 right-0 h-8 bg-[#5c8a57] rounded-t-[40%]" />
         {/* trees */}
-        {[{ x: "28%", emoji: "🌲", label: "Emma", leaves: 31 }, { x: "62%", emoji: "🌳", label: "Noah", leaves: 14 }].map((t) => (
+        {[{ x: "28%", emoji: "🌳", label: "Zoe", leaves: 100 }, { x: "62%", emoji: "🌳", label: "Emma", leaves: 100 }].map((t) => (
           <div key={t.label} className="absolute text-center" style={{ bottom: "18%", left: t.x, transform: "translateX(-50%)" }}>
             <div className="text-3xl">{t.emoji}</div>
             <span className="text-[9px] font-bold bg-white/80 px-1.5 py-0.5 rounded-full text-[#2d2926]">{t.label}</span>
@@ -86,8 +86,8 @@ function GardenMockup() {
       <div className="p-3">
         <div className="flex items-center justify-between bg-[#e8f5ea] rounded-xl px-3 py-2">
           <div>
-            <p className="text-[10px] text-[#5c7f63] font-bold uppercase tracking-widest">Emma · Sapling</p>
-            <p className="text-xs text-[#2d2926]">31 leaves earned</p>
+            <p className="text-[10px] text-[#5c7f63] font-bold uppercase tracking-widest">Waltrip Family · Thriving</p>
+            <p className="text-xs text-[#2d2926]">200 leaves earned</p>
           </div>
           <div className="flex gap-1">
             {["⭐","🌱","🍃","🌿"].map((b) => (
@@ -110,8 +110,8 @@ function ReportMockup() {
       <div className="p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Emma&apos;s Progress Report</p>
-            <p className="text-[10px] text-[#7a6f65]">Aug 1 – Mar 16, 2025</p>
+            <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Zoe&apos;s Progress Report</p>
+            <p className="text-[10px] text-[#7a6f65]">Aug 1 – Mar 17, 2026</p>
           </div>
           <div className="flex items-center gap-1 text-[10px] bg-[#5c7f63] text-white px-2 py-1 rounded-lg">
             🖨️ Print
@@ -119,10 +119,10 @@ function ReportMockup() {
         </div>
         <div className="grid grid-cols-4 gap-1.5">
           {[
-            { label: "Lessons", value: "94" },
-            { label: "Hours",   value: "47h" },
-            { label: "Books",   value: "12" },
-            { label: "Subjects",value: "6" },
+            { label: "Lessons", value: "53" },
+            { label: "Hours",   value: "26h" },
+            { label: "Books",   value: "8" },
+            { label: "Subjects",value: "4" },
           ].map(({ label, value }) => (
             <div key={label} className="text-center bg-[#f0ede8] rounded-lg py-2">
               <p className="text-sm font-bold text-[#2d2926]">{value}</p>
