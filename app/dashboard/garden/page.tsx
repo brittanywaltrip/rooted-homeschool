@@ -125,21 +125,19 @@ function Sun() {
   return (
     <div className="absolute top-4 right-5 sun-glow" style={{ width: 56, height: 56 }}>
       <svg viewBox="0 0 56 56" className="w-full h-full" overflow="visible">
-        {/* Soft radial glow behind sun */}
-        <circle cx="28" cy="28" r="32" fill="#fff3a0" opacity="0.3" />
-        <g className="sun-rays-spin" style={{ transformOrigin: "28px 28px" }}>
-          {[0, 45, 90, 135].map((a) => (
-            <line key={a} x1="28" y1="6" x2="28" y2="1" stroke="#ffc93d" strokeWidth="2.5"
-              strokeLinecap="round" transform={`rotate(${a} 28 28)`} opacity="0.8" />
-          ))}
-          {[22.5, 67.5, 112.5, 157.5].map((a) => (
-            <line key={a} x1="28" y1="7.5" x2="28" y2="3" stroke="#ffd86b" strokeWidth="1.5"
-              strokeLinecap="round" transform={`rotate(${a} 28 28)`} opacity="0.8" />
-          ))}
-        </g>
-        <circle cx="28" cy="28" r="14" fill="#ffd84d" opacity="1" />
-        <circle cx="28" cy="28" r="10" fill="#ffe680" opacity="0.9" />
-        <circle cx="24" cy="24" r="2.5" fill="#fff5a0" opacity="0.6" />
+        {/* Very large soft painterly glow */}
+        <circle cx="28" cy="28" r="48" fill="#fef3c7" opacity="0.5" />
+        <circle cx="28" cy="28" r="36" fill="#fef3c7" opacity="0.3" />
+        {/* Short soft dashes like a child's drawing — no spinning */}
+        {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
+          <line key={a} x1="28" y1="11" x2="28" y2="7"
+            stroke="#f6c243" strokeWidth="2" strokeLinecap="round"
+            opacity="0.4" transform={`rotate(${a} 28 28)`} />
+        ))}
+        {/* Sun disc — warm golden yellow */}
+        <circle cx="28" cy="28" r="14" fill="#f9d77e" />
+        <circle cx="28" cy="28" r="10" fill="#fce49c" opacity="0.6" />
+        <circle cx="24" cy="24" r="2.5" fill="#fff8d6" opacity="0.5" />
       </svg>
     </div>
   );
@@ -155,27 +153,33 @@ function Cloud({ x, y, scale = 1, delay = 0, alt = false }: {
         transformOrigin: "left center", animationDelay: `${delay}s` }}
     >
       <svg viewBox="0 0 90 42" width="90" height="42">
-        <ellipse cx="45" cy="30" rx="43" ry="13" fill="#ffffff" opacity="0.9" />
-        <ellipse cx="26" cy="26" rx="20" ry="17" fill="#ffffff" opacity="0.9" />
-        <ellipse cx="60" cy="24" rx="18" ry="18" fill="#ffffff" opacity="0.9" />
-        <ellipse cx="45" cy="20" rx="28" ry="18" fill="#ffffff" opacity="0.9" />
-        <ellipse cx="45" cy="30" rx="43" ry="13" fill="rgba(200,230,255,0.15)" />
+        {/* Warm shadow underneath — hand-painted feel */}
+        <ellipse cx="45" cy="37" rx="38" ry="5" fill="#e8d8c0" opacity="0.2" />
+        {/* Overlapping circles for organic cloud shape */}
+        <circle cx="18" cy="30" r="12" fill="#fefcf8" opacity="0.92" />
+        <circle cx="32" cy="24" r="16" fill="#fefcf8" opacity="0.92" />
+        <circle cx="52" cy="22" r="15" fill="#fefcf8" opacity="0.92" />
+        <circle cx="68" cy="27" r="12" fill="#fefcf8" opacity="0.92" />
+        <circle cx="42" cy="29" r="13" fill="#fefcf8" opacity="0.88" />
+        <circle cx="24" cy="32" r="10" fill="#fefcf8" opacity="0.85" />
+        <circle cx="60" cy="31" r="10" fill="#fefcf8" opacity="0.85" />
       </svg>
     </div>
   );
 }
 
-function Flower({ x, color = "#ff9ec4" }: { x: number; color?: string }) {
+function Flower({ x, color = "#e8a0a0" }: { x: number; color?: string }) {
   return (
     <div className="absolute" style={{ bottom: "27%", left: `${x}%` }}>
-      <svg viewBox="0 0 18 24" width="12" height="16">
-        <line x1="9" y1="24" x2="9" y2="12" stroke="#5c7f63" strokeWidth="1.5" />
-        <circle cx="9" cy="9" r="3" fill={color} opacity="0.9" />
-        {[0, 72, 144, 216, 288].map((a) => (
-          <ellipse key={a} cx="9" cy="9" rx="2" ry="4" fill={color} opacity="0.7"
-            transform={`rotate(${a} 9 9)`} />
-        ))}
-        <circle cx="9" cy="9" r="2" fill="#ffd84d" />
+      <svg viewBox="0 0 20 26" width="13" height="17">
+        {/* Thin painterly stem */}
+        <line x1="10" y1="26" x2="10" y2="14" stroke="#8aaa78" strokeWidth="1" strokeLinecap="round" />
+        {/* Cluster of soft overlapping circles */}
+        <circle cx="7"  cy="12" r="4"   fill={color} opacity="0.72" />
+        <circle cx="13" cy="11" r="3.5" fill={color} opacity="0.68" />
+        <circle cx="10" cy="9"  r="4.5" fill={color} opacity="0.75" />
+        <circle cx="6"  cy="8"  r="3"   fill={color} opacity="0.60" />
+        <circle cx="14" cy="8"  r="3"   fill={color} opacity="0.60" />
       </svg>
     </div>
   );
@@ -303,11 +307,38 @@ export default function GardenPage() {
       <div
         className="relative w-full overflow-hidden rounded-3xl shadow-md"
         style={{
-          background: "linear-gradient(180deg, #a8c8e8 0%, #c4dff0 25%, #deeef8 50%, #e8f4e8 75%, #7ab87a 100%)",
+          background: "#fef8f0",
           aspectRatio: "16/9",
           minHeight: 200,
         }}
       >
+        {/* Full-scene SVG: watercolor defs + textured background wash */}
+        <svg
+          className="absolute inset-0 w-full h-full"
+          viewBox="0 0 400 225"
+          preserveAspectRatio="xMidYMid slice"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stopColor="#fef8f0" />
+              <stop offset="55%"  stopColor="#ddeef8" />
+              <stop offset="100%" stopColor="#c8e8d0" />
+            </linearGradient>
+            <filter id="watercolor" x="-5%" y="-5%" width="110%" height="110%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" result="noise"/>
+              <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise"/>
+              <feBlend in="SourceGraphic" in2="grayNoise" mode="multiply" result="blend"/>
+              <feComposite in="blend" in2="SourceGraphic" operator="in"/>
+            </filter>
+            <filter id="softBlur">
+              <feGaussianBlur stdDeviation="0.8"/>
+            </filter>
+          </defs>
+          {/* Watercolor-textured background */}
+          <rect width="400" height="225" fill="url(#skyGrad)" filter="url(#watercolor)" />
+        </svg>
+
         {/* Sun */}
         <Sun />
 
@@ -321,30 +352,30 @@ export default function GardenPage() {
         <Butterfly x={72} y={24} delay={1.8} color="#fbbf24" />
         <Butterfly x={45} y={38} delay={3.2} color="#86efac" />
 
-        {/* Ground layers */}
+        {/* Ground layers — watercolor rolling hills */}
         <div className="absolute bottom-0 left-0 right-0 overflow-hidden" style={{ height: "32%" }}>
           <svg viewBox="0 0 400 100" preserveAspectRatio="xMidYMax slice" className="w-full h-full">
-            {/* Back hill */}
-            <path d="M0 55 Q80 32 160 50 Q240 68 320 44 Q380 28 400 48 L400 100 L0 100 Z"
-              fill="#8aba6a" opacity="0.6" />
-            {/* Mid ground */}
-            <path d="M0 65 Q100 48 200 62 Q300 76 400 58 L400 100 L0 100 Z"
-              fill="#5c8a47" />
-            {/* Soil edge */}
-            <path d="M0 65 Q100 48 200 62 Q300 76 400 58" fill="none"
-              stroke="#6aa050" strokeWidth="1.5" opacity="0.8" />
-            {/* Soil */}
-            <path d="M0 75 Q100 68 200 73 Q300 78 400 70 L400 100 L0 100 Z"
-              fill="#3d6030" />
+            {/* Back hill — soft sage watercolor wash */}
+            <path d="M0 56 Q60 28 130 48 Q205 68 280 42 Q350 22 400 44 L400 100 L0 100 Z"
+              fill="#c8ddb8" opacity="0.85" filter="url(#softBlur)" />
+            {/* Middle hill — medium sage, slightly richer */}
+            <path d="M0 66 Q85 44 175 60 Q268 76 355 58 Q382 54 400 57 L400 100 L0 100 Z"
+              fill="#a8c898" filter="url(#softBlur)" />
+            {/* Soft hill edge */}
+            <path d="M0 66 Q85 44 175 60 Q268 76 355 58 Q382 54 400 57" fill="none"
+              stroke="#8aaa78" strokeWidth="1" opacity="0.4" />
+            {/* Front hill — deepest sage, most saturated */}
+            <path d="M0 77 Q88 67 182 74 Q278 81 372 70 Q390 68 400 70 L400 100 L0 100 Z"
+              fill="#7aaa78" filter="url(#softBlur)" />
           </svg>
         </div>
 
-        {/* Decorative flowers */}
-        <Flower x={3}  color="#e8758a" />
-        <Flower x={6}  color="#f5e070" />
-        <Flower x={88} color="#e8758a" />
-        <Flower x={92} color="#f5e070" />
-        <Flower x={95} color="#e8758a" />
+        {/* Decorative flowers — soft painterly palette */}
+        <Flower x={3}  color="#e8a0a0" />
+        <Flower x={6}  color="#f5e6c8" />
+        <Flower x={88} color="#c8b8d8" />
+        <Flower x={92} color="#e8a0a0" />
+        <Flower x={95} color="#f5e6c8" />
 
         {/* Trees */}
         {children.length === 0 ? (
