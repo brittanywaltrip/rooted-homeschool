@@ -12,15 +12,27 @@ const navItems = [
   { label: "Plan",      href: "/dashboard/plan",       icon: Calendar  },
   { label: "Garden",    href: "/dashboard/garden",     icon: Leaf      },
   { label: "Resources", href: "/dashboard/resources",  icon: BookOpen  },
+  { label: "Progress",  href: "/dashboard/progress",   icon: FileText  },
   { label: "Memories",  href: "/dashboard/memories",   icon: Camera    },
   { label: "Reports",   href: "/dashboard/reports",    icon: FileText  },
 ];
 
+function getISOWeekKey(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const weekNum = 1 + Math.round(
+    ((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7
+  );
+  return `${d.getFullYear()}-W${weekNum}`;
+}
+
 function NavLink({
-  label, href, icon: Icon, active, onClick,
+  label, href, icon: Icon, active, onClick, badge,
 }: {
   label: string; href: string; icon: React.ElementType;
-  active: boolean; onClick?: () => void;
+  active: boolean; onClick?: () => void; badge?: boolean;
 }) {
   return (
     <Link
@@ -32,7 +44,12 @@ function NavLink({
           : "text-[#7a6f65] hover:bg-[#f0ede8] hover:text-[#2d2926]"
       }`}
     >
-      <Icon size={17} strokeWidth={active ? 2.5 : 1.8} />
+      <div className="relative">
+        <Icon size={17} strokeWidth={active ? 2.5 : 1.8} />
+        {badge && (
+          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#c4956a] border border-[#fefcf9]" />
+        )}
+      </div>
       {label}
       {active && (
         <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#5c7f63]" />
@@ -44,20 +61,35 @@ function NavLink({
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
-  const [checking,    setChecking]    = useState(true);
-  const [menuOpen,    setMenuOpen]    = useState(false);
-  const [familyName,  setFamilyName]  = useState("");
+  const [checking,        setChecking]        = useState(true);
+  const [menuOpen,        setMenuOpen]        = useState(false);
+  const [familyName,      setFamilyName]      = useState("");
+  const [resourcesBadge,  setResourcesBadge]  = useState(false);
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
     isPartner: false,
     effectiveUserId: "",
     ownerName: "",
   });
 
+  // Clear badge when user visits Resources
+  useEffect(() => {
+    if (pathname === "/dashboard/resources") {
+      localStorage.setItem("resources_seen_week", getISOWeekKey());
+      setResourcesBadge(false);
+    }
+  }, [pathname]);
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) {
         router.replace("/login");
         return;
+      }
+
+      // Check if Resources has new Fresh Drops this week
+      const seenWeek = localStorage.getItem("resources_seen_week");
+      if (seenWeek !== getISOWeekKey()) {
+        setResourcesBadge(true);
       }
 
       // Load family name
@@ -179,6 +211,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             icon={icon}
             active={isActive(href)}
             onClick={() => setMenuOpen(false)}
+            badge={href === "/dashboard/resources" && resourcesBadge}
           />
         ))}
       </nav>

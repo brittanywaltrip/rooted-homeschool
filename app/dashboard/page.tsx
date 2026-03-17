@@ -44,6 +44,16 @@ const STAGES = [
   { name: "Thriving", min: 100, max: Infinity, desc: "Fully flourishing", color: "#2d5c38" },
 ];
 
+const ONBOARD_COLORS = [
+  { label: "Green",  value: "#5c7f63" },
+  { label: "Sage",   value: "#7a9e7e" },
+  { label: "Blue",   value: "#4a7a8a" },
+  { label: "Indigo", value: "#5a5c8a" },
+  { label: "Purple", value: "#7a5c8a" },
+  { label: "Orange", value: "#c4956a" },
+  { label: "Pink",   value: "#c4697a" },
+];
+
 function getStage(leaves: number) {
   return STAGES.find((s) => leaves >= s.min && leaves <= s.max) ?? STAGES[0];
 }
@@ -278,6 +288,134 @@ function LessonRow({
   );
 }
 
+// ─── Onboarding Flow ──────────────────────────────────────────────────────────
+
+function OnboardingFlow({ onDone }: { onDone: () => void }) {
+  const [step,       setStep]       = useState(0);
+  const [childName,  setChildName]  = useState("");
+  const [childColor, setChildColor] = useState(ONBOARD_COLORS[0].value);
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState("");
+
+  async function addChild() {
+    if (!childName.trim()) return;
+    setSaving(true);
+    setError("");
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSaving(false); return; }
+    const { error: err } = await supabase.from("children").insert({
+      user_id: user.id, name: childName.trim(), color: childColor, sort_order: 0,
+    });
+    setSaving(false);
+    if (err) { setError("Couldn't save. Please try again."); return; }
+    setStep(2);
+  }
+
+  if (step === 0) {
+    return (
+      <div className="max-w-lg mx-auto px-5 py-12 text-center">
+        <div className="text-6xl mb-6">🌿</div>
+        <h1 className="text-2xl font-bold text-[#2d2926] mb-3">Welcome to Rooted!</h1>
+        <p className="text-[#7a6f65] mb-8 leading-relaxed max-w-sm mx-auto">
+          Your peaceful homeschool companion. Plan days, track lessons, celebrate milestones, and watch your children grow.
+        </p>
+        <div className="grid grid-cols-3 gap-3 mb-8">
+          {[
+            { emoji: "🗓️", label: "Plan your days" },
+            { emoji: "📈", label: "Track growth" },
+            { emoji: "🌱", label: "Stay grounded" },
+          ].map((f) => (
+            <div key={f.label} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
+              <div className="text-2xl mb-1">{f.emoji}</div>
+              <p className="text-xs font-medium text-[#5c7f63]">{f.label}</p>
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={() => setStep(1)}
+          className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-medium py-3 rounded-xl transition-colors"
+        >
+          Get Started →
+        </button>
+      </div>
+    );
+  }
+
+  if (step === 1) {
+    return (
+      <div className="max-w-sm mx-auto px-5 py-12">
+        <div className="text-4xl mb-4 text-center">👧</div>
+        <h2 className="text-xl font-bold text-[#2d2926] mb-2 text-center">Add your first child</h2>
+        <p className="text-sm text-[#7a6f65] mb-6 text-center">
+          You can add more children later in Settings.
+        </p>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child&apos;s name *</label>
+            <input
+              value={childName}
+              onChange={(e) => setChildName(e.target.value)}
+              placeholder="e.g. Emma"
+              autoFocus
+              onKeyDown={(e) => e.key === "Enter" && addChild()}
+              className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-2">Color</label>
+            <div className="flex gap-2 flex-wrap">
+              {ONBOARD_COLORS.map((c) => (
+                <button
+                  key={c.value}
+                  onClick={() => setChildColor(c.value)}
+                  className={`w-8 h-8 rounded-full transition-transform ${
+                    childColor === c.value ? "ring-2 ring-offset-2 ring-[#5c7f63] scale-110" : "hover:scale-105"
+                  }`}
+                  style={{ backgroundColor: c.value }}
+                  title={c.label}
+                />
+              ))}
+            </div>
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={() => setStep(0)}
+              className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+            >
+              Back
+            </button>
+            <button
+              onClick={addChild}
+              disabled={saving || !childName.trim()}
+              className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+            >
+              {saving ? "Saving…" : "Add Child →"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // step 2: done
+  return (
+    <div className="max-w-sm mx-auto px-5 py-12 text-center">
+      <div className="text-6xl mb-6">🌱</div>
+      <h2 className="text-xl font-bold text-[#2d2926] mb-3">You&apos;re all set!</h2>
+      <p className="text-[#7a6f65] mb-8 leading-relaxed">
+        {childName} is ready to start learning. Add lessons from the Plan page or log completed work right here.
+      </p>
+      <button
+        onClick={onDone}
+        className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-medium py-3 rounded-xl transition-colors"
+      >
+        Go to My Dashboard 🌿
+      </button>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TodayPage() {
@@ -321,6 +459,25 @@ export default function TodayPage() {
   const [editChildId,   setEditChildId]   = useState("");
   const [savingEdit,    setSavingEdit]    = useState(false);
 
+  // ── Leaf count refresh (correct per-child, includes book events) ───────────
+
+  const refreshLeafCounts = useCallback(async () => {
+    if (!effectiveUserId) return;
+    const [{ data: completed }, { data: bookEvents }] = await Promise.all([
+      supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
+      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+    ]);
+    const counts: Record<string, number> = {};
+    completed?.forEach((l) => {
+      if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
+    });
+    bookEvents?.forEach((e) => {
+      const cid = e.payload?.child_id;
+      if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
+    });
+    setLeafCounts(counts);
+  }, [effectiveUserId]);
+
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
 
@@ -346,7 +503,9 @@ export default function TodayPage() {
     ]);
 
     const counts: Record<string, number> = {};
-    completed?.forEach((l) => { counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
+    completed?.forEach((l) => {
+      if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
+    });
     bookEvents?.forEach((e) => {
       const cid = e.payload?.child_id;
       if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
@@ -382,14 +541,7 @@ export default function TodayPage() {
   async function toggleLesson(id: string, current: boolean) {
     setLessons((prev) => prev.map((l) => (l.id === id ? { ...l, completed: !current } : l)));
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data: completed } = await supabase
-      .from("lessons").select("child_id").eq("user_id", user.id).eq("completed", true);
-    const counts: Record<string, number> = {};
-    completed?.forEach((l) => { counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
-    setLeafCounts(counts);
+    await refreshLeafCounts();
   }
 
   function openEdit(lesson: Lesson) {
@@ -433,7 +585,6 @@ export default function TodayPage() {
       child_id:   editChildId || null,
     }).eq("id", editingLesson.id);
 
-    // Update local state optimistically
     setLessons((prev) => prev.map((l) => {
       if (l.id !== editingLesson.id) return l;
       const subName = editSubject.trim();
@@ -451,20 +602,9 @@ export default function TodayPage() {
   }
 
   async function deleteLesson(id: string) {
-    const lesson = lessons.find((l) => l.id === id);
-
-    // Optimistic removal
     setLessons((prev) => prev.filter((l) => l.id !== id));
-
-    // Decrement leaf count if this completed lesson counted toward it
-    if (lesson?.completed && lesson.child_id) {
-      setLeafCounts((prev) => ({
-        ...prev,
-        [lesson.child_id]: Math.max(0, (prev[lesson.child_id] ?? 0) - 1),
-      }));
-    }
-
     await supabase.from("lessons").delete().eq("id", id);
+    await refreshLeafCounts();
   }
 
   // ── Add lesson ────────────────────────────────────────────────────────────
@@ -571,8 +711,9 @@ export default function TodayPage() {
     ? lessons
     : lessons.filter((l) => l.child_id === selectedChildId);
 
+  // Only sum leaves for known children (guards against null child_id pollution)
   const treeLeaves = selectedChildId === "all"
-    ? Object.values(leafCounts).reduce((a, b) => a + b, 0)
+    ? children.reduce((sum, c) => sum + (leafCounts[c.id] ?? 0), 0)
     : leafCounts[selectedChildId] ?? 0;
 
   const treeLabel = selectedChildId === "all"
@@ -591,6 +732,11 @@ export default function TodayPage() {
         </div>
       </div>
     );
+  }
+
+  // Onboarding for brand-new users with no children yet
+  if (children.length === 0) {
+    return <OnboardingFlow onDone={loadData} />;
   }
 
   return (
