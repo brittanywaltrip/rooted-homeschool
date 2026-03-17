@@ -484,7 +484,7 @@ export default function Home() {
               className="text-3xl sm:text-4xl font-bold text-[#2d2926]"
               style={{ fontFamily: "var(--font-display)" }}
             >
-              Five pillars of a peaceful homeschool
+              Everything you need to homeschool with confidence
             </h2>
           </div>
 
