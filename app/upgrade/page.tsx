@@ -1,37 +1,55 @@
 'use client'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
-async function startCheckout(plan: 'founding' | 'standard', setLoading: (v: boolean) => void) {
-  setLoading(true)
-  try {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) { setLoading(false); return }
-
-    const res = await fetch('/api/stripe/checkout', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ plan }),
-    })
-    const { url, error } = await res.json()
-    if (error) { console.error(error); setLoading(false); return }
-    if (url) window.location.href = url
-  } catch (e) {
-    console.error(e)
-    setLoading(false)
-  }
-}
-
 export default function UpgradePage() {
+  const router = useRouter()
   const [loadingPlan, setLoadingPlan] = useState<'founding' | 'standard' | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  function handleClick(plan: 'founding' | 'standard') {
+  async function handleClick(plan: 'founding' | 'standard') {
+    setError(null)
     setLoadingPlan(plan)
-    startCheckout(plan, (v) => { if (!v) setLoadingPlan(null) })
+
+    try {
+      // Get current session — redirects to login if missing
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        router.push('/login')
+        return
+      }
+
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ plan }),
+      })
+
+      const json = await res.json()
+
+      if (!res.ok || json.error) {
+        setError(json.error ?? 'Something went wrong. Please try again.')
+        setLoadingPlan(null)
+        return
+      }
+
+      if (json.url) {
+        window.location.href = json.url
+        // keep loading spinner while Stripe redirects
+      } else {
+        setError('No checkout URL returned. Please try again.')
+        setLoadingPlan(null)
+      }
+    } catch (e) {
+      console.error(e)
+      setError('Network error. Please check your connection and try again.')
+      setLoadingPlan(null)
+    }
   }
 
   return (
@@ -46,6 +64,13 @@ export default function UpgradePage() {
             Unlock everything. Support a homeschool mom building her dream.
           </p>
         </div>
+
+        {/* Error banner */}
+        {error && (
+          <div className="mb-5 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
+            {error}
+          </div>
+        )}
 
         {/* Pricing cards */}
         <div className="space-y-4 mb-8">
