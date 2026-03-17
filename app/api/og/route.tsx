@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const dateTo   = searchParams.get('to')        || ''
 
   const dateLabel = dateFrom && dateTo
-    ? `${fmt(dateFrom)} – ${fmt(dateTo)}`
+    ? `${dateFrom} – ${dateTo}`
     : 'Homeschool Family Update'
 
   return new ImageResponse(
@@ -125,12 +125,3 @@ export async function GET(req: NextRequest) {
   )
 }
 
-function fmt(dateStr: string) {
-  try {
-    return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', {
-      month: 'long', day: 'numeric', year: 'numeric',
-    })
-  } catch {
-    return dateStr
-  }
-}

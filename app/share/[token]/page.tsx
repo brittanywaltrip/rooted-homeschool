@@ -58,7 +58,8 @@ export async function generateMetadata(
 
   const title       = `${family}'s Homeschool Update`
   const description = data.narrative?.slice(0, 150).trimEnd() + (data.narrative?.length > 150 ? '…' : '')
-  const ogImageUrl  = `${BASE_URL}/api/og?family=${encodeURIComponent(family)}&from=${data.date_from}&to=${data.date_to}`
+  const fmtShort = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const ogImageUrl  = `${BASE_URL}/api/og?family=${encodeURIComponent(family)}&from=${encodeURIComponent(fmtShort(data.date_from))}&to=${encodeURIComponent(fmtShort(data.date_to))}`
   const pageUrl     = `${BASE_URL}/share/${token}`
 
   return {
