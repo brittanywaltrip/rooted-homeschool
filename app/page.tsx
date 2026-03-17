@@ -65,23 +65,31 @@ function GardenMockup() {
         <span className="text-xs font-semibold text-[#2d2926]">Garden</span>
       </div>
       {/* garden scene */}
-      <div className="relative overflow-hidden" style={{
-        background: "linear-gradient(180deg,#5bafd4 0%,#b2e4f0 55%,#c8ecb8 75%,#7ec46a 100%)",
-        height: 110,
-      }}>
-        <span className="absolute top-2 right-3 text-2xl">☀️</span>
-        <span className="absolute" style={{ top: "18%", left: "12%" }}>🌤️</span>
-        {/* ground */}
-        <div className="absolute bottom-0 left-0 right-0 h-8 bg-[#5c8a57] rounded-t-[40%]" />
-        {/* trees */}
-        {[{ x: "28%", emoji: "🌳", label: "Zoe", leaves: 100 }, { x: "62%", emoji: "🌳", label: "Emma", leaves: 100 }].map((t) => (
-          <div key={t.label} className="absolute text-center" style={{ bottom: "18%", left: t.x, transform: "translateX(-50%)" }}>
-            <div className="text-3xl">{t.emoji}</div>
+      <div className="relative overflow-hidden" style={{ background: "linear-gradient(180deg, #e8f4fc 0%, #93c9e8 35%, #72b8e0 65%, #c8e8d0 100%)", height: 110 }}>
+        {/* Sun with glow */}
+        <div className="absolute top-2 right-3" style={{ width: 28, height: 28 }}>
+          <div className="absolute inset-0 rounded-full" style={{ background: "#fef3c7", transform: "scale(1.8)", opacity: 0.5 }} />
+          <div className="absolute inset-0 rounded-full" style={{ background: "#f9d77e" }} />
+        </div>
+        {/* Clouds */}
+        <div className="absolute" style={{ top: "12%", left: "8%" }}>
+          <div className="rounded-full" style={{ width: 32, height: 14, background: "#fefcf8", opacity: 0.9 }} />
+        </div>
+        <div className="absolute" style={{ top: "8%", left: "48%" }}>
+          <div className="rounded-full" style={{ width: 28, height: 12, background: "#fefcf8", opacity: 0.9 }} />
+        </div>
+        {/* Butterfly */}
+        <span className="absolute text-sm" style={{ top: "35%", left: "42%" }}>🦋</span>
+        {/* Hills */}
+        <div className="absolute bottom-0 left-0 right-0" style={{ height: 40, background: "#a8c898", borderRadius: "60% 60% 0 0" }} />
+        <div className="absolute bottom-0 left-0 right-0" style={{ height: 28, background: "#7aaa78", borderRadius: "50% 50% 0 0" }} />
+        {/* Trees */}
+        {[{ x: "28%", label: "Zoe" }, { x: "62%", label: "Emma" }].map((t) => (
+          <div key={t.label} className="absolute text-center" style={{ bottom: "22%", left: t.x, transform: "translateX(-50%)" }}>
+            <div style={{ fontSize: 28 }}>🌳</div>
             <span className="text-[9px] font-bold bg-white/80 px-1.5 py-0.5 rounded-full text-[#2d2926]">{t.label}</span>
           </div>
         ))}
-        {/* butterflies */}
-        <span className="absolute text-base" style={{ top: "30%", left: "45%" }}>🦋</span>
       </div>
       <div className="p-3">
         <div className="flex items-center justify-between bg-[#e8f5ea] rounded-xl px-3 py-2">
@@ -90,7 +98,7 @@ function GardenMockup() {
             <p className="text-xs text-[#2d2926]">200 leaves earned</p>
           </div>
           <div className="flex gap-1">
-            {["⭐","🌱","🍃","🌿"].map((b) => (
+            {["⭐","🌱","🍃","🌳"].map((b) => (
               <span key={b} className="text-sm">{b}</span>
             ))}
           </div>
@@ -396,15 +404,6 @@ export default function Home() {
 
         {/* Content */}
         <div className="relative z-10 flex flex-col items-center max-w-3xl">
-          <div className="anim-fade-in-up delay-0 inline-flex items-center gap-2 bg-white/12 backdrop-blur-sm border border-white/20 text-white/90 text-[11px] font-semibold px-4 py-1.5 rounded-full mb-6 tracking-widest uppercase">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#7ec46a] inline-block shrink-0" />
-            Now in Beta · Join Free
-          </div>
-
-          <p className="anim-fade-in-up delay-100 text-[11px] font-semibold uppercase tracking-[0.28em] text-white/55 mb-5">
-            The homeschool companion families love
-          </p>
-
           <h1 className="anim-fade-in-up delay-150 text-5xl sm:text-6xl lg:text-[5rem] font-bold leading-[1.08] mb-6 text-white" style={{ fontFamily: "var(--font-display)", textShadow: "0 2px 32px rgba(0,0,0,0.4)", letterSpacing: "-0.02em" }}>
             Stay Rooted.{" "}
             <em className="not-italic" style={{ color: "#86c98a" }}>Teach with</em>{" "}
@@ -412,20 +411,20 @@ export default function Home() {
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
-            The calm, all-in-one companion for homeschool families. Plan lessons, celebrate growth, and generate compliance reports — without the overwhelm.
+            Your family&apos;s calm, beautiful homeschool companion. 🌿
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
             <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#3d5c42] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35), 0 0 48px rgba(134,201,138,0.12)" }}>
-              Start Free — It&apos;s Free →
+              Get Started Free →
             </Link>
             <a href="#features" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base" style={{ border: "1px solid rgba(255,255,255,0.35)", backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.06)" }}>
-              See How It Works
+              See Inside →
             </a>
           </div>
 
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
-            <span>🌱</span> Join 200+ families already growing
+            <span>🌱</span> Loved by 200+ homeschool families
           </p>
         </div>
 
@@ -532,42 +531,42 @@ export default function Home() {
                 title: "Plan Your Days",
                 color: "#e8f0e9",
                 border: "#b8d9bc",
-                desc: "Schedule lessons weeks ahead, see what's up today, and keep the whole family's learning on track — without living in a spreadsheet.",
+                desc: "Schedule lessons, see what\u2019s up today, and keep the whole family on track.",
               },
               {
                 emoji: "🌱",
                 title: "Watch Them Grow",
                 color: "#f0f7e0",
                 border: "#c8d8a0",
-                desc: "The Garden gives every child a living tree that grows with each lesson. Five stages, badges to earn, and a visual record of progress.",
+                desc: "Every lesson earns a leaf. Watch each child\u2019s tree bloom through five stages.",
               },
               {
                 emoji: "📚",
                 title: "Curated Resources",
                 color: "#e8f4f8",
                 border: "#a8d0e0",
-                desc: "Educator discounts, virtual field trips, free printables, science projects, and state requirements — all in one curated tab.",
+                desc: "Discounts, field trips, printables, science projects, and state requirements \u2014 curated for you.",
               },
               {
                 emoji: "📸",
                 title: "Capture Memories",
                 color: "#fef3e0",
                 border: "#f0d090",
-                desc: "Log photos, projects, and books as they happen. Build a living record of your family's learning story over the years.",
+                desc: "Log photos, projects, and books as they happen. Build your family\u2019s story.",
               },
               {
                 emoji: "📋",
                 title: "Generate Reports",
                 color: "#f5ede0",
                 border: "#d4b896",
-                desc: "Print professional progress reports for state compliance. Configure by child and date range, then print or save as PDF in one click.",
+                desc: "Professional compliance reports in one click. Print or save as PDF.",
               },
               {
                 emoji: "💡",
                 title: "Insights & Streaks",
                 color: "#f0e8f8",
                 border: "#c8a8e0",
-                desc: "See your learning streaks, most active days, and how this week compares to last. Celebrate consistency with data that motivates.",
+                desc: "See streaks, active days, and how this week compares to last.",
               },
             ].map((f) => (
               <div
@@ -586,80 +585,6 @@ export default function Home() {
               </div>
             ))}
           </div>
-        </div>
-      </section>
-
-      {/* ── 6. HOW IT WORKS ────────────────────────────────────────────────── */}
-      <section className="px-6 sm:px-8 py-20 max-w-5xl mx-auto">
-        <div className="text-center mb-16">
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-            Getting started
-          </p>
-          <h2
-            className="text-3xl sm:text-4xl font-bold text-[#2d2926]"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            Up and running in minutes
-          </h2>
-        </div>
-
-        <div className="relative grid md:grid-cols-3 gap-14 md:gap-8">
-          {/* Dashed connector — desktop only */}
-          <div
-            className="hidden md:block absolute inset-x-16 pointer-events-none"
-            style={{ top: "1.9rem", borderTop: "2px dashed rgba(92,127,99,0.28)" }}
-            aria-hidden="true"
-          />
-
-          {[
-            {
-              num: "1",
-              emoji: "🌱",
-              title: "Create your family profile",
-              desc: "Add children with a name and a color. Customize your family name. Takes 60 seconds — no tutorials required.",
-            },
-            {
-              num: "2",
-              emoji: "📚",
-              title: "Log lessons as you go",
-              desc: "Check off lessons throughout your day. Watch the growth tree grow leaf by leaf, in real time, with every completion.",
-            },
-            {
-              num: "3",
-              emoji: "📋",
-              title: "Print your compliance report",
-              desc: "When it's time, generate a professional PDF progress report in one click. State-ready, beautifully formatted.",
-            },
-          ].map((step) => (
-            <div key={step.num} className="flex flex-col items-center text-center">
-              {/* Numbered circle — bg covers dashed line */}
-              <div className="relative z-10 w-16 h-16 rounded-full bg-[#fefcf9] border-2 border-[#5c7f63]/35 flex items-center justify-center mb-5 shadow-sm">
-                <span
-                  className="text-[1.6rem] font-bold text-[#5c7f63] leading-none"
-                  style={{ fontFamily: "var(--font-display)" }}
-                >
-                  {step.num}
-                </span>
-              </div>
-              <div className="text-3xl mb-3">{step.emoji}</div>
-              <h3
-                className="font-bold text-[#2d2926] text-base mb-2"
-                style={{ fontFamily: "var(--font-display)" }}
-              >
-                {step.title}
-              </h3>
-              <p className="text-sm text-[#7a6f65] leading-relaxed max-w-[16rem]">{step.desc}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="text-center mt-14">
-          <Link
-            href="/signup"
-            className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold px-9 py-4 rounded-xl transition-colors shadow-sm text-sm"
-          >
-            Get Started Free →
-          </Link>
         </div>
       </section>
 
