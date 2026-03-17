@@ -187,3 +187,24 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key in .env.local>
 ```
 
 `.env.local` is gitignored. Never commit credentials.
+
+---
+
+## Pricing Strategy
+
+### Tiers
+- **Free**: Today, Plan, Garden, Resources, 1 child, no photo storage
+- **Family** ($8/mo or $69/yr): Everything + unlimited children + photo memories + Reports
+- **Legacy** ($12/mo or $99/yr): Everything + AI Year in Review + Graduation Slideshow + PDF keepsakes
+
+### Infrastructure Costs (at scale)
+- Claude API: ~$0.003 per AI generation (negligible per user)
+- Supabase Free: up to ~500 users
+- Supabase Pro ($25/mo): 100GB storage, needed at ~500+ users
+- Target: profitable at 500 paying subscribers (~$4,500/mo revenue, <$100/mo costs)
+
+### Premium Features to Build (Legacy tier)
+- [ ] Graduation Slideshow — pulls all years of photos, milestones, stats into animated keepsake
+- [ ] AI Year in Review — Claude-written narrative of the family's homeschool year
+- [ ] PDF Keepsake export — printable graduation memory book
+- [ ] Multi-year progress charts — subject trends across years

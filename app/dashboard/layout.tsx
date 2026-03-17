@@ -109,7 +109,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         .eq("id", session.user.id)
         .maybeSingle();
       setFamilyName(
-        profile?.display_name || session.user.user_metadata?.family_name || "Your Family"
+        profile?.display_name || session.user.user_metadata?.family_name || ""
       );
 
       // ── Partner detection ──────────────────────────────────────────────────
@@ -213,7 +213,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
         <div className="min-w-0">
           <p className="text-[11px] text-[#b5aca4] leading-none mb-0.5">
-            {partnerCtx.isPartner ? "Viewing family" : "Signed in as"}
+            {partnerCtx.isPartner ? "Viewing family" : "Welcome back,"}
           </p>
           <p className="text-sm font-medium text-[#5c7f63] truncate leading-tight">
             {displayName || "Your Family"}
