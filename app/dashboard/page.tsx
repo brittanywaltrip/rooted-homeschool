@@ -107,56 +107,75 @@ function FloatingLeaves({ active }: { active: boolean }) {
 // ─── Tree SVG ─────────────────────────────────────────────────────────────────
 
 function TreeIllustration({ stageIndex }: { stageIndex: number }) {
-  const stage = stageIndex + 1;
   return (
     <svg viewBox="0 0 100 110" className="w-full h-full" aria-hidden>
       <ellipse cx="50" cy="98" rx="28" ry="5" fill="#d4b896" opacity="0.4" />
-      {stage >= 1 && stage < 2 && (
+
+      {/* Stage 0 – Seed: tiny oval with micro sprout */}
+      {stageIndex === 0 && (
         <g>
-          <path d="M44 86 Q50 76 56 86 Q50 96 44 86" fill="#8b6f47" />
-          <path d="M50 78 Q53 70 50 64" stroke="#7a9e7e" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+          <ellipse cx="50" cy="92" rx="9" ry="7" fill="#8b6f47" />
+          <ellipse cx="50" cy="91" rx="5" ry="3.5" fill="#6b5237" opacity="0.4" />
+          <path d="M50 85 Q50 79 50 73" stroke="#7a9e7e" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+          <path d="M50 80 Q43 77 42 70 Q48 73 50 80" fill="#7a9e7e" />
         </g>
       )}
-      {stage >= 2 && (
+
+      {/* Stage 1 – Sprout: thin stem, two visible leaves */}
+      {stageIndex === 1 && (
         <g>
-          <rect x="48" y="66" width="4" height="32" rx="2" fill="#8b6f47" />
-          <path d="M50 75 Q34 64 39 50 Q50 60 50 75" fill="#7a9e7e" />
-          <path d="M50 75 Q66 64 61 50 Q50 60 50 75" fill="#5c7f63" />
+          <path d="M50 96 Q50 82 50 70" stroke="#8b6f47" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          <path d="M50 84 Q39 78 37 68 Q47 72 50 84" fill="#7a9e7e" />
+          <path d="M50 84 Q61 78 63 68 Q53 72 50 84" fill="#5c7f63" />
+          <ellipse cx="50" cy="68" rx="4" ry="5.5" fill="#3d5c42" />
         </g>
       )}
-      {stage >= 3 && (
+
+      {/* Stage 2 – Sapling: short trunk, small canopy (3 circles) */}
+      {stageIndex === 2 && (
         <g>
-          <rect x="47" y="54" width="6" height="14" rx="3" fill="#8b6f47" />
-          <path d="M50 67 Q30 55 36 38 Q48 50 50 67" fill="#5c7f63" />
-          <path d="M50 67 Q70 55 64 38 Q52 50 50 67" fill="#7a9e7e" />
-          <circle cx="50" cy="36" r="16" fill="#5c7f63" opacity="0.9" />
-          <circle cx="50" cy="26" r="11" fill="#3d5c42" />
+          <rect x="47" y="73" width="6" height="25" rx="3" fill="#8b6f47" />
+          <path d="M50 81 Q38 79 34 71" stroke="#8b6f47" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+          <path d="M50 81 Q62 79 66 71" stroke="#8b6f47" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+          <circle cx="42" cy="65" r="11" fill="#7a9e7e" />
+          <circle cx="58" cy="65" r="11" fill="#7a9e7e" />
+          <circle cx="50" cy="56" r="14" fill="#5c7f63" />
         </g>
       )}
-      {stage >= 4 && (
+
+      {/* Stage 3 – Growing: taller trunk, spreading branches, 5-circle canopy */}
+      {stageIndex === 3 && (
         <g>
-          <rect x="46" y="54" width="8" height="14" rx="4" fill="#8b6f47" />
-          <path d="M50 68 Q24 54 30 34 Q46 48 50 68" fill="#5c7f63" />
-          <path d="M50 68 Q76 54 70 34 Q54 48 50 68" fill="#7a9e7e" />
-          <circle cx="34" cy="42" r="16" fill="#7a9e7e" opacity="0.95" />
-          <circle cx="66" cy="42" r="16" fill="#7a9e7e" opacity="0.95" />
-          <circle cx="50" cy="32" r="19" fill="#5c7f63" />
-          <circle cx="50" cy="20" r="13" fill="#3d5c42" />
+          <rect x="46" y="63" width="8" height="35" rx="4" fill="#8b6f47" />
+          <path d="M50 73 Q33 71 27 61" stroke="#8b6f47" strokeWidth="2" fill="none" strokeLinecap="round" />
+          <path d="M50 73 Q67 71 73 61" stroke="#8b6f47" strokeWidth="2" fill="none" strokeLinecap="round" />
+          <circle cx="30" cy="52" r="15" fill="#7a9e7e" />
+          <circle cx="70" cy="52" r="15" fill="#7a9e7e" />
+          <circle cx="50" cy="43" r="18" fill="#5c7f63" />
+          <circle cx="38" cy="35" r="12" fill="#3d5c42" opacity="0.9" />
+          <circle cx="62" cy="35" r="12" fill="#3d5c42" opacity="0.9" />
         </g>
       )}
-      {stage >= 5 && (
+
+      {/* Stage 4 – Thriving: full lush multi-layer canopy with blossoms */}
+      {stageIndex === 4 && (
         <g>
-          <rect x="45" y="56" width="10" height="14" rx="5" fill="#8b6f47" />
-          <path d="M50 70 Q18 55 26 28 Q44 46 50 70" fill="#5c7f63" />
-          <path d="M50 70 Q82 55 74 28 Q56 46 50 70" fill="#7a9e7e" />
-          <circle cx="28" cy="48" r="18" fill="#7a9e7e" />
-          <circle cx="72" cy="48" r="18" fill="#7a9e7e" />
-          <circle cx="40" cy="60" r="13" fill="#5c7f63" opacity="0.9" />
-          <circle cx="60" cy="60" r="13" fill="#5c7f63" opacity="0.9" />
-          <circle cx="50" cy="32" r="22" fill="#5c7f63" />
+          <rect x="44" y="57" width="12" height="41" rx="6" fill="#8b6f47" />
+          <path d="M50 69 Q26 65 18 53" stroke="#8b6f47" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          <path d="M50 69 Q74 65 82 53" stroke="#8b6f47" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          <path d="M50 63 Q36 57 32 47" stroke="#8b6f47" strokeWidth="2" fill="none" strokeLinecap="round" />
+          <path d="M50 63 Q64 57 68 47" stroke="#8b6f47" strokeWidth="2" fill="none" strokeLinecap="round" />
+          <circle cx="22" cy="47" r="18" fill="#7a9e7e" />
+          <circle cx="78" cy="47" r="18" fill="#7a9e7e" />
+          <circle cx="38" cy="59" r="14" fill="#5c7f63" opacity="0.9" />
+          <circle cx="62" cy="59" r="14" fill="#5c7f63" opacity="0.9" />
+          <circle cx="50" cy="34" r="22" fill="#5c7f63" />
+          <circle cx="35" cy="24" r="14" fill="#3d5c42" />
+          <circle cx="65" cy="24" r="14" fill="#3d5c42" />
           <circle cx="50" cy="16" r="15" fill="#3d5c42" />
-          <circle cx="36" cy="26" r="10" fill="#3d5c42" opacity="0.85" />
-          <circle cx="64" cy="26" r="10" fill="#3d5c42" opacity="0.85" />
+          <circle cx="22" cy="39" r="2.5" fill="#f9c2d0" opacity="0.85" />
+          <circle cx="78" cy="39" r="2.5" fill="#f9c2d0" opacity="0.85" />
+          <circle cx="50" cy="8"  r="2"   fill="#f9c2d0" opacity="0.9"  />
         </g>
       )}
     </svg>

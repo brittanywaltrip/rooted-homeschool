@@ -3,6 +3,7 @@
 import Link from "next/link";
 import HashRedirect from "./components/HashRedirect";
 import { useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 // ─── App mockup screenshots ───────────────────────────────────────────────────
 
@@ -159,8 +160,14 @@ function WaitlistForm() {
     e.preventDefault();
     if (!email.trim()) return;
     setLoading(true);
-    // Small delay for feel — backend can be wired later
-    await new Promise((r) => setTimeout(r, 800));
+    try {
+      await supabase.from("app_events").insert({
+        type: "waitlist_signup",
+        payload: { email: email.trim(), timestamp: new Date().toISOString() },
+      });
+    } catch {
+      // Silently continue — confirmation still shown to user
+    }
     setLoading(false);
     setSubmitted(true);
   }
@@ -363,82 +370,138 @@ export default function Home() {
       </section>
 
       {/* ── Pricing ────────────────────────────────────────── */}
-      <section className="px-6 py-20 max-w-3xl mx-auto text-center">
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">Simple, honest pricing</p>
-        <h2 className="text-3xl font-bold text-[#2d2926] mb-4">One plan. Everything included.</h2>
-        <p className="text-[#7a6f65] mb-12 max-w-lg mx-auto">
-          No tiers, no feature gating. Every family gets the full experience for one flat annual fee.
-        </p>
+      <section className="px-6 py-20 max-w-4xl mx-auto">
+        <div className="text-center mb-12">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">Simple, honest pricing</p>
+          <h2 className="text-3xl font-bold text-[#2d2926] mb-4">Start free. Grow with Rooted.</h2>
+          <p className="text-[#7a6f65] max-w-lg mx-auto">
+            Try everything free with one child. Upgrade when you&apos;re ready — lock in the founding price before it&apos;s gone.
+          </p>
+        </div>
 
-        <div className="flex flex-col sm:flex-row gap-5 justify-center items-stretch">
-          {/* Founding Family */}
-          <div className="flex-1 max-w-xs mx-auto relative bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border-2 border-[#5c7f63] rounded-3xl p-8 text-center shadow-md">
-            <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[#c4956a] text-white text-xs font-bold px-4 py-1 rounded-full whitespace-nowrap">
-              🌱 Founding Family
-            </div>
-            <p className="text-sm font-semibold text-[#5c7f63] mb-2 mt-2">Limited Offer</p>
+        {/* 3-column plan cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-10">
+          {/* Free */}
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Free Forever</p>
             <div className="flex items-end justify-center gap-1 mb-1">
-              <span className="text-5xl font-bold text-[#2d2926]">$39</span>
-              <span className="text-lg font-semibold text-[#5c7f63] mb-1">.99</span>
-              <span className="text-sm text-[#7a6f65] mb-1.5">/year</span>
+              <span className="text-4xl font-bold text-[#2d2926]">$0</span>
             </div>
-            <p className="text-xs text-[#8b6f47] mb-6 font-medium">Lock in this price forever · First 200 families</p>
-            <ul className="text-sm text-left space-y-2 mb-7">
+            <p className="text-xs text-[#b5aca4] mb-5">No credit card needed</p>
+            <ul className="text-sm text-left space-y-2 mb-6 flex-1">
+              {[
+                "1 child profile",
+                "Daily lesson tracking",
+                "Basic progress view",
+                "Garden (limited stages)",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
+                  <span className="text-[#b5aca4] mt-0.5 shrink-0">✓</span>{f}
+                </li>
+              ))}
+            </ul>
+            <Link href="/signup" className="block w-full border border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8] font-medium py-3 rounded-xl transition-colors text-sm">
+              Start Free
+            </Link>
+          </div>
+
+          {/* Founding Family — highlighted */}
+          <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border-2 border-[#5c7f63] rounded-2xl p-6 text-center flex flex-col shadow-md">
+            <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[#c4956a] text-white text-[11px] font-bold px-4 py-1 rounded-full whitespace-nowrap">
+              🌱 Best Value — First 200 Families
+            </div>
+            <p className="text-xs font-bold uppercase tracking-widest text-[#5c7f63] mb-3 mt-1">Founding Family</p>
+            <div className="flex items-end justify-center gap-1 mb-1">
+              <span className="text-4xl font-bold text-[#2d2926]">$39</span>
+              <span className="text-base font-semibold text-[#5c7f63] mb-0.5">.99</span>
+              <span className="text-sm text-[#7a6f65] mb-1">/year</span>
+            </div>
+            <p className="text-xs text-[#8b6f47] font-medium mb-5">Lock in forever · ~$3.33/month</p>
+            <ul className="text-sm text-left space-y-2 mb-6 flex-1">
               {[
                 "Unlimited children",
-                "All 5 app sections",
-                "Printable reports",
+                "All 6 app sections",
+                "Printable compliance reports",
                 "Streaks & insights",
+                "Memories & photo log",
                 "Priority support",
                 "Lifetime founding price 🎁",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#2d2926]">
-                  <span className="text-[#5c7f63] mt-0.5 shrink-0">✓</span>
-                  {f}
+                  <span className="text-[#5c7f63] mt-0.5 shrink-0">✓</span>{f}
                 </li>
               ))}
             </ul>
-            <Link
-              href="/signup"
-              className="block w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold py-3.5 rounded-xl transition-colors"
-            >
-              Claim Founding Price
+            <Link href="/signup" className="block w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold py-3 rounded-xl transition-colors text-sm">
+              Claim Founding Price →
             </Link>
           </div>
 
-          {/* Regular */}
-          <div className="flex-1 max-w-xs mx-auto bg-[#fefcf9] border border-[#e8e2d9] rounded-3xl p-8 text-center">
-            <p className="text-sm font-semibold text-[#b5aca4] mb-2 mt-2">Standard</p>
+          {/* Standard */}
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Standard</p>
             <div className="flex items-end justify-center gap-1 mb-1">
-              <span className="text-5xl font-bold text-[#2d2926]">$59</span>
-              <span className="text-lg font-semibold text-[#7a6f65] mb-1">.99</span>
-              <span className="text-sm text-[#b5aca4] mb-1.5">/year</span>
+              <span className="text-4xl font-bold text-[#2d2926]">$59</span>
+              <span className="text-base font-semibold text-[#7a6f65] mb-0.5">.99</span>
+              <span className="text-sm text-[#b5aca4] mb-1">/year</span>
             </div>
-            <p className="text-xs text-[#b5aca4] mb-6 font-medium">After founding period ends</p>
-            <ul className="text-sm text-left space-y-2 mb-7">
+            <p className="text-xs text-[#b5aca4] mb-5">After founding period ends</p>
+            <ul className="text-sm text-left space-y-2 mb-6 flex-1">
               {[
                 "Unlimited children",
-                "All 5 app sections",
-                "Printable reports",
+                "All 6 app sections",
+                "Printable compliance reports",
                 "Streaks & insights",
+                "Memories & photo log",
                 "Standard support",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
-                  <span className="text-[#b5aca4] mt-0.5 shrink-0">✓</span>
-                  {f}
+                  <span className="text-[#b5aca4] mt-0.5 shrink-0">✓</span>{f}
                 </li>
               ))}
             </ul>
-            <Link
-              href="/signup"
-              className="block w-full border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold py-3.5 rounded-xl transition-colors"
-            >
+            <Link href="/signup" className="block w-full border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold py-3 rounded-xl transition-colors text-sm">
               Start Free Trial
             </Link>
           </div>
         </div>
 
-        <p className="text-xs text-[#b5aca4] mt-8">
+        {/* Feature comparison table */}
+        <div className="overflow-x-auto rounded-2xl border border-[#e8e2d9]">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-[#f8f7f4] border-b border-[#e8e2d9]">
+                <th className="text-left px-4 py-3 font-semibold text-[#7a6f65]">Feature</th>
+                <th className="text-center px-4 py-3 font-semibold text-[#b5aca4]">Free</th>
+                <th className="text-center px-4 py-3 font-bold text-[#5c7f63] bg-[#f0f7f0]">Founding</th>
+                <th className="text-center px-4 py-3 font-semibold text-[#7a6f65]">Standard</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { feature: "Children",               free: "1",    founding: "Unlimited", standard: "Unlimited" },
+                { feature: "Lesson tracking",         free: "✓",    founding: "✓",         standard: "✓"         },
+                { feature: "Garden & growth tree",   free: "Basic", founding: "Full",      standard: "Full"      },
+                { feature: "Memories log",            free: "—",    founding: "✓",         standard: "✓"         },
+                { feature: "Curated resources",      free: "—",    founding: "✓",         standard: "✓"         },
+                { feature: "Streaks & insights",     free: "—",    founding: "✓",         standard: "✓"         },
+                { feature: "Compliance reports",     free: "—",    founding: "✓",         standard: "✓"         },
+                { feature: "Partner/co-parent view", free: "—",    founding: "✓",         standard: "✓"         },
+                { feature: "Priority support",       free: "—",    founding: "✓",         standard: "—"         },
+                { feature: "Founding price locked",  free: "—",    founding: "Forever 🎁", standard: "—"        },
+              ].map((row, i) => (
+                <tr key={row.feature} className={`border-b border-[#f0ede8] ${i % 2 === 0 ? "bg-white" : "bg-[#fefcf9]"}`}>
+                  <td className="px-4 py-3 text-[#2d2926] font-medium">{row.feature}</td>
+                  <td className="px-4 py-3 text-center text-[#b5aca4]">{row.free}</td>
+                  <td className="px-4 py-3 text-center text-[#3d5c42] font-medium bg-[#f0f7f0]">{row.founding}</td>
+                  <td className="px-4 py-3 text-center text-[#7a6f65]">{row.standard}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="text-xs text-[#b5aca4] mt-6 text-center">
           Try it free. No credit card needed to get started.
         </p>
       </section>
@@ -479,9 +542,11 @@ export default function Home() {
             <span className="font-medium text-[#7a6f65]">Rooted Homeschool</span>
           </div>
           <p>© {new Date().getFullYear()} Rooted Homeschool — Made with care for learning families</p>
-          <div className="flex gap-4">
-            <Link href="/login"  className="hover:text-[#5c7f63] transition-colors">Log In</Link>
-            <Link href="/signup" className="hover:text-[#5c7f63] transition-colors">Sign Up</Link>
+          <div className="flex gap-4 flex-wrap justify-center">
+            <Link href="/login"    className="hover:text-[#5c7f63] transition-colors">Log In</Link>
+            <Link href="/signup"   className="hover:text-[#5c7f63] transition-colors">Sign Up</Link>
+            <Link href="/privacy"  className="hover:text-[#5c7f63] transition-colors">Privacy Policy</Link>
+            <Link href="/terms"    className="hover:text-[#5c7f63] transition-colors">Terms of Service</Link>
           </div>
         </div>
       </footer>

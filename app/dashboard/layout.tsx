@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp } from "lucide-react";
+import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp, MoreHorizontal } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 
@@ -16,6 +16,15 @@ const navItems = [
   { label: "Insights",  href: "/dashboard/insights",   icon: TrendingUp },
   { label: "Memories",  href: "/dashboard/memories",   icon: Camera     },
   { label: "Reports",   href: "/dashboard/reports",    icon: FileText   },
+];
+
+// Primary tabs shown in mobile bottom nav
+const mobileBottomNav = [
+  { label: "Today",     href: "/dashboard",           icon: Sun      },
+  { label: "Garden",    href: "/dashboard/garden",    icon: Leaf     },
+  { label: "Resources", href: "/dashboard/resources", icon: BookOpen },
+  { label: "Memories",  href: "/dashboard/memories",  icon: Camera   },
+  { label: "Reports",   href: "/dashboard/reports",   icon: FileText },
 ];
 
 function getISOWeekKey(): string {
@@ -192,15 +201,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </Link>
       </div>
 
-      {/* Family name */}
-      {displayName && (
-        <div className="px-5 py-3 border-b border-[#f0ede8]">
-          <p className="text-xs text-[#b5aca4]">
+      {/* Family avatar + name */}
+      <div className="px-4 py-3 border-b border-[#f0ede8] flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-[#5c7f63] flex items-center justify-center shrink-0 text-sm font-bold text-white">
+          {displayName ? displayName.charAt(0).toUpperCase() : "🌿"}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[11px] text-[#b5aca4] leading-none mb-0.5">
             {partnerCtx.isPartner ? "Viewing family" : "Signed in as"}
           </p>
-          <p className="text-sm font-medium text-[#5c7f63] truncate">{displayName}</p>
+          <p className="text-sm font-medium text-[#5c7f63] truncate leading-tight">
+            {displayName || "Your Family"}
+          </p>
         </div>
-      )}
+      </div>
 
       {/* Nav */}
       <nav className="flex-1 p-3 space-y-0.5">
@@ -278,18 +292,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Main */}
         <main className="flex-1 md:ml-52 flex flex-col min-h-screen">
-          {/* Mobile top bar */}
-          <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9] sticky top-0 z-30">
-            <button
-              onClick={() => setMenuOpen(!menuOpen)}
-              className="text-[#7a6f65] p-0.5"
-            >
-              {menuOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
+          {/* Mobile top bar — brand only; primary nav is in bottom bar */}
+          <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9] sticky top-0 z-30">
             <div className="flex items-center gap-2">
               <span className="text-base">🌿</span>
               <span className="text-sm font-bold text-[#2d2926]">Rooted</span>
             </div>
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="text-[#7a6f65] p-1 rounded-lg hover:bg-[#f0ede8]"
+              aria-label="More options"
+            >
+              <MoreHorizontal size={20} />
+            </button>
           </div>
 
           {/* Partner banner */}
@@ -303,8 +318,42 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           )}
 
-          <div className="flex-1">{children}</div>
+          <div className="flex-1 pb-16 md:pb-0">{children}</div>
         </main>
+
+        {/* Mobile bottom nav bar */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#fefcf9] border-t border-[#e8e2d9] flex items-stretch safe-area-inset-bottom" style={{ height: "3.75rem" }}>
+          {mobileBottomNav.map(({ label, href, icon: Icon }) => {
+            const active = isActive(href);
+            const isBadged = href === "/dashboard/resources" && resourcesBadge;
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors ${
+                  active ? "text-[#3d5c42]" : "text-[#7a6f65]"
+                }`}
+              >
+                <div className={`relative p-1.5 rounded-lg ${active ? "bg-[#e8f0e9]" : ""}`}>
+                  <Icon size={18} strokeWidth={active ? 2.5 : 1.8} />
+                  {isBadged && (
+                    <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-[#c4956a] border border-[#fefcf9]" />
+                  )}
+                </div>
+                {label}
+              </Link>
+            );
+          })}
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium text-[#7a6f65]"
+          >
+            <div className="p-1.5 rounded-lg">
+              <Menu size={18} strokeWidth={1.8} />
+            </div>
+            More
+          </button>
+        </nav>
       </div>
     </PartnerContext.Provider>
   );
