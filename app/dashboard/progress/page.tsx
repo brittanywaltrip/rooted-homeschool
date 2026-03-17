@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import FinishLineSection from '@/components/FinishLineSection';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -306,6 +307,8 @@ export default function ProgressPage() {
           })}
         </div>
       )}
+
+      <FinishLineSection />
 
       {/* Subject Breakdown */}
       <div>

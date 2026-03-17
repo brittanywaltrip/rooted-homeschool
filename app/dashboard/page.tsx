@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import FinishLineSection from '@/components/FinishLineSection';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -818,6 +819,7 @@ export default function TodayPage() {
 
       {/* ── Growth Tree Card ──────────────────────────────── */}
       <GrowthTreeCard leaves={treeLeaves} childName={treeLabel} />
+      <FinishLineSection />
 
       {/* ── Today's Lessons ───────────────────────────────── */}
       <div>
