@@ -179,13 +179,31 @@ function Flower({ x, color = "#ff9ec4" }: { x: number; color?: string }) {
   );
 }
 
-function Butterfly({ x, y, delay = 0 }: { x: number; y: number; delay?: number }) {
+function Butterfly({ x, y, delay = 0, color = "#f9a8d4" }: { x: number; y: number; delay?: number; color?: string }) {
   return (
     <div className="absolute butterfly" style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${delay}s` }}>
-      <svg viewBox="0 0 20 14" width="16" height="11">
-        <path d="M10 7 Q4 2 2 5 Q1 9 6 9 Q9 9 10 7" fill="#f9a8d4" opacity="0.85" />
-        <path d="M10 7 Q16 2 18 5 Q19 9 14 9 Q11 9 10 7" fill="#f9a8d4" opacity="0.85" />
-        <line x1="10" y1="4" x2="10" y2="10" stroke="#78716c" strokeWidth="0.8" />
+      <svg viewBox="0 0 30 22" width="26" height="19">
+        {/* Upper wings */}
+        <path d="M15 11 Q8 3 3 5 Q0 9 3 13 Q7 16 12 13 Q14 12 15 11" fill={color} opacity="0.92" />
+        <path d="M15 11 Q22 3 27 5 Q30 9 27 13 Q23 16 18 13 Q16 12 15 11" fill={color} opacity="0.92" />
+        {/* Lower wings (smaller, rounder) */}
+        <path d="M15 12 Q10 15 8 18 Q11 21 14 18 Q15 16 15 12" fill={color} opacity="0.78" />
+        <path d="M15 12 Q20 15 22 18 Q19 21 16 18 Q15 16 15 12" fill={color} opacity="0.78" />
+        {/* Wing vein detail */}
+        <path d="M15 11 Q10 8 5 9" stroke="rgba(0,0,0,0.12)" strokeWidth="0.6" fill="none" />
+        <path d="M15 11 Q20 8 25 9" stroke="rgba(0,0,0,0.12)" strokeWidth="0.6" fill="none" />
+        {/* Spot markings */}
+        <circle cx="7"  cy="10" r="1.8" fill="rgba(255,255,255,0.45)" />
+        <circle cx="23" cy="10" r="1.8" fill="rgba(255,255,255,0.45)" />
+        <circle cx="9"  cy="17" r="1.2" fill="rgba(255,255,255,0.35)" />
+        <circle cx="21" cy="17" r="1.2" fill="rgba(255,255,255,0.35)" />
+        {/* Body */}
+        <ellipse cx="15" cy="12" rx="1.1" ry="4.5" fill="#5a4a3a" />
+        {/* Antennae */}
+        <path d="M14.2 8 Q12 4 10 2" stroke="#5a4a3a" strokeWidth="0.9" fill="none" strokeLinecap="round" />
+        <path d="M15.8 8 Q18 4 20 2" stroke="#5a4a3a" strokeWidth="0.9" fill="none" strokeLinecap="round" />
+        <circle cx="10" cy="1.8" r="1"   fill="#5a4a3a" />
+        <circle cx="20" cy="1.8" r="1"   fill="#5a4a3a" />
       </svg>
     </div>
   );
@@ -297,8 +315,9 @@ export default function GardenPage() {
         <Cloud x={55} y={6}  scale={0.85} delay={-2} />
 
         {/* Butterflies */}
-        <Butterfly x={12} y={30} delay={0} />
-        <Butterfly x={72} y={24} delay={1.8} />
+        <Butterfly x={12} y={30} delay={0}   color="#f9a8d4" />
+        <Butterfly x={72} y={24} delay={1.8} color="#fbbf24" />
+        <Butterfly x={45} y={38} delay={3.2} color="#86efac" />
 
         {/* Ground layers */}
         <div className="absolute bottom-0 left-0 right-0 overflow-hidden" style={{ height: "32%" }}>

@@ -717,7 +717,7 @@ export default function TodayPage() {
     : leafCounts[selectedChildId] ?? 0;
 
   const treeLabel = selectedChildId === "all"
-    ? (familyName ? `${familyName} Family` : "Your Family")
+    ? (familyName || "Your Family")
     : (children.find((c) => c.id === selectedChildId)?.name ?? "");
 
   const completedToday = filteredLessons.filter((l) => l.completed).length;

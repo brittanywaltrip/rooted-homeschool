@@ -227,8 +227,14 @@ export default function ReportsPage() {
     const d = l.date ?? l.scheduled_date;
     return d && d >= dateFrom && d <= dateTo && (selectedChild === "all" || l.child_id === selectedChild);
   });
-  const completedCount = filteredLessons.filter((l) => l.completed).length;
-  const totalHours     = filteredLessons.filter((l) => l.completed).reduce((s, l) => s + (l.hours ?? 0), 0);
+  const completedCount      = filteredLessons.filter((l) => l.completed).length;
+  const totalHours          = filteredLessons.filter((l) => l.completed).reduce((s, l) => s + (l.hours ?? 0), 0);
+  const filteredBooksCount  = books.filter((b) => {
+    const d = b.payload.date ?? "";
+    if (!d || d < dateFrom || d > dateTo) return false;
+    if (selectedChild !== "all" && b.payload.child_id && b.payload.child_id !== selectedChild) return false;
+    return true;
+  }).length;
 
   if (loading) {
     return (
@@ -325,10 +331,11 @@ export default function ReportsPage() {
         </div>
 
         {/* Quick stats preview */}
-        <div className="grid grid-cols-3 gap-2 pt-1">
+        <div className="grid grid-cols-4 gap-2 pt-1">
           {[
-            { label: "Lessons", value: completedCount },
-            { label: "Hours",   value: `${totalHours.toFixed(1)}h` },
+            { label: "Lessons",  value: completedCount },
+            { label: "Hours",    value: `${totalHours.toFixed(1)}h` },
+            { label: "Books",    value: filteredBooksCount },
             { label: "Subjects", value: subjects.length },
           ].map(({ label, value }) => (
             <div key={label} className="text-center bg-[#f8f5f0] rounded-xl py-2.5">
