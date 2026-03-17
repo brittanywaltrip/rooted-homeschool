@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Camera, BookOpen, FolderOpen, Sparkles, Download, X, ImageIcon } from "lucide-react";
+import { Camera, BookOpen, FolderOpen, Sparkles, Download, X, ImageIcon, ArrowRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import Link from "next/link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -226,40 +227,28 @@ export default function MemoriesPage() {
         </div>
       )}
 
-      {/* AI Summary teaser */}
-      <div className="bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
+      {/* AI Year in Review — live feature */}
+      <Link
+        href="/dashboard/year-in-review"
+        className="block bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 hover:from-[#ddeade] hover:to-[#c5e0c8] transition-colors group"
+      >
         <div className="flex items-start gap-3">
           <div className="w-9 h-9 rounded-xl bg-[#5c7f63] flex items-center justify-center shrink-0">
             <Sparkles size={16} className="text-white" />
           </div>
           <div className="flex-1">
-            <h3 className="font-semibold text-[#2d2926] text-sm mb-0.5">AI Year in Review</h3>
-            <p className="text-xs text-[#7a6f65] leading-relaxed">
-              Once you&apos;ve logged memories throughout the year, Rooted will automatically generate
-              a beautiful Year in Review — with photos, stats, highlights, and a story of your family&apos;s journey.
+            <h3 className="font-semibold text-[#2d2926] text-sm mb-0.5">AI Year in Review ✨</h3>
+            <p className="text-xs text-[#5c6e5d] leading-relaxed">
+              See your family&apos;s stats, read an AI-written story of your homeschool year, and
+              print a beautiful keepsake to share with grandparents.
             </p>
-            <span className="inline-block mt-2 text-[10px] font-semibold text-[#5c7f63] bg-white/60 px-2.5 py-1 rounded-full">
-              Coming soon
+            <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-[#5c7f63] bg-white/70 px-2.5 py-1 rounded-full group-hover:bg-white transition-colors">
+              Open Year in Review <ArrowRight size={10} />
             </span>
           </div>
+          <Download size={16} className="text-[#5c7f63] shrink-0 mt-0.5" />
         </div>
-      </div>
-
-      {/* Export teaser */}
-      <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 flex items-center gap-4">
-        <div className="w-9 h-9 rounded-xl bg-[#f5ede0] flex items-center justify-center shrink-0">
-          <Download size={16} className="text-[#8b6f47]" />
-        </div>
-        <div className="flex-1">
-          <h3 className="font-semibold text-[#2d2926] text-sm mb-0.5">Share with Grandparents</h3>
-          <p className="text-xs text-[#7a6f65]">
-            Export a beautiful PDF of your memories to share with family.
-          </p>
-          <span className="inline-block mt-1 text-[10px] font-semibold text-[#8b6f47] bg-[#f5ede0] px-2.5 py-1 rounded-full">
-            Coming soon
-          </span>
-        </div>
-      </div>
+      </Link>
 
       {/* Type filter tabs */}
       <div className="flex gap-2 flex-wrap">
