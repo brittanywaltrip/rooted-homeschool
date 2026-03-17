@@ -44,7 +44,7 @@ export async function generateMetadata(
   const { token } = await params
   const { data } = await supabaseAdmin()
     .from('family_updates')
-    .select('family_name, date_from, date_to, narrative')
+    .select('family_name, date_from, date_to, narrative, stats')
     .eq('token', token)
     .maybeSingle()
 
@@ -59,7 +59,21 @@ export async function generateMetadata(
   const title       = `${family}'s Homeschool Update`
   const description = data.narrative?.slice(0, 150).trimEnd() + (data.narrative?.length > 150 ? '…' : '')
   const fmtShort = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  const ogImageUrl  = `${BASE_URL}/api/og?family=${encodeURIComponent(family)}&from=${encodeURIComponent(fmtShort(data.date_from))}&to=${encodeURIComponent(fmtShort(data.date_to))}`
+
+  const s = data.stats as { lessons: number; books: number; photos: number; projects: number } | null
+  const previewParts: string[] = []
+  if (s?.lessons)  previewParts.push(`${s.lessons} lesson${s.lessons !== 1 ? 's' : ''} completed`)
+  if (s?.books)    previewParts.push(`${s.books} book${s.books !== 1 ? 's' : ''} read`)
+  if (s?.projects) previewParts.push(`${s.projects} project${s.projects !== 1 ? 's' : ''}`)
+  const preview = previewParts.join(' · ')
+
+  const ogImageUrl = [
+    `${BASE_URL}/api/og`,
+    `?family=${encodeURIComponent(family)}`,
+    `&from=${encodeURIComponent(fmtShort(data.date_from))}`,
+    `&to=${encodeURIComponent(fmtShort(data.date_to))}`,
+    preview ? `&preview=${encodeURIComponent(preview)}` : '',
+  ].join('')
   const pageUrl     = `${BASE_URL}/share/${token}`
 
   return {
