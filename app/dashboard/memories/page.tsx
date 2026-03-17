@@ -250,6 +250,28 @@ export default function MemoriesPage() {
         </div>
       </Link>
 
+      {/* Send Family Update */}
+      <Link
+        href="/dashboard/family-update"
+        className="block bg-gradient-to-br from-[#fef3e8] to-[#fde8d0] border border-[#f0d0a8] rounded-2xl p-5 hover:from-[#fdecd8] hover:to-[#fcdfc0] transition-colors group"
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-[#c4956a] flex items-center justify-center shrink-0 text-base">
+            📬
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold text-[#2d2926] text-sm mb-0.5">Send Family Update 📬</h3>
+            <p className="text-xs text-[#7a6050] leading-relaxed">
+              Generate a warm AI-written summary of your week or month and share it with
+              grandparents, friends, or your support group — no login required to view.
+            </p>
+            <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-[#c4956a] bg-white/70 px-2.5 py-1 rounded-full group-hover:bg-white transition-colors">
+              Create Update <ArrowRight size={10} />
+            </span>
+          </div>
+        </div>
+      </Link>
+
       {/* Type filter tabs */}
       <div className="flex gap-2 flex-wrap">
         {MEMORY_TYPES.map((t) => (
