@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Pencil, Trash2, Check, X, Plus, GripVertical, Users } from "lucide-react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -87,6 +87,12 @@ export default function SettingsPage() {
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
   const [deletingId,   setDeletingId]   = useState<string | null>(null);
 
+  // Family photo
+  const [familyPhotoUrl,  setFamilyPhotoUrl]  = useState<string | null>(null);
+  const [photoUploading,  setPhotoUploading]  = useState(false);
+  const [photoError,      setPhotoError]      = useState<string | null>(null);
+  const photoFileRef = useRef<HTMLInputElement>(null);
+
   // Partner access
   const [partnerEmail,      setPartnerEmail]      = useState("");
   const [savedPartnerEmail, setSavedPartnerEmail] = useState("");
@@ -104,16 +110,17 @@ export default function SettingsPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("display_name, partner_email")
+      .select("display_name, partner_email, family_photo_url")
       .eq("id", user.id)
       .maybeSingle();
 
     setFamilyName(
       profile?.display_name ?? user.user_metadata?.family_name ?? ""
     );
-    const pe = (profile as { display_name?: string; partner_email?: string } | null)?.partner_email ?? "";
+    const pe = (profile as { display_name?: string; partner_email?: string; family_photo_url?: string } | null)?.partner_email ?? "";
     setPartnerEmail(pe);
     setSavedPartnerEmail(pe);
+    setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
     const { data: kids } = await supabase
       .from("children")
@@ -142,6 +149,43 @@ export default function SettingsPage() {
     setSavingFamily(false);
     setSavedFamily(true);
     setTimeout(() => setSavedFamily(false), 2500);
+  }
+
+  // ── Family photo ──────────────────────────────────────────────────────────
+
+  async function uploadFamilyPhoto(file: File) {
+    setPhotoUploading(true);
+    setPhotoError(null);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setPhotoUploading(false); return; }
+
+    const ext  = file.name.split(".").pop() ?? "jpg";
+    const path = `${user.id}/family.${ext}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from("family-photos")
+      .upload(path, file, { contentType: file.type, upsert: true });
+
+    if (uploadErr) {
+      setPhotoError(
+        uploadErr.message.includes("Bucket not found")
+          ? "Create a public storage bucket named 'family-photos' in Supabase first."
+          : `Upload failed: ${uploadErr.message}`
+      );
+      setPhotoUploading(false);
+      return;
+    }
+
+    const { data: urlData } = supabase.storage.from("family-photos").getPublicUrl(path);
+    const url = urlData.publicUrl;
+
+    await supabase
+      .from("profiles")
+      .upsert({ id: user.id, family_photo_url: url }, { onConflict: "id" });
+
+    setFamilyPhotoUrl(url);
+    setPhotoUploading(false);
   }
 
   // ── Add child ─────────────────────────────────────────────────────────────
@@ -288,6 +332,64 @@ export default function SettingsPage() {
             <p className="text-sm text-[#b5aca4] px-3 py-2.5 bg-[#f8f5f0] rounded-xl border border-[#f0ede8]">
               {userEmail || "—"}
             </p>
+          </div>
+
+          {/* Family photo */}
+          <div>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-2">
+              Family photo
+              <span className="text-[#b5aca4] font-normal ml-1">(shown on your shareable updates)</span>
+            </label>
+            <div className="flex items-center gap-4">
+              {/* Current photo or placeholder */}
+              <div className="relative shrink-0">
+                {familyPhotoUrl ? (
+                  <img
+                    src={familyPhotoUrl}
+                    alt="Family photo"
+                    className="w-16 h-16 rounded-full object-cover border-2 border-[#e8e2d9]"
+                  />
+                ) : (
+                  <div className="w-16 h-16 rounded-full bg-[#e8f0e9] border-2 border-dashed border-[#c8ddb8] flex items-center justify-center">
+                    <Camera size={22} className="text-[#7aaa78]" />
+                  </div>
+                )}
+                {photoUploading && (
+                  <div className="absolute inset-0 rounded-full bg-black/30 flex items-center justify-center">
+                    <span className="text-white text-[10px] font-bold">…</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1 space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => photoFileRef.current?.click()}
+                  disabled={photoUploading}
+                  className="px-4 py-2 rounded-xl bg-[#f0ede8] hover:bg-[#e8e2d9] disabled:opacity-50 text-sm font-medium text-[#2d2926] transition-colors"
+                >
+                  {photoUploading ? "Uploading…" : familyPhotoUrl ? "Change Photo" : "Upload Photo"}
+                </button>
+                <p className="text-[11px] text-[#b5aca4]">JPG or PNG, square works best</p>
+              </div>
+            </div>
+
+            <input
+              ref={photoFileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) uploadFamilyPhoto(file);
+              }}
+            />
+
+            {photoError && (
+              <p className="mt-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                {photoError}
+              </p>
+            )}
           </div>
 
           {/* Family name */}

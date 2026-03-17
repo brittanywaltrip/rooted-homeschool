@@ -129,6 +129,14 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
   const dateRange = `${fmt(update.date_from, { month: 'long', day: 'numeric' })} – ${fmt(update.date_to)}`
   const dateShort = `${fmt(update.date_from, { month: 'short', day: 'numeric' })} – ${fmt(update.date_to, { month: 'short', day: 'numeric', year: 'numeric' })}`
 
+  // Fetch family profile photo
+  const { data: profile } = await db
+    .from('profiles')
+    .select('family_photo_url')
+    .eq('id', update.user_id)
+    .maybeSingle()
+  const familyPhotoUrl = (profile as { family_photo_url?: string } | null)?.family_photo_url ?? null
+
   // Fetch book titles + real photos from app_events
   const { data: events } = await db
     .from('app_events')
@@ -142,10 +150,12 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
     .filter(e => e.type === 'memory_book' && e.payload?.title)
     .map(e => e.payload.title as string)
 
-  // Use real photo URLs if available, otherwise fall back to picsum
+  // Use real photo URLs if ≥ 3 exist; otherwise fall back entirely to picsum
   const realPhotoUrls: string[] = (events ?? [])
     .filter(e => e.type === 'memory_photo' && (e.payload?.url || e.payload?.photo_url))
     .map(e => (e.payload.url || e.payload.photo_url) as string)
+    .slice(0, 6)
+  const useRealPhotos = realPhotoUrls.length >= 3
 
   const s = update.stats
 
@@ -240,6 +250,25 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
           <p className="text-white/55 text-[10px] font-bold uppercase tracking-[0.3em] mb-5">
             Homeschool Family Update
           </p>
+
+          {/* Family portrait */}
+          <div className="flex justify-center mb-5">
+            {familyPhotoUrl ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={familyPhotoUrl}
+                alt={`${family} family photo`}
+                className="w-20 h-20 rounded-full object-cover border-[3px] border-white/40 shadow-lg"
+              />
+            ) : (
+              <div
+                className="w-20 h-20 rounded-full border-[3px] border-white/30 shadow-lg flex items-center justify-center text-white text-2xl font-bold"
+                style={{ background: 'rgba(255,255,255,0.15)' }}
+              >
+                {initial}
+              </div>
+            )}
+          </div>
 
           {/* Family name — large, elegant */}
           <h1
@@ -419,26 +448,40 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
             Moments from This Season 📸
           </p>
           <div className="columns-2 gap-2.5 sm:gap-3">
-            {PHOTO_SLOTS.map((p, i) => {
-              const src = realPhotoUrls[i]
-                ?? `https://picsum.photos/seed/${p.seed}/${p.w}/${p.h}`
-              return (
-                <div
-                  key={p.seed}
-                  className="relative overflow-hidden rounded-2xl mb-2.5 sm:mb-3 break-inside-avoid bg-[#ede8de] shadow-sm"
-                  style={{ aspectRatio: `${p.w}/${p.h}` }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={src}
-                    alt={p.alt}
-                    loading="lazy"
-                    className="w-full h-full object-cover hover:scale-[1.03] transition-transform duration-700"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
-                </div>
-              )
-            })}
+            {useRealPhotos
+              ? realPhotoUrls.map((src, i) => (
+                  <div
+                    key={i}
+                    className="relative overflow-hidden rounded-2xl mb-2.5 sm:mb-3 break-inside-avoid bg-[#ede8de] shadow-sm"
+                    style={{ aspectRatio: i % 3 === 0 ? '3/4' : i % 3 === 1 ? '4/3' : '1/1' }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={src}
+                      alt="Memory photo"
+                      loading="lazy"
+                      className="w-full h-full object-cover hover:scale-[1.03] transition-transform duration-700"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
+                  </div>
+                ))
+              : PHOTO_SLOTS.map((p, i) => (
+                  <div
+                    key={p.seed}
+                    className="relative overflow-hidden rounded-2xl mb-2.5 sm:mb-3 break-inside-avoid bg-[#ede8de] shadow-sm"
+                    style={{ aspectRatio: `${p.w}/${p.h}` }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`https://picsum.photos/seed/${p.seed}/${p.w}/${p.h}`}
+                      alt={p.alt}
+                      loading="lazy"
+                      className="w-full h-full object-cover hover:scale-[1.03] transition-transform duration-700"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
+                  </div>
+                ))
+            }
           </div>
         </section>
 
