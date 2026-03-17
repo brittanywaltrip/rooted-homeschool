@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings } from "lucide-react";
+import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 const navItems = [
   { label: "Today",     href: "/dashboard",            icon: Sun       },
+  { label: "Plan",      href: "/dashboard/plan",       icon: Calendar  },
   { label: "Garden",    href: "/dashboard/garden",     icon: Leaf      },
   { label: "Resources", href: "/dashboard/resources",  icon: BookOpen  },
   { label: "Memories",  href: "/dashboard/memories",   icon: Camera    },
