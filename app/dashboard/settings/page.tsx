@@ -180,11 +180,18 @@ export default function SettingsPage() {
     const { data: urlData } = supabase.storage.from("family-photos").getPublicUrl(path);
     const url = urlData.publicUrl;
 
-    await supabase
+    const { error: upsertErr } = await supabase
       .from("profiles")
       .upsert({ id: user.id, family_photo_url: url }, { onConflict: "id" });
 
-    setFamilyPhotoUrl(url);
+    if (upsertErr) {
+      setPhotoError(`Saved photo but couldn't update profile: ${upsertErr.message}`);
+      setPhotoUploading(false);
+      return;
+    }
+
+    // Cache-bust so re-uploads to the same path always show the new image
+    setFamilyPhotoUrl(`${url}?t=${Date.now()}`);
     setPhotoUploading(false);
   }
 

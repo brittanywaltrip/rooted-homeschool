@@ -74,6 +74,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [checking,        setChecking]        = useState(true);
   const [menuOpen,           setMenuOpen]           = useState(false);
   const [familyName,         setFamilyName]         = useState("");
+  const [familyPhotoUrl,     setFamilyPhotoUrl]     = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [resourcesBadge,     setResourcesBadge]     = useState(false);
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
@@ -106,13 +107,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       // Load family name + subscription status
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, subscription_status")
+        .select("display_name, subscription_status, family_photo_url")
         .eq("id", session.user.id)
         .maybeSingle();
       setFamilyName(
         profile?.display_name || session.user.user_metadata?.family_name || ""
       );
       setSubscriptionStatus(profile?.subscription_status ?? null);
+      setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
       // ── Partner detection ──────────────────────────────────────────────────
       // Check sessionStorage cache first (avoids extra DB call on nav)
@@ -205,14 +207,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Family avatar + name */}
       <div className="px-4 py-3 border-b border-[#f0ede8] flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-[#5c7f63] flex items-center justify-center shrink-0 text-sm font-bold text-white">
-          {displayName
-            ? (() => {
-                const words = displayName.replace(/\bfamily\b/gi, "").trim().split(/\s+/).filter(Boolean);
-                return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "🌿";
-              })()
-            : "🌿"}
-        </div>
+        {familyPhotoUrl && !partnerCtx.isPartner ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={familyPhotoUrl}
+            alt="Family photo"
+            className="w-8 h-8 rounded-full object-cover shrink-0 border border-[#e8e2d9]"
+          />
+        ) : (
+          <div className="w-8 h-8 rounded-full bg-[#5c7f63] flex items-center justify-center shrink-0 text-sm font-bold text-white">
+            {displayName
+              ? (() => {
+                  const words = displayName.replace(/\bfamily\b/gi, "").trim().split(/\s+/).filter(Boolean);
+                  return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "🌿";
+                })()
+              : "🌿"}
+          </div>
+        )}
         <div className="min-w-0">
           <p className="text-[11px] text-[#b5aca4] leading-none mb-0.5">
             {partnerCtx.isPartner ? "Viewing family" : "Welcome back,"}
