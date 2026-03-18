@@ -686,22 +686,24 @@ function InsightsMockup() {
           ))}
         </div>
 
-        {/* Bar chart */}
+        {/* Bar chart — static inline bars, explicit px heights */}
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
           <p className="text-[11px] font-semibold text-[#2d2926] mb-3">Hours by day — this week</p>
-          <div className="flex items-end gap-1.5" style={{ height: 68 }}>
-            {bars.map((b) => (
-              <div key={b.day} className="flex-1 flex flex-col items-center justify-end gap-1">
-                {b.barPx > 0 && (
-                  <div
-                    className="w-full rounded-t"
-                    style={{
-                      height: b.barPx,
-                      backgroundColor: b.barPx >= 31 ? "#2d5a3d" : "#7aaa78",
-                    }}
-                  />
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 70 }}>
+            {[
+              { day: "Mon", h: 32 },
+              { day: "Tue", h: 42 },
+              { day: "Wed", h: 0  },
+              { day: "Thu", h: 52 },
+              { day: "Fri", h: 32 },
+              { day: "Sat", h: 12 },
+              { day: "Sun", h: 0  },
+            ].map(({ day, h }) => (
+              <div key={day} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", flex: 1, height: "100%" }}>
+                {h > 0 && (
+                  <div style={{ width: 28, height: h, backgroundColor: "#2d5a3d", borderRadius: "3px 3px 0 0" }} />
                 )}
-                <span className="text-[8px] text-[#7a6f65] shrink-0">{b.day}</span>
+                <span style={{ fontSize: 8, color: "#7a6f65", marginTop: 3 }}>{day}</span>
               </div>
             ))}
           </div>
