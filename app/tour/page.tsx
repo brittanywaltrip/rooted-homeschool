@@ -307,9 +307,9 @@ function PlanMockup() {
 
 function GardenMockup() {
   const children = [
-    { name: "Emma",  leaves: 87,  color: "#3d5c42" },
-    { name: "Liam",  leaves: 52,  color: "#4a7a8a" },
-    { name: "Sofia", leaves: 28,  color: "#7a5c8a" },
+    { name: "Emma", leaves: 2,  color: "#5c7f63" }, // 🌱 Seed stage
+    { name: "Zoe",  leaves: 55, color: "#c4697a" }, // 🌸 Blooming stage
+    { name: "Liam", leaves: 25, color: "#4a7a8a" }, // 🌳 Sapling stage
   ];
   // Show a sample of stages (1, 3, 5, 7, 10)
   const sampleStages = [0, 2, 4, 6, 9].map((i) => ({ label: STAGE_INFO[i].name, leaves: LEAF_THRESHOLDS[i] }));
