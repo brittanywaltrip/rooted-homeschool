@@ -574,6 +574,9 @@ export default function ResourcesPage() {
           <p className="text-xs text-[#7a6f65]">
             Always ask about homeschool educator discounts — many stores honor them even if not advertised.
           </p>
+          <p className="text-[11px] italic text-[#b5aca4]">
+            Rooted is not affiliated with any listed brands. Offers are curated for informational purposes and may change — always verify with the retailer.
+          </p>
           {dbLoading ? <LoadingSkeleton /> : filteredDiscounts.length === 0 ? (
             <p className="text-sm text-[#b5aca4] text-center py-10">No discounts match that grade filter.</p>
           ) : (
@@ -730,6 +733,9 @@ export default function ResourcesPage() {
           <p className="text-xs text-[#7a6f65]">
             Requirements vary widely. Always verify with your state homeschool association or{" "}
             <a href="https://hslda.org" target="_blank" rel="noopener noreferrer" className="text-[#4a7c59] hover:underline">HSLDA.org</a>.
+          </p>
+          <p className="text-[11px] italic text-[#b5aca4]">
+            State requirements are for informational purposes only and may not reflect current law. Always verify with your state&apos;s department of education.
           </p>
 
           {/* Search + level filter */}

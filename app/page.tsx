@@ -424,7 +424,7 @@ export default function Home() {
           </div>
 
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
-            <span>🌱</span> Loved by 200+ homeschool families
+            <span>🌱</span> Built for homeschool families like yours
           </p>
         </div>
 
