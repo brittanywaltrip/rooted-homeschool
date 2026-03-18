@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera } from "lucide-react";
+import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera, GraduationCap, ExternalLink } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -12,6 +12,7 @@ type Child = {
   color: string | null;
   sort_order: number | null;
   archived: boolean;
+  graduated_at: string | null;
 };
 
 // ─── Color palette ────────────────────────────────────────────────────────────
@@ -87,6 +88,9 @@ export default function SettingsPage() {
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
   const [deletingId,   setDeletingId]   = useState<string | null>(null);
 
+  // Graduation
+  const [graduatingId, setGraduatingId] = useState<string | null>(null);
+
   // Family photo
   const [familyPhotoUrl,  setFamilyPhotoUrl]  = useState<string | null>(null);
   const [photoUploading,  setPhotoUploading]  = useState(false);
@@ -124,7 +128,7 @@ export default function SettingsPage() {
 
     const { data: kids } = await supabase
       .from("children")
-      .select("id, name, color, sort_order, archived")
+      .select("id, name, color, sort_order, archived, graduated_at")
       .eq("user_id", user.id)
       .eq("archived", false)
       .order("sort_order");
@@ -287,6 +291,23 @@ export default function SettingsPage() {
     }
     setDeletingId(null);
     setDeleteId(null);
+  }
+
+  // ── Graduate child ────────────────────────────────────────────────────────
+
+  async function graduateChild(id: string) {
+    setGraduatingId(id);
+    const today = new Date().toISOString().slice(0, 10);
+    const { error } = await supabase
+      .from("children")
+      .update({ graduated_at: today })
+      .eq("id", id);
+    if (!error) {
+      setChildren((prev) =>
+        prev.map((c) => c.id === id ? { ...c, graduated_at: today } : c)
+      );
+    }
+    setGraduatingId(null);
   }
 
   // ── Partner access ────────────────────────────────────────────────────────
@@ -555,6 +576,26 @@ export default function SettingsPage() {
 
                     {/* Action buttons */}
                     <div className="flex items-center gap-1">
+                      {child.graduated_at ? (
+                        <a
+                          href={`/dashboard/graduation/${child.id}`}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4e8d4] transition-colors"
+                          title="View graduation slideshow"
+                        >
+                          <GraduationCap size={12} />
+                          <ExternalLink size={10} />
+                        </a>
+                      ) : (
+                        <button
+                          onClick={() => graduateChild(child.id)}
+                          disabled={graduatingId === child.id}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-[#7a6f65] hover:text-[#5c7f63] hover:bg-[#e8f0e9] disabled:opacity-40 transition-colors"
+                          title="Mark as graduated"
+                        >
+                          <GraduationCap size={12} />
+                          <span className="hidden sm:inline">Graduate</span>
+                        </button>
+                      )}
                       <button
                         onClick={() => startEdit(child)}
                         className="w-8 h-8 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors"
