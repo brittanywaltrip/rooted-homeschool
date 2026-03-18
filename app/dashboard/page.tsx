@@ -16,6 +16,8 @@ type Lesson = {
   child_id: string;
   hours: number | null;
   subjects: { name: string; color: string | null } | null;
+  curriculum_goal_id?: string | null;
+  lesson_number?: number | null;
 };
 
 type BookLog = {
@@ -516,7 +518,7 @@ export default function TodayPage() {
 
     const { data: lessonsData } = await supabase
       .from("lessons")
-      .select("id, title, completed, child_id, hours, subjects(name, color)")
+      .select("id, title, completed, child_id, hours, subjects(name, color), curriculum_goal_id, lesson_number")
       .eq("user_id", effectiveUserId)
       .or(`date.eq.${today},scheduled_date.eq.${today}`);
     setLessons((lessonsData as unknown as Lesson[]) ?? []);
@@ -563,8 +565,31 @@ export default function TodayPage() {
   // ── Lesson actions ────────────────────────────────────────────────────────
 
   async function toggleLesson(id: string, current: boolean) {
+    const lesson = lessons.find((l) => l.id === id);
     setLessons((prev) => prev.map((l) => (l.id === id ? { ...l, completed: !current } : l)));
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
+
+    if (!current) {
+      // Completing a lesson — celebrate
+      setCelebrating(true);
+      setTimeout(() => setCelebrating(false), 1600);
+
+      // Advance curriculum goal progress if this is a scheduled curriculum lesson
+      if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
+        const { data: goalRow } = await supabase
+          .from("curriculum_goals")
+          .select("current_lesson")
+          .eq("id", lesson.curriculum_goal_id)
+          .single();
+        if (goalRow && lesson.lesson_number > goalRow.current_lesson) {
+          await supabase
+            .from("curriculum_goals")
+            .update({ current_lesson: lesson.lesson_number })
+            .eq("id", lesson.curriculum_goal_id);
+        }
+      }
+    }
+
     await refreshLeafCounts();
   }
 

@@ -856,7 +856,7 @@ export default function Home() {
               Built by a homeschool mom, for homeschool families.
             </h2>
             <p className="text-[#7a6f65] leading-relaxed text-sm mb-4">
-              Hi, I&apos;m Brittany — homeschool mom to Zoe and Emma, and the founder of Rooted. I built this because every app I tried felt like a chore. Tracking lessons shouldn&apos;t add to the overwhelm — it should celebrate the learning happening every single day. Rooted is what I actually wanted: something calm, beautiful, and built for real families like mine.
+              Hi, I&apos;m Brittany — homeschool mom to Zoe and Emma. I built Rooted for myself, because I couldn&apos;t find an app that felt calm, simple, and actually built for how we homeschool. If it helps and inspires even one other family along the way, that means everything.
             </p>
             <p className="text-sm font-semibold text-[#5c7f63]">— Brittany, founder &amp; homeschool mom 🌱</p>
           </div>
@@ -907,16 +907,17 @@ export default function Home() {
               className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3"
               style={{ fontFamily: "var(--font-display)" }}
             >
-              Get Early Access — Free
+              Start your homeschool journey today
             </h2>
             <p className="text-[#3d5c42] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
-              Join 200+ families on the waitlist. Lock in founding pricing before
-              it&apos;s gone.
+              Free to start. No credit card needed. Join families already using Rooted.
             </p>
-            <WaitlistForm />
-            <p className="text-xs text-[#5c7f63] mt-5 opacity-60">
-              No spam. Unsubscribe anytime. We promise.
-            </p>
+            <Link
+              href="/signup"
+              className="inline-block bg-[#5c7f63] hover:bg-[#4a6b50] text-white font-semibold px-8 py-3 rounded-full transition-colors"
+            >
+              Get Started Free →
+            </Link>
           </div>
         </div>
       </section>
@@ -973,11 +974,6 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-10 pt-6 border-t border-[#f0ede8] text-center">
-            <p className="text-[11px] text-[#c8bfb5]">
-              Rooted Homeschool is in active beta. Features may evolve as we grow with our community.
-            </p>
-          </div>
         </div>
       </footer>
     </main>

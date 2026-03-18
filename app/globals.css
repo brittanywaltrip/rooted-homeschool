@@ -136,6 +136,16 @@ input:-webkit-autofill:focus {
   user-select: none;
 }
 
+/* ─── Toast notification ─────────────────────────────────────────────────────── */
+
+@keyframes toast-slide-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.toast-slide-up {
+  animation: toast-slide-up 0.25s ease-out forwards;
+}
+
 /* ─── Print styles ───────────────────────────────────────────────────────────── */
 
 @media print {
