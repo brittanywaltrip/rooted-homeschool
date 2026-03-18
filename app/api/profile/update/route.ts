@@ -13,11 +13,22 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser(token)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { family_photo_url } = await req.json()
+  const body = await req.json()
+
+  // Accept any subset of updatable profile fields
+  const allowed = ['family_photo_url', 'state', 'onboarded'] as const
+  const patch: Record<string, unknown> = {}
+  for (const key of allowed) {
+    if (key in body) patch[key] = body[key]
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ error: 'No valid fields provided' }, { status: 400 })
+  }
 
   const { error } = await supabase
     .from('profiles')
-    .update({ family_photo_url })
+    .update(patch)
     .eq('id', user.id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
