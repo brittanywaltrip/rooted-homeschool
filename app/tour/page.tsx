@@ -14,7 +14,7 @@ function treeEmoji(leaves: number): string {
 
 // ─── Types & Feature Data ─────────────────────────────────────────────────────
 
-type FeatureId = "today" | "plan" | "garden" | "reports" | "memories" | "insights";
+type FeatureId = "today" | "plan" | "garden" | "reports" | "memories" | "resources" | "insights";
 
 const FEATURES: {
   id: FeatureId;
@@ -89,6 +89,19 @@ const FEATURES: {
       "No login needed for recipients — just send the link and they can read it",
     ],
     note: "Shareable link, no app download needed 🔗",
+  },
+  {
+    id: "resources",
+    label: "Resources",
+    emoji: "📚",
+    headline: "Curated resources, just for you",
+    sub: "Free picks filtered for your state, updated every week — zero prep required.",
+    bullets: [
+      "Free picks updated every week — textbooks, activities, and virtual field trips",
+      "Filtered for your state's requirements automatically",
+      "Field trips, printables, and zero-prep activities ready to use today",
+    ],
+    note: "Works for all 50 states — always free 🗺️",
   },
   {
     id: "insights",
@@ -574,17 +587,77 @@ function MemoriesMockup() {
   );
 }
 
+// ─── Mockup: Resources ────────────────────────────────────────────────────────
+
+function ResourcesMockup() {
+  const resources = [
+    { name: "CK-12", desc: "Free digital textbooks", tag: "Textbooks", emoji: "📖" },
+    { name: "Khan Academy", desc: "Free math & science", tag: "Math · Science", emoji: "🎓" },
+    { name: "Google Arts & Culture", desc: "Virtual museum tours", tag: "Art · History", emoji: "🏛️" },
+  ];
+
+  return (
+    <MockupShell>
+      <div className="p-3 sm:p-4 space-y-3 min-h-[400px]">
+        <h2 className="text-sm font-bold text-[#2d2926]">📚 Resources</h2>
+
+        {/* State banner */}
+        <div className="bg-[#5c7f63] rounded-xl px-3 py-2.5">
+          <p className="text-[9px] font-bold text-white/70 uppercase tracking-widest mb-0.5">For Nevada Families</p>
+          <p className="text-[11px] font-semibold text-white leading-tight">
+            Resources picked for Nevada homeschool families · Low regulation
+          </p>
+        </div>
+
+        {/* Resource cards */}
+        <div className="space-y-1.5">
+          {resources.map((r) => (
+            <div key={r.name} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl flex items-center gap-2.5 px-3 py-2.5">
+              <div className="w-8 h-8 rounded-lg bg-[#e8f0e9] flex items-center justify-center text-base shrink-0">
+                {r.emoji}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-semibold text-[#2d2926] leading-tight">{r.name}</p>
+                <p className="text-[10px] text-[#7a6f65]">{r.desc}</p>
+              </div>
+              <span className="text-[8px] bg-[#e8f0e9] text-[#5c7f63] px-1.5 py-0.5 rounded-full font-semibold shrink-0 text-center leading-tight">
+                {r.tag}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Easy Win Today */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3 space-y-2">
+          <p className="text-[10px] font-bold text-[#2d2926] uppercase tracking-wide">⚡ Easy Win Today</p>
+          <div className="bg-gradient-to-br from-[#e8f5ea] to-[#f0f8ee] border border-[#b8d9bc] rounded-lg px-3 py-2.5 space-y-1.5">
+            <p className="text-[11px] font-bold text-[#2d2926] leading-tight">Nature Alphabet Hunt</p>
+            <p className="text-[10px] text-[#5c5248] leading-relaxed">
+              Go outside and find something in nature for each letter of the alphabet.
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] bg-white border border-[#d4cfc9] text-[#7a6f65] px-1.5 py-0.5 rounded-full font-medium">⏱ 15 min</span>
+              <span className="text-[9px] bg-white border border-[#d4cfc9] text-[#7a6f65] px-1.5 py-0.5 rounded-full font-medium">K–5</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </MockupShell>
+  );
+}
+
 // ─── Mockup: Insights ─────────────────────────────────────────────────────────
 
 function InsightsMockup() {
+  // Hours: Mon=1.5, Tue=2, Wed=0, Thu=2.5, Fri=1.5, Sat=0.5, Sun=0 — max=2.5h
   const bars = [
-    { day: "Mon", pct: 70 },
-    { day: "Tue", pct: 95 },
-    { day: "Wed", pct: 55 },
-    { day: "Thu", pct: 88 },
-    { day: "Fri", pct: 65 },
-    { day: "Sat", pct: 18 },
-    { day: "Sun", pct: 0 },
+    { day: "Mon", hrs: 1.5, pct: 60 },
+    { day: "Tue", hrs: 2,   pct: 80 },
+    { day: "Wed", hrs: 0,   pct: 0  },
+    { day: "Thu", hrs: 2.5, pct: 100 },
+    { day: "Fri", hrs: 1.5, pct: 60 },
+    { day: "Sat", hrs: 0.5, pct: 20 },
+    { day: "Sun", hrs: 0,   pct: 0  },
   ];
 
   return (
@@ -613,7 +686,7 @@ function InsightsMockup() {
           <div className="flex items-end gap-1.5" style={{ height: 72 }}>
             {bars.map((b) => (
               <div key={b.day} className="flex-1 flex flex-col items-center justify-end gap-1">
-                {b.pct > 0 && (
+                {b.pct > 0 ? (
                   <div
                     className="w-full rounded-t"
                     style={{
@@ -621,6 +694,8 @@ function InsightsMockup() {
                       backgroundColor: b.pct >= 60 ? "#5c7f63" : "#a8c8aa",
                     }}
                   />
+                ) : (
+                  <div className="w-full" style={{ height: "2%", backgroundColor: "transparent" }} />
                 )}
                 <span className="text-[8px] text-[#7a6f65] shrink-0">{b.day}</span>
               </div>
@@ -668,6 +743,7 @@ const MOCKUPS: Record<FeatureId, () => React.JSX.Element> = {
   garden: GardenMockup,
   reports: ReportsMockup,
   memories: MemoriesMockup,
+  resources: ResourcesMockup,
   insights: InsightsMockup,
 };
 
