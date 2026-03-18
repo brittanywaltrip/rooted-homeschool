@@ -1,0 +1,832 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { Check } from "lucide-react";
+
+// ─── Types & Feature Data ─────────────────────────────────────────────────────
+
+type FeatureId = "today" | "plan" | "garden" | "reports" | "memories" | "insights";
+
+const FEATURES: {
+  id: FeatureId;
+  label: string;
+  emoji: string;
+  headline: string;
+  sub: string;
+  bullets: string[];
+  note: string;
+}[] = [
+  {
+    id: "today",
+    label: "Today",
+    emoji: "☀️",
+    headline: "Your daily command center",
+    sub: "Know exactly what to teach each morning — no guessing, no planning stress.",
+    bullets: [
+      "See exactly what's planned for today — lesson by lesson, in order",
+      "Check off lessons with one tap — each one grows your child's garden tree",
+      "Smart Finish Line shows if you're on track to finish your curriculum on time",
+    ],
+    note: "Every lesson earns a leaf 🍃",
+  },
+  {
+    id: "plan",
+    label: "Plan",
+    emoji: "📅",
+    headline: "Curriculum that plans itself",
+    sub: "Tell Rooted your goal date and school days — it builds the whole schedule.",
+    bullets: [
+      "Auto-schedules your entire curriculum — just enter your lessons and goal date",
+      "Pick your school days: any combination Mon–Sun that fits your family",
+      "Reschedule instantly if you get ahead or fall behind — one tap to recalculate",
+    ],
+    note: "Lessons auto-schedule to your school days 📆",
+  },
+  {
+    id: "garden",
+    label: "Garden",
+    emoji: "🌳",
+    headline: "A living reward for every lesson",
+    sub: "The most motivating progress tracker your kids will actually care about.",
+    bullets: [
+      "Every completed lesson earns your child a leaf toward their growing tree",
+      "Watch their tree grow: Seed → Sprout → Sapling → Growing → Thriving",
+      "Kids race to finish lessons just to see their tree grow — it actually works",
+    ],
+    note: "200+ lessons to reach Thriving 🌳",
+  },
+  {
+    id: "reports",
+    label: "Reports",
+    emoji: "📋",
+    headline: "State compliance in one click",
+    sub: "Print-ready progress reports without the paperwork headache.",
+    bullets: [
+      "One-click printable progress reports formatted for state compliance",
+      "Rooted knows your state's requirements automatically — just select your state",
+      "Filter by child, date range, and subject — then download as a PDF",
+    ],
+    note: "Works for all 50 states 🗺️",
+  },
+  {
+    id: "memories",
+    label: "Memories",
+    emoji: "📸",
+    headline: "Capture every learning moment",
+    sub: "Your family's story — photos, books, and projects all in one place.",
+    bullets: [
+      "Log photos, field trips, projects, and books as you go — takes 10 seconds",
+      "Generate a warm AI-written Family Update to share with grandparents",
+      "No login needed for recipients — just send the link and they can read it",
+    ],
+    note: "Shareable link, no app download needed 🔗",
+  },
+  {
+    id: "insights",
+    label: "Insights",
+    emoji: "📊",
+    headline: "See your family's momentum",
+    sub: "Celebrate consistency — not perfection. Rooted shows you the whole picture.",
+    bullets: [
+      "See your learning streak, most active days, and total hours logged this month",
+      "Week-over-week comparison shows whether your family's momentum is growing",
+      "Celebrate consistency — not perfection. Every streak is worth celebrating",
+    ],
+    note: "Streaks reset weekly — low pressure, real progress 🔥",
+  },
+];
+
+// ─── Shared Mockup Helpers ────────────────────────────────────────────────────
+
+function MockupShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl overflow-hidden border border-[#e8e2d9] shadow-xl bg-[#f8f7f4]">
+      {/* Browser chrome */}
+      <div className="bg-[#e8e2d9] px-3 py-2 flex items-center gap-1.5">
+        <div className="w-2.5 h-2.5 rounded-full bg-[#c4956a] opacity-80" />
+        <div className="w-2.5 h-2.5 rounded-full bg-[#c4c47a] opacity-80" />
+        <div className="w-2.5 h-2.5 rounded-full bg-[#7aaa78] opacity-80" />
+        <div className="flex-1 mx-3">
+          <div className="bg-white/60 rounded px-2 py-0.5 text-[10px] text-[#7a6f65] text-center">
+            rootedhomeschoolapp.com/dashboard
+          </div>
+        </div>
+      </div>
+      <div className="min-h-[400px]">{children}</div>
+    </div>
+  );
+}
+
+function LessonRow({ done, label, mins }: { done: boolean; label: string; mins?: string }) {
+  return (
+    <div className="flex items-center gap-2.5 py-2.5 border-b border-[#f0ede8] last:border-0">
+      <div
+        className={`w-5 h-5 rounded-md shrink-0 flex items-center justify-center ${
+          done ? "bg-[#5c7f63]" : "border-2 border-[#d4cfc9] bg-white"
+        }`}
+      >
+        {done && <Check size={11} className="text-white" strokeWidth={3} />}
+      </div>
+      <span className={`text-xs flex-1 ${done ? "line-through text-[#b5aca4]" : "text-[#2d2926] font-medium"}`}>
+        {label}
+      </span>
+      {mins && <span className="text-[10px] text-[#b5aca4] shrink-0">{mins}</span>}
+    </div>
+  );
+}
+
+function ProgressBar({ label, pct, remaining }: { label: string; pct: number; remaining: number }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium text-[#2d2926]">{label}</span>
+        <span className="text-[10px] text-[#7a6f65]">{remaining} left</span>
+      </div>
+      <div className="w-full bg-[#e8e2d9] rounded-full h-1.5">
+        <div className="bg-[#5c7f63] h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Mockup: Today ────────────────────────────────────────────────────────────
+
+function TodayMockup() {
+  return (
+    <MockupShell>
+      <div className="flex h-full min-h-[400px]">
+        {/* Slim sidebar strip */}
+        <div className="w-9 bg-[#fefcf9] border-r border-[#e8e2d9] flex flex-col items-center py-3 gap-2.5 shrink-0">
+          <div className="w-6 h-6 rounded-lg bg-[#5c7f63] flex items-center justify-center text-[10px]">🌿</div>
+          <div className="w-6 h-6 rounded-lg bg-[#e8f0e9] flex items-center justify-center text-[10px]">☀️</div>
+          {["📅", "🌳", "📚", "📸", "📋"].map((e, i) => (
+            <div key={i} className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] opacity-30">{e}</div>
+          ))}
+        </div>
+        {/* Main */}
+        <div className="flex-1 p-3 sm:p-4 space-y-3 overflow-hidden">
+          <div>
+            <p className="text-[10px] text-[#b5aca4]">Wednesday, March 19</p>
+            <h2 className="text-sm font-bold text-[#2d2926]">Good morning, Waltrip Family! ☀️</h2>
+          </div>
+
+          {/* Lesson checklist */}
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl overflow-hidden">
+            <div className="px-3 py-2 border-b border-[#f0ede8] flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-[#2d2926]">Today's Lessons</span>
+              <span className="text-[10px] text-[#5c7f63] font-semibold bg-[#e8f0e9] px-1.5 py-0.5 rounded-full">2 of 5</span>
+            </div>
+            <div className="px-3">
+              <LessonRow done label="Math — Fractions (Ch. 12)" mins="45 min" />
+              <LessonRow done label="Reading — Charlotte's Web" mins="30 min" />
+              <LessonRow done={false} label="History — American Revolution" />
+              <LessonRow done={false} label="Science — Plant Cells" />
+              <LessonRow done={false} label="Writing — Journal Entry" />
+            </div>
+          </div>
+
+          {/* Finish Line */}
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3 space-y-2.5">
+            <span className="text-[11px] font-semibold text-[#2d2926]">🌿 Finish Line</span>
+            <ProgressBar label="Math — Saxon 5/4" pct={68} remaining={12} />
+            <ProgressBar label="All About Reading" pct={83} remaining={6} />
+            <ProgressBar label="Story of the World" pct={44} remaining={22} />
+          </div>
+
+          {/* Garden preview chip */}
+          <div className="bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-xl px-3 py-2 flex items-center gap-2.5">
+            <span className="text-xl">🪴</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-[#3d5c42]">Emma · Sapling</p>
+              <p className="text-[10px] text-[#5c7f63]">52 lessons · 23 leaves earned</p>
+            </div>
+            <span className="text-[10px] text-[#5c7f63] font-medium shrink-0">View →</span>
+          </div>
+        </div>
+      </div>
+    </MockupShell>
+  );
+}
+
+// ─── Mockup: Plan ─────────────────────────────────────────────────────────────
+
+function PlanMockup() {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
+  const cols: Record<string, { label: string; bg: string; text: string }[]> = {
+    Mon: [
+      { label: "Math", bg: "#e8f0e9", text: "#3d5c42" },
+      { label: "History", bg: "#fef0e4", text: "#7a4a1a" },
+    ],
+    Tue: [
+      { label: "Reading", bg: "#e4f0f4", text: "#1a4a5a" },
+      { label: "Science", bg: "#f0e8f4", text: "#4a2a5a" },
+    ],
+    Wed: [
+      { label: "Math", bg: "#e8f0e9", text: "#3d5c42" },
+      { label: "Writing", bg: "#fce8ec", text: "#7a2a36" },
+    ],
+    Thu: [
+      { label: "Reading", bg: "#e4f0f4", text: "#1a4a5a" },
+      { label: "History", bg: "#fef0e4", text: "#7a4a1a" },
+    ],
+    Fri: [
+      { label: "Math", bg: "#e8f0e9", text: "#3d5c42" },
+      { label: "Science", bg: "#f0e8f4", text: "#4a2a5a" },
+    ],
+  };
+
+  return (
+    <MockupShell>
+      <div className="p-3 sm:p-4 space-y-3 min-h-[400px]">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-[#2d2926]">📅 Week of March 17–21</h2>
+          <span className="text-[10px] bg-[#e8f0e9] text-[#3d5c42] px-2 py-0.5 rounded-full font-semibold">
+            Auto-scheduled ✓
+          </span>
+        </div>
+
+        {/* Calendar grid */}
+        <div className="grid grid-cols-5 gap-1.5">
+          {days.map((day) => (
+            <div key={day} className="space-y-1.5">
+              <div className="text-center text-[10px] font-bold text-[#7a6f65] uppercase tracking-wide">{day}</div>
+              {cols[day].map((item) => (
+                <div
+                  key={item.label}
+                  className="rounded-lg px-1 py-2 text-[10px] font-semibold text-center leading-tight"
+                  style={{ backgroundColor: item.bg, color: item.text }}
+                >
+                  {item.label}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        {/* Progress bars */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3 space-y-2.5">
+          <p className="text-[11px] font-semibold text-[#2d2926]">🌿 Finish Line — pacing this week</p>
+          <ProgressBar label="Math — Saxon 5/4" pct={68} remaining={12} />
+          <ProgressBar label="All About Reading" pct={55} remaining={18} />
+          <ProgressBar label="Story of the World" pct={44} remaining={22} />
+        </div>
+
+        {/* School days selector */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
+          <p className="text-[11px] font-semibold text-[#2d2926] mb-2">School days</p>
+          <div className="flex gap-1">
+            {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
+              <div
+                key={i}
+                className={`flex-1 h-7 rounded-full text-[10px] font-bold flex items-center justify-center ${
+                  i < 5
+                    ? "bg-[#5c7f63] text-white"
+                    : "bg-[#f0ede8] text-[#c8bfb5]"
+                }`}
+              >
+                {d}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </MockupShell>
+  );
+}
+
+// ─── Mockup: Garden ───────────────────────────────────────────────────────────
+
+function GardenMockup() {
+  const children = [
+    { name: "Emma", stage: "Growing", emoji: "🌲", lessons: 87, color: "#3d5c42" },
+    { name: "Liam", stage: "Sapling", emoji: "🪴", lessons: 52, color: "#4a7a8a" },
+    { name: "Sofia", stage: "Sprout", emoji: "🌿", lessons: 28, color: "#7a5c8a" },
+  ];
+  const stages = [
+    { label: "Seed", emoji: "🌱" },
+    { label: "Sprout", emoji: "🌿" },
+    { label: "Sapling", emoji: "🪴" },
+    { label: "Growing", emoji: "🌲" },
+    { label: "Thriving", emoji: "🌳" },
+  ];
+
+  return (
+    <MockupShell>
+      <div className="p-3 sm:p-4 space-y-3 min-h-[400px]">
+        <h2 className="text-sm font-bold text-[#2d2926]">🌳 The Garden</h2>
+
+        {/* Garden scene */}
+        <div
+          className="rounded-xl p-4 flex items-end justify-around relative overflow-hidden"
+          style={{
+            background: "linear-gradient(to bottom, #c8e6c9 0%, #dcedc8 40%, #a5d6a7 100%)",
+            minHeight: 140,
+          }}
+        >
+          {/* Ground strip */}
+          <div className="absolute bottom-0 left-0 right-0 h-6 bg-[#5c7f63] opacity-30 rounded-b-xl" />
+          {children.map((child) => (
+            <div key={child.name} className="flex flex-col items-center gap-1 relative z-10">
+              <span className="text-5xl sm:text-6xl" style={{ filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.15))" }}>
+                {child.emoji}
+              </span>
+              <div className="bg-white/80 rounded-lg px-2 py-1 text-center">
+                <p className="text-[11px] font-bold" style={{ color: child.color }}>{child.name}</p>
+                <p className="text-[9px] text-[#7a6f65]">{child.stage}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Growth stages key */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
+          <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-2">Growth stages</p>
+          <div className="flex items-center gap-0">
+            {stages.map((s, i) => (
+              <div key={s.label} className="flex-1 flex flex-col items-center gap-0.5 relative">
+                <span className="text-lg">{s.emoji}</span>
+                <span className="text-[8px] text-[#7a6f65] text-center leading-tight">{s.label}</span>
+                {i < stages.length - 1 && (
+                  <div className="absolute top-3 left-1/2 w-full h-px bg-[#e8e2d9]" />
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Progress indicator */}
+          <div className="relative mt-3 mx-1">
+            <div className="w-full h-1.5 bg-[#e8e2d9] rounded-full">
+              <div className="h-1.5 bg-gradient-to-r from-[#7aaa78] to-[#5c7f63] rounded-full" style={{ width: "43%" }} />
+            </div>
+            <p className="text-[9px] text-[#7a6f65] mt-1 text-center">Emma · 87 of 200 lessons to Thriving</p>
+          </div>
+        </div>
+
+        {/* Leaf counts */}
+        <div className="grid grid-cols-3 gap-2">
+          {children.map((child) => (
+            <div key={child.name} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-2.5 text-center">
+              <p className="text-lg">🍃</p>
+              <p className="text-sm font-bold" style={{ color: child.color }}>{child.lessons}</p>
+              <p className="text-[9px] text-[#7a6f65]">{child.name}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </MockupShell>
+  );
+}
+
+// ─── Mockup: Reports ─────────────────────────────────────────────────────────
+
+function ReportsMockup() {
+  return (
+    <MockupShell>
+      <div className="p-3 sm:p-4 space-y-3 min-h-[400px]">
+        <h2 className="text-sm font-bold text-[#2d2926]">📋 Progress Reports</h2>
+
+        {/* Config card */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3 space-y-2.5">
+          <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-wide">Report Settings</p>
+
+          <div>
+            <label className="text-[10px] text-[#7a6f65] block mb-1">Child</label>
+            <div className="flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-lg px-2.5 py-2">
+              <div className="w-4 h-4 rounded-full bg-[#5c7f63] flex items-center justify-center text-white text-[8px] font-bold shrink-0">E</div>
+              <span className="text-xs text-[#2d2926] flex-1">Emma</span>
+              <span className="text-[#b5aca4] text-[10px]">▾</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-[#7a6f65] block mb-1">From</label>
+              <div className="bg-white border border-[#e8e2d9] rounded-lg px-2.5 py-2 text-[11px] text-[#2d2926]">
+                Aug 1, 2025
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] text-[#7a6f65] block mb-1">To</label>
+              <div className="bg-white border border-[#e8e2d9] rounded-lg px-2.5 py-2 text-[11px] text-[#2d2926]">
+                Mar 19, 2026
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] text-[#7a6f65] block mb-1">Your state</label>
+            <div className="flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-lg px-2.5 py-2">
+              <span className="text-xs text-[#2d2926] flex-1">Texas</span>
+              <span className="text-[10px] text-[#5c7f63] font-medium shrink-0">Requirements loaded ✓</span>
+            </div>
+          </div>
+
+          <button className="w-full bg-[#5c7f63] text-white text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-1.5">
+            Generate PDF Report →
+          </button>
+        </div>
+
+        {/* Report preview */}
+        <div className="bg-white border-2 border-[#e8e2d9] rounded-xl p-3 space-y-2">
+          <div className="flex items-center gap-2 pb-2 border-b border-[#f0ede8]">
+            <div className="w-5 h-5 rounded bg-[#5c7f63] flex items-center justify-center text-[9px]">🌿</div>
+            <div>
+              <p className="text-[10px] font-bold text-[#2d2926] leading-tight">Rooted Homeschool — Progress Report</p>
+              <p className="text-[9px] text-[#b5aca4]">Formatted for Texas requirements</p>
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-bold text-[#2d2926]">Emma Waltrip</p>
+            <p className="text-[10px] text-[#7a6f65]">Aug 1, 2025 – Mar 19, 2026</p>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5 pt-0.5">
+            {[["127", "Lessons"], ["84.5", "Hours"], ["18", "Books"]].map(([val, lbl]) => (
+              <div key={lbl} className="bg-[#f8f5f0] rounded-lg p-1.5 text-center">
+                <p className="text-sm font-bold text-[#2d2926]">{val}</p>
+                <p className="text-[8px] text-[#7a6f65]">{lbl}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 pt-0.5">
+            <div className="flex-1 bg-[#f0ede8] rounded-lg py-1.5 text-center text-[10px] font-medium text-[#7a6f65]">
+              📄 Save PDF
+            </div>
+            <div className="flex-1 bg-[#5c7f63] rounded-lg py-1.5 text-center text-[10px] font-bold text-white">
+              🖨️ Print
+            </div>
+          </div>
+        </div>
+      </div>
+    </MockupShell>
+  );
+}
+
+// ─── Mockup: Memories ─────────────────────────────────────────────────────────
+
+function MemoriesMockup() {
+  const entries = [
+    { type: "📸", title: "Volcano experiment — it actually erupted!", date: "Mar 18", tag: "Science" },
+    { type: "📚", title: "Finished Charlotte's Web", date: "Mar 15", tag: "Reading" },
+    { type: "🎨", title: "Watercolor nature journal entry", date: "Mar 12", tag: "Art" },
+  ];
+
+  return (
+    <MockupShell>
+      <div className="p-3 sm:p-4 space-y-3 min-h-[400px]">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-[#2d2926]">📸 Memories</h2>
+          <button className="text-[10px] bg-gradient-to-r from-[#5c7f63] to-[#3d8c5c] text-white px-2.5 py-1.5 rounded-lg font-bold flex items-center gap-1 shadow-sm">
+            ✨ AI Family Update
+          </button>
+        </div>
+
+        {/* Log options */}
+        <div className="grid grid-cols-3 gap-1.5">
+          {[["📸", "Photo"], ["📚", "Book"], ["🎨", "Project"]].map(([e, lbl]) => (
+            <button key={lbl} className="bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] rounded-xl py-2.5 flex flex-col items-center gap-1 transition-colors">
+              <span className="text-lg">{e}</span>
+              <span className="text-[10px] font-medium text-[#7a6f65]">{lbl}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Memory entries */}
+        <div className="space-y-1.5">
+          {entries.map((m) => (
+            <div key={m.title} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl flex items-center gap-2.5 px-3 py-2.5">
+              <span className="text-lg shrink-0">{m.type}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-medium text-[#2d2926] truncate">{m.title}</p>
+                <p className="text-[10px] text-[#b5aca4]">{m.date}</p>
+              </div>
+              <span className="text-[9px] bg-[#e8f0e9] text-[#5c7f63] px-1.5 py-0.5 rounded-full font-semibold shrink-0">
+                {m.tag}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* AI update preview */}
+        <div className="bg-gradient-to-br from-[#e8f5ea] to-[#f0f8ee] border border-[#b8d9bc] rounded-xl p-3 space-y-2">
+          <p className="text-[10px] font-bold text-[#3d5c42]">✨ AI Family Update — Preview</p>
+          <p className="text-[10px] text-[#5c5248] leading-relaxed italic">
+            "What a week for the Waltrip family! Emma dove deep into science with a spectacular volcano experiment,
+            wrapped up Charlotte&apos;s Web, and brought her nature journal to life in watercolor..."
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="bg-white border border-[#e8e2d9] rounded-lg px-2 py-1 text-[9px] text-[#7a6f65] font-medium">
+              📋 Copy link
+            </div>
+            <div className="bg-[#5c7f63] rounded-lg px-2 py-1 text-[9px] text-white font-bold">
+              Share with grandma →
+            </div>
+          </div>
+        </div>
+      </div>
+    </MockupShell>
+  );
+}
+
+// ─── Mockup: Insights ─────────────────────────────────────────────────────────
+
+function InsightsMockup() {
+  const bars = [
+    { day: "Mon", pct: 70 },
+    { day: "Tue", pct: 95 },
+    { day: "Wed", pct: 55 },
+    { day: "Thu", pct: 88 },
+    { day: "Fri", pct: 65 },
+    { day: "Sat", pct: 18 },
+    { day: "Sun", pct: 0 },
+  ];
+
+  return (
+    <MockupShell>
+      <div className="p-3 sm:p-4 space-y-3 min-h-[400px]">
+        <h2 className="text-sm font-bold text-[#2d2926]">📊 Insights</h2>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { emoji: "🔥", value: "12", label: "Day streak" },
+            { emoji: "⏱️", value: "47.5h", label: "This month" },
+            { emoji: "⭐", value: "Tue", label: "Best day" },
+          ].map((s) => (
+            <div key={s.label} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-2.5 text-center">
+              <p className="text-lg">{s.emoji}</p>
+              <p className="text-sm font-bold text-[#2d2926]">{s.value}</p>
+              <p className="text-[9px] text-[#7a6f65]">{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Bar chart */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
+          <p className="text-[11px] font-semibold text-[#2d2926] mb-3">Hours by day — this week</p>
+          <div className="flex items-end gap-1.5" style={{ height: 72 }}>
+            {bars.map((b) => (
+              <div key={b.day} className="flex-1 flex flex-col items-center justify-end gap-1">
+                {b.pct > 0 && (
+                  <div
+                    className="w-full rounded-t"
+                    style={{
+                      height: `${b.pct}%`,
+                      backgroundColor: b.pct >= 60 ? "#5c7f63" : "#a8c8aa",
+                    }}
+                  />
+                )}
+                <span className="text-[8px] text-[#7a6f65] shrink-0">{b.day}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Week comparison */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
+          <p className="text-[11px] font-semibold text-[#2d2926] mb-2">Week over week</p>
+          <div className="flex items-end gap-4">
+            <div>
+              <p className="text-[10px] text-[#7a6f65]">Last week</p>
+              <p className="text-xl font-bold text-[#b5aca4]">10.0 <span className="text-xs font-normal">hrs</span></p>
+            </div>
+            <div className="flex-1 text-center">
+              <div className="bg-[#e8f5ea] text-[#3d5c42] text-xs font-bold px-2 py-1 rounded-lg inline-block">
+                ↑ +2.5 hrs
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] text-[#7a6f65]">This week</p>
+              <p className="text-xl font-bold text-[#2d2926]">12.5 <span className="text-xs font-normal">hrs</span></p>
+            </div>
+          </div>
+        </div>
+
+        {/* Consistency note */}
+        <div className="bg-gradient-to-r from-[#fef9e8] to-[#fef6d8] border border-[#f0e4b0] rounded-xl px-3 py-2 flex items-center gap-2">
+          <span className="text-base">🌟</span>
+          <p className="text-[10px] text-[#7a5a10] font-medium">
+            5 out of 7 days this week — you&apos;re building a real rhythm!
+          </p>
+        </div>
+      </div>
+    </MockupShell>
+  );
+}
+
+// ─── Mockup registry ──────────────────────────────────────────────────────────
+
+const MOCKUPS: Record<FeatureId, () => React.JSX.Element> = {
+  today: TodayMockup,
+  plan: PlanMockup,
+  garden: GardenMockup,
+  reports: ReportsMockup,
+  memories: MemoriesMockup,
+  insights: InsightsMockup,
+};
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function TourPage() {
+  const [active, setActive] = useState<FeatureId>("today");
+  const feature = FEATURES.find((f) => f.id === active)!;
+  const MockupComponent = MOCKUPS[active];
+
+  return (
+    <main className="min-h-screen bg-[#f8f7f4]">
+
+      {/* ── Nav ──────────────────────────────────────────────────────────────── */}
+      <nav className="bg-[#fefcf9] border-b border-[#e8e2d9] px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+        <Link href="/" className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-[#5c7f63] flex items-center justify-center text-sm">🌿</div>
+          <span className="font-bold text-[#2d2926] text-sm">Rooted Homeschool</span>
+        </Link>
+        <div className="flex items-center gap-3">
+          <Link href="/login" className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors hidden sm:block">
+            Log In
+          </Link>
+          <Link
+            href="/signup"
+            className="text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] text-white px-4 py-2 rounded-xl transition-colors"
+          >
+            Start Free →
+          </Link>
+        </div>
+      </nav>
+
+      <div className="max-w-5xl mx-auto px-5 sm:px-8 py-10 sm:py-14">
+
+        {/* ── Header ───────────────────────────────────────────────────────────── */}
+        <div className="text-center mb-10 sm:mb-12">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#5c7f63] mb-2">
+            Interactive Tour
+          </p>
+          <h1 className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-3">
+            See Rooted in Action
+          </h1>
+          <p className="text-[#7a6f65] text-base sm:text-lg max-w-xl mx-auto leading-relaxed">
+            Click through each feature to see exactly how it works
+          </p>
+        </div>
+
+        {/* ── Feature tabs ─────────────────────────────────────────────────────── */}
+        <div className="flex gap-2 justify-start sm:justify-center overflow-x-auto pb-2 mb-8 scrollbar-hide">
+          {FEATURES.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setActive(f.id)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold whitespace-nowrap transition-all ${
+                active === f.id
+                  ? "bg-[#5c7f63] text-white shadow-md shadow-[#5c7f63]/20 scale-105"
+                  : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63]"
+              }`}
+            >
+              <span>{f.emoji}</span>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Feature panel ────────────────────────────────────────────────────── */}
+        <div key={active} className="grid grid-cols-1 lg:grid-cols-5 gap-8 lg:gap-10 items-start mb-16 sm:mb-20">
+
+          {/* Mockup — left 3 cols */}
+          <div className="lg:col-span-3 order-2 lg:order-1">
+            <MockupComponent />
+          </div>
+
+          {/* Description — right 2 cols */}
+          <div className="lg:col-span-2 order-1 lg:order-2 space-y-5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-[#5c7f63] mb-1.5">
+                {feature.emoji} {feature.label}
+              </p>
+              <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] leading-tight mb-2">
+                {feature.headline}
+              </h2>
+              <p className="text-[#7a6f65] leading-relaxed">
+                {feature.sub}
+              </p>
+            </div>
+
+            <ul className="space-y-3">
+              {feature.bullets.map((b) => (
+                <li key={b} className="flex items-start gap-3">
+                  <div className="w-5 h-5 rounded-full bg-[#e8f0e9] flex items-center justify-center shrink-0 mt-0.5">
+                    <Check size={11} className="text-[#5c7f63]" strokeWidth={3} />
+                  </div>
+                  <span className="text-sm text-[#5c5248] leading-relaxed">{b}</span>
+                </li>
+              ))}
+            </ul>
+
+            {/* Detail note */}
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 flex items-center gap-2.5">
+              <span className="text-base shrink-0">💡</span>
+              <p className="text-sm text-[#5c7f63] font-medium">{feature.note}</p>
+            </div>
+
+            {/* Feature CTA */}
+            <Link
+              href="/signup"
+              className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-xl transition-colors shadow-sm"
+            >
+              Try {feature.label} free →
+            </Link>
+
+            {/* Feature nav hints */}
+            <div className="flex gap-2 pt-1">
+              {FEATURES.filter(f => f.id !== active).slice(0, 3).map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setActive(f.id)}
+                  className="text-[11px] text-[#b5aca4] hover:text-[#5c7f63] transition-colors"
+                >
+                  {f.emoji} {f.label}
+                </button>
+              ))}
+              <span className="text-[11px] text-[#c8bfb5]">→</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── CTA section ──────────────────────────────────────────────────────── */}
+        <div className="border-t border-[#e8e2d9] pt-14 sm:pt-16 text-center space-y-6">
+          <div>
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-2">
+              Ready to start your free account?
+            </h2>
+            <p className="text-[#7a6f65] max-w-lg mx-auto leading-relaxed">
+              Rooted is free to start — no credit card, no time limit. Upgrade to Pro when you&apos;re ready for AI features, unlimited children, and curriculum pacing.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link
+              href="/signup"
+              className="flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold px-8 py-4 rounded-2xl text-base transition-colors shadow-md shadow-[#5c7f63]/20"
+            >
+              🌱 Start your free account →
+            </Link>
+            <Link
+              href="/upgrade"
+              className="flex items-center gap-2 bg-[#fefcf9] border-2 border-[#e8e2d9] hover:border-[#5c7f63] text-[#7a6f65] hover:text-[#5c7f63] font-semibold px-6 py-4 rounded-2xl text-sm transition-colors"
+            >
+              View Pro plans ✨
+            </Link>
+          </div>
+
+          {/* Pricing blurb */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 text-sm text-[#7a6f65]">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-[#2d2926]">Free Forever</span>
+              <span>$0 · always</span>
+            </div>
+            <div className="hidden sm:block text-[#e8e2d9]">·</div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                Limited
+              </span>
+              <span className="font-bold text-[#2d2926]">Founding Family</span>
+              <span>$39/yr — locked forever</span>
+            </div>
+            <div className="hidden sm:block text-[#e8e2d9]">·</div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-[#2d2926]">Standard</span>
+              <span>$59/yr</span>
+            </div>
+          </div>
+
+          <p className="text-xs text-[#b5aca4]">
+            Secure checkout via Stripe · Cancel anytime · No surprise charges
+          </p>
+        </div>
+
+      </div>
+
+      {/* ── Footer ───────────────────────────────────────────────────────────── */}
+      <footer className="border-t border-[#e8e2d9] bg-[#fefcf9] mt-8">
+        <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-[#5c7f63] flex items-center justify-center text-xs">🌿</div>
+            <span className="text-sm font-bold text-[#2d2926]">Rooted Homeschool</span>
+          </div>
+          <div className="flex items-center gap-5">
+            {[
+              { label: "Home", href: "/" },
+              { label: "Sign Up", href: "/signup" },
+              { label: "FAQ", href: "/faq" },
+              { label: "Privacy", href: "/privacy" },
+              { label: "Terms", href: "/terms" },
+            ].map((l) => (
+              <Link key={l.href} href={l.href} className="text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors">
+                {l.label}
+              </Link>
+            ))}
+          </div>
+          <p className="text-xs text-[#b5aca4]">© 2026 Rooted Homeschool</p>
+        </div>
+      </footer>
+
+    </main>
+  );
+}
