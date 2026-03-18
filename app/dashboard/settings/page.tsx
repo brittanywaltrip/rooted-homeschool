@@ -230,7 +230,7 @@ export default function SettingsPage() {
         sort_order: maxOrder + 1,
         name_key:   nameKey,
       })
-      .select("id, name, color, sort_order, archived")
+      .select("id, name, color, sort_order, archived, graduated_at")
       .single();
 
     if (error) {
