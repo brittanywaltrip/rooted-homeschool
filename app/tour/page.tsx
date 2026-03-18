@@ -208,21 +208,33 @@ function TodayMockup() {
           </div>
 
           {/* Finish Line */}
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3 space-y-2.5">
-            <span className="text-[11px] font-semibold text-[#2d2926]">🌿 Finish Line</span>
-            <ProgressBar label="Math — Saxon 5/4" pct={68} remaining={12} />
-            <ProgressBar label="All About Reading" pct={83} remaining={6} />
-            <ProgressBar label="Story of the World" pct={44} remaining={22} />
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3 space-y-2">
+            <span className="text-[11px] font-semibold text-[#2d2926]">🎯 Finish Line</span>
+            <div className="bg-gradient-to-br from-[#e8f5ea] to-[#f0f8ee] border border-[#b8d9bc] rounded-lg px-2.5 py-2 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold text-[#2d2926]">Math — Saxon 5/4 · Zoe</p>
+                <span className="text-[9px] bg-[#e8f0e9] text-[#3d5c42] px-1.5 py-0.5 rounded-full font-bold shrink-0">🟢 On track</span>
+              </div>
+              <p className="text-[10px] text-[#3d5c42] leading-snug">
+                🌿 At your current pace, Zoe will finish by May 30 — right on time!
+              </p>
+              <div className="w-full bg-[#d4ead6] rounded-full h-1.5">
+                <div className="bg-[#5c7f63] h-1.5 rounded-full" style={{ width: "40%" }} />
+              </div>
+              <p className="text-[9px] text-[#7a6f65]">40% complete · 18 lessons remaining</p>
+            </div>
           </div>
 
-          {/* Garden preview chip */}
-          <div className="bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-xl px-3 py-2 flex items-center gap-2.5">
-            <span className="text-xl">🪴</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-semibold text-[#3d5c42]">Emma · Sapling</p>
-              <p className="text-[10px] text-[#5c7f63]">52 lessons · 23 leaves earned</p>
+          {/* Garden preview card */}
+          <div className="bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-xl px-3 py-2.5 flex items-center gap-3">
+            <span style={{ fontSize: 48, lineHeight: 1 }} aria-hidden>🪴</span>
+            <div className="flex-1 min-w-0 space-y-1">
+              <p className="text-[11px] font-bold text-[#2d2926] leading-tight">Sprout · Growing roots</p>
+              <p className="text-[10px] text-[#5c7f63]">15 leaves · 5 more to Sapling</p>
+              <div className="w-full bg-[#b8d9bc] rounded-full h-1">
+                <div className="bg-[#3d5c42] h-1 rounded-full" style={{ width: "75%" }} />
+              </div>
             </div>
-            <span className="text-[10px] text-[#5c7f63] font-medium shrink-0">View →</span>
           </div>
         </div>
       </div>
@@ -521,6 +533,24 @@ function MemoriesMockup() {
       <div className="p-3 sm:p-4 space-y-3 min-h-[400px]">
         <h2 className="text-sm font-bold text-[#2d2926]">📸 Memories</h2>
 
+        {/* Graduation letter — FIRST: most emotionally powerful */}
+        <div className="bg-gradient-to-br from-[#fffbf0] to-[#fef8e4] border border-[#e8d9a8] rounded-xl p-3 space-y-2">
+          <div className="flex items-start gap-2.5">
+            <span className="text-2xl leading-none shrink-0">🎓</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-bold text-[#2d2926] leading-tight">Emma&apos;s Kindergarten Graduation</p>
+              <p className="text-[9px] text-[#b5aca4] mt-0.5">School Year 2025–2026</p>
+            </div>
+          </div>
+          <div className="bg-white/70 rounded-lg px-2.5 py-2 border border-[#e8d9a8]/60">
+            <p className="text-[10px] text-[#5c5248] leading-relaxed italic">
+              &ldquo;Dear Emma, What an extraordinary year of learning and growth you&apos;ve had.
+              From mastering addition to reading chapter books on your own, your curiosity and
+              joy have made every lesson an adventure...&rdquo;
+            </p>
+          </div>
+        </div>
+
         {/* Log options — static, non-interactive */}
         <div className="grid grid-cols-3 gap-1.5">
           {[["📸", "Photo"], ["📚", "Book"], ["🎨", "Project"]].map(([e, lbl]) => (
@@ -556,31 +586,6 @@ function MemoriesMockup() {
             came to a tearful but beautiful end, and the whole family celebrated with a movie night. 🎉&rdquo;
           </p>
           <span style={{ fontSize: 12, color: "#2d5a3d" }}>🔗 Share with family &amp; friends →</span>
-        </div>
-
-        {/* Divider */}
-        <div className="flex items-center gap-2 pt-1">
-          <span className="h-px flex-1 bg-[#e8e2d9]" />
-          <span className="text-[9px] font-semibold text-[#b5aca4] uppercase tracking-widest">AI Graduation Letter</span>
-          <span className="h-px flex-1 bg-[#e8e2d9]" />
-        </div>
-
-        {/* Graduation letter card — already generated, static */}
-        <div className="bg-gradient-to-br from-[#fffbf0] to-[#fef8e4] border border-[#e8d9a8] rounded-xl p-3 space-y-2">
-          <div className="flex items-start gap-2.5">
-            <span className="text-2xl leading-none shrink-0">🎓</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-bold text-[#2d2926] leading-tight">Emma&apos;s Kindergarten Graduation</p>
-              <p className="text-[9px] text-[#b5aca4] mt-0.5">School Year 2025–2026</p>
-            </div>
-          </div>
-          <div className="bg-white/70 rounded-lg px-2.5 py-2 border border-[#e8d9a8]/60">
-            <p className="text-[10px] text-[#5c5248] leading-relaxed italic">
-              &ldquo;Dear Emma, What an extraordinary year of learning and growth you&apos;ve had.
-              From mastering addition to reading chapter books on your own, your curiosity and
-              joy have made every lesson an adventure...&rdquo;
-            </p>
-          </div>
         </div>
       </div>
     </MockupShell>
@@ -649,15 +654,16 @@ function ResourcesMockup() {
 // ─── Mockup: Insights ─────────────────────────────────────────────────────────
 
 function InsightsMockup() {
-  // Hours: Mon=1.5, Tue=2, Wed=0, Thu=2.5, Fri=1.5, Sat=0.5, Sun=0 — max=2.5h
+  // Hours: Mon=1.5, Tue=2, Wed=0, Thu=2.5, Fri=1.5, Sat=0.5, Sun=0
+  // Bar heights in px (max bar area = 52px for Thu=2.5h)
   const bars = [
-    { day: "Mon", hrs: 1.5, pct: 60 },
-    { day: "Tue", hrs: 2,   pct: 80 },
-    { day: "Wed", hrs: 0,   pct: 0  },
-    { day: "Thu", hrs: 2.5, pct: 100 },
-    { day: "Fri", hrs: 1.5, pct: 60 },
-    { day: "Sat", hrs: 0.5, pct: 20 },
-    { day: "Sun", hrs: 0,   pct: 0  },
+    { day: "Mon", hrs: 1.5, barPx: 31 },
+    { day: "Tue", hrs: 2,   barPx: 42 },
+    { day: "Wed", hrs: 0,   barPx: 0  },
+    { day: "Thu", hrs: 2.5, barPx: 52 },
+    { day: "Fri", hrs: 1.5, barPx: 31 },
+    { day: "Sat", hrs: 0.5, barPx: 10 },
+    { day: "Sun", hrs: 0,   barPx: 0  },
   ];
 
   return (
@@ -683,19 +689,17 @@ function InsightsMockup() {
         {/* Bar chart */}
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
           <p className="text-[11px] font-semibold text-[#2d2926] mb-3">Hours by day — this week</p>
-          <div className="flex items-end gap-1.5" style={{ height: 72 }}>
+          <div className="flex items-end gap-1.5" style={{ height: 68 }}>
             {bars.map((b) => (
               <div key={b.day} className="flex-1 flex flex-col items-center justify-end gap-1">
-                {b.pct > 0 ? (
+                {b.barPx > 0 && (
                   <div
                     className="w-full rounded-t"
                     style={{
-                      height: `${b.pct}%`,
-                      backgroundColor: b.pct >= 60 ? "#5c7f63" : "#a8c8aa",
+                      height: b.barPx,
+                      backgroundColor: b.barPx >= 31 ? "#2d5a3d" : "#7aaa78",
                     }}
                   />
-                ) : (
-                  <div className="w-full" style={{ height: "2%", backgroundColor: "transparent" }} />
                 )}
                 <span className="text-[8px] text-[#7a6f65] shrink-0">{b.day}</span>
               </div>
@@ -786,8 +790,8 @@ export default function TourPage() {
           <h1 className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-3">
             See Rooted in Action
           </h1>
-          <p className="text-[#7a6f65] text-base sm:text-lg max-w-xl mx-auto leading-relaxed">
-            Click through each feature to see exactly how it works
+          <p className="text-[#7a6f65] text-base sm:text-lg max-w-2xl mx-auto leading-relaxed">
+            Every lesson grows their tree. Every memory is saved automatically. Every year ends with a letter you&apos;ll treasure forever.
           </p>
         </div>
 
