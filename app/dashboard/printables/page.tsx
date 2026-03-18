@@ -83,8 +83,10 @@ interface ReportCardData {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function currentYearRange(): string {
-  const y = new Date().getFullYear();
-  return `${y}–${y + 1}`;
+  const now = new Date();
+  const y = now.getFullYear();
+  // Academic year: Aug–Jul. Before July → still the previous school year.
+  return now.getMonth() < 7 ? `${y - 1}–${y}` : `${y}–${y + 1}`;
 }
 
 function formatDate(): string {
@@ -1147,17 +1149,57 @@ export default function PrintablesPage() {
       setStateCode(st);
       setParentFields(makeParentDefaults(fName, st));
 
+      // Fetch children (leaves/streak are not stored columns — computed below)
       const { data: kids } = await supabase
         .from("children")
-        .select("id, name, leaves, streak")
+        .select("id, name")
         .eq("user_id", uid)
-        .order("created_at");
+        .eq("archived", false)
+        .order("sort_order");
 
-      const kidsArr: ChildData[] = (kids || []).map((k: { id: string; name: string; leaves?: number; streak?: number }) => ({
+      // Fetch completed lessons for leaf count + streak computation
+      const [{ data: completedLessons }, { data: bookEvents }] = await Promise.all([
+        supabase.from("lessons").select("child_id, date").eq("user_id", uid).eq("completed", true),
+        supabase.from("app_events").select("payload").eq("user_id", uid).eq("type", "book_read"),
+      ]);
+
+      // Leaf count = completed lessons + book_read events (mirrors garden page)
+      const leafMap: Record<string, number> = {};
+      for (const l of (completedLessons || []) as { child_id: string }[]) {
+        leafMap[l.child_id] = (leafMap[l.child_id] || 0) + 1;
+      }
+      for (const e of (bookEvents || []) as { payload: { child_id?: string } }[]) {
+        const cid = e.payload?.child_id;
+        if (cid) leafMap[cid] = (leafMap[cid] || 0) + 1;
+      }
+
+      // Per-child lesson dates for streak computation
+      const childDatesMap: Record<string, Set<string>> = {};
+      for (const l of (completedLessons || []) as { child_id: string; date?: string }[]) {
+        if (!l.date) continue;
+        if (!childDatesMap[l.child_id]) childDatesMap[l.child_id] = new Set();
+        childDatesMap[l.child_id].add(l.date);
+      }
+
+      function computeStreak(dates: Set<string>): number {
+        let streak = 0;
+        const todayStr = (d: Date) => d.toISOString().slice(0, 10);
+        const cursor = new Date();
+        cursor.setHours(0, 0, 0, 0);
+        const tmp = new Date(cursor);
+        while (dates.has(todayStr(tmp))) { streak++; tmp.setDate(tmp.getDate() - 1); }
+        if (streak === 0) {
+          cursor.setDate(cursor.getDate() - 1);
+          while (dates.has(todayStr(cursor))) { streak++; cursor.setDate(cursor.getDate() - 1); }
+        }
+        return streak;
+      }
+
+      const kidsArr: ChildData[] = (kids || []).map((k: { id: string; name: string }) => ({
         id: k.id,
         name: k.name,
-        leaves: k.leaves ?? 0,
-        streak: k.streak ?? 0,
+        leaves: leafMap[k.id] || 0,
+        streak: computeStreak(childDatesMap[k.id] || new Set()),
       }));
       setChildren(kidsArr);
 
