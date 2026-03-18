@@ -20,9 +20,17 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) { setError(error.message); setLoading(false); }
-    else router.push("/dashboard");
+    const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) { setError(error.message); setLoading(false); return; }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("onboarded")
+      .eq("id", data.user.id)
+      .maybeSingle();
+
+    // onboarded === false means new user who hasn't completed setup
+    router.push(profile?.onboarded === false ? "/onboarding" : "/dashboard");
   }
 
   async function handleForgot(e: React.FormEvent) {

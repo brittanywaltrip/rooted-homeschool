@@ -107,9 +107,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       // Load family name + subscription status
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, subscription_status, family_photo_url")
+        .select("display_name, subscription_status, family_photo_url, onboarded")
         .eq("id", session.user.id)
         .maybeSingle();
+
+      // Gate: send new (non-onboarded) users through the wizard
+      if ((profile as { onboarded?: boolean } | null)?.onboarded === false) {
+        router.replace("/onboarding");
+        return;
+      }
+
       setFamilyName(
         profile?.display_name || session.user.user_metadata?.family_name || ""
       );
