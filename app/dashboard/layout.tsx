@@ -293,6 +293,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             onClick={() => setMenuOpen(false)}
           />
         )}
+        <Link
+          href="/faq"
+          className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#f0ede8] transition-colors w-full"
+          onClick={() => setMenuOpen(false)}
+        >
+          FAQ
+        </Link>
         <button
           onClick={handleSignOut}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#7a6f65] hover:bg-red-50 hover:text-red-600 w-full transition-colors"
