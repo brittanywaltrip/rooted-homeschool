@@ -3,7 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
-import { GardenTreeSVG, STAGE_INFO, LEAF_THRESHOLDS } from "@/components/GardenScene";
+import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
+
+// Helper: get the display emoji for a leaf count
+function treeEmoji(leaves: number): string {
+  const stage = getStageFromLeaves(leaves);
+  const map: Record<number, string> = { 1:"🌱", 2:"🌿", 3:"🪴", 4:"🌳", 5:"🌲", 6:"🌸", 7:"🍃", 8:"🌳", 9:"🍂", 10:"🌳" };
+  return map[stage] ?? "🌱";
+}
 
 // ─── Types & Feature Data ─────────────────────────────────────────────────────
 
@@ -328,15 +335,24 @@ function GardenMockup() {
             </svg>
           </div>
           {/* Trees */}
-          <div className="absolute inset-0 flex items-end justify-around px-4 pb-[28%]">
+          <div className="absolute inset-0 flex items-end justify-around px-4 pb-[26%]">
             {children.map((child, i) => (
               <div key={child.name} className="flex flex-col items-center gap-1">
-                <div
+                <span
                   className={i % 2 === 0 ? "garden-sway" : "garden-sway-alt"}
-                  style={{ width: "clamp(40px, 11vw, 70px)", transformOrigin: "center bottom", animationDelay: `${i * 0.8}s` }}
+                  style={{
+                    fontSize: 48,
+                    lineHeight: 1,
+                    display: "block",
+                    filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.2))",
+                    transformOrigin: "center bottom",
+                    animationDelay: `${i * 0.8}s`,
+                    userSelect: "none",
+                  }}
+                  aria-hidden
                 >
-                  <GardenTreeSVG leafCount={child.leaves} className="w-full h-auto" />
-                </div>
+                  {treeEmoji(child.leaves)}
+                </span>
                 <div className="bg-white/80 rounded-lg px-2 py-0.5 text-center">
                   <p className="text-[10px] font-bold" style={{ color: child.color }}>{child.name}</p>
                 </div>
@@ -349,15 +365,12 @@ function GardenMockup() {
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
           <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-2">10 growth stages</p>
           <div className="flex items-end gap-1">
-            {sampleStages.map((s, i) => (
+            {sampleStages.map((s) => (
               <div key={s.label} className="flex-1 flex flex-col items-center gap-0.5">
-                <div style={{ width: "100%", maxWidth: 36, height: 32 }}>
-                  <GardenTreeSVG leafCount={s.leaves} className="w-full h-full" />
-                </div>
+                <span style={{ fontSize: 22, lineHeight: 1, userSelect: "none" }} aria-hidden>
+                  {treeEmoji(s.leaves)}
+                </span>
                 <span className="text-[7px] text-[#7a6f65] text-center leading-tight">{s.label}</span>
-                {i < sampleStages.length - 1 && (
-                  <div className="w-full h-px bg-[#e8e2d9] mt-1" />
-                )}
               </div>
             ))}
           </div>

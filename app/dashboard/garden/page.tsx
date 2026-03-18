@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
-import { GardenTreeSVG, STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
+import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
+
+function treeEmoji(leaves: number): string {
+  const s = getStageFromLeaves(leaves);
+  const map: Record<number, string> = { 1:"🌱", 2:"🌿", 3:"🪴", 4:"🌳", 5:"🌲", 6:"🌸", 7:"🍃", 8:"🌳", 9:"🍂", 10:"🌳" };
+  return map[s] ?? "🌱";
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -288,14 +294,24 @@ export default function GardenPage() {
               >
                 {/* Tree */}
                 <div
-                  className={`${swayClass} relative`}
+                  className={`${swayClass} relative flex items-end justify-center`}
                   style={{
-                    width: "clamp(52px, 14vw, 90px)",
                     transformOrigin: "center bottom",
                     animationDelay: `${i * 0.7}s`,
                   }}
                 >
-                  <GardenTreeSVG leafCount={leaves} className="w-full h-full" />
+                  <span
+                    style={{
+                      fontSize: "clamp(44px, 11vw, 72px)",
+                      lineHeight: 1,
+                      display: "block",
+                      filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.2))",
+                      userSelect: "none",
+                    }}
+                    aria-hidden
+                  >
+                    {treeEmoji(leaves)}
+                  </span>
 
                   {/* Leaf count badge */}
                   <div
@@ -390,8 +406,13 @@ export default function GardenPage() {
             </div>
 
             {/* Big tree preview */}
-            <div style={{ width: 80, height: 88, flexShrink: 0 }}>
-              <GardenTreeSVG leafCount={selectedLeaves} className="w-full h-full" />
+            <div style={{ width: 80, height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span
+                style={{ fontSize: 64, lineHeight: 1, filter: "drop-shadow(0 6px 16px rgba(0,0,0,0.2))", userSelect: "none" }}
+                aria-hidden
+              >
+                {treeEmoji(selectedLeaves)}
+              </span>
             </div>
           </div>
         </div>

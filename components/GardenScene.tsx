@@ -103,326 +103,87 @@ function getHolidayTheme(): HolidayTheme | null {
 
 function getSeasonalSky(): string {
   const m = new Date().getMonth() + 1;
-  if (m === 12 || m <= 2)
-    return "linear-gradient(180deg, #8ca8c8 0%, #aec4da 35%, #ccdaec 65%, #e0eae0 82%, #6a9a5a 100%)";
-  if (m <= 5)
-    return "linear-gradient(180deg, #87ceeb 0%, #aad4f0 35%, #cce4f5 65%, #e4f0e4 82%, #7ab87a 100%)";
-  if (m <= 8)
-    return "linear-gradient(180deg, #5ba3d4 0%, #85c4e8 35%, #b8daf4 65%, #daecea 82%, #6aaa5a 100%)";
-  return "linear-gradient(180deg, #b08850 0%, #c8a070 30%, #ddb880 58%, #eacc90 76%, #8aaa5a 100%)";
+  // Spring Mar–May
+  if (m >= 3 && m <= 5)
+    return "linear-gradient(180deg, #87CEEB 0%, #C8E8F8 60%, #dff0e8 82%, #7ab87a 100%)";
+  // Summer Jun–Aug
+  if (m >= 6 && m <= 8)
+    return "linear-gradient(180deg, #1E90FF 0%, #87CEEB 60%, #d4ecea 82%, #6aaa5a 100%)";
+  // Autumn Sep–Nov
+  if (m >= 9 && m <= 11)
+    return "linear-gradient(180deg, #C0392B 0%, #E8A040 55%, #f0d090 78%, #8aaa5a 100%)";
+  // Winter Dec–Feb
+  return "linear-gradient(180deg, #4A6FA5 0%, #B8D0E8 60%, #d8e8f4 82%, #6a9a8a 100%)";
 }
 
-// ─── Tree SVG (10 stages, viewBox 0 0 120 140, ground at y=120) ────────────────
+// ─── Emoji tree (10 stages) ─────────────────────────────────────────────────────
 
-export function GardenTreeSVG({ leafCount, className }: { leafCount: number; className?: string }) {
+type TreeConfig = { emoji: string; size: number; overlay?: string };
+
+function getTreeConfig(stage: number): TreeConfig {
+  switch (stage) {
+    case 1:  return { emoji: "🌱", size: 72 };
+    case 2:  return { emoji: "🌿", size: 80 };
+    case 3:  return { emoji: "🪴", size: 88 };
+    case 4:  return { emoji: "🌳", size: 96 };
+    case 5:  return { emoji: "🌲", size: 104 };
+    case 6:  return { emoji: "🌸", size: 104 };
+    case 7:  return { emoji: "🍃", size: 108 };
+    case 8:  return { emoji: "🌳", size: 108, overlay: "🍎" };
+    case 9:  return { emoji: "🍂", size: 104 };
+    case 10: return { emoji: "🌳", size: 112, overlay: "✨" };
+    default: return { emoji: "🌱", size: 72 };
+  }
+}
+
+export function GardenTreeSVG({
+  leafCount,
+  className,
+  sizeOverride,
+  style,
+}: {
+  leafCount: number;
+  className?: string;
+  sizeOverride?: number;
+  style?: React.CSSProperties;
+}) {
   const stage = getStageFromLeaves(leafCount);
+  const config = getTreeConfig(stage);
+  const size = sizeOverride ?? config.size;
 
   return (
-    <svg
-      viewBox="0 0 120 140"
-      className={className ?? "w-full h-full"}
-      aria-hidden
-      overflow="visible"
+    <div
+      className={`relative flex items-end justify-center ${className ?? ""}`}
+      style={style}
     >
-      {/* Ground shadow */}
-      <ellipse cx="60" cy="123" rx={stage <= 3 ? 14 : stage <= 5 ? 22 : 30} ry="4" fill="rgba(0,0,0,0.08)" />
-
-      {/* ── Stage 1: Seed ── */}
-      {stage === 1 && (
-        <g>
-          <ellipse cx="60" cy="117" rx="9" ry="6.5" fill="#9b7a50" />
-          <ellipse cx="60" cy="115" rx="6.5" ry="4.5" fill="#b8956a" />
-          <ellipse cx="57" cy="114" rx="2" ry="1.2" fill="#c8a878" opacity="0.6" />
-          <line x1="60" y1="111" x2="60" y2="105" stroke="#6a9a50" strokeWidth="1.5" strokeLinecap="round" />
-          <path d="M 60,107 Q 55,103 54,99 Q 58,97 60,101" fill="#8ab85a" opacity="0.9" />
-          <path d="M 60,107 Q 65,103 66,99 Q 62,97 60,101" fill="#6aaa3a" opacity="0.9" />
-        </g>
+      <span
+        style={{
+          fontSize: size,
+          lineHeight: 1,
+          filter: "drop-shadow(0 8px 20px rgba(0,0,0,0.2))",
+          display: "block",
+          userSelect: "none",
+        }}
+        aria-hidden
+      >
+        {config.emoji}
+      </span>
+      {config.overlay && (
+        <span
+          style={{
+            fontSize: Math.round(size * 0.36),
+            position: "absolute",
+            bottom: 0,
+            right: -6,
+            filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.25))",
+            userSelect: "none",
+          }}
+          aria-hidden
+        >
+          {config.overlay}
+        </span>
       )}
-
-      {/* ── Stage 2: Seedling ── */}
-      {stage === 2 && (
-        <g>
-          {/* Grass tufts */}
-          <path d="M 44,120 Q 45,115 46,118 Q 47,114 48,120" fill="#5a8a3a" />
-          <path d="M 72,120 Q 73,115 74,118 Q 75,114 76,120" fill="#5a8a3a" />
-          {/* Stem */}
-          <line x1="60" y1="120" x2="60" y2="100" stroke="#5a8a3a" strokeWidth="2.5" strokeLinecap="round" />
-          {/* Cotyledons */}
-          <path d="M 60,112 Q 48,107 45,101 Q 50,96 60,103" fill="#8ab85a" className="leaf-shimmer" />
-          <path d="M 60,112 Q 72,107 75,101 Q 70,96 60,103" fill="#6aaa3a" className="leaf-shimmer" />
-          {/* Tip bud */}
-          <ellipse cx="60" cy="98" rx="4" ry="3" fill="#5a9a2a" />
-        </g>
-      )}
-
-      {/* ── Stage 3: Sprout ── */}
-      {stage === 3 && (
-        <g>
-          {/* Grass tufts */}
-          <path d="M 42,120 Q 43,114 44,117 Q 45,113 46,120" fill="#4a8a2a" />
-          <path d="M 74,120 Q 75,114 76,117 Q 77,113 78,120" fill="#4a8a2a" />
-          {/* Stem */}
-          <line x1="60" y1="120" x2="60" y2="93" stroke="#5a8a3a" strokeWidth="3" strokeLinecap="round" />
-          {/* Lower leaves */}
-          <path d="M 60,114 Q 43,108 40,100 Q 47,95 60,104" fill="#8ab85a" className="leaf-shimmer" />
-          <path d="M 60,114 Q 77,108 80,100 Q 73,95 60,104" fill="#6aaa3a" className="leaf-shimmer" />
-          {/* Upper leaves */}
-          <path d="M 60,104 Q 47,97 45,90 Q 51,86 60,93" fill="#7ab04a" className="leaf-shimmer" style={{ animationDelay: "0.5s" }} />
-          <path d="M 60,104 Q 73,97 75,90 Q 69,86 60,93" fill="#5a9a2a" className="leaf-shimmer" style={{ animationDelay: "0.5s" }} />
-          {/* Top cluster */}
-          <circle cx="60" cy="88" r="9" fill="#4a8a20" />
-          <circle cx="60" cy="80" r="7" fill="#3a7818" />
-        </g>
-      )}
-
-      {/* ── Stage 4: Sapling ── */}
-      {stage === 4 && (
-        <g>
-          {/* Grass tufts */}
-          <path d="M 40,120 Q 41,113 42,116 Q 43,112 44,120" fill="#4a8a2a" />
-          <path d="M 76,120 Q 77,113 78,116 Q 79,112 80,120" fill="#4a8a2a" />
-          {/* Trunk */}
-          <path d="M 57,120 C 56,112 56,102 57,90 L 63,90 C 64,102 64,112 63,120 Z" fill="#9b7a50" />
-          <path d="M 57,112 Q 60,110 63,112" stroke="#7a5a30" strokeWidth="0.6" fill="none" opacity="0.5" />
-          <path d="M 57,102 Q 60,100 63,102" stroke="#7a5a30" strokeWidth="0.6" fill="none" opacity="0.5" />
-          {/* Branches */}
-          <path d="M 58,95 Q 43,87 36,76" stroke="#8b6a40" strokeWidth="2" fill="none" strokeLinecap="round" />
-          <path d="M 62,93 Q 77,85 84,74" stroke="#8b6a40" strokeWidth="2" fill="none" strokeLinecap="round" />
-          {/* Canopy */}
-          <circle cx="38" cy="72" r="13" fill="#7ab85a" opacity="0.9" />
-          <circle cx="82" cy="70" r="13" fill="#7ab85a" opacity="0.9" />
-          <circle cx="56" cy="76" r="16" fill="#6aaa4a" />
-          <circle cx="64" cy="76" r="16" fill="#6aaa4a" />
-          <circle cx="60" cy="62" r="17" fill="#5a9a3a" />
-          <circle cx="60" cy="48" r="13" fill="#4a8a2a" />
-        </g>
-      )}
-
-      {/* ── Stage 5: Young Tree ── */}
-      {stage === 5 && (
-        <g>
-          {/* Grass tufts */}
-          <path d="M 38,120 Q 39,112 40,116 Q 41,111 42,120" fill="#4a8a2a" />
-          <path d="M 78,120 Q 79,112 80,116 Q 81,111 82,120" fill="#4a8a2a" />
-          {/* Trunk */}
-          <path d="M 56,120 C 55,110 54,98 55,84 L 65,84 C 66,98 65,110 64,120 Z" fill="#9b7a50" />
-          <path d="M 56,114 Q 60,112 64,114" stroke="#7a5a30" strokeWidth="0.7" fill="none" opacity="0.5" />
-          <path d="M 56,104 Q 60,102 64,104" stroke="#7a5a30" strokeWidth="0.7" fill="none" opacity="0.5" />
-          <path d="M 56,94 Q 60,92 64,94" stroke="#7a5a30" strokeWidth="0.7" fill="none" opacity="0.5" />
-          {/* Branches */}
-          <path d="M 57,90 Q 40,83 32,70" stroke="#8b6a40" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          <path d="M 63,88 Q 80,81 88,68" stroke="#8b6a40" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          {/* Canopy layers */}
-          <circle cx="34" cy="66" r="15" fill="#7ab85a" />
-          <circle cx="86" cy="64" r="15" fill="#7ab85a" />
-          <circle cx="50" cy="75" r="17" fill="#6aaa4a" />
-          <circle cx="70" cy="75" r="17" fill="#6aaa4a" />
-          <circle cx="60" cy="60" r="21" fill="#5a9a3a" />
-          <circle cx="48" cy="50" r="14" fill="#4a8a2a" />
-          <circle cx="72" cy="48" r="14" fill="#4a8a2a" />
-          <circle cx="60" cy="40" r="15" fill="#3a7818" />
-          {/* Highlight dots */}
-          <circle cx="44" cy="56" r="2" fill="#8ac85a" opacity="0.6" />
-          <circle cx="76" cy="58" r="2" fill="#8ac85a" opacity="0.6" />
-        </g>
-      )}
-
-      {/* ── Stage 6: Blooming ── */}
-      {stage === 6 && (
-        <g>
-          {/* Grass tufts */}
-          <path d="M 34,120 Q 35,112 36,116 Q 37,111 38,120" fill="#4a8a2a" />
-          <path d="M 82,120 Q 83,112 84,116 Q 85,111 86,120" fill="#4a8a2a" />
-          {/* Trunk (wider) */}
-          <path d="M 55,120 C 54,108 53,94 54,78 L 66,78 C 67,94 66,108 65,120 Z" fill="#9b7a50" />
-          <path d="M 55,113 Q 60,111 65,113" stroke="#7a5a30" strokeWidth="0.7" fill="none" opacity="0.5" />
-          <path d="M 55,103 Q 60,101 65,103" stroke="#7a5a30" strokeWidth="0.7" fill="none" opacity="0.5" />
-          <path d="M 55,93 Q 60,91 65,93" stroke="#7a5a30" strokeWidth="0.7" fill="none" opacity="0.5" />
-          <path d="M 55,83 Q 60,81 65,83" stroke="#7a5a30" strokeWidth="0.6" fill="none" opacity="0.4" />
-          {/* Branches */}
-          <path d="M 56,85 Q 36,76 26,62" stroke="#8b6a40" strokeWidth="3" fill="none" strokeLinecap="round" />
-          <path d="M 64,83 Q 84,74 94,60" stroke="#8b6a40" strokeWidth="3" fill="none" strokeLinecap="round" />
-          <path d="M 58,80 Q 52,68 48,58" stroke="#8b6a40" strokeWidth="2" fill="none" strokeLinecap="round" />
-          <path d="M 62,80 Q 68,68 72,58" stroke="#8b6a40" strokeWidth="2" fill="none" strokeLinecap="round" />
-          {/* Canopy — deep layers */}
-          <circle cx="28" cy="60" r="16" fill="#7ab85a" />
-          <circle cx="92" cy="58" r="16" fill="#7ab85a" />
-          <circle cx="44" cy="73" r="18" fill="#6aaa4a" />
-          <circle cx="76" cy="73" r="18" fill="#6aaa4a" />
-          <circle cx="60" cy="66" r="23" fill="#5a9a3a" />
-          <circle cx="44" cy="54" r="16" fill="#4a8a2a" />
-          <circle cx="76" cy="52" r="16" fill="#4a8a2a" />
-          <circle cx="60" cy="44" r="19" fill="#3a7818" />
-          <circle cx="60" cy="28" r="14" fill="#2e6612" />
-          {/* Pink blossoms */}
-          <circle cx="36" cy="54" r="3.5" fill="#ffb8d0" opacity="0.9" />
-          <circle cx="84" cy="50" r="3.5" fill="#ffb8d0" opacity="0.9" />
-          <circle cx="52" cy="44" r="3" fill="#ffc8e0" opacity="0.85" />
-          <circle cx="68" cy="42" r="3" fill="#ffc8e0" opacity="0.85" />
-          <circle cx="60" cy="32" r="3" fill="#ffb0c8" opacity="0.8" />
-          <circle cx="46" cy="64" r="2.5" fill="#ffd0e8" opacity="0.8" />
-          <circle cx="74" cy="62" r="2.5" fill="#ffd0e8" opacity="0.8" />
-        </g>
-      )}
-
-      {/* ── Stage 7: Fruiting (green fruits) ── */}
-      {stage === 7 && (
-        <g>
-          {/* Grass tufts */}
-          <path d="M 32,120 Q 33,111 34,115 Q 35,110 36,120" fill="#3a8020" />
-          <path d="M 84,120 Q 85,111 86,115 Q 87,110 88,120" fill="#3a8020" />
-          {/* Trunk */}
-          <path d="M 54,120 C 53,107 52,92 53,74 L 67,74 C 68,92 67,107 66,120 Z" fill="#9b7a50" />
-          <path d="M 54,112 Q 60,110 66,112" stroke="#7a5a30" strokeWidth="0.8" fill="none" opacity="0.5" />
-          <path d="M 54,100 Q 60,98 66,100" stroke="#7a5a30" strokeWidth="0.8" fill="none" opacity="0.5" />
-          <path d="M 54,88 Q 60,86 66,88" stroke="#7a5a30" strokeWidth="0.7" fill="none" opacity="0.4" />
-          {/* Branches */}
-          <path d="M 55,80 Q 32,70 22,56" stroke="#8b6a40" strokeWidth="3" fill="none" strokeLinecap="round" />
-          <path d="M 65,78 Q 88,68 98,54" stroke="#8b6a40" strokeWidth="3" fill="none" strokeLinecap="round" />
-          <path d="M 57,77 Q 50,64 46,52" stroke="#8b6a40" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          <path d="M 63,77 Q 70,64 74,52" stroke="#8b6a40" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          {/* Canopy */}
-          <circle cx="24" cy="54" r="17" fill="#7ab85a" />
-          <circle cx="96" cy="52" r="17" fill="#7ab85a" />
-          <circle cx="40" cy="70" r="20" fill="#6aaa4a" />
-          <circle cx="80" cy="68" r="20" fill="#6aaa4a" />
-          <circle cx="60" cy="63" r="25" fill="#5a9a3a" />
-          <circle cx="40" cy="50" r="18" fill="#4a8a2a" />
-          <circle cx="80" cy="48" r="18" fill="#4a8a2a" />
-          <circle cx="60" cy="40" r="21" fill="#3a7818" />
-          <circle cx="60" cy="24" r="15" fill="#2e6612" />
-          {/* Green fruits */}
-          <circle cx="32" cy="58" r="4" fill="#70c040" /><circle cx="32" cy="58" r="2" fill="#90d860" opacity="0.5" />
-          <circle cx="88" cy="56" r="4" fill="#70c040" /><circle cx="88" cy="56" r="2" fill="#90d860" opacity="0.5" />
-          <circle cx="46" cy="48" r="4" fill="#68b838" /><circle cx="46" cy="48" r="2" fill="#88d058" opacity="0.5" />
-          <circle cx="74" cy="46" r="4" fill="#68b838" /><circle cx="74" cy="46" r="2" fill="#88d058" opacity="0.5" />
-          <circle cx="60" cy="32" r="3.5" fill="#70c040" /><circle cx="60" cy="32" r="1.5" fill="#90d860" opacity="0.5" />
-        </g>
-      )}
-
-      {/* ── Stage 8: Harvest (red/orange fruits) ── */}
-      {stage === 8 && (
-        <g>
-          {/* Grass tufts */}
-          <path d="M 30,120 Q 31,110 32,114 Q 33,109 34,120" fill="#3a8020" />
-          <path d="M 86,120 Q 87,110 88,114 Q 89,109 90,120" fill="#3a8020" />
-          {/* Trunk */}
-          <path d="M 53,120 C 52,106 51,90 52,72 L 68,72 C 69,90 68,106 67,120 Z" fill="#9b7a50" />
-          <path d="M 53,112 Q 60,110 67,112" stroke="#7a5a30" strokeWidth="0.8" fill="none" opacity="0.5" />
-          <path d="M 53,100 Q 60,98 67,100" stroke="#7a5a30" strokeWidth="0.8" fill="none" opacity="0.4" />
-          {/* Branches */}
-          <path d="M 54,78 Q 30,68 20,52" stroke="#8b6a40" strokeWidth="3.5" fill="none" strokeLinecap="round" />
-          <path d="M 66,76 Q 90,66 100,50" stroke="#8b6a40" strokeWidth="3.5" fill="none" strokeLinecap="round" />
-          <path d="M 56,74 Q 48,60 44,48" stroke="#8b6a40" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          <path d="M 64,74 Q 72,60 76,48" stroke="#8b6a40" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          {/* Canopy (lush) */}
-          <circle cx="22" cy="50" r="18" fill="#7ab85a" />
-          <circle cx="98" cy="48" r="18" fill="#7ab85a" />
-          <circle cx="36" cy="68" r="22" fill="#6aaa4a" />
-          <circle cx="84" cy="66" r="22" fill="#6aaa4a" />
-          <circle cx="60" cy="62" r="27" fill="#5a9a3a" />
-          <circle cx="38" cy="48" r="19" fill="#4a8a2a" />
-          <circle cx="82" cy="46" r="19" fill="#4a8a2a" />
-          <circle cx="60" cy="38" r="23" fill="#3a7818" />
-          <circle cx="60" cy="20" r="16" fill="#2e6612" />
-          {/* Red/orange apples */}
-          <circle cx="26" cy="48" r="4.5" fill="#e84030" /><circle cx="25" cy="46" r="1.5" fill="#ff8070" opacity="0.6" />
-          <circle cx="94" cy="46" r="4.5" fill="#e84030" /><circle cx="93" cy="44" r="1.5" fill="#ff8070" opacity="0.6" />
-          <circle cx="40" cy="56" r="4.5" fill="#e05828" /><circle cx="39" cy="54" r="1.5" fill="#ff8060" opacity="0.6" />
-          <circle cx="80" cy="54" r="4.5" fill="#e05828" /><circle cx="79" cy="52" r="1.5" fill="#ff8060" opacity="0.6" />
-          <circle cx="46" cy="44" r="4" fill="#e84030" /><circle cx="45" cy="42" r="1.5" fill="#ff7060" opacity="0.6" />
-          <circle cx="74" cy="42" r="4" fill="#e84030" /><circle cx="73" cy="40" r="1.5" fill="#ff7060" opacity="0.6" />
-          <circle cx="60" cy="30" r="4" fill="#e05828" /><circle cx="59" cy="28" r="1.5" fill="#ff8060" opacity="0.5" />
-          {/* Stem on fruit */}
-          <line x1="26" y1="44" x2="26" y2="41" stroke="#3a6010" strokeWidth="1" strokeLinecap="round" />
-          <line x1="46" y1="40" x2="46" y2="37" stroke="#3a6010" strokeWidth="1" strokeLinecap="round" />
-          <line x1="74" y1="38" x2="74" y2="35" stroke="#3a6010" strokeWidth="1" strokeLinecap="round" />
-        </g>
-      )}
-
-      {/* ── Stage 9: Autumn (orange/red/yellow foliage) ── */}
-      {stage === 9 && (
-        <g>
-          {/* Grass tufts (dried) */}
-          <path d="M 28,120 Q 29,109 30,113 Q 31,108 32,120" fill="#8a7020" />
-          <path d="M 88,120 Q 89,109 90,113 Q 91,108 92,120" fill="#8a7020" />
-          {/* Trunk */}
-          <path d="M 53,120 C 52,106 51,90 52,72 L 68,72 C 69,90 68,106 67,120 Z" fill="#8b6040" />
-          <path d="M 53,112 Q 60,110 67,112" stroke="#6a4820" strokeWidth="0.8" fill="none" opacity="0.6" />
-          <path d="M 53,100 Q 60,98 67,100" stroke="#6a4820" strokeWidth="0.8" fill="none" opacity="0.6" />
-          <path d="M 53,88 Q 60,86 67,88" stroke="#6a4820" strokeWidth="0.7" fill="none" opacity="0.5" />
-          {/* Branches */}
-          <path d="M 54,78 Q 30,68 20,52" stroke="#7a5030" strokeWidth="3.5" fill="none" strokeLinecap="round" />
-          <path d="M 66,76 Q 90,66 100,50" stroke="#7a5030" strokeWidth="3.5" fill="none" strokeLinecap="round" />
-          <path d="M 56,74 Q 48,60 44,48" stroke="#7a5030" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          <path d="M 64,74 Q 72,60 76,48" stroke="#7a5030" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          {/* Autumn canopy — warm colors */}
-          <circle cx="22" cy="50" r="18" fill="#d4802a" />
-          <circle cx="98" cy="48" r="18" fill="#d08028" />
-          <circle cx="36" cy="68" r="22" fill="#c87030" />
-          <circle cx="84" cy="66" r="22" fill="#cc7828" />
-          <circle cx="60" cy="62" r="27" fill="#c86828" />
-          <circle cx="38" cy="48" r="19" fill="#e09030" />
-          <circle cx="82" cy="46" r="19" fill="#d88028" />
-          <circle cx="60" cy="38" r="23" fill="#c05820" />
-          <circle cx="60" cy="20" r="16" fill="#b04818" />
-          {/* Color variation patches */}
-          <circle cx="30" cy="55" r="10" fill="#e8a830" opacity="0.7" />
-          <circle cx="90" cy="53" r="10" fill="#e8a028" opacity="0.7" />
-          <circle cx="52" cy="44" r="10" fill="#d04818" opacity="0.6" />
-          <circle cx="68" cy="42" r="10" fill="#d05020" opacity="0.6" />
-          <circle cx="60" cy="26" r="8" fill="#e8b028" opacity="0.65" />
-          {/* Sparkle shimmer */}
-          <circle cx="22" cy="44" r="2" fill="#f8d080" className="sparkle" style={{ animationDelay: "0.4s" }} />
-          <circle cx="98" cy="42" r="2" fill="#f8c860" className="sparkle" style={{ animationDelay: "1.1s" }} />
-          <circle cx="60" cy="16" r="1.5" fill="#ffd080" className="sparkle" style={{ animationDelay: "1.8s" }} />
-        </g>
-      )}
-
-      {/* ── Stage 10: Thriving (majestic, glowing) ── */}
-      {stage === 10 && (
-        <g>
-          {/* Lush grass tufts */}
-          <path d="M 26,120 Q 27,109 28,113 Q 29,108 30,120" fill="#3a8a20" />
-          <path d="M 32,120 Q 33,110 34,114 Q 35,109 36,120" fill="#4a9a28" />
-          <path d="M 84,120 Q 85,110 86,114 Q 87,109 88,120" fill="#4a9a28" />
-          <path d="M 90,120 Q 91,109 92,113 Q 93,108 94,120" fill="#3a8a20" />
-          {/* Trunk (wide, majestic) */}
-          <path d="M 52,120 C 50,105 49,88 50,68 L 70,68 C 71,88 70,105 68,120 Z" fill="#9b7a50" />
-          <path d="M 52,114 Q 60,112 68,114" stroke="#7a5a30" strokeWidth="0.9" fill="none" opacity="0.5" />
-          <path d="M 52,104 Q 60,102 68,104" stroke="#7a5a30" strokeWidth="0.9" fill="none" opacity="0.5" />
-          <path d="M 52,94 Q 60,92 68,94" stroke="#7a5a30" strokeWidth="0.8" fill="none" opacity="0.4" />
-          <path d="M 52,84 Q 60,82 68,84" stroke="#7a5a30" strokeWidth="0.7" fill="none" opacity="0.35" />
-          {/* Major branches */}
-          <path d="M 52,74 Q 26,62 14,46" stroke="#8b6a40" strokeWidth="4" fill="none" strokeLinecap="round" />
-          <path d="M 68,72 Q 94,60 106,44" stroke="#8b6a40" strokeWidth="4" fill="none" strokeLinecap="round" />
-          <path d="M 55,72 Q 46,58 42,44" stroke="#8b6a40" strokeWidth="3" fill="none" strokeLinecap="round" />
-          <path d="M 65,72 Q 74,58 78,44" stroke="#8b6a40" strokeWidth="3" fill="none" strokeLinecap="round" />
-          {/* Canopy — massive, deep, lush */}
-          <circle cx="16" cy="44" r="19" fill="#7ab85a" />
-          <circle cx="104" cy="42" r="19" fill="#7ab85a" />
-          <circle cx="30" cy="64" r="24" fill="#6aaa4a" />
-          <circle cx="90" cy="62" r="24" fill="#6aaa4a" />
-          <circle cx="60" cy="60" r="30" fill="#5a9a3a" />
-          <circle cx="34" cy="44" r="21" fill="#4a8a2a" />
-          <circle cx="86" cy="42" r="21" fill="#4a8a2a" />
-          <circle cx="60" cy="36" r="25" fill="#3a7818" />
-          <circle cx="42" cy="26" r="16" fill="#2e6612" />
-          <circle cx="78" cy="24" r="16" fill="#2e6612" />
-          <circle cx="60" cy="16" r="18" fill="#24580c" />
-          {/* Glow / shimmer overlay */}
-          <circle cx="60" cy="38" r="28" fill="rgba(120,200,80,0.15)" className="leaf-shimmer" />
-          {/* Sparkle dots */}
-          <circle cx="20" cy="40" r="2.5" fill="#b0f080" className="sparkle" style={{ animationDelay: "0.2s" }} />
-          <circle cx="100" cy="38" r="2.5" fill="#a8e870" className="sparkle" style={{ animationDelay: "0.8s" }} />
-          <circle cx="40" cy="22" r="2" fill="#b8f090" className="sparkle" style={{ animationDelay: "1.4s" }} />
-          <circle cx="80" cy="20" r="2" fill="#a8f078" className="sparkle" style={{ animationDelay: "0.5s" }} />
-          <circle cx="60" cy="8" r="2" fill="#c8f8a0" className="sparkle" style={{ animationDelay: "1.9s" }} />
-          <circle cx="50" cy="52" r="1.5" fill="#d0f0a8" className="sparkle" style={{ animationDelay: "1.1s" }} />
-          <circle cx="70" cy="50" r="1.5" fill="#c8f098" className="sparkle" style={{ animationDelay: "0.3s" }} />
-        </g>
-      )}
-    </svg>
+    </div>
   );
 }
 
@@ -671,8 +432,8 @@ export default function GardenScene({
 
   if (compact) {
     return (
-      <div className={`w-full h-full ${className}`} style={style}>
-        <GardenTreeSVG leafCount={leafCount} className="w-full h-full" />
+      <div className={`w-full h-full flex items-center justify-center ${className}`} style={style}>
+        <GardenTreeSVG leafCount={leafCount} sizeOverride={64} />
       </div>
     );
   }
@@ -747,14 +508,13 @@ export default function GardenScene({
       <div
         className="absolute garden-sway"
         style={{
-          bottom: "28%",
+          bottom: "26%",
           left: "50%",
           transform: "translateX(-50%)",
-          width: "clamp(60px, 18%, 110px)",
           transformOrigin: "center bottom",
         }}
       >
-        <GardenTreeSVG leafCount={leafCount} className="w-full h-auto" />
+        <GardenTreeSVG leafCount={leafCount} />
       </div>
 
       {/* Child name label */}
