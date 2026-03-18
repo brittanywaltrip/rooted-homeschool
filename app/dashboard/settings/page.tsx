@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera, GraduationCap, ExternalLink } from "lucide-react";
+import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera, GraduationCap, ExternalLink, Sprout } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+
+function getCurrentSchoolYearLabel(): string {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  const startYear = month >= 8 ? year : year - 1;
+  return `${startYear}–${startYear + 1}`;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -108,6 +116,12 @@ export default function SettingsPage() {
   const [savingPartner,     setSavingPartner]     = useState(false);
   const [partnerSaved,      setPartnerSaved]      = useState(false);
   const [partnerError,      setPartnerError]      = useState("");
+
+  // School year transition
+  const [showYearModal,    setShowYearModal]    = useState(false);
+  const [yearTransitioning, setYearTransitioning] = useState(false);
+  const [yearError,        setYearError]        = useState("");
+  const [yearSuccessToast, setYearSuccessToast] = useState(false);
 
   // ── Load data ─────────────────────────────────────────────────────────────
 
@@ -360,6 +374,33 @@ export default function SettingsPage() {
       setTimeout(() => setPartnerSaved(false), 2500);
     }
     setSavingPartner(false);
+  }
+
+  // ── New school year ───────────────────────────────────────────────────────
+
+  async function startNewSchoolYear() {
+    setYearTransitioning(true);
+    setYearError("");
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setYearTransitioning(false); return; }
+
+    const res = await fetch("/api/school-year/new", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${session.access_token}` },
+    });
+
+    if (!res.ok) {
+      const { error } = await res.json();
+      setYearError(error ?? "Something went wrong. Please try again.");
+      setYearTransitioning(false);
+      return;
+    }
+
+    setYearTransitioning(false);
+    setShowYearModal(false);
+    setYearSuccessToast(true);
+    setTimeout(() => setYearSuccessToast(false), 6000);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -806,6 +847,38 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      {/* ── School Year ─────────────────────────────────────── */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-[#2d2926]">School Year</h2>
+          <span className="h-px flex-1 bg-[#e8e2d9]" />
+        </div>
+
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0">
+              <Sprout size={16} className="text-[#5c7f63]" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-[#2d2926] mb-0.5">Start a New School Year</p>
+              <p className="text-xs text-[#7a6f65] leading-relaxed">
+                Archive your current curriculum and schedule as School Year {getCurrentSchoolYearLabel()},
+                then start fresh with a clean plan. Your garden, memories, and family info stay untouched.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => { setShowYearModal(true); setYearError(""); }}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#c8ddb8] bg-[#f0f8f0] hover:bg-[#e4f2e4] text-[#3d5c42] text-sm font-medium transition-colors"
+          >
+            <span>🌱</span>
+            Start New School Year
+          </button>
+        </div>
+      </section>
+
       {/* ── Danger zone ─────────────────────────────────────── */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
@@ -841,6 +914,76 @@ export default function SettingsPage() {
       )}
 
       <div className="h-4" />
+
+      {/* ── New School Year Modal ────────────────────────────── */}
+      {showYearModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-[#fefcf9] rounded-2xl border border-[#e8e2d9] shadow-xl max-w-sm w-full p-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center text-xl shrink-0">
+                🌱
+              </div>
+              <h2 className="text-lg font-bold text-[#2d2926] leading-snug">
+                Ready for a fresh start?
+              </h2>
+            </div>
+
+            <p className="text-sm text-[#5c5248] leading-relaxed">
+              Your current lessons, curriculum goals, and schedule will be archived as{" "}
+              <span className="font-semibold text-[#2d2926]">
+                School Year {getCurrentSchoolYearLabel()}
+              </span>
+              . Your garden, memories, children, and family info stay exactly as they are.{" "}
+              <span className="font-medium text-[#7a6f65]">This cannot be undone.</span>
+            </p>
+
+            {yearError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                {yearError}
+              </p>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => { setShowYearModal(false); setYearError(""); }}
+                disabled={yearTransitioning}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={startNewSchoolYear}
+                disabled={yearTransitioning}
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+              >
+                {yearTransitioning ? "Archiving…" : "Archive & Start Fresh →"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Success Toast ────────────────────────────────────── */}
+      {yearSuccessToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-sm px-4">
+          <div className="bg-[#2d2926] text-white text-sm rounded-2xl px-5 py-4 shadow-lg flex items-start gap-3">
+            <span className="text-lg shrink-0">🌱</span>
+            <div>
+              <p className="font-semibold mb-0.5">Welcome to your new school year!</p>
+              <p className="text-[#b5aca4] text-xs leading-relaxed">
+                Add your new curriculum goals to get started.
+              </p>
+            </div>
+            <button
+              onClick={() => setYearSuccessToast(false)}
+              className="ml-auto shrink-0 text-[#7a6f65] hover:text-white transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
