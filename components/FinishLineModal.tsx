@@ -114,7 +114,7 @@ export default function FinishLineModal({ children, goal, onClose, onSaved, show
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setSaving(false); return }
 
-    const payload = {
+    const basePayload = {
       user_id: user.id,
       child_id: childId,
       curriculum_name: curriculumName.trim(),
@@ -122,32 +122,60 @@ export default function FinishLineModal({ children, goal, onClose, onSaved, show
       total_lessons: total,
       current_lesson: current,
       target_date: targetDate,
-      school_days: schoolDays,
       updated_at: new Date().toISOString(),
     }
 
-    if (goal?.id) {
-      await supabase.from('curriculum_goals').update(payload).eq('id', goal.id)
-    } else {
-      const { data: newGoal } = await supabase
-        .from('curriculum_goals').insert(payload).select('id').single()
+    // Try with school_days first; fall back gracefully if the column doesn't
+    // exist yet (i.e. the migration hasn't been run in Supabase).
+    async function tryInsertOrUpdate(includeSchoolDays: boolean) {
+      const payload = includeSchoolDays
+        ? { ...basePayload, school_days: schoolDays }
+        : basePayload
 
-      if (newGoal?.id) {
-        const schedule = buildSchedule(current + 1, total, schoolDays)
-        if (schedule.length > 0) {
-          const rows = schedule.map(s => ({
-            user_id: user.id,
-            child_id: childId,
-            title: `${curriculumName.trim()} · Lesson ${s.lessonNumber}`,
-            completed: false,
-            scheduled_date: s.scheduledDate,
-            curriculum_goal_id: newGoal.id,
-            lesson_number: s.lessonNumber,
-          }))
-          await supabase.from('lessons').insert(rows)
+      if (goal?.id) {
+        const { error } = await supabase.from('curriculum_goals').update(payload).eq('id', goal.id)
+        return { goalId: goal.id, error }
+      } else {
+        const { data, error } = await supabase
+          .from('curriculum_goals').insert(payload).select('id').single()
+        return { goalId: data?.id ?? null, error }
+      }
+    }
+
+    let { goalId, error: saveError } = await tryInsertOrUpdate(true)
+
+    // If the error mentions school_days the migration hasn't been run — retry without it
+    if (saveError && saveError.message?.includes('school_days')) {
+      const result = await tryInsertOrUpdate(false)
+      goalId    = result.goalId
+      saveError = result.error
+    }
+
+    if (saveError) {
+      setError(saveError.message || 'Something went wrong. Please try again.')
+      setSaving(false)
+      return
+    }
+
+    // Schedule lessons (create only, and only if the curriculum_goal_id column exists)
+    if (goalId && !goal?.id) {
+      const schedule = buildSchedule(current + 1, total, schoolDays)
+      if (schedule.length > 0) {
+        const rows = schedule.map(s => ({
+          user_id: user.id,
+          child_id: childId,
+          title: `${curriculumName.trim()} · Lesson ${s.lessonNumber}`,
+          completed: false,
+          scheduled_date: s.scheduledDate,
+          curriculum_goal_id: goalId,
+          lesson_number: s.lessonNumber,
+        }))
+        const { error: lessonsError } = await supabase.from('lessons').insert(rows)
+        if (!lessonsError) {
           const child = children.find(c => c.id === childId)
           showToast(`🎉 ${schedule.length} lessons scheduled for ${child?.name ?? 'your child'}! Your plan is all set.`)
         }
+        // If lesson insert fails (columns missing) we still saved the goal — don't block
       }
     }
 
@@ -157,9 +185,13 @@ export default function FinishLineModal({ children, goal, onClose, onSaved, show
   async function handleDelete() {
     if (!goal?.id) return
     setDeleting(true)
-    // Remove incomplete scheduled lessons tied to this goal
+    // Best-effort: remove incomplete scheduled lessons (ignore error if columns missing)
     await supabase.from('lessons').delete().eq('curriculum_goal_id', goal.id).eq('completed', false)
-    await supabase.from('curriculum_goals').delete().eq('id', goal.id)
+    const { error: delError } = await supabase.from('curriculum_goals').delete().eq('id', goal.id)
+    if (delError) {
+      setError(delError.message || 'Could not delete. Please try again.')
+      setDeleting(false); return
+    }
     setDeleting(false); onSaved(); onClose()
   }
 
