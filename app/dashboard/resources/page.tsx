@@ -244,6 +244,7 @@ export default function ResourcesPage() {
   const [dbResources,   setDbResources]   = useState<DbResource[]>([]);
   const [dbLoading,     setDbLoading]     = useState(true);
   const [userState,     setUserState]     = useState<string | null>(null);
+  const [stateLoaded,   setStateLoaded]   = useState(false);
 
   const stateRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -268,8 +269,11 @@ export default function ResourcesPage() {
       .select("state")
       .eq("id", effectiveUserId)
       .maybeSingle()
-      .then(({ data }) => {
-        setUserState((data as { state?: string } | null)?.state ?? null);
+      .then(({ data, error }) => {
+        if (!error) {
+          setUserState((data as { state?: string } | null)?.state ?? null);
+        }
+        setStateLoaded(true);
       });
   }, [effectiveUserId]);
 
@@ -364,7 +368,7 @@ export default function ResourcesPage() {
       </div>
 
       {/* ── 2. Personalized State Banner ───────────────────────── */}
-      {userState && userState !== "Outside the US" && STATE_REQS[userState] ? (
+      {stateLoaded && userState && userState !== "Outside the US" && STATE_REQS[userState] ? (
         <div className="rounded-2xl p-5 border border-[#b8d4be]" style={{ background: "linear-gradient(135deg, #eef5ec 0%, #f5fbf0 100%)" }}>
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-xl bg-[#4a7c59] flex items-center justify-center shrink-0">
@@ -393,14 +397,14 @@ export default function ResourcesPage() {
             </div>
           </div>
         </div>
-      ) : userState === "Outside the US" ? (
+      ) : stateLoaded && userState === "Outside the US" ? (
         <div className="rounded-2xl p-4 border border-[#e0dbd4] bg-[#fefcf9] flex items-center gap-3">
           <MapPin size={16} className="text-[#b5aca4]" />
           <p className="text-sm text-[#7a6f65]">
             You&apos;re homeschooling outside the US — check your local education authority for requirements.
           </p>
         </div>
-      ) : (
+      ) : stateLoaded ? (
         <Link
           href="/dashboard/settings"
           className="flex items-center gap-3 rounded-2xl p-4 border border-dashed border-[#c8ddb8] bg-[#f5fbf2] hover:bg-[#eef7ea] transition-colors group"
@@ -411,7 +415,7 @@ export default function ResourcesPage() {
             <span className="ml-1 text-[#4a7c59] group-hover:underline">→</span>
           </p>
         </Link>
-      )}
+      ) : null}
 
       {/* ── 3. This Week's Free Picks ───────────────────────────── */}
       <div>

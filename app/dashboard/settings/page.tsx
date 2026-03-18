@@ -97,6 +97,11 @@ export default function SettingsPage() {
   const [photoError,      setPhotoError]      = useState<string | null>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);
 
+  // Homeschool state
+  const [homeschoolState,  setHomeschoolState]  = useState("");
+  const [savingState,      setSavingState]      = useState(false);
+  const [savedState,       setSavedState]       = useState(false);
+
   // Partner access
   const [partnerEmail,      setPartnerEmail]      = useState("");
   const [savedPartnerEmail, setSavedPartnerEmail] = useState("");
@@ -114,17 +119,18 @@ export default function SettingsPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("display_name, partner_email, family_photo_url")
+      .select("display_name, partner_email, family_photo_url, state")
       .eq("id", user.id)
       .maybeSingle();
 
     setFamilyName(
       profile?.display_name ?? user.user_metadata?.family_name ?? ""
     );
-    const pe = (profile as { display_name?: string; partner_email?: string; family_photo_url?: string } | null)?.partner_email ?? "";
+    const pe = (profile as { display_name?: string; partner_email?: string; family_photo_url?: string; state?: string } | null)?.partner_email ?? "";
     setPartnerEmail(pe);
     setSavedPartnerEmail(pe);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
+    setHomeschoolState((profile as { state?: string } | null)?.state ?? "");
 
     const { data: kids } = await supabase
       .from("children")
@@ -153,6 +159,23 @@ export default function SettingsPage() {
     setSavingFamily(false);
     setSavedFamily(true);
     setTimeout(() => setSavedFamily(false), 2500);
+  }
+
+  // ── Homeschool state ──────────────────────────────────────────────────────
+
+  async function saveHomeschoolState() {
+    setSavingState(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingState(false); return; }
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    await fetch("/api/profile/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      body: JSON.stringify({ state: homeschoolState || null }),
+    });
+    setSavingState(false);
+    setSavedState(true);
+    setTimeout(() => setSavedState(false), 2500);
   }
 
   // ── Family photo ──────────────────────────────────────────────────────────
@@ -453,6 +476,45 @@ export default function SettingsPage() {
                 }`}
               >
                 {savedFamily ? "✓ Saved" : savingFamily ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+
+          {/* Homeschool state */}
+          <div>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
+              Your state
+              <span className="text-[#b5aca4] font-normal ml-1">(for personalized resources)</span>
+            </label>
+            <div className="flex gap-2">
+              <select
+                value={homeschoolState}
+                onChange={(e) => setHomeschoolState(e.target.value)}
+                className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+              >
+                <option value="">Select your state…</option>
+                {["Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut",
+                  "Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa",
+                  "Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan",
+                  "Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada",
+                  "New Hampshire","New Jersey","New Mexico","New York","North Carolina",
+                  "North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island",
+                  "South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont",
+                  "Virginia","Washington","West Virginia","Wisconsin","Wyoming",
+                  "Outside the US"].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <button
+                onClick={saveHomeschoolState}
+                disabled={savingState}
+                className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
+                  savedState
+                    ? "bg-[#e8f0e9] text-[#3d5c42]"
+                    : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                }`}
+              >
+                {savedState ? "✓ Saved" : savingState ? "Saving…" : "Save"}
               </button>
             </div>
           </div>
