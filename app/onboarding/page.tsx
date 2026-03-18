@@ -588,8 +588,8 @@ export default function OnboardingPage() {
         .eq("id", user.id)
         .maybeSingle();
 
-      // null = existing user (column not yet added) → skip onboarding
-      if ((profile as { onboarded?: boolean | null } | null)?.onboarded !== false) {
+      // Only skip onboarding when explicitly marked complete
+      if ((profile as { onboarded?: boolean | null } | null)?.onboarded === true) {
         router.replace("/dashboard");
         return;
       }

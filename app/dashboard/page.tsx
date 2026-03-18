@@ -444,6 +444,7 @@ export default function TodayPage() {
   const { isPartner, effectiveUserId } = usePartner();
 
   const [familyName,       setFamilyName]       = useState("");
+  const [onboarded,        setOnboarded]        = useState<boolean | null>(null);
   const [children,         setChildren]         = useState<Child[]>([]);
   const [lessons,          setLessons]          = useState<Lesson[]>([]);
   const [leafCounts,       setLeafCounts]       = useState<Record<string, number>>({});
@@ -502,10 +503,11 @@ export default function TodayPage() {
     if (!effectiveUserId) return;
 
     const [{ data: profile }, { data: { user: authUser } }] = await Promise.all([
-      supabase.from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
     ]);
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
+    setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
 
     const { data: childrenData } = await supabase
       .from("children").select("id, name, color")
@@ -756,8 +758,8 @@ export default function TodayPage() {
     );
   }
 
-  // Onboarding for brand-new users with no children yet
-  if (children.length === 0) {
+  // Show old in-dashboard flow only for pre-onboarding users (no children, not yet through new wizard)
+  if (children.length === 0 && onboarded !== true) {
     return <OnboardingFlow onDone={loadData} />;
   }
 
