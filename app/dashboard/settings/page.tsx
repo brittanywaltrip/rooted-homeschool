@@ -180,12 +180,19 @@ export default function SettingsPage() {
     const { data: urlData } = supabase.storage.from("family-photos").getPublicUrl(path);
     const url = urlData.publicUrl;
 
-    const { error: upsertErr } = await supabase
-      .from("profiles")
-      .upsert({ id: user.id, family_photo_url: url }, { onConflict: "id" });
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/profile/update", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({ family_photo_url: url }),
+    });
 
-    if (upsertErr) {
-      setPhotoError(`Saved photo but couldn't update profile: ${upsertErr.message}`);
+    if (!res.ok) {
+      const { error } = await res.json();
+      setPhotoError(`Saved photo but couldn't update profile: ${error}`);
       setPhotoUploading(false);
       return;
     }
