@@ -37,10 +37,12 @@ export default function FinishLineSection() {
     ])
     const kids = childrenData ?? []
     setChildren(kids)
-    const enriched: GoalWithChild[] = (goalsData ?? []).map((g) => {
-      const child = kids.find((c) => c.id === g.child_id)
-      return { ...g, child_name: child?.name ?? 'Unknown', child_color: child?.color ?? '#5c7f63' }
-    })
+    const enriched: GoalWithChild[] = (goalsData ?? [])
+      .filter((g) => kids.some((c) => c.id === g.child_id))
+      .map((g) => {
+        const child = kids.find((c) => c.id === g.child_id)!
+        return { ...g, child_name: child.name, child_color: child.color ?? '#5c7f63' }
+      })
     setGoals(enriched)
     setLoading(false)
   }
