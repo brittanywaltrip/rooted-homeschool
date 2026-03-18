@@ -323,28 +323,21 @@ function GardenMockup() {
         <div
           className="rounded-xl relative overflow-hidden"
           style={{
-            background: "linear-gradient(180deg, #87ceeb 0%, #b0d8f0 35%, #cce4f5 65%, #e4f0e4 82%, #7ab87a 100%)",
-            minHeight: 150,
+            background: "linear-gradient(180deg, #87ceeb 0%, #b0d8f0 40%, #cce4f5 70%, #e4f0e4 85%, #7ab87a 100%)",
+            height: 170,
           }}
         >
-          {/* Ground */}
-          <div className="absolute bottom-0 left-0 right-0 overflow-hidden" style={{ height: "30%" }}>
-            <svg viewBox="0 0 400 80" preserveAspectRatio="xMidYMax slice" className="w-full h-full">
-              <path d="M0 40 Q100 28 200 38 Q300 48 400 32 L400 80 L0 80 Z" fill="#5c8a47" />
-              <path d="M0 50 Q100 44 200 50 Q300 56 400 46 L400 80 L0 80 Z" fill="#3d6030" />
-            </svg>
-          </div>
-          {/* Trees */}
-          <div className="absolute inset-0 flex items-end justify-around px-4 pb-[26%]">
+          {/* Trees sit above the ground — rendered first so ground SVG overlaps the base */}
+          <div className="absolute bottom-0 left-0 right-0 flex items-end justify-around px-6" style={{ paddingBottom: 28 }}>
             {children.map((child, i) => (
-              <div key={child.name} className="flex flex-col items-center gap-1">
+              <div key={child.name} className="flex flex-col items-center gap-0.5">
                 <span
                   className={i % 2 === 0 ? "garden-sway" : "garden-sway-alt"}
                   style={{
-                    fontSize: 48,
+                    fontSize: 52,
                     lineHeight: 1,
                     display: "block",
-                    filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.2))",
+                    filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.25))",
                     transformOrigin: "center bottom",
                     animationDelay: `${i * 0.8}s`,
                     userSelect: "none",
@@ -353,11 +346,22 @@ function GardenMockup() {
                 >
                   {treeEmoji(child.leaves)}
                 </span>
-                <div className="bg-white/80 rounded-lg px-2 py-0.5 text-center">
-                  <p className="text-[10px] font-bold" style={{ color: child.color }}>{child.name}</p>
-                </div>
+                <span
+                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                  style={{ background: "rgba(255,255,255,0.85)", color: child.color, lineHeight: 1.4 }}
+                >
+                  {child.name}
+                </span>
               </div>
             ))}
+          </div>
+
+          {/* Ground SVG — on top of tree bases to look planted */}
+          <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ height: 36 }}>
+            <svg viewBox="0 0 400 36" preserveAspectRatio="none" className="w-full h-full">
+              <path d="M0 10 Q100 2 200 8 Q300 14 400 6 L400 36 L0 36 Z" fill="#5c8a47" />
+              <path d="M0 18 Q100 12 200 16 Q300 20 400 14 L400 36 L0 36 Z" fill="#3d6030" />
+            </svg>
           </div>
         </div>
 
