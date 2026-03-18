@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { checkAndIncrementAIUsage } from "@/lib/ai-usage";
 
 export interface YearStats {
   familyName: string;
@@ -29,6 +31,32 @@ export async function POST(req: NextRequest) {
       { error: "ANTHROPIC_API_KEY is not configured. Add it to .env.local on Vercel." },
       { status: 500 }
     );
+  }
+
+  const token = req.headers.get("authorization")?.replace("Bearer ", "");
+  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  const { data: { user } } = await supabase.auth.getUser(token);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("subscription_status")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const isPro = profile?.subscription_status === "active";
+
+  const usage = await checkAndIncrementAIUsage(user.id, isPro);
+  if (!usage.allowed) {
+    const message = isPro
+      ? `You've reached your 50 AI generations for this month. Your limit resets on ${usage.resetDate}.`
+      : "AI features are available on Pro. Upgrade for $39/year — less than one curriculum book. 🌿";
+    return NextResponse.json({ error: message }, { status: 403 });
   }
 
   const stats: YearStats = await req.json();
@@ -96,7 +124,7 @@ Only output valid JSON. No markdown fences, no preamble.`;
 
   try {
     const message = await client.messages.create({
-      model: "claude-sonnet-4-6",
+      model: "claude-opus-4-6",
       max_tokens: 1024,
       messages: [{ role: "user", content: prompt }],
     });

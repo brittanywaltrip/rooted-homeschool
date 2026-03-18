@@ -174,9 +174,15 @@ export default function YearInReviewPage() {
     setError(null);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setGenerating(false); return; }
+
       const res = await fetch("/api/year-in-review", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify(stats),
       });
 

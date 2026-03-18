@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
+import { checkAndIncrementAIUsage } from '@/lib/ai-usage'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -14,6 +15,22 @@ export async function POST(req: NextRequest) {
   )
   const { data: { user } } = await supabase.auth.getUser(token)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('subscription_status')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const isPro = profile?.subscription_status === 'active'
+
+  const usage = await checkAndIncrementAIUsage(user.id, isPro)
+  if (!usage.allowed) {
+    const message = isPro
+      ? `You've reached your 50 AI generations for this month. Your limit resets on ${usage.resetDate}.`
+      : "AI features are available on Pro. Upgrade for $39/year — less than one curriculum book. 🌿"
+    return NextResponse.json({ error: message }, { status: 403 })
+  }
 
   const { familyName, dateFrom, dateTo, stats, bookTitles, projectTitles } = await req.json()
 
