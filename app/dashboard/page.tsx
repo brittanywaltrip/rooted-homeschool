@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import FinishLineSection from '@/components/FinishLineSection';
+import GardenScene, { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,13 +40,13 @@ const QUOTES = [
   "It's not that I'm so smart. It's just that I stay with problems longer.",
 ];
 
-const STAGES = [
-  { name: "Seed",     min: 0,   max: 9,   desc: "Just beginning",      color: "#c4956a" },
-  { name: "Sprout",   min: 10,  max: 24,  desc: "Taking root",         color: "#7a9e7e" },
-  { name: "Sapling",  min: 25,  max: 49,  desc: "Growing strong",      color: "#5c7f63" },
-  { name: "Growing",  min: 50,  max: 99,  desc: "Reaching upward",     color: "#3d5c42" },
-  { name: "Thriving", min: 100, max: Infinity, desc: "Fully flourishing", color: "#2d5c38" },
-];
+const STAGES = STAGE_INFO.map((s, i) => ({
+  name:  s.name,
+  desc:  s.desc,
+  color: s.color,
+  min:   LEAF_THRESHOLDS[i],
+  max:   LEAF_THRESHOLDS[i + 1] !== undefined ? LEAF_THRESHOLDS[i + 1] - 1 : Infinity,
+}));
 
 const ONBOARD_COLORS = [
   { label: "Green",  value: "#5c7f63" },
@@ -58,11 +59,11 @@ const ONBOARD_COLORS = [
 ];
 
 function getStage(leaves: number) {
-  return STAGES.find((s) => leaves >= s.min && leaves <= s.max) ?? STAGES[0];
+  return STAGES[getStageFromLeaves(leaves) - 1] ?? STAGES[0];
 }
 
 function getStageIndex(leaves: number) {
-  return STAGES.findIndex((s) => leaves >= s.min && leaves <= s.max);
+  return getStageFromLeaves(leaves) - 1;
 }
 
 function formatDate(date: Date) {
@@ -107,84 +108,6 @@ function FloatingLeaves({ active }: { active: boolean }) {
   );
 }
 
-// ─── Tree SVG ─────────────────────────────────────────────────────────────────
-
-function TreeIllustration({ stageIndex }: { stageIndex: number }) {
-  return (
-    <svg viewBox="0 0 100 110" className="w-full h-full" aria-hidden>
-      <ellipse cx="50" cy="98" rx="28" ry="5" fill="#d4b896" opacity="0.4" />
-
-      {/* Stage 0 – Seed: tiny oval with micro sprout */}
-      {stageIndex === 0 && (
-        <g>
-          <ellipse cx="50" cy="92" rx="9" ry="7" fill="#8b6f47" />
-          <ellipse cx="50" cy="91" rx="5" ry="3.5" fill="#6b5237" opacity="0.4" />
-          <path d="M50 85 Q50 79 50 73" stroke="#7a9e7e" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-          <path d="M50 80 Q43 77 42 70 Q48 73 50 80" fill="#7a9e7e" />
-        </g>
-      )}
-
-      {/* Stage 1 – Sprout: thin stem, two visible leaves */}
-      {stageIndex === 1 && (
-        <g>
-          <path d="M50 96 Q50 82 50 70" stroke="#8b6f47" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          <path d="M50 84 Q39 78 37 68 Q47 72 50 84" fill="#7a9e7e" />
-          <path d="M50 84 Q61 78 63 68 Q53 72 50 84" fill="#5c7f63" />
-          <ellipse cx="50" cy="68" rx="4" ry="5.5" fill="#3d5c42" />
-        </g>
-      )}
-
-      {/* Stage 2 – Sapling: short trunk, small canopy (3 circles) */}
-      {stageIndex === 2 && (
-        <g>
-          <rect x="47" y="73" width="6" height="25" rx="3" fill="#8b6f47" />
-          <path d="M50 81 Q38 79 34 71" stroke="#8b6f47" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-          <path d="M50 81 Q62 79 66 71" stroke="#8b6f47" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-          <circle cx="42" cy="65" r="11" fill="#7a9e7e" />
-          <circle cx="58" cy="65" r="11" fill="#7a9e7e" />
-          <circle cx="50" cy="56" r="14" fill="#5c7f63" />
-        </g>
-      )}
-
-      {/* Stage 3 – Growing: taller trunk, spreading branches, 5-circle canopy */}
-      {stageIndex === 3 && (
-        <g>
-          <rect x="46" y="63" width="8" height="35" rx="4" fill="#8b6f47" />
-          <path d="M50 73 Q33 71 27 61" stroke="#8b6f47" strokeWidth="2" fill="none" strokeLinecap="round" />
-          <path d="M50 73 Q67 71 73 61" stroke="#8b6f47" strokeWidth="2" fill="none" strokeLinecap="round" />
-          <circle cx="30" cy="52" r="15" fill="#7a9e7e" />
-          <circle cx="70" cy="52" r="15" fill="#7a9e7e" />
-          <circle cx="50" cy="43" r="18" fill="#5c7f63" />
-          <circle cx="38" cy="35" r="12" fill="#3d5c42" opacity="0.9" />
-          <circle cx="62" cy="35" r="12" fill="#3d5c42" opacity="0.9" />
-        </g>
-      )}
-
-      {/* Stage 4 – Thriving: full lush multi-layer canopy with blossoms */}
-      {stageIndex === 4 && (
-        <g>
-          <rect x="44" y="57" width="12" height="41" rx="6" fill="#8b6f47" />
-          <path d="M50 69 Q26 65 18 53" stroke="#8b6f47" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          <path d="M50 69 Q74 65 82 53" stroke="#8b6f47" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          <path d="M50 63 Q36 57 32 47" stroke="#8b6f47" strokeWidth="2" fill="none" strokeLinecap="round" />
-          <path d="M50 63 Q64 57 68 47" stroke="#8b6f47" strokeWidth="2" fill="none" strokeLinecap="round" />
-          <circle cx="22" cy="47" r="18" fill="#7a9e7e" />
-          <circle cx="78" cy="47" r="18" fill="#7a9e7e" />
-          <circle cx="38" cy="59" r="14" fill="#5c7f63" opacity="0.9" />
-          <circle cx="62" cy="59" r="14" fill="#5c7f63" opacity="0.9" />
-          <circle cx="50" cy="34" r="22" fill="#5c7f63" />
-          <circle cx="35" cy="24" r="14" fill="#3d5c42" />
-          <circle cx="65" cy="24" r="14" fill="#3d5c42" />
-          <circle cx="50" cy="16" r="15" fill="#3d5c42" />
-          <circle cx="22" cy="39" r="2.5" fill="#f9c2d0" opacity="0.85" />
-          <circle cx="78" cy="39" r="2.5" fill="#f9c2d0" opacity="0.85" />
-          <circle cx="50" cy="8"  r="2"   fill="#f9c2d0" opacity="0.9"  />
-        </g>
-      )}
-    </svg>
-  );
-}
-
 // ─── Growth Tree Card ──────────────────────────────────────────────────────────
 
 function GrowthTreeCard({ leaves, childName }: { leaves: number; childName: string }) {
@@ -196,7 +119,7 @@ function GrowthTreeCard({ leaves, childName }: { leaves: number; childName: stri
   return (
     <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 flex gap-5 items-center">
       <div className="w-24 h-24 shrink-0">
-        <TreeIllustration stageIndex={stageIdx} />
+        <GardenScene leafCount={leaves} compact />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium uppercase tracking-widest text-[#5c7f63] mb-0.5">{childName}</p>

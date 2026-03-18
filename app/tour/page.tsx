@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
+import { GardenTreeSVG, STAGE_INFO, LEAF_THRESHOLDS } from "@/components/GardenScene";
 
 // ─── Types & Feature Data ─────────────────────────────────────────────────────
 
@@ -299,17 +300,12 @@ function PlanMockup() {
 
 function GardenMockup() {
   const children = [
-    { name: "Emma", stage: "Growing", emoji: "🌲", lessons: 87, color: "#3d5c42" },
-    { name: "Liam", stage: "Sapling", emoji: "🪴", lessons: 52, color: "#4a7a8a" },
-    { name: "Sofia", stage: "Sprout", emoji: "🌿", lessons: 28, color: "#7a5c8a" },
+    { name: "Emma",  leaves: 87,  color: "#3d5c42" },
+    { name: "Liam",  leaves: 52,  color: "#4a7a8a" },
+    { name: "Sofia", leaves: 28,  color: "#7a5c8a" },
   ];
-  const stages = [
-    { label: "Seed", emoji: "🌱" },
-    { label: "Sprout", emoji: "🌿" },
-    { label: "Sapling", emoji: "🪴" },
-    { label: "Growing", emoji: "🌲" },
-    { label: "Thriving", emoji: "🌳" },
-  ];
+  // Show a sample of stages (1, 3, 5, 7, 10)
+  const sampleStages = [0, 2, 4, 6, 9].map((i) => ({ label: STAGE_INFO[i].name, leaves: LEAF_THRESHOLDS[i] }));
 
   return (
     <MockupShell>
@@ -318,47 +314,58 @@ function GardenMockup() {
 
         {/* Garden scene */}
         <div
-          className="rounded-xl p-4 flex items-end justify-around relative overflow-hidden"
+          className="rounded-xl relative overflow-hidden"
           style={{
-            background: "linear-gradient(to bottom, #c8e6c9 0%, #dcedc8 40%, #a5d6a7 100%)",
-            minHeight: 140,
+            background: "linear-gradient(180deg, #87ceeb 0%, #b0d8f0 35%, #cce4f5 65%, #e4f0e4 82%, #7ab87a 100%)",
+            minHeight: 150,
           }}
         >
-          {/* Ground strip */}
-          <div className="absolute bottom-0 left-0 right-0 h-6 bg-[#5c7f63] opacity-30 rounded-b-xl" />
-          {children.map((child) => (
-            <div key={child.name} className="flex flex-col items-center gap-1 relative z-10">
-              <span className="text-5xl sm:text-6xl" style={{ filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.15))" }}>
-                {child.emoji}
-              </span>
-              <div className="bg-white/80 rounded-lg px-2 py-1 text-center">
-                <p className="text-[11px] font-bold" style={{ color: child.color }}>{child.name}</p>
-                <p className="text-[9px] text-[#7a6f65]">{child.stage}</p>
+          {/* Ground */}
+          <div className="absolute bottom-0 left-0 right-0 overflow-hidden" style={{ height: "30%" }}>
+            <svg viewBox="0 0 400 80" preserveAspectRatio="xMidYMax slice" className="w-full h-full">
+              <path d="M0 40 Q100 28 200 38 Q300 48 400 32 L400 80 L0 80 Z" fill="#5c8a47" />
+              <path d="M0 50 Q100 44 200 50 Q300 56 400 46 L400 80 L0 80 Z" fill="#3d6030" />
+            </svg>
+          </div>
+          {/* Trees */}
+          <div className="absolute inset-0 flex items-end justify-around px-4 pb-[28%]">
+            {children.map((child, i) => (
+              <div key={child.name} className="flex flex-col items-center gap-1">
+                <div
+                  className={i % 2 === 0 ? "garden-sway" : "garden-sway-alt"}
+                  style={{ width: "clamp(40px, 11vw, 70px)", transformOrigin: "center bottom", animationDelay: `${i * 0.8}s` }}
+                >
+                  <GardenTreeSVG leafCount={child.leaves} className="w-full h-auto" />
+                </div>
+                <div className="bg-white/80 rounded-lg px-2 py-0.5 text-center">
+                  <p className="text-[10px] font-bold" style={{ color: child.color }}>{child.name}</p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         {/* Growth stages key */}
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
-          <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-2">Growth stages</p>
-          <div className="flex items-center gap-0">
-            {stages.map((s, i) => (
-              <div key={s.label} className="flex-1 flex flex-col items-center gap-0.5 relative">
-                <span className="text-lg">{s.emoji}</span>
-                <span className="text-[8px] text-[#7a6f65] text-center leading-tight">{s.label}</span>
-                {i < stages.length - 1 && (
-                  <div className="absolute top-3 left-1/2 w-full h-px bg-[#e8e2d9]" />
+          <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-2">10 growth stages</p>
+          <div className="flex items-end gap-1">
+            {sampleStages.map((s, i) => (
+              <div key={s.label} className="flex-1 flex flex-col items-center gap-0.5">
+                <div style={{ width: "100%", maxWidth: 36, height: 32 }}>
+                  <GardenTreeSVG leafCount={s.leaves} className="w-full h-full" />
+                </div>
+                <span className="text-[7px] text-[#7a6f65] text-center leading-tight">{s.label}</span>
+                {i < sampleStages.length - 1 && (
+                  <div className="w-full h-px bg-[#e8e2d9] mt-1" />
                 )}
               </div>
             ))}
           </div>
-          {/* Progress indicator */}
           <div className="relative mt-3 mx-1">
             <div className="w-full h-1.5 bg-[#e8e2d9] rounded-full">
               <div className="h-1.5 bg-gradient-to-r from-[#7aaa78] to-[#5c7f63] rounded-full" style={{ width: "43%" }} />
             </div>
-            <p className="text-[9px] text-[#7a6f65] mt-1 text-center">Emma · 87 of 200 lessons to Thriving</p>
+            <p className="text-[9px] text-[#7a6f65] mt-1 text-center">Emma · 87 leaves · Young Tree stage</p>
           </div>
         </div>
 
@@ -367,7 +374,7 @@ function GardenMockup() {
           {children.map((child) => (
             <div key={child.name} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-2.5 text-center">
               <p className="text-lg">🍃</p>
-              <p className="text-sm font-bold" style={{ color: child.color }}>{child.lessons}</p>
+              <p className="text-sm font-bold" style={{ color: child.color }}>{child.leaves}</p>
               <p className="text-[9px] text-[#7a6f65]">{child.name}</p>
             </div>
           ))}

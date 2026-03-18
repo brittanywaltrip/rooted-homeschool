@@ -3,27 +3,24 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { GardenTreeSVG, STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Child = { id: string; name: string; color: string | null };
 
-// ─── Stage config ─────────────────────────────────────────────────────────────
+// ─── Stage helpers (delegate to GardenScene) ──────────────────────────────────
 
-const STAGES = [
-  { name: "Seed",     emoji: "🌰", min: 0,   desc: "Just beginning",      bg: "#f5ede0", text: "#8b6f47" },
-  { name: "Sprout",   emoji: "🌱", min: 5,   desc: "Taking root",         bg: "#e8f0e9", text: "#5c7f63" },
-  { name: "Sapling",  emoji: "🌿", min: 15,  desc: "Growing strong",      bg: "#ddeedd", text: "#3d5c42" },
-  { name: "Growing",  emoji: "🌳", min: 30,  desc: "Reaching upward",     bg: "#d4ecd4", text: "#2d5c38" },
-  { name: "Thriving", emoji: "🌲", min: 50,  desc: "Fully flourishing",   bg: "#c8e6c8", text: "#1e4828" },
-];
+const STAGES = STAGE_INFO.map((s, i) => ({
+  name: s.name,
+  desc: s.desc,
+  min:  LEAF_THRESHOLDS[i],
+  bg:   "#e8f0e9",
+  text: s.color,
+}));
 
 function getStageIndex(leaves: number) {
-  let idx = 0;
-  for (let i = 0; i < STAGES.length; i++) {
-    if (leaves >= STAGES[i].min) idx = i;
-  }
-  return idx;
+  return getStageFromLeaves(leaves) - 1; // 0-based
 }
 
 // ─── Badge definitions ────────────────────────────────────────────────────────
@@ -39,85 +36,6 @@ const BADGES = [
   { id: "thriving",      emoji: "🌲", label: "Thriving!",       check: (l: number) => l >= 50         },
   { id: "century",       emoji: "💯", label: "100 Leaves",      check: (l: number) => l >= 100        },
 ];
-
-// ─── Tree SVG ─────────────────────────────────────────────────────────────────
-
-function GardenTree({ stageIndex }: { stageIndex: number }) {
-  const stage = stageIndex + 1;
-  return (
-    <svg viewBox="0 0 100 120" className="w-full h-full overflow-visible" aria-hidden>
-      {/* Ground shadow */}
-      <ellipse cx="50" cy="112" rx="22" ry="4" fill="rgba(0,0,0,0.08)" />
-
-      {/* Stage 1 – Seed */}
-      {stage === 1 && (
-        <g>
-          <path d="M44 96 Q50 84 56 96 Q50 108 44 96" fill="#8b6f47" className="leaf-shimmer" />
-          <path d="M50 85 Q53 76 50 68" stroke="#7a9e7e" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-          <ellipse cx="50" cy="65" rx="4" ry="3" fill="#7a9e7e" opacity="0.7" />
-        </g>
-      )}
-
-      {/* Stage 2+ – trunk base */}
-      {stage >= 2 && (
-        <rect x="47" y="72" width="6" height="40" rx="3" fill="#8b6f47" />
-      )}
-
-      {/* Stage 2 – Sprout */}
-      {stage === 2 && (
-        <g className="leaf-shimmer">
-          <path d="M50 82 Q33 70 38 54 Q50 64 50 82" fill="#7a9e7e" />
-          <path d="M50 82 Q67 70 62 54 Q50 64 50 82" fill="#5c7f63" />
-        </g>
-      )}
-
-      {/* Stage 3 – Sapling */}
-      {stage === 3 && (
-        <g>
-          <rect x="47" y="58" width="6" height="16" rx="3" fill="#8b6f47" />
-          <path d="M50 74 Q28 60 35 40 Q48 54 50 74" fill="#5c7f63" className="leaf-shimmer" />
-          <path d="M50 74 Q72 60 65 40 Q52 54 50 74" fill="#7a9e7e" className="leaf-shimmer" />
-          <circle cx="50" cy="36" r="17" fill="#5c7f63" opacity="0.9" />
-          <circle cx="50" cy="24" r="13" fill="#3d5c42" />
-        </g>
-      )}
-
-      {/* Stage 4 – Growing */}
-      {stage === 4 && (
-        <g>
-          <rect x="46" y="56" width="8" height="18" rx="4" fill="#8b6f47" />
-          <path d="M50 70 Q22 54 30 30 Q46 46 50 70" fill="#5c7f63" className="leaf-shimmer" />
-          <path d="M50 70 Q78 54 70 30 Q54 46 50 70" fill="#7a9e7e" className="leaf-shimmer" />
-          <circle cx="32" cy="44" r="17" fill="#7a9e7e" />
-          <circle cx="68" cy="44" r="17" fill="#7a9e7e" />
-          <circle cx="50" cy="32" r="20" fill="#5c7f63" />
-          <circle cx="50" cy="18" r="14" fill="#3d5c42" />
-        </g>
-      )}
-
-      {/* Stage 5 – Thriving */}
-      {stage >= 5 && (
-        <g>
-          <rect x="45" y="56" width="10" height="18" rx="5" fill="#8b6f47" />
-          <path d="M50 72 Q14 54 24 22 Q44 42 50 72" fill="#5c7f63" className="leaf-shimmer" />
-          <path d="M50 72 Q86 54 76 22 Q56 42 50 72" fill="#7a9e7e" className="leaf-shimmer" />
-          <circle cx="26" cy="50" r="19" fill="#7a9e7e" />
-          <circle cx="74" cy="50" r="19" fill="#7a9e7e" />
-          <circle cx="38" cy="62" r="14" fill="#5c7f63" opacity="0.9" />
-          <circle cx="62" cy="62" r="14" fill="#5c7f63" opacity="0.9" />
-          <circle cx="50" cy="34" r="23" fill="#5c7f63" />
-          <circle cx="50" cy="16" r="16" fill="#3d5c42" />
-          <circle cx="34" cy="26" r="11" fill="#3d5c42" opacity="0.85" />
-          <circle cx="66" cy="26" r="11" fill="#3d5c42" opacity="0.85" />
-          {/* Sparkle dots */}
-          <circle cx="20" cy="36" r="2" fill="#a8d8a8" className="sparkle" style={{ animationDelay: "0.3s" }} />
-          <circle cx="80" cy="30" r="2" fill="#a8d8a8" className="sparkle" style={{ animationDelay: "0.9s" }} />
-          <circle cx="50" cy="8"  r="1.5" fill="#c8f0c8" className="sparkle" style={{ animationDelay: "1.5s" }} />
-        </g>
-      )}
-    </svg>
-  );
-}
 
 // ─── Garden scene decorations ─────────────────────────────────────────────────
 
@@ -357,7 +275,6 @@ export default function GardenPage() {
         ) : (
           children.map((child, i) => {
             const leaves   = leafCounts[child.id] ?? 0;
-            const sIdx     = getStageIndex(leaves);
             const x        = getTreeX(i, children.length);
             const isActive = child.id === selectedId;
             const swayClass = i % 2 === 0 ? "garden-sway" : "garden-sway-alt";
@@ -378,7 +295,7 @@ export default function GardenPage() {
                     animationDelay: `${i * 0.7}s`,
                   }}
                 >
-                  <GardenTree stageIndex={sIdx} />
+                  <GardenTreeSVG leafCount={leaves} className="w-full h-full" />
 
                   {/* Leaf count badge */}
                   <div
@@ -446,7 +363,7 @@ export default function GardenPage() {
                 {selectedChild.name}
               </p>
               <h2 className="text-xl font-bold text-[#2d2926]">
-                {selectedStage.emoji} {selectedStage.name}
+                {selectedStage.name}
               </h2>
               <p className="text-sm mt-0.5" style={{ color: selectedStage.text }}>
                 {selectedStage.desc}
@@ -474,7 +391,7 @@ export default function GardenPage() {
 
             {/* Big tree preview */}
             <div style={{ width: 80, height: 88, flexShrink: 0 }}>
-              <GardenTree stageIndex={selectedStageIdx} />
+              <GardenTreeSVG leafCount={selectedLeaves} className="w-full h-full" />
             </div>
           </div>
         </div>
