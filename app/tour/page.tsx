@@ -404,74 +404,85 @@ function GardenMockup() {
 // ─── Mockup: Reports ─────────────────────────────────────────────────────────
 
 function ReportsMockup() {
+  const subjects = [
+    { name: "Math",          lessons: 32, hours: "24h" },
+    { name: "Language Arts", lessons: 28, hours: "18h" },
+    { name: "Science",       lessons: 22, hours: "16h" },
+    { name: "History",       lessons: 18, hours: "14h" },
+    { name: "Art",           lessons: 12, hours: "8h"  },
+    { name: "Reading",       lessons: 15, hours: "4.5h" },
+  ];
+
   return (
     <MockupShell>
       <div className="p-3 sm:p-4 space-y-3 min-h-[400px]">
         <h2 className="text-sm font-bold text-[#2d2926]">📋 Progress Reports</h2>
 
-        {/* Config card */}
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3 space-y-2.5">
-          <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-wide">Report Settings</p>
-
-          <div>
-            <label className="text-[10px] text-[#7a6f65] block mb-1">Child</label>
-            <div className="flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-lg px-2.5 py-2">
-              <div className="w-4 h-4 rounded-full bg-[#5c7f63] flex items-center justify-center text-white text-[8px] font-bold shrink-0">E</div>
-              <span className="text-xs text-[#2d2926] flex-1">Emma</span>
-              <span className="text-[#b5aca4] text-[10px]">▾</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] text-[#7a6f65] block mb-1">From</label>
-              <div className="bg-white border border-[#e8e2d9] rounded-lg px-2.5 py-2 text-[11px] text-[#2d2926]">
-                Aug 1, 2025
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] text-[#7a6f65] block mb-1">To</label>
-              <div className="bg-white border border-[#e8e2d9] rounded-lg px-2.5 py-2 text-[11px] text-[#2d2926]">
-                Mar 19, 2026
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] text-[#7a6f65] block mb-1">Your state</label>
-            <div className="flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-lg px-2.5 py-2">
-              <span className="text-xs text-[#2d2926] flex-1">Texas</span>
-              <span className="text-[10px] text-[#5c7f63] font-medium shrink-0">Requirements loaded ✓</span>
-            </div>
-          </div>
-
-          <button className="w-full bg-[#5c7f63] text-white text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-1.5">
-            Generate PDF Report →
-          </button>
+        {/* Config row */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-2.5 flex items-center gap-2">
+          <div className="w-5 h-5 rounded-full bg-[#5c7f63] flex items-center justify-center text-white text-[9px] font-bold shrink-0">E</div>
+          <span className="text-[11px] text-[#2d2926] flex-1 font-medium">Emma · 2025–2026 · Texas</span>
+          <span className="text-[10px] text-[#5c7f63] font-semibold shrink-0">✓ loaded</span>
         </div>
 
-        {/* Report preview */}
-        <div className="bg-white border-2 border-[#e8e2d9] rounded-xl p-3 space-y-2">
-          <div className="flex items-center gap-2 pb-2 border-b border-[#f0ede8]">
-            <div className="w-5 h-5 rounded bg-[#5c7f63] flex items-center justify-center text-[9px]">🌿</div>
+        {/* PDF-style report card */}
+        <div className="bg-white border-2 border-[#e8e2d9] rounded-xl overflow-hidden shadow-sm">
+
+          {/* Report header */}
+          <div className="bg-[#5c7f63] px-3 py-2.5 flex items-center gap-2.5">
+            <span className="text-white text-base leading-none">🌿</span>
             <div>
-              <p className="text-[10px] font-bold text-[#2d2926] leading-tight">Rooted Homeschool — Progress Report</p>
-              <p className="text-[9px] text-[#b5aca4]">Formatted for Texas requirements</p>
+              <p className="text-[11px] font-bold text-white leading-tight">Rooted Homeschool</p>
+              <p className="text-[9px] text-white/75 leading-tight">Home Education Progress Report</p>
             </div>
           </div>
-          <div>
-            <p className="text-xs font-bold text-[#2d2926]">Emma Waltrip</p>
-            <p className="text-[10px] text-[#7a6f65]">Aug 1, 2025 – Mar 19, 2026</p>
+
+          {/* Student info */}
+          <div className="px-3 py-2 border-b border-[#f0ede8] flex justify-between items-end">
+            <div>
+              <p className="text-[11px] font-bold text-[#2d2926]">Emma Waltrip</p>
+              <p className="text-[9px] text-[#7a6f65]">School Year: 2025–2026 · State: Texas</p>
+            </div>
+            <p className="text-[9px] text-[#b5aca4]">Aug 1 – Mar 19</p>
           </div>
-          <div className="grid grid-cols-3 gap-1.5 pt-0.5">
-            {[["127", "Lessons"], ["84.5", "Hours"], ["18", "Books"]].map(([val, lbl]) => (
-              <div key={lbl} className="bg-[#f8f5f0] rounded-lg p-1.5 text-center">
-                <p className="text-sm font-bold text-[#2d2926]">{val}</p>
-                <p className="text-[8px] text-[#7a6f65]">{lbl}</p>
-              </div>
-            ))}
+
+          {/* Subject table */}
+          <div className="px-3 pt-2 pb-1">
+            <table className="w-full" style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th className="text-left text-[9px] font-semibold text-[#7a6f65] uppercase tracking-wide pb-1">Subject</th>
+                  <th className="text-right text-[9px] font-semibold text-[#7a6f65] uppercase tracking-wide pb-1">Lessons</th>
+                  <th className="text-right text-[9px] font-semibold text-[#7a6f65] uppercase tracking-wide pb-1">Hours</th>
+                </tr>
+              </thead>
+              <tbody>
+                {subjects.map((s, i) => (
+                  <tr key={s.name} style={{ background: i % 2 === 0 ? "transparent" : "#faf8f5" }}>
+                    <td className="text-[10px] text-[#2d2926] py-0.5 pr-2">{s.name}</td>
+                    <td className="text-[10px] text-[#2d2926] text-right py-0.5 pr-2">{s.lessons}</td>
+                    <td className="text-[10px] text-[#7a6f65] text-right py-0.5">{s.hours}</td>
+                  </tr>
+                ))}
+                {/* Total row */}
+                <tr className="border-t border-[#e8e2d9]">
+                  <td className="text-[10px] font-bold text-[#2d2926] pt-1">Total</td>
+                  <td className="text-[10px] font-bold text-[#2d2926] text-right pt-1 pr-2">127</td>
+                  <td className="text-[10px] font-bold text-[#5c7f63] text-right pt-1">84.5h</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <div className="flex gap-2 pt-0.5">
+
+          {/* Footer note */}
+          <div className="px-3 py-1.5 bg-[#f8f5f0]">
+            <p className="text-[8px] text-[#b5aca4] italic">
+              Generated by Rooted Homeschool · Formatted for Texas home education requirements
+            </p>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-2 px-3 py-2">
             <div className="flex-1 bg-[#f0ede8] rounded-lg py-1.5 text-center text-[10px] font-medium text-[#7a6f65]">
               📄 Save PDF
             </div>
@@ -545,6 +556,34 @@ function MemoriesMockup() {
               Share with grandma →
             </div>
           </div>
+        </div>
+
+        {/* Divider */}
+        <div className="flex items-center gap-2 pt-1">
+          <span className="h-px flex-1 bg-[#e8e2d9]" />
+          <span className="text-[9px] font-semibold text-[#b5aca4] uppercase tracking-widest">AI Graduation Letter</span>
+          <span className="h-px flex-1 bg-[#e8e2d9]" />
+        </div>
+
+        {/* Graduation letter card */}
+        <div className="bg-gradient-to-br from-[#fffbf0] to-[#fef8e4] border border-[#e8d9a8] rounded-xl p-3 space-y-2">
+          <div className="flex items-start gap-2.5">
+            <span className="text-2xl leading-none shrink-0">🎓</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-bold text-[#2d2926] leading-tight">Emma&apos;s Kindergarten Graduation</p>
+              <p className="text-[9px] text-[#b5aca4] mt-0.5">School Year 2025–2026</p>
+            </div>
+          </div>
+          <div className="bg-white/70 rounded-lg px-2.5 py-2 border border-[#e8d9a8]/60">
+            <p className="text-[10px] text-[#5c5248] leading-relaxed italic">
+              &ldquo;Dear Emma, What an extraordinary year of learning and growth you&apos;ve had.
+              From mastering addition to reading chapter books on your own, your curiosity and
+              joy have made every lesson an adventure...&rdquo;
+            </p>
+          </div>
+          <button className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-[10px] font-bold py-2 rounded-lg flex items-center justify-center gap-1.5 transition-colors">
+            ✨ Generate Letter
+          </button>
         </div>
       </div>
     </MockupShell>
