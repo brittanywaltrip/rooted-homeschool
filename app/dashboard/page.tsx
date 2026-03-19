@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import FinishLineSection from '@/components/FinishLineSection';
@@ -387,6 +388,9 @@ export default function TodayPage() {
   const [bookChild,     setBookChild]     = useState("");
   const [savingBook,    setSavingBook]    = useState(false);
 
+  // Welcome banner
+  const [dismissedBanner,  setDismissedBanner]  = useState(false);
+
   // Add lesson modal
   const [subjects,         setSubjects]         = useState<Subject[]>([]);
   const [showLessonModal,  setShowLessonModal]  = useState(false);
@@ -713,6 +717,51 @@ export default function TodayPage() {
 
   return (
     <div className="max-w-2xl px-5 py-7 space-y-6">
+
+      {/* ── Welcome Banner ────────────────────────────────── */}
+      {children.length === 0 && !dismissedBanner && (
+        <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
+          <button
+            onClick={() => setDismissedBanner(true)}
+            aria-label="Dismiss"
+            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#b8d9bc]/50 transition-colors text-lg leading-none"
+          >
+            ×
+          </button>
+
+          <h2 className="text-lg font-bold text-[#2d2926] mb-1">Welcome to Rooted! 🌿</h2>
+          <p className="text-sm text-[#5c7f63] mb-4">Let&apos;s get your family set up in 3 easy steps</p>
+
+          <div className="flex flex-col sm:flex-row gap-3 mb-4">
+            {[
+              { step: "1", label: "Add a child", dest: "Settings", href: "/dashboard/settings" },
+              { step: "2", label: "Add your curriculum", dest: "Plan", href: "/dashboard/plan" },
+              { step: "3", label: "Check off your first lesson", dest: "Today", href: "#" },
+            ].map(({ step, label, dest, href }) => (
+              <Link
+                key={step}
+                href={href}
+                className="flex-1 flex items-center gap-2.5 bg-white/70 hover:bg-white border border-[#b8d9bc] rounded-xl px-3.5 py-3 transition-colors group"
+              >
+                <div className="w-7 h-7 rounded-full bg-[#5c7f63] text-white text-xs font-bold flex items-center justify-center shrink-0">
+                  {step}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-[#2d2926] leading-tight">{label}</p>
+                  <p className="text-[10px] text-[#7a6f65]">→ {dest}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          <Link
+            href="/dashboard/settings"
+            className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
+          >
+            Add your first child →
+          </Link>
+        </div>
+      )}
 
       {/* ── Date & Greeting ──────────────────────────────── */}
       <div>
