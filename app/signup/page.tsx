@@ -7,6 +7,8 @@ import { supabase } from "@/lib/supabase";
 
 export default function SignupPage() {
   const router = useRouter();
+  const [firstName,  setFirstName]  = useState("");
+  const [lastName,   setLastName]   = useState("");
   const [familyName, setFamilyName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,7 +24,11 @@ export default function SignupPage() {
       email,
       password,
       options: {
-        data: { family_name: familyName },
+        data: {
+          family_name: familyName,
+          first_name: firstName.trim() || null,
+          last_name: lastName.trim() || null,
+        },
       },
     });
 
@@ -88,6 +94,34 @@ export default function SignupPage() {
           <p className="text-sm text-[#7a6f65] mb-7">Start your family&apos;s learning journey.</p>
 
           <form onSubmit={handleSignup} className="flex flex-col gap-4">
+            {/* First + Last name — side by side on desktop */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
+                  First name
+                </label>
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  placeholder="Jane"
+                  className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
+                  Last name
+                </label>
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  placeholder="Smith"
+                  className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
                 Family name

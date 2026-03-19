@@ -73,6 +73,16 @@ function ColorPicker({
 export default function SettingsPage() {
   const { refreshProfile } = useProfile();
 
+  // First / Last name
+  const [firstName,      setFirstName]      = useState("");
+  const [editingFirst,   setEditingFirst]   = useState(false);
+  const [savingFirst,    setSavingFirst]    = useState(false);
+  const [savedFirst,     setSavedFirst]     = useState(false);
+  const [lastName,       setLastName]       = useState("");
+  const [editingLast,    setEditingLast]    = useState(false);
+  const [savingLast,     setSavingLast]     = useState(false);
+  const [savedLast,      setSavedLast]      = useState(false);
+
   // Family name
   const [familyName,   setFamilyName]   = useState("");
   const [editingName,  setEditingName]  = useState(false);
@@ -155,10 +165,12 @@ export default function SettingsPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status")
+      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status, first_name, last_name")
       .eq("id", user.id)
       .maybeSingle();
 
+    setFirstName((profile as { first_name?: string } | null)?.first_name ?? "");
+    setLastName((profile as { last_name?: string } | null)?.last_name ?? "");
     setFamilyName(
       profile?.display_name ?? user.user_metadata?.family_name ?? ""
     );
@@ -184,6 +196,38 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // ── First / Last name ─────────────────────────────────────────────────────
+
+  async function saveFirstName() {
+    setSavingFirst(true);
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) { setSavingFirst(false); return; }
+    await fetch("/api/profile/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      body: JSON.stringify({ first_name: firstName.trim() || null }),
+    });
+    setSavingFirst(false);
+    setSavedFirst(true);
+    setEditingFirst(false);
+    setTimeout(() => setSavedFirst(false), 2500);
+  }
+
+  async function saveLastName() {
+    setSavingLast(true);
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) { setSavingLast(false); return; }
+    await fetch("/api/profile/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      body: JSON.stringify({ last_name: lastName.trim() || null }),
+    });
+    setSavingLast(false);
+    setSavedLast(true);
+    setEditingLast(false);
+    setTimeout(() => setSavedLast(false), 2500);
+  }
 
   // ── Family name ───────────────────────────────────────────────────────────
 
@@ -549,6 +593,84 @@ export default function SettingsPage() {
             <p className="text-sm text-[#b5aca4] px-3 py-2.5 bg-[#f8f5f0] rounded-xl border border-[#f0ede8]">
               {userEmail || "—"}
             </p>
+          </div>
+
+          {/* First name */}
+          <div>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">First name</label>
+            {editingFirst ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveFirstName(); if (e.key === "Escape") setEditingFirst(false); }}
+                  autoFocus
+                  placeholder="Jane"
+                  className="flex-1 px-3 py-2.5 rounded-xl border border-[#5c7f63] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+                />
+                <button
+                  onClick={saveFirstName}
+                  disabled={savingFirst}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
+                    savedFirst ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                  }`}
+                >
+                  {savedFirst ? "✓ Saved" : savingFirst ? "Saving…" : "Save"}
+                </button>
+                <button onClick={() => setEditingFirst(false)} className="px-3 py-2.5 rounded-xl border border-[#e8e2d9] text-[#b5aca4] hover:text-[#7a6f65] text-sm transition-colors">
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] group">
+                <span className="flex-1 text-sm text-[#2d2926]">
+                  {firstName || <span className="text-[#c8bfb5]">Not set — tap ✏️ to add</span>}
+                </span>
+                <button onClick={() => setEditingFirst(true)} className="shrink-0 p-1 rounded-lg text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors" aria-label="Edit first name">
+                  <Pencil size={13} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Last name */}
+          <div>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Last name</label>
+            {editingLast ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveLastName(); if (e.key === "Escape") setEditingLast(false); }}
+                  autoFocus
+                  placeholder="Smith"
+                  className="flex-1 px-3 py-2.5 rounded-xl border border-[#5c7f63] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+                />
+                <button
+                  onClick={saveLastName}
+                  disabled={savingLast}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
+                    savedLast ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                  }`}
+                >
+                  {savedLast ? "✓ Saved" : savingLast ? "Saving…" : "Save"}
+                </button>
+                <button onClick={() => setEditingLast(false)} className="px-3 py-2.5 rounded-xl border border-[#e8e2d9] text-[#b5aca4] hover:text-[#7a6f65] text-sm transition-colors">
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] group">
+                <span className="flex-1 text-sm text-[#2d2926]">
+                  {lastName || <span className="text-[#c8bfb5]">Not set — tap ✏️ to add</span>}
+                </span>
+                <button onClick={() => setEditingLast(true)} className="shrink-0 p-1 rounded-lg text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors" aria-label="Edit last name">
+                  <Pencil size={13} />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Family photo */}
