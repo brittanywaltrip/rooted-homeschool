@@ -984,6 +984,16 @@ export default function SettingsPage() {
             </div>
             <span className="text-[#b5aca4] group-hover:text-[#5c7f63] text-lg">→</span>
           </a>
+          <a
+            href="/admin/dashboard"
+            className="flex items-center justify-between bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 hover:border-[#5c7f63] hover:bg-[#f8fcf8] transition-colors group"
+          >
+            <div>
+              <p className="text-sm font-medium text-[#2d2926]">📊 Business Dashboard</p>
+              <p className="text-xs text-[#7a6f65] mt-0.5">Users, revenue, costs, and app usage</p>
+            </div>
+            <span className="text-[#b5aca4] group-hover:text-[#5c7f63] text-lg">→</span>
+          </a>
         </section>
       )}
 
