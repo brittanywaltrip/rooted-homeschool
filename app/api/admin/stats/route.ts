@@ -50,33 +50,41 @@ export async function GET(req: Request) {
     childrenResult,
     weekLessonsResult,
     lastWeekLessonsResult,
+    memoriesResult,
   ] = await Promise.all([
     supabaseAdmin.from('lessons').select('*', { count: 'exact', head: true }).eq('completed', true),
     supabaseAdmin.from('app_events').select('*', { count: 'exact', head: true })
       .in('type', ['memory_photo', 'memory_project', 'memory_book']),
     supabaseAdmin.from('app_events').select('*', { count: 'exact', head: true })
       .eq('type', 'report_generated'),
-    // All lessons with user_id for engagement calc
-    supabaseAdmin.from('lessons').select('user_id').eq('completed', true),
+    // All completed lessons with user_id + completed_at
+    supabaseAdmin.from('lessons').select('user_id, completed_at').eq('completed', true),
     // All children for children insights
-    supabaseAdmin.from('children').select('user_id'),
+    supabaseAdmin.from('children').select('user_id, created_at'),
     // Lessons this week
-    supabaseAdmin.from('lessons').select('user_id, completed_at', { count: 'exact', head: false })
+    supabaseAdmin.from('lessons').select('user_id, completed_at')
       .eq('completed', true)
       .gte('completed_at', weekAgo.toISOString()),
     // Lessons last week (week before)
-    supabaseAdmin.from('lessons').select('user_id', { count: 'exact', head: false })
+    supabaseAdmin.from('lessons').select('user_id')
       .eq('completed', true)
       .gte('completed_at', twoWeeksAgo.toISOString())
       .lt('completed_at', weekAgo.toISOString()),
+    // Memory events per user
+    supabaseAdmin.from('app_events').select('user_id, created_at')
+      .in('type', ['memory_photo', 'memory_project', 'memory_book']),
   ])
 
   // ── Children insights ──────────────────────────────────────────────────────
   const allChildren = childrenResult.data ?? []
   const totalChildren = allChildren.length
   const childrenByUser = new Map<string, number>()
+  const childrenCreatedAtByUser = new Map<string, string>()
   for (const c of allChildren) {
     childrenByUser.set(c.user_id, (childrenByUser.get(c.user_id) ?? 0) + 1)
+    // Track most recent child creation per user
+    const prev = childrenCreatedAtByUser.get(c.user_id)
+    if (!prev || c.created_at > prev) childrenCreatedAtByUser.set(c.user_id, c.created_at)
   }
   const usersWith1Child  = [...childrenByUser.values()].filter(n => n === 1).length
   const usersWith2Plus   = [...childrenByUser.values()].filter(n => n >= 2).length
@@ -104,6 +112,28 @@ export async function GET(req: Request) {
   const lessonsThisWeek  = weekLessonsResult.data?.length ?? 0
   const lessonsLastWeek  = lastWeekLessonsResult.data?.length ?? 0
 
+  // ── Per-user lesson counts + last lesson date ─────────────────────────────
+  const lessonsByUser = new Map<string, number>()
+  const lastLessonByUser = new Map<string, string>()
+  for (const l of allLessons) {
+    lessonsByUser.set(l.user_id, (lessonsByUser.get(l.user_id) ?? 0) + 1)
+    const prev = lastLessonByUser.get(l.user_id)
+    if (l.completed_at && (!prev || l.completed_at > prev)) {
+      lastLessonByUser.set(l.user_id, l.completed_at)
+    }
+  }
+
+  // ── Per-user memory counts + last memory date ─────────────────────────────
+  const memoriesByUser = new Map<string, number>()
+  const lastMemoryByUser = new Map<string, string>()
+  for (const m of (memoriesResult.data ?? [])) {
+    memoriesByUser.set(m.user_id, (memoriesByUser.get(m.user_id) ?? 0) + 1)
+    const prev = lastMemoryByUser.get(m.user_id)
+    if (m.created_at && (!prev || m.created_at > prev)) {
+      lastMemoryByUser.set(m.user_id, m.created_at)
+    }
+  }
+
   // ── Retention ─────────────────────────────────────────────────────────────
   const thisWeekSignupIds = new Set(
     allUsers.filter(u => new Date(u.created_at) >= weekAgo).map(u => u.id)
@@ -114,7 +144,6 @@ export async function GET(req: Request) {
   const churnedUsers = oldUsers.filter(u => !usersWithLessons.has(u.id)).length
 
   // ── Daily activity (last 7 days) ──────────────────────────────────────────
-  // Build date buckets for the last 7 days
   const dailyActivity: { date: string; signups: number; lessons: number }[] = []
   for (let i = 6; i >= 0; i--) {
     const dayStart = new Date(now)
@@ -147,31 +176,60 @@ export async function GET(req: Request) {
   )
   const authUserMap = new Map(allUsers.map(u => [u.id, u.email ?? '—']))
 
-  // Free users with 2+ children
   const freeWith2PlusChildren = [...childrenByUser.entries()]
     .filter(([uid, count]) => count >= 2 && freeProfileIds.has(uid))
     .map(([uid]) => authUserMap.get(uid) ?? '—')
 
-  // Free users with 10+ lessons
-  const lessonsByUser = new Map<string, number>()
-  for (const l of allLessons) {
-    lessonsByUser.set(l.user_id, (lessonsByUser.get(l.user_id) ?? 0) + 1)
-  }
   const freeWith10PlusLessons = [...lessonsByUser.entries()]
     .filter(([uid, count]) => count >= 10 && freeProfileIds.has(uid))
     .map(([uid]) => authUserMap.get(uid) ?? '—')
 
-  // Recent 10 signups — join auth user email with profile plan
+  // ── Full user activity table ──────────────────────────────────────────────
   const profileMap = new Map(profiles?.map(p => [p.id, p]) ?? [])
-  const recentSignups = [...allUsers]
+
+  const TEST_EMAILS = ['test@', 'example.com', 'garfieldbrittany@gmail.com']
+
+  const userActivity = allUsers
+    .filter(u => !TEST_EMAILS.some(t => (u.email ?? '').includes(t)))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 10)
-    .map(u => ({
-      email:      u.email ?? '—',
-      created_at: u.created_at,
-      plan_type:  profileMap.get(u.id)?.plan_type ?? null,
-      is_pro:     profileMap.get(u.id)?.is_pro ?? false,
-    }))
+    .map(u => {
+      const childCount   = childrenByUser.get(u.id) ?? 0
+      const lessonCount  = lessonsByUser.get(u.id) ?? 0
+      const memoryCount  = memoriesByUser.get(u.id) ?? 0
+      const plan         = profileMap.get(u.id)?.plan_type ?? null
+
+      // last_active = most recent of: lesson, child added, memory
+      const dates = [
+        lastLessonByUser.get(u.id),
+        childrenCreatedAtByUser.get(u.id),
+        lastMemoryByUser.get(u.id),
+      ].filter(Boolean) as string[]
+      const lastActive = dates.length > 0 ? dates.sort().at(-1)! : null
+
+      const signedUpOld = new Date(u.created_at) < weekAgo
+      const isDead = signedUpOld && lessonCount === 0 && childCount === 0
+
+      return {
+        id:              u.id,
+        email:           u.email ?? '—',
+        signed_up:       u.created_at,
+        plan:            plan === 'founding_family' ? 'founding' : plan === 'standard' ? 'standard' : 'free',
+        children_added:  childCount,
+        lessons_logged:  lessonCount,
+        memories_created: memoryCount,
+        last_active:     lastActive,
+        is_dead:         isDead,
+        is_new:          !signedUpOld,
+      }
+    })
+
+  // Recent 10 signups (kept for backwards compat, now derived from userActivity)
+  const recentSignups = userActivity.slice(0, 10).map(u => ({
+    email:      u.email,
+    created_at: u.signed_up,
+    plan_type:  profileMap.get(u.id)?.plan_type ?? null,
+    is_pro:     profileMap.get(u.id)?.is_pro ?? false,
+  }))
 
   return NextResponse.json({
     totalUsers,
@@ -205,5 +263,7 @@ export async function GET(req: Request) {
     // Upgrade candidates
     freeWith2PlusChildren,
     freeWith10PlusLessons,
+    // Full user activity
+    userActivity,
   })
 }

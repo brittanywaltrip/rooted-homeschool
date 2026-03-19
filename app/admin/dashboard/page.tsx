@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -46,6 +46,19 @@ type Stats = {
   // Upgrade candidates
   freeWith2PlusChildren: string[];
   freeWith10PlusLessons: string[];
+  // Full user activity
+  userActivity: {
+    id: string;
+    email: string;
+    signed_up: string;
+    plan: string;
+    children_added: number;
+    lessons_logged: number;
+    memories_created: number;
+    last_active: string | null;
+    is_dead: boolean;
+    is_new: boolean;
+  }[];
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -75,9 +88,19 @@ function SectionHeader({ title }: { title: string }) {
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const [stats, setStats]   = useState<Stats | null>(null);
+  const [stats, setStats]     = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState("");
+  const [error, setError]     = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [token, setToken]     = useState("");
+
+  const fetchStats = useCallback(async (accessToken: string) => {
+    const res = await fetch("/api/admin/stats", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) { setError("Failed to load stats."); return; }
+    setStats(await res.json());
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -86,21 +109,26 @@ export default function AdminDashboardPage() {
         router.replace("/dashboard");
         return;
       }
-
-      const res = await fetch("/api/admin/stats", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-
-      if (!res.ok) {
-        setError("Failed to load stats.");
-        setLoading(false);
-        return;
-      }
-
-      setStats(await res.json());
+      setToken(session.access_token);
+      await fetchStats(session.access_token);
       setLoading(false);
     })();
-  }, [router]);
+  }, [router, fetchStats]);
+
+  async function deleteUser(userId: string, email: string) {
+    if (!confirm(`Are you sure? This permanently deletes ${email} and all their data.`)) return;
+    setDeletingId(userId);
+    const res = await fetch(`/api/admin/users/${userId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setDeletingId(null);
+    if (!res.ok) {
+      alert("Delete failed. Check console.");
+      return;
+    }
+    await fetchStats(token);
+  }
 
   if (loading) {
     return (
@@ -383,42 +411,112 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* ── Recent Signups ─────────────────────────────────────────── */}
+        {/* ── User Activity ───────────────────────────────────────────── */}
         <div className="space-y-3">
-          <SectionHeader title="Recent Signups" />
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
-            <table className="w-full text-sm">
+          <SectionHeader title="All Users" />
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-x-auto">
+            <table className="w-full text-xs min-w-[700px]">
               <thead>
                 <tr className="border-b border-[#f0ede8] bg-[#f8f5f0]">
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-[#7a6f65] uppercase tracking-wide">Email</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-[#7a6f65] uppercase tracking-wide">Signed Up</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-[#7a6f65] uppercase tracking-wide">Plan</th>
+                  <th className="text-left px-4 py-3 font-semibold text-[#7a6f65] uppercase tracking-wide">Email</th>
+                  <th className="text-left px-3 py-3 font-semibold text-[#7a6f65] uppercase tracking-wide">Signed Up</th>
+                  <th className="text-left px-3 py-3 font-semibold text-[#7a6f65] uppercase tracking-wide">Plan</th>
+                  <th className="text-right px-3 py-3 font-semibold text-[#7a6f65] uppercase tracking-wide">Kids</th>
+                  <th className="text-right px-3 py-3 font-semibold text-[#7a6f65] uppercase tracking-wide">Lessons</th>
+                  <th className="text-right px-3 py-3 font-semibold text-[#7a6f65] uppercase tracking-wide">Memories</th>
+                  <th className="text-left px-3 py-3 font-semibold text-[#7a6f65] uppercase tracking-wide">Last Active</th>
+                  <th className="text-left px-3 py-3 font-semibold text-[#7a6f65] uppercase tracking-wide">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#f0ede8]">
-                {stats.recentSignups.map((u, i) => (
-                  <tr key={i} className="hover:bg-[#faf8f5]">
-                    <td className="px-5 py-3 font-medium text-[#2d2926] text-xs">{u.email}</td>
-                    <td className="px-5 py-3 text-xs text-[#7a6f65]">
-                      {new Date(u.created_at).toLocaleDateString("en-US", {
-                        month: "short", day: "numeric", year: "numeric",
-                      })}
-                    </td>
-                    <td className="px-5 py-3">
-                      {u.plan_type === "founding_family" ? (
-                        <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Founding</span>
-                      ) : u.plan_type === "standard" ? (
-                        <span className="text-[10px] font-bold bg-[#e8f0e9] text-[#3d5c42] px-2 py-0.5 rounded-full">Standard</span>
-                      ) : (
-                        <span className="text-[10px] font-medium text-[#b5aca4] px-2 py-0.5 rounded-full border border-[#e8e2d9]">Free</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {stats.userActivity.map((u) => {
+                  const rowBg = u.is_dead
+                    ? "bg-red-50/60"
+                    : u.is_new
+                    ? "bg-amber-50/60"
+                    : u.lessons_logged > 0 || u.children_added > 0
+                    ? "bg-[#f0faf0]/60"
+                    : "";
+                  return (
+                    <tr key={u.id} className={`${rowBg} hover:brightness-95 transition-all`}>
+                      <td className="px-4 py-2.5 font-medium text-[#2d2926] max-w-[200px] truncate">{u.email}</td>
+                      <td className="px-3 py-2.5 text-[#7a6f65] whitespace-nowrap">
+                        {new Date(u.signed_up).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {u.plan === "founding" ? (
+                          <span className="font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Founding</span>
+                        ) : u.plan === "standard" ? (
+                          <span className="font-bold bg-[#e8f0e9] text-[#3d5c42] px-1.5 py-0.5 rounded-full">Standard</span>
+                        ) : (
+                          <span className="text-[#b5aca4] px-1.5 py-0.5 rounded-full border border-[#e8e2d9]">Free</span>
+                        )}
+                      </td>
+                      <td className={`px-3 py-2.5 text-right font-mono ${u.children_added > 0 ? "text-[#3d5c42] font-bold" : "text-[#c8bfb5]"}`}>
+                        {u.children_added}
+                      </td>
+                      <td className={`px-3 py-2.5 text-right font-mono ${u.lessons_logged > 0 ? "text-[#3d5c42] font-bold" : "text-[#c8bfb5]"}`}>
+                        {u.lessons_logged}
+                      </td>
+                      <td className={`px-3 py-2.5 text-right font-mono ${u.memories_created > 0 ? "text-[#3d5c42]" : "text-[#c8bfb5]"}`}>
+                        {u.memories_created}
+                      </td>
+                      <td className="px-3 py-2.5 text-[#7a6f65] whitespace-nowrap">
+                        {u.last_active
+                          ? new Date(u.last_active).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                          : <span className="text-[#c8bfb5]">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {u.is_dead ? (
+                          <span className="text-red-400 font-semibold">Dead</span>
+                        ) : u.is_new ? (
+                          <span className="text-amber-600 font-semibold">New</span>
+                        ) : (
+                          <span className="text-[#5c7f63] font-semibold">Active</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
+
+        {/* ── Dead Accounts ───────────────────────────────────────────── */}
+        {stats.userActivity.filter(u => u.is_dead).length > 0 && (
+          <div className="space-y-3">
+            <SectionHeader title="Dead Accounts — Cleanup" />
+            <div className="bg-[#fefcf9] border border-red-100 rounded-2xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-red-50 bg-red-50/40">
+                <p className="text-xs text-red-600 font-medium">
+                  Signed up 7+ days ago with 0 lessons and 0 children. Safe to delete.
+                </p>
+              </div>
+              <table className="w-full text-xs">
+                <tbody className="divide-y divide-[#f0ede8]">
+                  {stats.userActivity.filter(u => u.is_dead).map((u) => (
+                    <tr key={u.id} className="hover:bg-red-50/30">
+                      <td className="px-5 py-3 font-medium text-[#2d2926]">{u.email}</td>
+                      <td className="px-3 py-3 text-[#b5aca4]">
+                        {new Date(u.signed_up).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <button
+                          onClick={() => deleteUser(u.id, u.email)}
+                          disabled={deletingId === u.id}
+                          className="px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 disabled:opacity-40 text-white text-[11px] font-semibold transition-colors"
+                        >
+                          {deletingId === u.id ? "Deleting…" : "Delete"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         <div className="h-8" />
       </div>
