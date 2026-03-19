@@ -80,15 +80,15 @@ function getStageIndex(leaves: number) {
 // ─── Badge definitions ────────────────────────────────────────────────────────
 
 const BADGES = [
-  { id: "first_leaf",    emoji: "⭐", label: "First Leaf",      check: (l: number) => l >= 1         },
-  { id: "sprout",        emoji: "🌱", label: "Sprouting!",      check: (l: number) => l >= 5          },
-  { id: "ten_leaves",    emoji: "🍃", label: "10 Leaves",       check: (l: number) => l >= 10         },
-  { id: "sapling",       emoji: "🌿", label: "Sapling",         check: (l: number) => l >= 15         },
-  { id: "twenty_five",   emoji: "🏅", label: "25 Leaves",       check: (l: number) => l >= 25         },
-  { id: "growing",       emoji: "🌳", label: "Growing!",        check: (l: number) => l >= 30         },
-  { id: "fifty",         emoji: "🏆", label: "50 Leaves",       check: (l: number) => l >= 50         },
-  { id: "thriving",      emoji: "🌲", label: "Thriving!",       check: (l: number) => l >= 50         },
-  { id: "century",       emoji: "💯", label: "100 Leaves",      check: (l: number) => l >= 100        },
+  { id: "first_leaf",    emoji: "⭐", label: "First Leaf",      check: (l: number) => l >= 1,   tooltip: "Complete your first lesson"       },
+  { id: "sprout",        emoji: "🌱", label: "Sprouting!",      check: (l: number) => l >= 5,   tooltip: "Earn 5 leaves"                    },
+  { id: "ten_leaves",    emoji: "🍃", label: "10 Leaves",       check: (l: number) => l >= 10,  tooltip: "Complete 10 lessons"              },
+  { id: "sapling",       emoji: "🌿", label: "Sapling",         check: (l: number) => l >= 15,  tooltip: "Reach the Sapling garden stage"   },
+  { id: "twenty_five",   emoji: "🏅", label: "25 Leaves",       check: (l: number) => l >= 25,  tooltip: "Complete 25 lessons"              },
+  { id: "growing",       emoji: "🌳", label: "Growing!",        check: (l: number) => l >= 30,  tooltip: "Earn 25 leaves"                   },
+  { id: "fifty",         emoji: "🏆", label: "50 Leaves",       check: (l: number) => l >= 50,  tooltip: "Complete 50 lessons"              },
+  { id: "thriving",      emoji: "🌲", label: "Thriving!",       check: (l: number) => l >= 50,  tooltip: "Reach the Thriving garden stage"  },
+  { id: "century",       emoji: "💯", label: "100 Leaves",      check: (l: number) => l >= 100, tooltip: "Complete 100 lessons"             },
 ];
 
 // ─── Garden scene decorations ─────────────────────────────────────────────────
@@ -528,14 +528,17 @@ export default function GardenPage() {
             <p className="text-xs text-[#b5aca4] font-medium mb-2">🔒 Locked</p>
             <div className="flex flex-wrap gap-2">
               {lockedBadges.map((badge) => (
-                <div
-                  key={badge.id}
-                  className="flex flex-col items-center bg-[#f0ede8] border border-[#e8e2d9] rounded-2xl px-4 py-3 min-w-[72px] opacity-50"
-                >
-                  <span className="text-2xl mb-1 grayscale">{badge.emoji}</span>
-                  <span className="text-[10px] font-medium text-[#7a6f65] text-center leading-tight">
-                    {badge.label}
-                  </span>
+                <div key={badge.id} className="relative group">
+                  <div className="flex flex-col items-center bg-[#f0ede8] border border-[#e8e2d9] rounded-2xl px-4 py-3 min-w-[72px] opacity-50">
+                    <span className="text-2xl mb-1 grayscale">{badge.emoji}</span>
+                    <span className="text-[10px] font-medium text-[#7a6f65] text-center leading-tight">
+                      {badge.label}
+                    </span>
+                  </div>
+                  <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[160px] rounded-lg bg-[#2d2926] px-2.5 py-1.5 text-center text-[11px] text-white leading-snug opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
+                    {badge.tooltip}
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#2d2926]" />
+                  </div>
                 </div>
               ))}
             </div>
