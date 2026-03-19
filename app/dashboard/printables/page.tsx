@@ -65,6 +65,14 @@ interface PerfWeekCert {
   dateRange: string; certText: string; showWatermark: boolean;
 }
 
+interface BackFields {
+  include: boolean;
+  address: string;
+  websiteOrEmail: string;
+  note: string;
+  includeQR: boolean;
+}
+
 interface ReportCardData {
   schoolName: string;
   schoolYear: string;
@@ -400,43 +408,201 @@ function cardBodyHtml(style: StyleId, f: CardFields): string {
 </div>`;
 }
 
+// ─── Card back HTML ───────────────────────────────────────────────────────────
+
+function cardBackBodyHtml(style: StyleId, f: CardFields, back: BackFields, qrDataUrl: string | null): string {
+  const school = f.schoolName || "Family Academy";
+  const addr   = back.address       ? `<p style="font-size:8px;color:#7a6f65;margin:0 0 2px;">${back.address}</p>` : "";
+  const web    = back.websiteOrEmail ? `<p style="font-size:8px;color:#5c7f63;margin:0 0 2px;">${back.websiteOrEmail}</p>` : "";
+  const note   = back.note          ? `<p style="font-size:7.5px;color:#7a6f65;font-style:italic;margin:0 0 2px;">${back.note}</p>` : "";
+  const qr     = qrDataUrl          ? `<img src="${qrDataUrl}" style="width:44px;height:44px;display:block;margin:4px auto 0;" alt="QR" />` : "";
+
+  if (style === 1) return `
+<div style="width:336px;height:192px;background:#fffef8;border:2.5px solid #2d5a3d;box-sizing:border-box;
+  position:relative;font-family:Georgia,serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px;">
+  <div style="position:absolute;inset:6px;border:1px solid #c4922a;"></div>
+  <div style="position:absolute;top:3px;left:3px;width:13px;height:13px;border-top:1.5px solid #c4922a;border-left:1.5px solid #c4922a;"></div>
+  <div style="position:absolute;top:3px;right:3px;width:13px;height:13px;border-top:1.5px solid #c4922a;border-right:1.5px solid #c4922a;"></div>
+  <div style="position:absolute;bottom:3px;left:3px;width:13px;height:13px;border-bottom:1.5px solid #c4922a;border-left:1.5px solid #c4922a;"></div>
+  <div style="position:absolute;bottom:3px;right:3px;width:13px;height:13px;border-bottom:1.5px solid #c4922a;border-right:1.5px solid #c4922a;"></div>
+  <div style="text-align:center;z-index:1;line-height:1.5;">
+    <p style="font-size:10px;color:#c4922a;letter-spacing:1px;text-transform:uppercase;margin:0 0 4px;">${school}</p>
+    ${addr}${web}${note}${qr}
+  </div>
+</div>`;
+
+  if (style === 2) return `
+<div style="width:336px;height:192px;background:#fff;border:1px solid #e8e2d9;box-sizing:border-box;
+  display:flex;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;align-items:stretch;">
+  <div style="width:24px;background:#2d5a3d;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+    <span style="font-size:13px;transform:rotate(-90deg);display:block;line-height:1;">🌿</span>
+  </div>
+  <div style="flex:1;padding:14px 16px;display:flex;flex-direction:column;justify-content:center;">
+    <p style="font-size:8px;color:#5c7f63;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;margin:0 0 4px;">${school}</p>
+    ${addr}${web}${note}
+  </div>
+  ${qrDataUrl ? `<div style="display:flex;align-items:center;padding:0 10px;"><img src="${qrDataUrl}" style="width:44px;height:44px;" alt="QR" /></div>` : ""}
+</div>`;
+
+  return `
+<div style="width:336px;height:192px;background:#fdfcf8;border:1px solid #d4cfc9;box-sizing:border-box;
+  display:flex;flex-direction:column;font-family:Georgia,serif;overflow:hidden;">
+  <div style="background:#5c7f63;padding:7px 14px;display:flex;align-items:center;gap:6px;">
+    <span style="font-size:11px;line-height:1;">🌿</span>
+    <p style="font-size:9px;font-weight:bold;color:white;margin:0;">${school}</p>
+  </div>
+  <div style="flex:1;display:flex;flex-direction:row;align-items:center;padding:10px 14px;gap:10px;">
+    <div style="flex:1;line-height:1.5;">${addr}${web}${note}</div>
+    ${qrDataUrl ? `<img src="${qrDataUrl}" style="width:44px;height:44px;flex-shrink:0;" alt="QR" />` : ""}
+  </div>
+</div>`;
+}
+
+// ─── Card back preview (iframe) ───────────────────────────────────────────────
+
+function CardBackPreview({ style, fields, back, qrDataUrl }: {
+  style: StyleId; fields: CardFields; back: BackFields; qrDataUrl: string | null;
+}) {
+  const W = Math.round(BW * 1.55);
+  const H = Math.round(BH * 1.55);
+  const sc = W / 336;
+  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{margin:0;padding:0;box-sizing:border-box;}body{width:336px;height:192px;overflow:hidden;}</style></head><body>${cardBackBodyHtml(style, fields, back, qrDataUrl)}</body></html>`;
+  return (
+    <div style={{ width: W, height: H, overflow: "hidden", flexShrink: 0 }}>
+      <iframe srcDoc={srcDoc} style={{ width: 336, height: 192, border: "none", transform: `scale(${sc})`, transformOrigin: "0 0", pointerEvents: "none" }} sandbox="allow-same-origin" title="Card back preview" />
+    </div>
+  );
+}
+
+// ─── Print sheet HTML helpers ─────────────────────────────────────────────────
+
+// 816×1056px (8.5"×11"@96dpi). 2×5 grid. Left margin 72px, top 48px. Card 336×192.
+const SHEET_POSITIONS = (() => {
+  const positions: { x: number; y: number }[] = [];
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 2; col++) {
+      positions.push({ x: 72 + col * 336, y: 48 + row * 192 });
+    }
+  }
+  return positions;
+})();
+
+// Thin dashed cut-guide lines as divs (more reliable with html2canvas than SVG)
+const CUT_GUIDES_HTML = `
+  <div style="position:absolute;left:72px;top:0;width:1px;height:1056px;background:repeating-linear-gradient(to bottom,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
+  <div style="position:absolute;left:408px;top:0;width:1px;height:1056px;background:repeating-linear-gradient(to bottom,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
+  <div style="position:absolute;left:744px;top:0;width:1px;height:1056px;background:repeating-linear-gradient(to bottom,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
+  <div style="position:absolute;left:0;top:48px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
+  <div style="position:absolute;left:0;top:240px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
+  <div style="position:absolute;left:0;top:432px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
+  <div style="position:absolute;left:0;top:624px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
+  <div style="position:absolute;left:0;top:816px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
+  <div style="position:absolute;left:0;top:1008px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>`;
+
+function buildSheetHtml(cardHtmlFn: () => string): string {
+  const cards = SHEET_POSITIONS.map(p =>
+    `<div style="position:absolute;left:${p.x}px;top:${p.y}px;width:336px;height:192px;overflow:hidden;">${cardHtmlFn()}</div>`
+  ).join("");
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{width:816px;height:1056px;overflow:hidden;background:white;}</style>
+</head><body><div style="position:relative;width:816px;height:1056px;">${cards}${CUT_GUIDES_HTML}</div></body></html>`;
+}
+
+// ─── Card PDF download (single card) ─────────────────────────────────────────
+
+async function renderHtmlToDoc(
+  doc: { html: (el: HTMLElement, opts: object) => Promise<void> },
+  htmlStr: string,
+  width: number,
+  height: number,
+  pdfWidth: number,
+) {
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText = `position:fixed;top:-9999px;left:-9999px;width:${width}px;height:${height}px;border:none;`;
+  document.body.appendChild(iframe);
+  iframe.contentDocument!.open();
+  iframe.contentDocument!.write(htmlStr);
+  iframe.contentDocument!.close();
+  await new Promise(r => setTimeout(r, 350));
+  await doc.html(iframe.contentDocument!.body as HTMLElement, {
+    x: 0, y: 0, width: pdfWidth, windowWidth: width,
+    html2canvas: { scale: 2, useCORS: true },
+  });
+  document.body.removeChild(iframe);
+}
+
 async function downloadCard(
   style: StyleId,
   fields: CardFields,
   label: string,
   photoUrl: string | null,
+  back: BackFields,
+  qrDataUrl: string | null,
 ) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ orientation: "landscape", unit: "in", format: [3.5, 2] });
 
-  const body = cardBodyHtml(style, fields);
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+  const frontHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>*{margin:0;padding:0;box-sizing:border-box;}body{width:336px;height:192px;overflow:hidden;}</style>
-</head><body>${body}</body></html>`;
+</head><body>${cardBodyHtml(style, fields)}</body></html>`;
 
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:336px;height:192px;border:none;";
-  document.body.appendChild(iframe);
-  iframe.contentDocument!.open();
-  iframe.contentDocument!.write(html);
-  iframe.contentDocument!.close();
+  await renderHtmlToDoc(doc as Parameters<typeof renderHtmlToDoc>[0], frontHtml, 336, 192, 3.5);
 
-  await new Promise(r => setTimeout(r, 300));
-
-  await doc.html(iframe.contentDocument!.body, {
-    x: 0, y: 0,
-    width: 3.5,
-    windowWidth: 336,
-    html2canvas: { scale: 2, useCORS: true },
-  });
-
-  // Overlay the actual photo after html() render (avoids html2canvas data-URL issues)
   if (photoUrl) {
     doc.addImage(photoUrl, "JPEG", PHOTO_PDF_X, PHOTO_PDF_Y, PHOTO_PDF_W, PHOTO_PDF_H, "", "FAST");
   }
 
-  document.body.removeChild(iframe);
+  if (back.include) {
+    doc.addPage("landscape");
+    const backHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{width:336px;height:192px;overflow:hidden;}</style>
+</head><body>${cardBackBodyHtml(style, fields, back, qrDataUrl)}</body></html>`;
+    await renderHtmlToDoc(doc as Parameters<typeof renderHtmlToDoc>[0], backHtml, 336, 192, 3.5);
+  }
+
   doc.save(`${label.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`);
+}
+
+// ─── Print sheet (10-up, 2×5 grid) ───────────────────────────────────────────
+
+async function downloadPrintSheet(
+  style: StyleId,
+  fields: CardFields,
+  label: string,
+  photoUrl: string | null,
+  back: BackFields,
+  qrDataUrl: string | null,
+) {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
+
+  // Page 1: fronts
+  const frontSheetHtml = buildSheetHtml(() => cardBodyHtml(style, fields));
+  await renderHtmlToDoc(doc as Parameters<typeof renderHtmlToDoc>[0], frontSheetHtml, 816, 1056, 8.5);
+
+  // Overlay photo at each of the 10 grid positions
+  if (photoUrl) {
+    const ML = 0.75, MT = 0.5;
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 2; col++) {
+        doc.addImage(
+          photoUrl, "JPEG",
+          ML + col * 3.5 + PHOTO_PDF_X,
+          MT + row * 2.0 + PHOTO_PDF_Y,
+          PHOTO_PDF_W, PHOTO_PDF_H, "", "FAST",
+        );
+      }
+    }
+  }
+
+  // Page 2: backs (same grid positions for aligned double-sided printing)
+  if (back.include) {
+    doc.addPage("portrait");
+    const backSheetHtml = buildSheetHtml(() => cardBackBodyHtml(style, fields, back, qrDataUrl));
+    await renderHtmlToDoc(doc as Parameters<typeof renderHtmlToDoc>[0], backSheetHtml, 816, 1056, 8.5);
+  }
+
+  doc.save(`${label.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-print-sheet.pdf`);
 }
 
 // ─── Certificate HTML (letter 8.5"×11") ─────────────────────────────────────
@@ -848,16 +1014,36 @@ function IDCardEditor({
   onChange: (f: CardFields) => void;
   cardLabel: string;
 }) {
-  const [downloading, setDownloading] = useState(false);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [downloading,      setDownloading]      = useState(false);
+  const [downloadingSheet, setDownloadingSheet]  = useState(false);
+  const [photoUrl,         setPhotoUrl]          = useState<string | null>(null);
+  const [back, setBack] = useState<BackFields>({
+    include: false, address: "", websiteOrEmail: "", note: "", includeQR: false,
+  });
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
   const set = (key: keyof CardFields, val: string | boolean) => onChange({ ...fields, [key]: val });
-  const canDownload = !!photoUrl && !downloading;
+  const setBackField = (key: keyof BackFields, val: string | boolean) =>
+    setBack(prev => ({ ...prev, [key]: val }));
+  const canDownload = !!photoUrl;
+
+  async function handleToggleQR(checked: boolean) {
+    if (checked && !qrDataUrl) {
+      try {
+        const QRCode = (await import("qrcode")).default;
+        const url = await (QRCode as { toDataURL: (text: string, opts: object) => Promise<string> })
+          .toDataURL("https://rootedhomeschoolapp.com", { width: 80, margin: 1 });
+        setQrDataUrl(url);
+      } catch { /* silently skip QR if generation fails */ }
+    }
+    setBackField("includeQR", checked);
+  }
 
   async function handleDownload() {
     if (!photoUrl) return;
     setDownloading(true);
     try {
-      await downloadCard(style, fields, cardLabel, photoUrl);
+      await downloadCard(style, fields, cardLabel, photoUrl, back, back.includeQR ? qrDataUrl : null);
     } catch (e) {
       console.error(e);
       alert("Download failed. Please try again.");
@@ -866,31 +1052,58 @@ function IDCardEditor({
     }
   }
 
+  async function handlePrintSheet() {
+    if (!photoUrl) return;
+    setDownloadingSheet(true);
+    try {
+      await downloadPrintSheet(style, fields, cardLabel, photoUrl, back, back.includeQR ? qrDataUrl : null);
+    } catch (e) {
+      console.error(e);
+      alert("Download failed. Please try again.");
+    } finally {
+      setDownloadingSheet(false);
+    }
+  }
+
   return (
     <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
-      <div className="px-5 py-3 border-b border-[#f0ede8] flex items-center justify-between gap-3">
-        <h3 className="text-sm font-bold text-[#2d2926]">{cardLabel}</h3>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <button
-            onClick={handleDownload}
-            disabled={!canDownload}
-            title={!photoUrl ? "Please upload a photo to download" : undefined}
-            className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Download size={12} />
-            {downloading ? "Generating…" : "Download ID Card"}
-          </button>
+      <div className="px-5 py-3 border-b border-[#f0ede8] flex items-start justify-between gap-3">
+        <h3 className="text-sm font-bold text-[#2d2926] pt-0.5">{cardLabel}</h3>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDownload}
+              disabled={!canDownload || downloading}
+              title={!photoUrl ? "Upload a photo to enable download" : undefined}
+              className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Download size={11} />
+              {downloading ? "Generating…" : "Download ID Card"}
+            </button>
+            <button
+              onClick={handlePrintSheet}
+              disabled={!canDownload || downloadingSheet}
+              title={!photoUrl ? "Upload a photo to enable download" : undefined}
+              className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <span className="text-[11px]">📄</span>
+              {downloadingSheet ? "Generating…" : "Print Sheet"}
+            </button>
+          </div>
           {!photoUrl && (
             <p className="text-[10px] text-[#b5aca4]">Upload a photo to enable download</p>
+          )}
+          {photoUrl && (
+            <p className="text-[10px] text-[#b5aca4] text-right max-w-xs leading-relaxed">
+              💡 Print at 100% (do not scale to fit). Print on cardstock, then laminate. Standard size is 3.5″ × 2″.
+            </p>
           )}
         </div>
       </div>
 
       <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-3">
-          {/* Photo upload — first and most prominent */}
           <PhotoUpload photoUrl={photoUrl} onChange={setPhotoUrl} />
-
           <FieldInput label="School Name" value={fields.schoolName} onChange={v => set("schoolName", v)} />
           <FieldInput
             label={cardLabel.toLowerCase().includes("student") ? "Student Name" : "Parent Name"}
@@ -903,22 +1116,57 @@ function IDCardEditor({
             <FieldInput label="State" value={fields.state} onChange={v => set("state", v)} />
           </div>
           <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={fields.showWatermark}
+            <input type="checkbox" checked={fields.showWatermark}
               onChange={e => set("showWatermark", e.target.checked)}
-              className="w-4 h-4 rounded accent-[#5c7f63]"
-            />
+              className="w-4 h-4 rounded accent-[#5c7f63]" />
             <span className="text-xs text-[#7a6f65]">Include "Made with Rooted" on card</span>
           </label>
+
+          {/* ── Card back toggle ── */}
+          <div className="border-t border-[#f0ede8] pt-3 mt-1">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={back.include}
+                onChange={e => setBackField("include", e.target.checked)}
+                className="w-4 h-4 rounded accent-[#5c7f63]" />
+              <span className="text-xs font-semibold text-[#2d2926]">Include card back (double-sided)</span>
+            </label>
+          </div>
+
+          {back.include && (
+            <div className="space-y-2.5 pl-1">
+              <FieldInput label="School Address (optional)" value={back.address}
+                onChange={v => setBackField("address", v)} />
+              <FieldInput label="Website or Email (optional)" value={back.websiteOrEmail}
+                onChange={v => setBackField("websiteOrEmail", v)} />
+              <FieldInput label="Note (optional)" value={back.note}
+                onChange={v => setBackField("note", v)} />
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={back.includeQR}
+                  onChange={e => handleToggleQR(e.target.checked)}
+                  className="w-4 h-4 rounded accent-[#5c7f63]" />
+                <span className="text-xs text-[#7a6f65]">Include QR code linking to rootedhomeschoolapp.com</span>
+              </label>
+            </div>
+          )}
         </div>
 
-        <div className="flex flex-col items-center justify-center gap-3">
-          <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide">Live Preview</p>
-          <div className="shadow-lg rounded overflow-hidden">
-            <CardPreview style={style} fields={fields} photoUrl={photoUrl} scale={1.55} />
+        {/* Live previews */}
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide">Front</p>
+            <div className="shadow-lg rounded overflow-hidden">
+              <CardPreview style={style} fields={fields} photoUrl={photoUrl} scale={1.55} />
+            </div>
+            <p className="text-[10px] text-[#b5aca4]">3.5″ × 2″</p>
           </div>
-          <p className="text-[10px] text-[#b5aca4]">3.5″ × 2″ — standard business card size</p>
+          {back.include && (
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide">Card Back</p>
+              <div className="shadow-lg rounded overflow-hidden">
+                <CardBackPreview style={style} fields={fields} back={back} qrDataUrl={back.includeQR ? qrDataUrl : null} />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
