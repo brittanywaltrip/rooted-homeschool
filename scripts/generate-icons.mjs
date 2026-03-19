@@ -30,7 +30,7 @@ function generateIcon(size) {
   ctx.font = `${fontSize}px serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('🍃', size / 2, size / 2);
+  ctx.fillText('🌿', size / 2, size / 2);
 
   return canvas.toBuffer('image/png');
 }
