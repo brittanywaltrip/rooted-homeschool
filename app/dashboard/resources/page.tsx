@@ -820,13 +820,13 @@ export default function ResourcesPage() {
           {loadingSaved ? (
             <LoadingSkeleton />
           ) : savedItems.length === 0 ? (
-            <div className="bg-white border border-gray-100 rounded-2xl p-12 flex flex-col items-center text-center shadow-sm">
-              <div className="text-5xl mb-4">🔖</div>
-              <p className="font-semibold text-[#2d2926] mb-2" style={{ fontFamily: "Georgia, serif" }}>
-                Save resources you love
-              </p>
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+              <div className="w-12 h-12 rounded-2xl bg-[#e8f0e9] flex items-center justify-center mb-4">
+                <Bookmark size={22} className="text-[#5c7f63]" />
+              </div>
+              <p className="text-base font-semibold text-[#2d2926] mb-1.5">Nothing saved yet</p>
               <p className="text-sm text-[#7a6f65] max-w-xs leading-relaxed">
-                Tap the bookmark icon on any resource card to find it here instantly.
+                Tap the 🔖 icon on any resource to save it here for quick access.
               </p>
             </div>
           ) : (
