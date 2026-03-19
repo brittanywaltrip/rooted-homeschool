@@ -376,10 +376,10 @@ export default function ResourcesPage() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold tracking-widest uppercase text-[#4a7c59] mb-1">
-                📍 For {userState} Families
+                Showing resources for {userState}
               </p>
               <p className="text-base font-bold text-[#2d2926] mb-2">
-                Resources picked for {userState} homeschool families
+                Resources &amp; requirements for {userState} homeschool families
               </p>
               <div className="flex items-center gap-2 mb-2">
                 <span

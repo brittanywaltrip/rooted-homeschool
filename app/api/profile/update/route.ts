@@ -31,13 +31,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No valid fields provided' }, { status: 400 })
   }
 
-  const { data: updateData, error } = await supabase
+  // upsert: creates row if missing, updates if exists (fixes silent no-op for new accounts)
+  const { data: upsertData, error } = await supabase
     .from('profiles')
-    .update(patch)
-    .eq('id', user.id)
+    .upsert({ id: user.id, ...patch }, { onConflict: 'id' })
     .select()
 
-  console.log('[profile/update] supabase update result — data:', JSON.stringify(updateData), 'error:', error ? error.message : null)
+  console.log('[profile/update] supabase upsert result — data:', JSON.stringify(upsertData), 'error:', error ? error.message : null)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

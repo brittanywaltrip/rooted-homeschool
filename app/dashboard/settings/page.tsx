@@ -75,6 +75,7 @@ export default function SettingsPage() {
 
   // Family name
   const [familyName,   setFamilyName]   = useState("");
+  const [editingName,  setEditingName]  = useState(false);
   const [savingFamily, setSavingFamily] = useState(false);
   const [savedFamily,  setSavedFamily]  = useState(false);
   const [userEmail,    setUserEmail]    = useState("");
@@ -218,6 +219,7 @@ export default function SettingsPage() {
 
     setSavingFamily(false);
     setSavedFamily(true);
+    setEditingName(false);
 
     // Update sidebar DOM directly as instant visual confirmation
     document.querySelectorAll("[data-sidebar-name]").forEach((el) => {
@@ -226,7 +228,7 @@ export default function SettingsPage() {
 
     refreshProfile();
     console.log("[Settings] refreshProfile called after saving name:", nameToSave);
-    setTimeout(() => window.location.reload(), 800);
+    setTimeout(() => window.location.reload(), 300);
   }
 
   // ── Homeschool state ──────────────────────────────────────────────────────
@@ -336,7 +338,7 @@ export default function SettingsPage() {
     setPhotoUploading(false);
     refreshProfile();
     console.log("[Settings] refreshProfile called after uploading photo:", url);
-    setTimeout(() => window.location.reload(), 800);
+    setTimeout(() => window.location.reload(), 300);
   }
 
   // ── Add child ─────────────────────────────────────────────────────────────
@@ -556,25 +558,35 @@ export default function SettingsPage() {
               <span className="text-[#b5aca4] font-normal ml-1">(shown on your shareable updates)</span>
             </label>
             <div className="flex items-center gap-4">
-              {/* Current photo or placeholder */}
-              <div className="relative shrink-0">
+              {/* Clickable photo circle */}
+              <button
+                type="button"
+                onClick={() => photoFileRef.current?.click()}
+                disabled={photoUploading}
+                className="relative shrink-0 group focus:outline-none"
+                aria-label="Change family photo"
+              >
                 {familyPhotoUrl ? (
                   <img
                     src={familyPhotoUrl}
                     alt="Family photo"
-                    className="w-16 h-16 rounded-full object-cover border-2 border-[#e8e2d9]"
+                    className="w-16 h-16 rounded-full object-cover border-2 border-[#e8e2d9] group-hover:border-[#5c7f63] transition-colors"
                   />
                 ) : (
-                  <div className="w-16 h-16 rounded-full bg-[#e8f0e9] border-2 border-dashed border-[#c8ddb8] flex items-center justify-center">
+                  <div className="w-16 h-16 rounded-full bg-[#e8f0e9] border-2 border-dashed border-[#c8ddb8] group-hover:border-[#5c7f63] flex items-center justify-center transition-colors">
                     <Camera size={22} className="text-[#7aaa78]" />
                   </div>
                 )}
+                {/* Camera hover overlay */}
+                <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center pointer-events-none">
+                  <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
                 {photoUploading && (
-                  <div className="absolute inset-0 rounded-full bg-black/30 flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center">
                     <span className="text-white text-[10px] font-bold">…</span>
                   </div>
                 )}
-              </div>
+              </button>
 
               <div className="flex-1 space-y-1.5">
                 <button
@@ -585,7 +597,7 @@ export default function SettingsPage() {
                 >
                   {photoUploading ? "Uploading…" : familyPhotoUrl ? "Change Photo" : "Upload Photo"}
                 </button>
-                <p className="text-[11px] text-[#b5aca4]">JPG or PNG, square works best</p>
+                <p className="text-[11px] text-[#b5aca4]">Click photo or button · JPG or PNG</p>
               </div>
             </div>
 
@@ -615,26 +627,49 @@ export default function SettingsPage() {
                 (shown in your dashboard greeting)
               </span>
             </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={familyName}
-                onChange={(e) => setFamilyName(e.target.value)}
-                placeholder="e.g. The Waltrip Family"
-                className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
-              />
-              <button
-                onClick={saveFamilyName}
-                disabled={savingFamily || !familyName.trim()}
-                className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
-                  savedFamily
-                    ? "bg-[#e8f0e9] text-[#3d5c42]"
-                    : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
-                }`}
-              >
-                {savedFamily ? "✓ Saved" : savingFamily ? "Saving…" : "Save"}
-              </button>
-            </div>
+            {editingName ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={familyName}
+                  onChange={(e) => setFamilyName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveFamilyName(); if (e.key === "Escape") setEditingName(false); }}
+                  autoFocus
+                  placeholder="e.g. The Waltrip Family"
+                  className="flex-1 px-3 py-2.5 rounded-xl border border-[#5c7f63] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+                />
+                <button
+                  onClick={saveFamilyName}
+                  disabled={savingFamily || !familyName.trim()}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
+                    savedFamily
+                      ? "bg-[#e8f0e9] text-[#3d5c42]"
+                      : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                  }`}
+                >
+                  {savedFamily ? "✓ Saved" : savingFamily ? "Saving…" : "Save"}
+                </button>
+                <button
+                  onClick={() => setEditingName(false)}
+                  className="px-3 py-2.5 rounded-xl border border-[#e8e2d9] text-[#b5aca4] hover:text-[#7a6f65] text-sm transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] group">
+                <span className="flex-1 text-sm text-[#2d2926]">
+                  {familyName || <span className="text-[#c8bfb5]">Not set — tap ✏️ to add</span>}
+                </span>
+                <button
+                  onClick={() => setEditingName(true)}
+                  className="shrink-0 p-1 rounded-lg text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors"
+                  aria-label="Edit family name"
+                >
+                  <Pencil size={13} />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Homeschool state */}
