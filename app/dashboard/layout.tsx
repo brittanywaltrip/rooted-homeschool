@@ -181,11 +181,77 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (checking) {
     return (
-      <div className="min-h-screen bg-[#f8f7f4] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <span className="text-3xl animate-pulse">🌿</span>
-          <p className="text-sm text-[#7a6f65]">Loading your space…</p>
-        </div>
+      <div className="min-h-screen bg-[#f8f7f4] flex">
+        {/* Skeleton sidebar */}
+        <aside className="hidden md:flex flex-col w-52 bg-[#fefcf9] border-r border-[#e8e2d9] fixed top-0 left-0 h-full z-40">
+          {/* Brand */}
+          <div className="px-5 py-5 border-b border-[#e8e2d9] flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-[#e8e2d9] animate-pulse shrink-0" />
+            <div className="space-y-1.5">
+              <div className="w-16 h-3 rounded bg-[#e8e2d9] animate-pulse" />
+              <div className="w-10 h-2 rounded bg-[#e8e2d9] animate-pulse" />
+            </div>
+          </div>
+          {/* Avatar */}
+          <div className="px-4 py-3 border-b border-[#f0ede8] flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-[#e8e2d9] animate-pulse shrink-0" />
+            <div className="space-y-1.5 flex-1">
+              <div className="w-20 h-2.5 rounded bg-[#e8e2d9] animate-pulse" />
+              <div className="w-14 h-2 rounded bg-[#e8e2d9] animate-pulse" />
+            </div>
+          </div>
+          {/* Nav items */}
+          <div className="p-3 space-y-1.5 flex-1">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+                <div className="w-4 h-4 rounded bg-[#e8e2d9] animate-pulse shrink-0" />
+                <div className="h-3 rounded bg-[#e8e2d9] animate-pulse" style={{ width: `${50 + (i % 3) * 18}%` }} />
+              </div>
+            ))}
+          </div>
+          {/* Bottom */}
+          <div className="p-3 border-t border-[#e8e2d9] space-y-1.5">
+            <div className="flex items-center gap-3 px-3 py-2.5">
+              <div className="w-4 h-4 rounded bg-[#e8e2d9] animate-pulse shrink-0" />
+              <div className="w-16 h-3 rounded bg-[#e8e2d9] animate-pulse" />
+            </div>
+          </div>
+        </aside>
+
+        {/* Skeleton main content */}
+        <main className="flex-1 md:ml-52 flex flex-col min-h-screen">
+          {/* Mobile top bar skeleton */}
+          <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9]">
+            <div className="w-16 h-4 rounded bg-[#e8e2d9] animate-pulse" />
+            <div className="w-6 h-6 rounded bg-[#e8e2d9] animate-pulse" />
+          </div>
+          <div className="max-w-2xl px-5 py-7 space-y-6 w-full">
+            {/* Greeting */}
+            <div className="space-y-2">
+              <div className="w-32 h-3 rounded bg-[#e8e2d9] animate-pulse" />
+              <div className="w-56 h-6 rounded bg-[#e8e2d9] animate-pulse" />
+            </div>
+            {/* Quote card */}
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 space-y-2">
+              <div className="w-24 h-2.5 rounded bg-[#e8e2d9] animate-pulse" />
+              <div className="w-full h-3 rounded bg-[#e8e2d9] animate-pulse" />
+              <div className="w-3/4 h-3 rounded bg-[#e8e2d9] animate-pulse" />
+            </div>
+            {/* Lessons section */}
+            <div className="space-y-3">
+              <div className="w-28 h-3 rounded bg-[#e8e2d9] animate-pulse" />
+              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+                    <div className="w-5 h-5 rounded-md bg-[#e8e2d9] animate-pulse shrink-0" />
+                    <div className="h-3 rounded bg-[#e8e2d9] animate-pulse flex-1" style={{ width: `${55 + (i % 3) * 15}%` }} />
+                    <div className="w-10 h-2.5 rounded bg-[#e8e2d9] animate-pulse shrink-0" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
