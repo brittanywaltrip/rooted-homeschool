@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp, MoreHorizontal, GraduationCap } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
+import { ProfileProvider, useProfile } from "@/lib/profile-context";
 
 const navItems = [
   { label: "Today",      href: "/dashboard",           icon: Sun           },
@@ -67,13 +68,19 @@ function NavLink({
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <ProfileProvider>
+      <DashboardLayoutInner>{children}</DashboardLayoutInner>
+    </ProfileProvider>
+  );
+}
+
+function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
+  const { displayName: profileName, familyPhotoUrl } = useProfile();
   const [checking,        setChecking]        = useState(true);
-  const userIdRef = useRef<string>("");
   const [menuOpen,           setMenuOpen]           = useState(false);
-  const [familyName,         setFamilyName]         = useState("");
-  const [familyPhotoUrl,     setFamilyPhotoUrl]     = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [resourcesBadge,     setResourcesBadge]     = useState(false);
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
@@ -116,12 +123,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return;
       }
 
-      userIdRef.current = session.user.id;
-      setFamilyName(
-        profile?.display_name || session.user.user_metadata?.family_name || ""
-      );
       setSubscriptionStatus(profile?.subscription_status ?? null);
-      setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
       // ── Partner detection ──────────────────────────────────────────────────
       // Check sessionStorage cache first (avoids extra DB call on nav)
@@ -165,25 +167,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setChecking(false);
     });
   }, [router]);
-
-  // Re-fetch name + photo when settings page signals a profile update
-  useEffect(() => {
-    async function handleProfileUpdate() {
-      const uid = userIdRef.current;
-      if (!uid) return;
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("display_name, family_photo_url")
-        .eq("id", uid)
-        .maybeSingle();
-      if (profile) {
-        setFamilyName((profile as { display_name?: string }).display_name ?? "");
-        setFamilyPhotoUrl((profile as { family_photo_url?: string }).family_photo_url ?? null);
-      }
-    }
-    window.addEventListener("rooted-profile-updated", handleProfileUpdate);
-    return () => window.removeEventListener("rooted-profile-updated", handleProfileUpdate);
-  }, []);
 
   async function handleSignOut() {
     sessionStorage.removeItem("rooted_partner");
@@ -276,7 +259,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const displayName = partnerCtx.isPartner
     ? partnerCtx.ownerName
-    : familyName;
+    : (profileName || "");
 
   const sidebarContent = (
     <>
@@ -318,10 +301,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
         <div className="min-w-0">
           <p className="text-[11px] text-[#b5aca4] leading-none mb-0.5">
-            {partnerCtx.isPartner ? "Viewing family" : "Welcome back,"}
+            {partnerCtx.isPartner ? "Viewing family" : (displayName ? "Welcome back," : "Welcome back!")}
           </p>
           <p className="text-sm font-medium text-[#5c7f63] truncate leading-tight">
-            {displayName || "Your Family"}
+            {displayName || (partnerCtx.isPartner ? "" : "Your Family")}
           </p>
         </div>
       </div>
