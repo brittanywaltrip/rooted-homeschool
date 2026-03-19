@@ -127,6 +127,17 @@ export default function SettingsPage() {
   const [subscriptionStatus,  setSubscriptionStatus]  = useState<string | null>(null);
   const [portalLoading,       setPortalLoading]       = useState(false);
 
+  // Password reset
+  const [resetSending,    setResetSending]    = useState(false);
+  const [resetSent,       setResetSent]       = useState(false);
+  const [resetError,      setResetError]      = useState("");
+
+  // Close account
+  const [showDeleteModal,  setShowDeleteModal]  = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletingAccount,  setDeletingAccount]  = useState(false);
+  const [deleteError,      setDeleteError]      = useState("");
+
   // School year transition
   const [showYearModal,    setShowYearModal]    = useState(false);
   const [yearTransitioning, setYearTransitioning] = useState(false);
@@ -208,6 +219,45 @@ export default function SettingsPage() {
     setSavingState(false);
     setSavedState(true);
     setTimeout(() => setSavedState(false), 2500);
+  }
+
+  // ── Password reset ────────────────────────────────────────────────────────
+
+  async function sendPasswordReset() {
+    if (!userEmail) return;
+    setResetSending(true);
+    setResetError("");
+    const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
+      redirectTo: "https://rootedhomeschoolapp.com/reset-password",
+    });
+    setResetSending(false);
+    if (error) {
+      setResetError(error.message);
+    } else {
+      setResetSent(true);
+    }
+  }
+
+  // ── Close account ─────────────────────────────────────────────────────────
+
+  async function closeAccount() {
+    if (deleteConfirmText !== "DELETE") return;
+    setDeletingAccount(true);
+    setDeleteError("");
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) { setDeletingAccount(false); setDeleteError("Not authenticated."); return; }
+    const res = await fetch("/api/account/delete", {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setDeleteError(body.error ?? "Something went wrong. Please try again.");
+      setDeletingAccount(false);
+      return;
+    }
+    await supabase.auth.signOut();
+    window.location.href = "/signup?deleted=1";
   }
 
   // ── Family photo ──────────────────────────────────────────────────────────
@@ -968,19 +1018,95 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* ── Danger zone ─────────────────────────────────────── */}
+      {/* ── Account / Danger zone ────────────────────────────── */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-[#2d2926]">Account</h2>
           <span className="h-px flex-1 bg-[#e8e2d9]" />
         </div>
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
-          <p className="text-xs text-[#7a6f65] leading-relaxed">
-            To change your email or password, or to close your account, contact{" "}
-            <span className="text-[#5c7f63] font-medium">support@rootedhomeschool.com</span>
-          </p>
+
+        {/* Reset password */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-[#2d2926]">Reset Password</p>
+            <p className="text-xs text-[#7a6f65] mt-0.5">We&apos;ll send a reset link to <span className="font-medium">{userEmail}</span></p>
+          </div>
+          {resetSent ? (
+            <p className="text-sm text-[#5c7f63] font-medium">✓ Password reset email sent! Check your inbox.</p>
+          ) : (
+            <>
+              <button
+                onClick={sendPasswordReset}
+                disabled={resetSending || !userEmail}
+                className="px-4 py-2 rounded-xl border border-[#c8ddb8] text-[#3d5c42] text-sm font-medium hover:bg-[#f2f9f3] disabled:opacity-50 transition-colors"
+              >
+                {resetSending ? "Sending…" : "Reset Password"}
+              </button>
+              {resetError && <p className="text-xs text-red-600">{resetError}</p>}
+            </>
+          )}
         </div>
+
+        {/* Close account */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-[#2d2926]">Close My Account</p>
+            <p className="text-xs text-[#7a6f65] mt-0.5">Permanently deletes your account and all family data.</p>
+          </div>
+          <button
+            onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(""); setDeleteError(""); }}
+            className="px-4 py-2 rounded-xl border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors"
+          >
+            Close My Account
+          </button>
+        </div>
+
+        {/* Contact */}
+        <p className="text-xs text-[#b5aca4] text-center">
+          Questions? Email <span className="text-[#5c7f63] font-medium">hello.rootedapp@gmail.com</span>
+        </p>
       </section>
+
+      {/* ── Close Account Modal ──────────────────────────────── */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <div className="text-center space-y-1">
+              <div className="text-3xl mb-2">⚠️</div>
+              <h3 className="text-base font-bold text-[#2d2926]">Are you sure?</h3>
+              <p className="text-sm text-[#7a6f65] leading-relaxed">
+                This permanently deletes your account and all your family&apos;s data — lessons, memories, garden, everything. <strong>This cannot be undone.</strong>
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-[#7a6f65] block">Type <span className="font-mono text-red-600">DELETE</span> to confirm</label>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="DELETE"
+                className="w-full border border-[#e8e2d9] rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+              />
+            </div>
+            {deleteError && <p className="text-xs text-red-600">{deleteError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowDeleteModal(false); setDeleteConfirmText(""); setDeleteError(""); }}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-[#7a6f65] text-sm font-medium hover:bg-[#f0ede8] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={closeAccount}
+                disabled={deleteConfirmText !== "DELETE" || deletingAccount}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-40 transition-colors"
+              >
+                {deletingAccount ? "Deleting…" : "Yes, Delete Everything"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Admin (only shown to admin email) ───────────────── */}
       {userEmail === "garfieldbrittany@gmail.com" && (
