@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Download } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import PaywallCard from "@/components/PaywallCard";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -1362,6 +1363,7 @@ function AnnualReportCard({
 export default function PrintablesPage() {
   const partnerCtx = usePartner();
   const [activeStyle, setActiveStyle] = useState<StyleId>(1);
+  const [isPro,       setIsPro]       = useState<boolean | null>(null);
   const [familyName,  setFamilyName]  = useState("");
   const [stateCode,   setStateCode]   = useState("");
   const [children,    setChildren]    = useState<ChildData[]>([]);
@@ -1387,12 +1389,13 @@ export default function PrintablesPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, state")
+        .select("display_name, state, is_pro")
         .eq("id", uid)
         .maybeSingle();
 
       const fName = (profile as { display_name?: string } | null)?.display_name || "";
       const st    = (profile as { state?: string }         | null)?.state        || "";
+      setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setFamilyName(fName);
       setStateCode(st);
       setParentFields(makeParentDefaults(fName, st));
@@ -1579,6 +1582,15 @@ export default function PrintablesPage() {
 
   const certsReady = gradCert !== null;
   const schoolName = familyName ? `${familyName} Academy` : "Family Academy";
+
+  if (isPro === false) {
+    return (
+      <PaywallCard
+        feature="Printables"
+        description="Access ID cards, certificates, and printable worksheets to celebrate your family's homeschool milestones."
+      />
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-10">

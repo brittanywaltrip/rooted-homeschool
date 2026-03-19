@@ -5,6 +5,7 @@ import { Camera, BookOpen, FolderOpen, Sparkles, Download, X, ImageIcon, ArrowRi
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
+import PaywallCard from "@/components/PaywallCard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ export default function MemoriesPage() {
   const [children,    setChildren]    = useState<Child[]>([]);
   const [activeType,  setActiveType]  = useState("all");
   const [loading,     setLoading]     = useState(true);
+  const [isPro,       setIsPro]       = useState<boolean | null>(null);
   const [showModal,   setShowModal]   = useState(false);
   const [modalType,   setModalType]   = useState<"photo" | "project" | "book">("photo");
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -63,7 +65,7 @@ export default function MemoriesPage() {
   const load = useCallback(async () => {
     if (!effectiveUserId) return;
 
-    const [{ data: kids }, { data: events }] = await Promise.all([
+    const [{ data: kids }, { data: events }, { data: profile }] = await Promise.all([
       supabase
         .from("children")
         .select("id, name, color")
@@ -76,10 +78,12 @@ export default function MemoriesPage() {
         .eq("user_id", effectiveUserId)
         .in("type", ["memory_photo", "memory_project", "memory_book"])
         .order("created_at", { ascending: false }),
+      supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
     ]);
 
     setChildren(kids ?? []);
     setMemories((events as unknown as Memory[]) ?? []);
+    setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
     setLoading(false);
   }, [effectiveUserId]);
 
@@ -187,6 +191,15 @@ export default function MemoriesPage() {
   );
 
   // ── Render ───────────────────────────────────────────────────────────────────
+
+  if (isPro === false) {
+    return (
+      <PaywallCard
+        feature="Memories"
+        description="Log photos, projects, and books to build a beautiful keepsake of your family's learning journey."
+      />
+    );
+  }
 
   return (
     <div className="max-w-3xl px-4 py-7 space-y-6">

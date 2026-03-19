@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FileText, Printer, Calendar, Clock, BookOpen, CheckSquare } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import PaywallCard from "@/components/PaywallCard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -187,6 +188,7 @@ export default function ReportsPage() {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [books,      setBooks]      = useState<BookEvent[]>([]);
   const [loading,    setLoading]    = useState(true);
+  const [isPro,      setIsPro]      = useState<boolean | null>(null);
 
   const [selectedChild, setSelectedChild] = useState<string>("all");
   const [dateFrom,      setDateFrom]      = useState(schoolYearStart());
@@ -202,12 +204,14 @@ export default function ReportsPage() {
         { data: lessons_ },
         { data: att },
         { data: bookEvts },
+        { data: profile },
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
         supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId),
         supabase.from("lessons").select("id, child_id, subject_id, title, date, scheduled_date, completed, hours").eq("user_id", effectiveUserId),
         supabase.from("attendance").select("id, child_id, day, present").eq("user_id", effectiveUserId),
         supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+        supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
       ]);
 
       setChildren(kids ?? []);
@@ -215,6 +219,7 @@ export default function ReportsPage() {
       setLessons((lessons_ as unknown as Lesson[]) ?? []);
       setAttendance((att as unknown as Attendance[]) ?? []);
       setBooks((bookEvts as unknown as BookEvent[]) ?? []);
+      setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setLoading(false);
     }
     load();
@@ -241,6 +246,15 @@ export default function ReportsPage() {
       <div className="flex items-center justify-center min-h-64">
         <span className="text-2xl animate-pulse">📋</span>
       </div>
+    );
+  }
+
+  if (isPro === false) {
+    return (
+      <PaywallCard
+        feature="Compliance Reports"
+        description="Generate print-ready PDF progress reports for states that require homeschool documentation."
+      />
     );
   }
 
