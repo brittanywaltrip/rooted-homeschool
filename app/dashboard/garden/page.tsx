@@ -238,6 +238,18 @@ export default function GardenPage() {
     load();
   }, [effectiveUserId]);
 
+  const [tipDismissed, setTipDismissed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("garden-tip-dismissed") === "1";
+  });
+
+  function dismissTip() {
+    localStorage.setItem("garden-tip-dismissed", "1");
+    setTipDismissed(true);
+  }
+
+  const totalLeaves = Object.values(leafCounts).reduce((s, n) => s + n, 0);
+
   const selectedChild = children.find((c) => c.id === selectedId);
   const selectedLeaves = selectedId ? (leafCounts[selectedId] ?? 0) : 0;
   const selectedStageIdx = getStageIndex(selectedLeaves);
@@ -273,6 +285,23 @@ export default function GardenPage() {
           Every lesson learned grows a leaf. Watch your family bloom.
         </p>
       </div>
+
+      {/* ── First-visit tip banner ───────────────────────── */}
+      {!tipDismissed && totalLeaves === 0 && (
+        <div className="flex items-start gap-3 rounded-2xl border px-4 py-3" style={{ background: "#e8f0e9", borderColor: "#5c7f63" }}>
+          <p className="flex-1 text-sm text-[#2d2926] leading-relaxed">
+            🌱 Every lesson you log grows a leaf! Complete 5 lessons to reach Seedling stage.
+          </p>
+          <button
+            type="button"
+            onClick={dismissTip}
+            aria-label="Dismiss tip"
+            className="shrink-0 text-[#5c7f63] hover:text-[#2d5a3d] text-lg leading-none mt-0.5 transition-colors"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* ── Garden Scene ─────────────────────────────────── */}
       <div
