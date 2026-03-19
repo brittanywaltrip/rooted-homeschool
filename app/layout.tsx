@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Lora } from "next/font/google";
 import "./globals.css";
 import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
 import { Analytics } from '@vercel/analytics/react';
+import Script from 'next/script';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -44,6 +45,18 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Rooted" />
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-QQPWDW5VZ6"
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-QQPWDW5VZ6');
+          `}
+        </Script>
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${lora.variable} antialiased`}
