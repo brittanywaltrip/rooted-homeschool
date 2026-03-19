@@ -1046,11 +1046,14 @@ export default function PlanPage() {
                   <p className="text-sm text-[#7a6f65]">Select a child to assign this curriculum to.</p>
                 </div>
                 {children.length === 0 ? (
-                  <div className="text-center py-6 space-y-3">
-                    <div className="text-3xl">🌱</div>
-                    <p className="text-sm text-[#7a6f65] leading-relaxed">Add a child in Settings before setting up a curriculum.</p>
+                  <div className="bg-[#f8faf8] border border-[#d4ead6] rounded-2xl p-6 text-center space-y-4">
+                    <div className="text-4xl">🌱</div>
+                    <div>
+                      <p className="text-base font-semibold text-[#2d2926] mb-1">You haven&apos;t added any children yet</p>
+                      <p className="text-sm text-[#7a6f65] leading-relaxed">Head to Settings to add your children first, then come back to set up your curriculum.</p>
+                    </div>
                     <Link href="/dashboard/settings" onClick={closeWizard}
-                      className="inline-block px-4 py-2 rounded-xl bg-[#e8f0e9] text-[#3d5c42] text-sm font-semibold hover:bg-[#d4ead4] transition-colors">
+                      className="inline-block px-5 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors">
                       Go to Settings →
                     </Link>
                   </div>

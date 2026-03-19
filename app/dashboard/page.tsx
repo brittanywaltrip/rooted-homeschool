@@ -479,6 +479,7 @@ export default function TodayPage() {
   const [qlSubject,     setQlSubject]     = useState("");
   const [savingQL,      setSavingQL]      = useState(false);
   const [showToast,     setShowToast]     = useState(false);
+  const [qlError,       setQlError]       = useState("");
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
@@ -759,86 +760,101 @@ export default function TodayPage() {
   async function saveQuickLog() {
     if (!qlTitle.trim()) return;
     setSavingQL(true);
+    setQlError("");
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSavingQL(false); return; }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setSavingQL(false); return; }
 
-    if (qlMode === "book") {
-      const payload = {
-        title:       qlTitle.trim(),
-        child_id:    qlChild || undefined,
-        date:        today,
-        description: qlNotes.trim() || undefined,
-      };
-      await supabase.from("app_events").insert({ user_id: user.id, type: "memory_book", payload });
-
-    } else if (qlMode === "project") {
-      const payload = {
-        title:       qlTitle.trim(),
-        child_id:    qlChild || undefined,
-        date:        today,
-        description: qlNotes.trim() || undefined,
-        subject:     qlSubject.trim() || undefined,
-      };
-      await supabase.from("app_events").insert({ user_id: user.id, type: "memory_project", payload });
-
-    } else if (qlMode === "field_trip") {
-      const ids = qlChildrenIds.length > 0 ? qlChildrenIds : [qlChild || ""];
-      await Promise.all(ids.map((cid) => {
+      if (qlMode === "book") {
         const payload = {
           title:       qlTitle.trim(),
-          child_id:    cid || undefined,
+          child_id:    qlChild || undefined,
           date:        today,
           description: qlNotes.trim() || undefined,
         };
-        return supabase.from("app_events").insert({ user_id: user.id, type: "memory_field_trip", payload });
-      }));
+        const { error } = await supabase.from("app_events").insert({ user_id: user.id, type: "memory_book", payload });
+        if (error) throw error;
 
-    } else if (qlMode === "extra") {
-      let subjectId: string | null = null;
-      if (qlSubject.trim()) {
-        const existing = subjects.find((s) => s.name.toLowerCase() === qlSubject.trim().toLowerCase());
-        if (existing) {
-          subjectId = existing.id;
-        } else {
-          const { data: newSub } = await supabase
-            .from("subjects").insert({ user_id: user.id, name: qlSubject.trim() })
-            .select("id, name, color").single();
-          if (newSub) {
-            setSubjects((prev) => [...prev, newSub as Subject]);
-            subjectId = newSub.id;
+      } else if (qlMode === "project") {
+        const payload = {
+          title:       qlTitle.trim(),
+          child_id:    qlChild || undefined,
+          date:        today,
+          description: qlNotes.trim() || undefined,
+          subject:     qlSubject.trim() || undefined,
+        };
+        const { error } = await supabase.from("app_events").insert({ user_id: user.id, type: "memory_project", payload });
+        if (error) throw error;
+
+      } else if (qlMode === "field_trip") {
+        const ids = qlChildrenIds.length > 0 ? qlChildrenIds : [qlChild || ""];
+        const results = await Promise.all(ids.map((cid) => {
+          const payload = {
+            title:       qlTitle.trim(),
+            child_id:    cid || undefined,
+            date:        today,
+            description: qlNotes.trim() || undefined,
+          };
+          return supabase.from("app_events").insert({ user_id: user.id, type: "memory_field_trip", payload });
+        }));
+        const failed = results.find((r) => r.error);
+        if (failed?.error) throw failed.error;
+
+      } else if (qlMode === "extra") {
+        let subjectId: string | null = null;
+        if (qlSubject.trim()) {
+          const existing = subjects.find((s) => s.name.toLowerCase() === qlSubject.trim().toLowerCase());
+          if (existing) {
+            subjectId = existing.id;
+          } else {
+            const { data: newSub } = await supabase
+              .from("subjects").insert({ user_id: user.id, name: qlSubject.trim() })
+              .select("id, name, color").single();
+            if (newSub) {
+              setSubjects((prev) => [...prev, newSub as Subject]);
+              subjectId = newSub.id;
+            }
           }
         }
+
+        const { data: newLesson, error: lessonError } = await supabase.from("lessons").insert({
+          user_id:    user.id,
+          child_id:   qlChild || null,
+          subject_id: subjectId,
+          title:      qlTitle.trim(),
+          completed:  true,
+          date:       today,
+        }).select("id, title, completed, child_id, hours, subjects(name, color)").single();
+
+        if (lessonError) throw lessonError;
+
+        if (newLesson) {
+          setLessons((prev) => [...prev, newLesson as unknown as Lesson]);
+          setCelebrating(true);
+          setTimeout(() => setCelebrating(false), 1600);
+        }
+
+        // Also save as memory
+        const { error: memError } = await supabase.from("app_events").insert({
+          user_id: user.id,
+          type:    "memory_project",
+          payload: { title: qlTitle.trim(), child_id: qlChild || undefined, date: today, description: qlNotes.trim() || undefined },
+        });
+        if (memError) throw memError;
       }
 
-      const { data: newLesson } = await supabase.from("lessons").insert({
-        user_id:    user.id,
-        child_id:   qlChild || null,
-        subject_id: subjectId,
-        title:      qlTitle.trim(),
-        completed:  true,
-        date:       today,
-      }).select("id, title, completed, child_id, hours, subjects(name, color)").single();
-
-      if (newLesson) {
-        setLessons((prev) => [...prev, newLesson as unknown as Lesson]);
-        setCelebrating(true);
-        setTimeout(() => setCelebrating(false), 1600);
-      }
-
-      // Also save as memory
-      await supabase.from("app_events").insert({
-        user_id: user.id,
-        type:    "memory_project",
-        payload: { title: qlTitle.trim(), child_id: qlChild || undefined, date: today, description: qlNotes.trim() || undefined },
-      });
+      await refreshLeafCounts();
+      setSavingQL(false);
+      closeQuickLog();
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 2500);
+    } catch (err) {
+      setSavingQL(false);
+      const msg = err instanceof Error ? err.message : "Something went wrong. Please try again.";
+      setQlError(msg);
+      setTimeout(() => setQlError(""), 3500);
     }
-
-    await refreshLeafCounts();
-    setSavingQL(false);
-    closeQuickLog();
-    setShowToast(true);
-    setTimeout(() => setShowToast(false), 2500);
   }
 
   async function saveReflection() {
@@ -1116,22 +1132,23 @@ export default function TodayPage() {
             <p className="text-sm text-[#7a6f65] leading-relaxed max-w-xs mb-5">
               Set up your curriculum to have lessons scheduled automatically, or log one you already did.
             </p>
-            <div className="flex gap-2 flex-wrap justify-center">
+            <div className="flex gap-2 flex-wrap justify-center mb-4">
               <Link
                 href="/dashboard/plan"
                 className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
               >
-                Set Up Curriculum →
+                Set Up Curriculum 📚
               </Link>
               {!isPartner && (
                 <button
-                  onClick={openLessonModal}
+                  onClick={openQuickLog}
                   className="inline-flex items-center gap-1.5 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
                 >
-                  + Add a lesson
+                  + Add a single lesson
                 </button>
               )}
             </div>
+            <p className="text-xs text-[#b5aca4]">Tip: add your children in Settings first if you haven&apos;t yet 🌱</p>
           </div>
         )}
       </div>
@@ -1615,6 +1632,15 @@ export default function TodayPage() {
           <div className="bg-[#2d2926] text-white text-sm font-medium px-5 py-3 rounded-full shadow-lg flex items-center gap-2 whitespace-nowrap">
             <span>🍃</span>
             <span>Saved to Memories!</span>
+          </div>
+        </div>
+      )}
+
+      {qlError && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] toast-slide-up pointer-events-none">
+          <div className="bg-[#c0392b] text-white text-sm font-medium px-5 py-3 rounded-full shadow-lg flex items-center gap-2 whitespace-nowrap max-w-[90vw] text-center">
+            <span>⚠️</span>
+            <span>Couldn&apos;t save — {qlError}</span>
           </div>
         </div>
       )}
