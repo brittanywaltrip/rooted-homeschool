@@ -26,6 +26,26 @@ type Stats = {
   totalMemories: number;
   totalReports: number;
   recentSignups: { email: string; created_at: string; plan_type: string | null; is_pro: boolean }[];
+  // Children
+  totalChildren: number;
+  avgChildrenPerUser: string;
+  usersWith1Child: number;
+  usersWith2Plus: number;
+  mostCommonChildCount: number;
+  // Engagement
+  activeUsers: number;
+  deadAccounts: number;
+  avgLessonsPerActiveUser: string;
+  lessonsThisWeek: number;
+  lessonsLastWeek: number;
+  // Retention
+  newUsersWithLesson: number;
+  churnedUsers: number;
+  // Daily activity
+  dailyActivity: { date: string; signups: number; lessons: number }[];
+  // Upgrade candidates
+  freeWith2PlusChildren: string[];
+  freeWith10PlusLessons: string[];
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -114,6 +134,9 @@ export default function AdminDashboardPage() {
 
   const fmt = (n: number) =>
     n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+
+  // ── Daily activity bar scale ──────────────────────────────────────────────
+  const maxDailyLessons = Math.max(...stats.dailyActivity.map(d => d.lessons), 1);
 
   return (
     <div className="min-h-screen bg-[#f8f7f4]">
@@ -236,6 +259,127 @@ export default function AdminDashboardPage() {
             <StatCard label="Lessons Logged"      value={stats.totalLessons.toLocaleString()}   sub="completed lessons" accent />
             <StatCard label="Memories Created"    value={stats.totalMemories.toLocaleString()}  sub="photos, projects, books" />
             <StatCard label="Reports Generated"   value={stats.totalReports.toLocaleString()}   sub="app_events: report_generated" />
+          </div>
+        </div>
+
+        {/* ── Children Insights ──────────────────────────────────────── */}
+        <div className="space-y-3">
+          <SectionHeader title="Children Insights" />
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <StatCard label="Total Children"      value={stats.totalChildren}          accent />
+            <StatCard label="Avg per User"        value={stats.avgChildrenPerUser}     sub="across all accounts" />
+            <StatCard label="1 Child"             value={stats.usersWith1Child}        sub="users with exactly 1" />
+            <StatCard label="2+ Children"         value={stats.usersWith2Plus}         sub="users with 2 or more" accent={stats.usersWith2Plus > 0} />
+            <StatCard label="Most Common"         value={stats.mostCommonChildCount === 0 ? "—" : `${stats.mostCommonChildCount}`} sub="children count" />
+          </div>
+        </div>
+
+        {/* ── Engagement ─────────────────────────────────────────────── */}
+        <div className="space-y-3">
+          <SectionHeader title="Engagement" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard label="Active Users"        value={stats.activeUsers}               sub="logged 1+ lesson" accent={stats.activeUsers > 0} />
+            <StatCard label="Dead Accounts"       value={stats.deadAccounts}              sub="never logged a lesson" />
+            <StatCard label="Avg Lessons / User"  value={stats.avgLessonsPerActiveUser}   sub="active users only" accent />
+            <StatCard label="This Week Lessons"   value={stats.lessonsThisWeek}           sub={`vs ${stats.lessonsLastWeek} last week`} accent={stats.lessonsThisWeek >= stats.lessonsLastWeek} />
+          </div>
+        </div>
+
+        {/* ── Retention ──────────────────────────────────────────────── */}
+        <div className="space-y-3">
+          <SectionHeader title="Retention" />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-[#fefcf9] border border-[#5c7f63] bg-[#f0f8f0] rounded-2xl p-5 flex flex-col gap-1">
+              <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">New This Week → Active</p>
+              <p className="text-3xl font-bold text-[#3d5c42]">{stats.newUsersWithLesson}</p>
+              <p className="text-xs text-[#b5aca4]">signed up this week + logged a lesson</p>
+            </div>
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 flex flex-col gap-1">
+              <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">Churned (7+ days, 0 lessons)</p>
+              <p className="text-3xl font-bold text-[#2d2926]">{stats.churnedUsers}</p>
+              <p className="text-xs text-[#b5aca4]">signed up 7+ days ago, never logged</p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Daily Activity ─────────────────────────────────────────── */}
+        <div className="space-y-3">
+          <SectionHeader title="Daily Activity — Last 7 Days" />
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#f0ede8] bg-[#f8f5f0]">
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-[#7a6f65] uppercase tracking-wide">Date</th>
+                  <th className="text-right px-5 py-3 text-xs font-semibold text-[#7a6f65] uppercase tracking-wide">Signups</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-[#7a6f65] uppercase tracking-wide w-full">Lessons Logged</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#f0ede8]">
+                {stats.dailyActivity.map((day) => (
+                  <tr key={day.date} className="hover:bg-[#faf8f5]">
+                    <td className="px-5 py-3 font-medium text-[#2d2926] whitespace-nowrap">{day.date}</td>
+                    <td className="px-5 py-3 text-right font-mono text-[#2d2926]">{day.signups}</td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 bg-[#f0ede8] rounded-full h-2 min-w-[80px]">
+                          <div
+                            className="bg-[#5c7f63] h-2 rounded-full transition-all"
+                            style={{ width: `${Math.round((day.lessons / maxDailyLessons) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="font-mono text-xs text-[#2d2926] w-6 text-right">{day.lessons}</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── Upgrade Candidates ─────────────────────────────────────── */}
+        <div className="space-y-3">
+          <SectionHeader title="Upgrade Candidates" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+            {/* Free with 2+ children */}
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-[#f0ede8] bg-[#f8f5f0] flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65]">Free Users — 2+ Children</p>
+                <span className="text-xs font-bold text-[#3d5c42] bg-[#e8f0e9] px-2 py-0.5 rounded-full">
+                  {stats.freeWith2PlusChildren.length}
+                </span>
+              </div>
+              {stats.freeWith2PlusChildren.length === 0 ? (
+                <p className="px-5 py-4 text-xs text-[#b5aca4]">None yet</p>
+              ) : (
+                <ul className="divide-y divide-[#f0ede8]">
+                  {stats.freeWith2PlusChildren.map((email, i) => (
+                    <li key={i} className="px-5 py-2.5 text-xs text-[#2d2926] font-medium">{email}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Free with 10+ lessons */}
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+              <div className="px-5 py-3 border-b border-[#f0ede8] bg-[#f8f5f0] flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65]">Free Users — 10+ Lessons</p>
+                <span className="text-xs font-bold text-[#3d5c42] bg-[#e8f0e9] px-2 py-0.5 rounded-full">
+                  {stats.freeWith10PlusLessons.length}
+                </span>
+              </div>
+              {stats.freeWith10PlusLessons.length === 0 ? (
+                <p className="px-5 py-4 text-xs text-[#b5aca4]">None yet</p>
+              ) : (
+                <ul className="divide-y divide-[#f0ede8]">
+                  {stats.freeWith10PlusLessons.map((email, i) => (
+                    <li key={i} className="px-5 py-2.5 text-xs text-[#2d2926] font-medium">{email}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
           </div>
         </div>
 
