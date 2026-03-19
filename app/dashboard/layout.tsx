@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp, MoreHorizontal, GraduationCap } from "lucide-react";
@@ -70,6 +70,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router   = useRouter();
   const pathname = usePathname();
   const [checking,        setChecking]        = useState(true);
+  const userIdRef = useRef<string>("");
   const [menuOpen,           setMenuOpen]           = useState(false);
   const [familyName,         setFamilyName]         = useState("");
   const [familyPhotoUrl,     setFamilyPhotoUrl]     = useState<string | null>(null);
@@ -115,6 +116,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return;
       }
 
+      userIdRef.current = session.user.id;
       setFamilyName(
         profile?.display_name || session.user.user_metadata?.family_name || ""
       );
@@ -163,6 +165,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setChecking(false);
     });
   }, [router]);
+
+  // Re-fetch name + photo when settings page signals a profile update
+  useEffect(() => {
+    async function handleProfileUpdate() {
+      const uid = userIdRef.current;
+      if (!uid) return;
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("display_name, family_photo_url")
+        .eq("id", uid)
+        .maybeSingle();
+      if (profile) {
+        setFamilyName((profile as { display_name?: string }).display_name ?? "");
+        setFamilyPhotoUrl((profile as { family_photo_url?: string }).family_photo_url ?? null);
+      }
+    }
+    window.addEventListener("rooted-profile-updated", handleProfileUpdate);
+    return () => window.removeEventListener("rooted-profile-updated", handleProfileUpdate);
+  }, []);
 
   async function handleSignOut() {
     sessionStorage.removeItem("rooted_partner");

@@ -186,6 +186,7 @@ export default function SettingsPage() {
     setSavingFamily(false);
     setSavedFamily(true);
     setTimeout(() => setSavedFamily(false), 2500);
+    window.dispatchEvent(new Event("rooted-profile-updated"));
   }
 
   // ── Homeschool state ──────────────────────────────────────────────────────
@@ -254,6 +255,7 @@ export default function SettingsPage() {
     // Cache-bust so re-uploads to the same path always show the new image
     setFamilyPhotoUrl(`${url}?t=${Date.now()}`);
     setPhotoUploading(false);
+    window.dispatchEvent(new Event("rooted-profile-updated"));
   }
 
   // ── Add child ─────────────────────────────────────────────────────────────
