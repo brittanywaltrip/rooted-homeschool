@@ -117,6 +117,13 @@ export default function SettingsPage() {
   const [partnerSaved,      setPartnerSaved]      = useState(false);
   const [partnerError,      setPartnerError]      = useState("");
 
+  // Subscription
+  const [isPro,               setIsPro]               = useState(false);
+  const [planType,            setPlanType]            = useState<string | null>(null);
+  const [currentPeriodEnd,    setCurrentPeriodEnd]    = useState<string | null>(null);
+  const [subscriptionStatus,  setSubscriptionStatus]  = useState<string | null>(null);
+  const [portalLoading,       setPortalLoading]       = useState(false);
+
   // School year transition
   const [showYearModal,    setShowYearModal]    = useState(false);
   const [yearTransitioning, setYearTransitioning] = useState(false);
@@ -133,7 +140,7 @@ export default function SettingsPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("display_name, partner_email, family_photo_url, state")
+      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -145,6 +152,10 @@ export default function SettingsPage() {
     setSavedPartnerEmail(pe);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
     setHomeschoolState((profile as { state?: string } | null)?.state ?? "");
+    setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
+    setCurrentPeriodEnd((profile as { current_period_end?: string } | null)?.current_period_end ?? null);
+    setSubscriptionStatus((profile as { subscription_status?: string } | null)?.subscription_status ?? null);
 
     const { data: kids } = await supabase
       .from("children")
@@ -374,6 +385,21 @@ export default function SettingsPage() {
       setTimeout(() => setPartnerSaved(false), 2500);
     }
     setSavingPartner(false);
+  }
+
+  // ── Manage subscription ───────────────────────────────────────────────────
+
+  async function handleManageSubscription() {
+    setPortalLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const res = await fetch('/api/stripe/portal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id }),
+    });
+    const { url } = await res.json();
+    window.location.href = url;
   }
 
   // ── New school year ───────────────────────────────────────────────────────
@@ -876,6 +902,54 @@ export default function SettingsPage() {
             <span>🌱</span>
             Start New School Year
           </button>
+        </div>
+      </section>
+
+      {/* ── Subscription ────────────────────────────────────── */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-[#2d2926]">Subscription</h2>
+          <span className="h-px flex-1 bg-[#e8e2d9]" />
+        </div>
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-[#2d2926]">
+                {planType === 'founding_family'
+                  ? '🌱 Founding Family — $39/yr locked forever'
+                  : planType === 'standard'
+                  ? '🌿 Standard — $59/yr'
+                  : '🪴 Free Plan'}
+              </p>
+              {currentPeriodEnd && subscriptionStatus === 'active' && (
+                <p className="text-xs text-[#7a6f65] mt-1">
+                  Next billing:{' '}
+                  {new Date(currentPeriodEnd).toLocaleDateString('en-US', {
+                    month: 'long', day: 'numeric', year: 'numeric',
+                  })}
+                </p>
+              )}
+              {subscriptionStatus === 'cancelled' && (
+                <p className="text-xs text-red-500 mt-1">Subscription cancelled</p>
+              )}
+            </div>
+            {isPro ? (
+              <button
+                onClick={handleManageSubscription}
+                disabled={portalLoading}
+                className="shrink-0 px-4 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
+              >
+                {portalLoading ? 'Loading…' : 'Manage Subscription'}
+              </button>
+            ) : (
+              <a
+                href="/dashboard/pricing"
+                className="shrink-0 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+              >
+                Upgrade
+              </a>
+            )}
+          </div>
         </div>
       </section>
 

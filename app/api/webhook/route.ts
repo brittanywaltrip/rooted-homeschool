@@ -26,10 +26,15 @@ export async function POST(req: NextRequest) {
     const session = event.data.object as Stripe.Checkout.Session
     const userId = session.metadata?.userId
     if (userId) {
+      const subscription = await stripe.subscriptions.retrieve(session.subscription as string)
+
       await supabase.from('profiles').update({
         is_pro: true,
         stripe_customer_id: session.customer as string,
+        stripe_subscription_id: subscription.id,
         subscription_status: 'active',
+        plan_type: subscription.items.data[0].price.id === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID ? 'founding_family' : 'standard',
+        current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
       }).eq('id', userId)
     }
   }
