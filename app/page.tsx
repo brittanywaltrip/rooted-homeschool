@@ -588,78 +588,31 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 7. TESTIMONIALS ────────────────────────────────────────────────── */}
+      {/* ── 7. FOUNDER QUOTE ───────────────────────────────────────────────── */}
       <section className="bg-[#fefcf9] border-y border-[#e8e2d9]">
-        <div className="max-w-5xl mx-auto px-6 sm:px-8 py-20">
-          <div className="text-center mb-12">
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-              Loved by families
-            </p>
-            <h2
-              className="text-3xl sm:text-4xl font-bold text-[#2d2926]"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              What homeschool families are saying
-            </h2>
+        <div className="max-w-2xl mx-auto px-6 sm:px-8 py-20 text-center">
+          <div
+            className="w-12 h-12 rounded-2xl bg-[#5c7f63] flex items-center justify-center text-2xl mx-auto mb-8 shadow-sm"
+            aria-hidden="true"
+          >
+            🌿
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              {
-                quote: "Finally, a homeschool app that gets it. No clutter, no confusion — just our family, growing together.",
-                name: "Sarah M.",
-                role: "Homeschool mom of 3",
-                initial: "S",
-                color: "#5c7f63",
-              },
-              {
-                quote: "The growth tree is my kids' favorite part. They race to finish lessons just so they can see it grow.",
-                name: "Jennifer K.",
-                role: "2 children, homeschooling since 2021",
-                initial: "J",
-                color: "#4a7a8a",
-              },
-              {
-                quote: "I've tried 4 homeschool apps. Rooted is the only one I've stuck with. It just makes sense.",
-                name: "Michelle T.",
-                role: "Homeschool mom of 4",
-                initial: "M",
-                color: "#8b6f47",
-              },
-            ].map((t) => (
-              <div
-                key={t.name}
-                className="bg-white border border-[#e8e2d9] rounded-2xl p-7 flex flex-col gap-3 hover:shadow-md transition-shadow"
-              >
-                {/* Large opening quote */}
-                <div
-                  className="text-[3.5rem] leading-none select-none"
-                  style={{ fontFamily: "var(--font-display)", color: "#d4ead6", lineHeight: 0.85 }}
-                  aria-hidden="true"
-                >
-                  &ldquo;
-                </div>
-                <p
-                  className="text-[#2d2926] leading-relaxed text-[15px] flex-1 italic"
-                  style={{ fontFamily: "var(--font-display)" }}
-                >
-                  {t.quote}
-                </p>
-                <div className="flex items-center gap-3 pt-4 border-t border-[#f0ede8]">
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
-                    style={{ backgroundColor: t.color }}
-                  >
-                    {t.initial}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-[#2d2926]">{t.name}</p>
-                    <p className="text-xs text-[#7a6f65]">{t.role}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div
+            className="text-[3.5rem] leading-none select-none text-[#d4ead6] mb-2"
+            style={{ fontFamily: "var(--font-display)", lineHeight: 0.85 }}
+            aria-hidden="true"
+          >
+            &ldquo;
           </div>
+          <p
+            className="text-xl sm:text-2xl text-[#2d2926] leading-relaxed italic mb-8"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            I built Rooted for families like mine. I hope it brings your homeschool a little more calm and a lot more joy.
+          </p>
+          <p className="text-sm font-semibold text-[#5c7f63]">
+            — Brittany, homeschool mom to Zoe and Emma
+          </p>
         </div>
       </section>
 
@@ -676,7 +629,7 @@ export default function Home() {
             Start free. Grow with Rooted.
           </h2>
           <p className="text-[#7a6f65] max-w-lg mx-auto">
-            Start free with unlimited children. Upgrade when you&apos;re ready — lock in
+            Start free — no credit card needed. Upgrade when you&apos;re ready — lock in
             the founding price before it&apos;s gone.
           </p>
         </div>
@@ -733,7 +686,6 @@ export default function Home() {
               >
                 $39
               </span>
-              <span className="text-base font-semibold text-[#5c7f63] mb-0.5">.99</span>
               <span className="text-sm text-[#7a6f65] mb-1">/year</span>
             </div>
             <p className="text-xs text-[#8b6f47] font-semibold mb-6">
@@ -773,7 +725,6 @@ export default function Home() {
               >
                 $59
               </span>
-              <span className="text-base font-semibold text-[#7a6f65] mb-0.5">.99</span>
               <span className="text-sm text-[#b5aca4] mb-1">/year</span>
             </div>
             <p className="text-xs text-[#b5aca4] mb-6">After founding period ends</p>
