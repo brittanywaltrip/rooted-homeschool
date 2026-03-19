@@ -1190,6 +1190,11 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* More hint */}
+      <p className="text-center text-xs text-[#b5aca4]">
+        <Link href="/dashboard/more">📋 Reports · 🖨️ Printables — find them in ··· More</Link>
+      </p>
+
     </div>
   );
 }
