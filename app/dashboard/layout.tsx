@@ -3,20 +3,20 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp, MoreHorizontal, Printer } from "lucide-react";
+import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp, MoreHorizontal, Printer, BarChart2, GraduationCap } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 
 const navItems = [
-  { label: "Today",     href: "/dashboard",            icon: Sun        },
-  { label: "Plan",      href: "/dashboard/plan",       icon: Calendar   },
-  { label: "Garden",    href: "/dashboard/garden",     icon: Leaf       },
-  { label: "Resources", href: "/dashboard/resources",  icon: BookOpen   },
-  { label: "Progress",  href: "/dashboard/progress",   icon: TrendingUp },
-  { label: "Insights",  href: "/dashboard/insights",   icon: TrendingUp },
-  { label: "Memories",  href: "/dashboard/memories",   icon: Camera     },
-  { label: "Reports",    href: "/dashboard/reports",     icon: FileText   },
-  { label: "Printables", href: "/dashboard/printables", icon: Printer    },
+  { label: "Today",      href: "/dashboard",             icon: Sun           },
+  { label: "Plan",       href: "/dashboard/plan",        icon: Calendar      },
+  { label: "Garden",     href: "/dashboard/garden",      icon: Leaf          },
+  { label: "Resources",  href: "/dashboard/resources",   icon: BookOpen      },
+  { label: "Curriculum", href: "/dashboard/progress",    icon: GraduationCap },
+  { label: "Stats",      href: "/dashboard/insights",    icon: BarChart2     },
+  { label: "Memories",   href: "/dashboard/memories",    icon: Camera        },
+  { label: "Reports",    href: "/dashboard/reports",     icon: FileText      },
+  { label: "Printables", href: "/dashboard/printables",  icon: Printer       },
 ];
 
 // Primary tabs shown in mobile bottom nav
@@ -358,6 +358,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           active={isActive("/dashboard/pricing")}
           onClick={() => setMenuOpen(false)}
         />
+        <NavLink
+          label="More"
+          href="/dashboard/more"
+          icon={MoreHorizontal}
+          active={isActive("/dashboard/more")}
+          onClick={() => setMenuOpen(false)}
+        />
         {!partnerCtx.isPartner && (
           <NavLink
             label="Settings"
@@ -367,13 +374,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             onClick={() => setMenuOpen(false)}
           />
         )}
-        <Link
-          href="/faq"
-          className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#f0ede8] transition-colors w-full"
-          onClick={() => setMenuOpen(false)}
-        >
-          FAQ
-        </Link>
         <button
           onClick={handleSignOut}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#7a6f65] hover:bg-red-50 hover:text-red-600 w-full transition-colors"

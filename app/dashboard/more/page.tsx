@@ -1,111 +1,230 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
-import { useEffect, useState } from "react";
-import { LogOut, User, Users, Bell, HelpCircle, ChevronRight, Settings } from "lucide-react";
+import {
+  HelpCircle,
+  Mail,
+  Smartphone,
+  Sparkles,
+  Shield,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 
-type Profile = { display_name: string | null };
+// ─── What's New entries ───────────────────────────────────────────────────────
+
+const WHATS_NEW = [
+  {
+    label: "Admin business dashboard",
+    detail: "Revenue, user counts, engagement, retention, daily activity, and upgrade candidates — all in one private view.",
+  },
+  {
+    label: "Children insights & upgrade candidates",
+    detail: "Admin dashboard now shows how many children each user has, active vs. dead accounts, and free users most likely to upgrade.",
+  },
+  {
+    label: "Add to Home Screen onboarding step",
+    detail: "A new final onboarding step walks new users through installing Rooted as a PWA on iPhone and Android.",
+  },
+  {
+    label: "PWA app icon",
+    detail: "Rooted now has a proper home screen icon — a clean lettermark on a green background — when you add it to your phone.",
+  },
+  {
+    label: "Dashboard skeleton loader",
+    detail: "The dashboard no longer shows a full-page spinner on load. A content-shaped skeleton fades in while your data loads.",
+  },
+];
+
+// ─── Install instructions card ────────────────────────────────────────────────
+
+function InstallCard() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#faf8f5] transition-colors"
+      >
+        <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0">
+          <Smartphone size={20} className="text-[#5c7f63]" />
+        </div>
+        <div className="flex-1 text-left">
+          <p className="text-sm font-semibold text-[#2d2926]">How to install the app 📱</p>
+          <p className="text-xs text-[#7a6f65]">Add Rooted to your home screen</p>
+        </div>
+        {open
+          ? <ChevronUp size={16} className="text-[#b5aca4] shrink-0" />
+          : <ChevronDown size={16} className="text-[#b5aca4] shrink-0" />}
+      </button>
+      {open && (
+        <div className="border-t border-[#f0ede8] px-5 py-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-[#f8f5f0] rounded-xl p-3.5 border border-[#ede8de]">
+              <p className="text-base mb-1.5">🍎</p>
+              <p className="text-xs font-bold text-[#2d2926] mb-2">iPhone</p>
+              <ol className="text-xs text-[#7a6f65] space-y-1 leading-relaxed">
+                <li>Open in <span className="font-medium text-[#2d2926]">Safari</span></li>
+                <li>Tap the Share button <span className="font-medium">⬆️</span></li>
+                <li>Tap <span className="font-medium text-[#2d2926]">&quot;Add to Home Screen&quot;</span></li>
+                <li>Tap <span className="font-medium text-[#2d2926]">Add</span></li>
+              </ol>
+            </div>
+            <div className="bg-[#f8f5f0] rounded-xl p-3.5 border border-[#ede8de]">
+              <p className="text-base mb-1.5">🤖</p>
+              <p className="text-xs font-bold text-[#2d2926] mb-2">Android</p>
+              <ol className="text-xs text-[#7a6f65] space-y-1 leading-relaxed">
+                <li>Open in <span className="font-medium text-[#2d2926]">Chrome</span></li>
+                <li>Tap the menu <span className="font-medium">⋮</span></li>
+                <li>Tap <span className="font-medium text-[#2d2926]">&quot;Add to Home Screen&quot;</span></li>
+                <li>Tap <span className="font-medium text-[#2d2926]">Add</span></li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── What's New card ──────────────────────────────────────────────────────────
+
+function WhatsNewCard() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#faf8f5] transition-colors"
+      >
+        <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0">
+          <Sparkles size={20} className="text-[#5c7f63]" />
+        </div>
+        <div className="flex-1 text-left">
+          <p className="text-sm font-semibold text-[#2d2926]">What&apos;s new 🌿</p>
+          <p className="text-xs text-[#7a6f65]">Recent features and improvements</p>
+        </div>
+        {open
+          ? <ChevronUp size={16} className="text-[#b5aca4] shrink-0" />
+          : <ChevronDown size={16} className="text-[#b5aca4] shrink-0" />}
+      </button>
+      {open && (
+        <div className="border-t border-[#f0ede8]">
+          <ul className="divide-y divide-[#f0ede8]">
+            {WHATS_NEW.map((item, i) => (
+              <li key={i} className="px-5 py-3.5">
+                <p className="text-sm font-medium text-[#2d2926] mb-0.5">{item.label}</p>
+                <p className="text-xs text-[#7a6f65] leading-relaxed">{item.detail}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+type LinkItem = {
+  icon: React.ElementType;
+  label: string;
+  sub: string;
+  href?: string;
+  mailto?: string;
+};
+
+const LINK_ITEMS: LinkItem[] = [
+  {
+    icon: HelpCircle,
+    label: "FAQ",
+    sub: "Answers to common questions",
+    href: "/faq",
+  },
+  {
+    icon: Mail,
+    label: "Contact us",
+    sub: "hello.rootedapp@gmail.com",
+    mailto: "hello.rootedapp@gmail.com",
+  },
+  {
+    icon: Shield,
+    label: "Privacy Policy",
+    sub: "How we handle your data",
+    href: "/privacy",
+  },
+  {
+    icon: FileText,
+    label: "Terms of Service",
+    sub: "Usage terms and conditions",
+    href: "/terms",
+  },
+];
 
 export default function MorePage() {
-  const router = useRouter();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [email, setEmail] = useState("");
-
-  useEffect(() => {
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return;
-      setEmail(user.email ?? "");
-      const { data } = await supabase
-        .from("profiles")
-        .select("display_name")
-        .eq("id", user.id)
-        .maybeSingle();
-      setProfile(data);
-    });
-  }, []);
-
-  async function handleSignOut() {
-    await supabase.auth.signOut();
-    router.replace("/login");
-  }
-
-  const menuItems = [
-    { icon: Settings,    label: "Settings",             sub: "Family name, children, colors", href: "/dashboard/settings" },
-    { icon: User,        label: "Account",              sub: email,                           href: "/dashboard/settings" },
-    { icon: Users,       label: "Children",             sub: "Add or edit children",          href: "/dashboard/settings" },
-    { icon: Bell,        label: "Notifications",        sub: "Off",                           href: null },
-    { icon: HelpCircle,  label: "Help & Feedback",      sub: "support@rootedhomeschool.com",  href: null },
-  ];
-
   return (
-    <div className="max-w-2xl px-5 py-7 space-y-6">
+    <div className="max-w-xl mx-auto px-5 py-8 space-y-8">
+
+      {/* Header */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">
-          Settings
-        </p>
-        <h1 className="text-2xl font-bold text-[#2d2926]">More ⚙️</h1>
+        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a9e7e] mb-1">Dashboard</p>
+        <h1 className="text-2xl font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+          Help &amp; More
+        </h1>
       </div>
 
-      {/* Profile card */}
-      <div className="bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 flex items-center gap-4">
-        <div className="w-12 h-12 rounded-full bg-[#5c7f63] flex items-center justify-center text-white text-lg font-bold">
-          {profile?.display_name
-            ? (() => {
-                const words = profile.display_name.replace(/\bfamily\b/gi, "").trim().split(/\s+/).filter(Boolean);
-                return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "🌿";
-              })()
-            : "🌿"}
-        </div>
-        <div>
-          <p className="font-semibold text-[#2d2926]">
-            {profile?.display_name || "Your Family"}
-          </p>
-          <p className="text-sm text-[#7a6f65]">{email}</p>
-        </div>
+      {/* Expandable feature cards */}
+      <div className="space-y-3">
+        <InstallCard />
+        <WhatsNewCard />
       </div>
 
-      {/* Menu items */}
-      <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
-        {menuItems.map(({ icon: Icon, label, sub, href }) => {
+      {/* Link list */}
+      <div className="space-y-2">
+        {LINK_ITEMS.map(({ icon: Icon, label, sub, href, mailto }) => {
           const inner = (
-            <>
-              <Icon size={18} className="text-[#7a6f65] shrink-0" strokeWidth={1.8} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[#2d2926]">{label}</p>
-                {sub && <p className="text-xs text-[#b5aca4] truncate">{sub}</p>}
+            <div className="flex items-center gap-4 px-5 py-4 hover:bg-[#faf8f5] transition-colors">
+              <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0">
+                <Icon size={20} className="text-[#7a6f65]" />
               </div>
-              <ChevronRight size={16} className="text-[#c8bfb5] shrink-0" />
-            </>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#2d2926]">{label}</p>
+                <p className="text-xs text-[#7a6f65] truncate">{sub}</p>
+              </div>
+              <span className="text-[#c8bfb5] text-lg leading-none">›</span>
+            </div>
           );
-          return href ? (
+
+          if (mailto) {
+            return (
+              <a
+                key={label}
+                href={`mailto:${mailto}`}
+                className="block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden"
+              >
+                {inner}
+              </a>
+            );
+          }
+
+          return (
             <Link
               key={label}
-              href={href}
-              className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#f8f5f0] transition-colors text-left"
+              href={href!}
+              className="block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden"
             >
               {inner}
             </Link>
-          ) : (
-            <div key={label} className="flex items-center gap-4 px-5 py-4 opacity-60">
-              {inner}
-            </div>
           );
         })}
       </div>
 
-      {/* Sign out */}
-      <button
-        onClick={handleSignOut}
-        className="w-full flex items-center justify-center gap-2 bg-[#fefcf9] border border-[#e8e2d9] hover:border-red-200 hover:bg-red-50 text-[#7a6f65] hover:text-red-600 rounded-2xl px-5 py-3.5 text-sm font-medium transition-colors"
-      >
-        <LogOut size={16} strokeWidth={1.8} />
-        Sign Out
-      </button>
-
-      <p className="text-center text-xs text-[#c8bfb5]">
-        Rooted Homeschool · Built with ❤️ for learning families
+      <p className="text-center text-xs text-[#c8bfb5] pb-4">
+        Rooted Homeschool · Built with love for learning families
       </p>
     </div>
   );
