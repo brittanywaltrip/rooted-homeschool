@@ -128,6 +128,7 @@ export default function MorePage() {
         <h1 className="text-2xl font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
           More
         </h1>
+        <p className="text-sm text-[#7a6f65] mt-1">Tools &amp; resources</p>
       </div>
 
       {/* Feature pages */}

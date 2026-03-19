@@ -189,7 +189,7 @@ function TodayMockup() {
         <div className="flex-1 p-3 sm:p-4 space-y-3 overflow-hidden">
           <div>
             <p className="text-[10px] text-[#b5aca4]">Wednesday, March 19</p>
-            <h2 className="text-sm font-bold text-[#2d2926]">Good morning, Waltrip Family! ☀️</h2>
+            <h2 className="text-sm font-bold text-[#2d2926]">Good morning, Parker Family! ☀️</h2>
           </div>
 
           {/* Lesson checklist */}
@@ -459,7 +459,7 @@ function ReportsMockup() {
 
           {/* Student info block */}
           <div className="px-3 pt-2.5 pb-2 border-b border-[#f0ede8]">
-            <p className="text-[12px] font-bold text-[#2d2926] leading-tight">Emma Waltrip</p>
+            <p className="text-[12px] font-bold text-[#2d2926] leading-tight">Emma Parker</p>
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <span className="text-[9px] text-[#7a6f65]">School Year: 2025–2026</span>
               <span className="text-[9px] text-[#d4cfc9]">·</span>
@@ -581,7 +581,7 @@ function MemoriesMockup() {
         <div className="bg-gradient-to-br from-[#e8f5ea] to-[#f0f8ee] border border-[#b8d9bc] rounded-xl p-3 space-y-2">
           <p className="text-[10px] font-bold text-[#3d5c42]">✨ This Week&apos;s Family Update</p>
           <p className="text-[10px] text-[#5c5248] leading-relaxed italic">
-            &ldquo;What a week for the Waltrip family! Emma dove deep into her science unit with a spectacular
+            &ldquo;What a week for the Parker family! Emma dove deep into her science unit with a spectacular
             volcano experiment, while Zoe tackled fractions with surprising enthusiasm. Charlotte&apos;s Web
             came to a tearful but beautiful end, and the whole family celebrated with a movie night. 🎉&rdquo;
           </p>

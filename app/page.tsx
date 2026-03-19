@@ -18,7 +18,7 @@ function TodayMockup() {
       <div className="p-4 space-y-3">
         <div>
           <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Tuesday, March 17</p>
-          <p className="text-sm font-bold text-[#2d2926]">Good morning, Waltrip! 👋</p>
+          <p className="text-sm font-bold text-[#2d2926]">Good morning, Parker Family! 👋</p>
         </div>
         {/* tree card */}
         <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] rounded-xl p-3 flex gap-3 items-center">
@@ -94,7 +94,7 @@ function GardenMockup() {
       <div className="p-3">
         <div className="flex items-center justify-between bg-[#e8f5ea] rounded-xl px-3 py-2">
           <div>
-            <p className="text-[10px] text-[#5c7f63] font-bold uppercase tracking-widest">Waltrip Family · Thriving</p>
+            <p className="text-[10px] text-[#5c7f63] font-bold uppercase tracking-widest">Parker Family · Thriving</p>
             <p className="text-xs text-[#2d2926]">200 leaves earned</p>
           </div>
           <div className="flex gap-1">
@@ -441,7 +441,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
-              { number: "200+",    label: "Families Growing",    icon: "🌱" },
+              { number: "For You",  label: "Built for Families Like Yours", icon: "🌱" },
               { number: "5",       label: "Sections, All-in-One", icon: "✨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
               { number: "1-Click", label: "State-Ready Reports",  icon: "📋" },
@@ -919,6 +919,10 @@ export default function Home() {
               <a href="https://facebook.com/rootedhomeschool" target="_blank" rel="noopener noreferrer"
                 className="text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors flex items-center gap-1">
                 👥 Facebook
+              </a>
+              <a href="https://pinterest.com/hellorootedapp" target="_blank" rel="noopener noreferrer"
+                className="text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors flex items-center gap-1">
+                📌 Pinterest
               </a>
             </div>
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp, MoreHorizontal, GraduationCap } from "lucide-react";
+import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, MoreHorizontal, GraduationCap } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import { ProfileProvider, useProfile } from "@/lib/profile-context";
@@ -365,13 +365,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* Settings + Sign out */}
       <div className="p-3 border-t border-[#e8e2d9] space-y-0.5">
-        <NavLink
-          label="Upgrade ✨"
-          href="/dashboard/pricing"
-          icon={TrendingUp}
-          active={isActive("/dashboard/pricing")}
-          onClick={() => setMenuOpen(false)}
-        />
         <NavLink
           label="More"
           href="/dashboard/more"

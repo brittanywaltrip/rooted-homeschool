@@ -958,7 +958,7 @@ export default function TodayPage() {
           {formatDate(new Date())}
         </p>
         <h1 className="text-2xl font-bold text-[#2d2926]">
-          {getGreeting()}{familyName ? `, ${familyName}` : ""}! 👋
+          {getGreeting()}{familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 👋
         </h1>
       </div>
 
@@ -1148,7 +1148,9 @@ export default function TodayPage() {
                 </button>
               )}
             </div>
-            <p className="text-xs text-[#b5aca4]">Tip: add your children in Settings first if you haven&apos;t yet 🌱</p>
+            {children.length === 0 && (
+              <p className="text-xs text-[#b5aca4]">Tip: add your children in Settings first if you haven&apos;t yet 🌱</p>
+            )}
           </div>
         )}
       </div>
