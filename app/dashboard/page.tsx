@@ -890,9 +890,17 @@ export default function TodayPage() {
           </div>
         ) : (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-8 flex flex-col items-center text-center">
-            <span className="text-3xl mb-2">📖</span>
-            <p className="text-sm font-medium text-[#2d2926] mb-1">No lessons scheduled today</p>
-            <p className="text-xs text-[#b5aca4]">Head to Plan to add lessons to your day.</p>
+            <span className="text-3xl mb-3">🌱</span>
+            <p className="text-sm font-semibold text-[#2d2926] mb-1">No lessons planned yet 🌱</p>
+            <p className="text-xs text-[#7a6f65] leading-relaxed max-w-xs mb-5">
+              Head to Plan to add your curriculum and we&apos;ll schedule your days automatically.
+            </p>
+            <Link
+              href="/dashboard/plan"
+              className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
+            >
+              Go to Plan →
+            </Link>
           </div>
         )}
       </div>
