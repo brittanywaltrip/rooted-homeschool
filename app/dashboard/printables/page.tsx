@@ -350,13 +350,13 @@ function cardBodyHtml(style: StyleId, f: CardFields): string {
   const loc    = [f.state, f.schoolYear].filter(Boolean).join(" · ");
 
   if (style === 1) return `
-<div style="width:336px;height:192px;background:#fffef8;border:2.5px solid #2d5a3d;box-sizing:border-box;
+<div style="width:336px;height:192px;background:#fffef8;border:4px solid #2d5a3d;box-sizing:border-box;
   position:relative;font-family:Georgia,serif;display:flex;flex-direction:row;align-items:center;">
-  <div style="position:absolute;inset:6px;border:1px solid #c4922a;pointer-events:none;"></div>
-  <div style="position:absolute;top:3px;left:3px;width:13px;height:13px;border-top:1.5px solid #c4922a;border-left:1.5px solid #c4922a;"></div>
-  <div style="position:absolute;top:3px;right:3px;width:13px;height:13px;border-top:1.5px solid #c4922a;border-right:1.5px solid #c4922a;"></div>
-  <div style="position:absolute;bottom:3px;left:3px;width:13px;height:13px;border-bottom:1.5px solid #c4922a;border-left:1.5px solid #c4922a;"></div>
-  <div style="position:absolute;bottom:3px;right:3px;width:13px;height:13px;border-bottom:1.5px solid #c4922a;border-right:1.5px solid #c4922a;"></div>
+  <div style="position:absolute;inset:6px;border:3px solid #c4922a;pointer-events:none;"></div>
+  <div style="position:absolute;top:3px;left:3px;width:13px;height:13px;border-top:3px solid #c4922a;border-left:3px solid #c4922a;"></div>
+  <div style="position:absolute;top:3px;right:3px;width:13px;height:13px;border-top:3px solid #c4922a;border-right:3px solid #c4922a;"></div>
+  <div style="position:absolute;bottom:3px;left:3px;width:13px;height:13px;border-bottom:3px solid #c4922a;border-left:3px solid #c4922a;"></div>
+  <div style="position:absolute;bottom:3px;right:3px;width:13px;height:13px;border-bottom:3px solid #c4922a;border-right:3px solid #c4922a;"></div>
   ${photoPlaceholderHtml}
   <div style="flex:1;line-height:1.4;padding-right:12px;z-index:1;">
     <p style="font-size:9px;color:#c4922a;letter-spacing:1px;text-transform:uppercase;margin:0 0 3px;">${school}</p>
@@ -369,7 +369,7 @@ function cardBodyHtml(style: StyleId, f: CardFields): string {
 </div>`;
 
   if (style === 2) return `
-<div style="width:336px;height:192px;background:#fff;border:1px solid #e8e2d9;box-sizing:border-box;
+<div style="width:336px;height:192px;background:#fff;border:3px solid #e8e2d9;box-sizing:border-box;
   display:flex;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;align-items:center;">
   <div style="width:24px;height:192px;background:#2d5a3d;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
     <span style="font-size:13px;transform:rotate(-90deg);display:block;line-height:1;">🌿</span>
@@ -388,7 +388,7 @@ function cardBodyHtml(style: StyleId, f: CardFields): string {
 </div>`;
 
   return `
-<div style="width:336px;height:192px;background:#fdfcf8;border:1px solid #d4cfc9;box-sizing:border-box;
+<div style="width:336px;height:192px;background:#fdfcf8;border:3px solid #d4cfc9;box-sizing:border-box;
   display:flex;flex-direction:column;font-family:Georgia,serif;overflow:hidden;">
   <div style="background:#5c7f63;padding:7px 14px;display:flex;align-items:center;gap:6px;">
     <span style="font-size:11px;line-height:1;">🌿</span>
@@ -419,13 +419,13 @@ function cardBackBodyHtml(style: StyleId, f: CardFields, back: BackFields, qrDat
   const qr     = qrDataUrl          ? `<img src="${qrDataUrl}" style="width:44px;height:44px;display:block;margin:4px auto 0;" alt="QR" />` : "";
 
   if (style === 1) return `
-<div style="width:336px;height:192px;background:#fffef8;border:2.5px solid #2d5a3d;box-sizing:border-box;
+<div style="width:336px;height:192px;background:#fffef8;border:4px solid #2d5a3d;box-sizing:border-box;
   position:relative;font-family:Georgia,serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px;">
-  <div style="position:absolute;inset:6px;border:1px solid #c4922a;"></div>
-  <div style="position:absolute;top:3px;left:3px;width:13px;height:13px;border-top:1.5px solid #c4922a;border-left:1.5px solid #c4922a;"></div>
-  <div style="position:absolute;top:3px;right:3px;width:13px;height:13px;border-top:1.5px solid #c4922a;border-right:1.5px solid #c4922a;"></div>
-  <div style="position:absolute;bottom:3px;left:3px;width:13px;height:13px;border-bottom:1.5px solid #c4922a;border-left:1.5px solid #c4922a;"></div>
-  <div style="position:absolute;bottom:3px;right:3px;width:13px;height:13px;border-bottom:1.5px solid #c4922a;border-right:1.5px solid #c4922a;"></div>
+  <div style="position:absolute;inset:6px;border:3px solid #c4922a;"></div>
+  <div style="position:absolute;top:3px;left:3px;width:13px;height:13px;border-top:3px solid #c4922a;border-left:3px solid #c4922a;"></div>
+  <div style="position:absolute;top:3px;right:3px;width:13px;height:13px;border-top:3px solid #c4922a;border-right:3px solid #c4922a;"></div>
+  <div style="position:absolute;bottom:3px;left:3px;width:13px;height:13px;border-bottom:3px solid #c4922a;border-left:3px solid #c4922a;"></div>
+  <div style="position:absolute;bottom:3px;right:3px;width:13px;height:13px;border-bottom:3px solid #c4922a;border-right:3px solid #c4922a;"></div>
   <div style="text-align:center;z-index:1;line-height:1.5;">
     <p style="font-size:10px;color:#c4922a;letter-spacing:1px;text-transform:uppercase;margin:0 0 4px;">${school}</p>
     ${addr}${web}${note}${qr}
@@ -433,7 +433,7 @@ function cardBackBodyHtml(style: StyleId, f: CardFields, back: BackFields, qrDat
 </div>`;
 
   if (style === 2) return `
-<div style="width:336px;height:192px;background:#fff;border:1px solid #e8e2d9;box-sizing:border-box;
+<div style="width:336px;height:192px;background:#fff;border:3px solid #e8e2d9;box-sizing:border-box;
   display:flex;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;align-items:stretch;">
   <div style="width:24px;background:#2d5a3d;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
     <span style="font-size:13px;transform:rotate(-90deg);display:block;line-height:1;">🌿</span>
@@ -446,7 +446,7 @@ function cardBackBodyHtml(style: StyleId, f: CardFields, back: BackFields, qrDat
 </div>`;
 
   return `
-<div style="width:336px;height:192px;background:#fdfcf8;border:1px solid #d4cfc9;box-sizing:border-box;
+<div style="width:336px;height:192px;background:#fdfcf8;border:3px solid #d4cfc9;box-sizing:border-box;
   display:flex;flex-direction:column;font-family:Georgia,serif;overflow:hidden;">
   <div style="background:#5c7f63;padding:7px 14px;display:flex;align-items:center;gap:6px;">
     <span style="font-size:11px;line-height:1;">🌿</span>
@@ -526,7 +526,7 @@ async function captureBackCard(
   div.innerHTML = cardBackBodyHtml(style, fields, back, qrDataUrl);
   document.body.appendChild(div);
   await new Promise(r => setTimeout(r, 100));
-  const canvas = await html2canvas(div, { scale: 2, useCORS: true, logging: false } as object);
+  const canvas = await html2canvas(div, { scale: 3, useCORS: true, logging: false } as object);
   document.body.removeChild(div);
   return canvas;
 }
@@ -545,7 +545,7 @@ async function downloadCard(
   // 3.5" × 2" in points (1" = 72pt)
   const W = 252, H = 144;
 
-  const frontCanvas = await html2canvas(frontEl, { scale: 2, useCORS: true, logging: false } as object);
+  const frontCanvas = await html2canvas(frontEl, { scale: 3, useCORS: true, logging: false } as object);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: [W, H] });
   doc.addImage(frontCanvas.toDataURL("image/png"), "PNG", 0, 0, W, H);
 
@@ -558,8 +558,7 @@ async function downloadCard(
   doc.save(`${label.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`);
 }
 
-// ─── Print sheet (card centered on letter page) ───────────────────────────────
-
+// ── Print sheet (8 cards per sheet, 2×4 grid, with crop marks) ─────────────
 async function downloadPrintSheet(
   frontEl: HTMLElement,
   style: StyleId,
@@ -571,21 +570,73 @@ async function downloadPrintSheet(
   const html2canvas = (await import("html2canvas")).default;
   const { jsPDF } = await import("jspdf");
 
+  // Card size in inches, page margins
   const cardW = 3.5, cardH = 2;
-  const x = (8.5 - cardW) / 2;
-  const y = (11  - cardH) / 2;
+  const cols = 2, rows = 4;
+  const marginX = (8.5 - cols * cardW) / (cols + 1); // ~0.5"
+  const marginY = (11 - rows * cardH) / (rows + 1);  // ~0.6"
 
-  const frontCanvas = await html2canvas(frontEl, { scale: 2, useCORS: true, logging: false } as object);
+  // Capture front card at high resolution
+  const frontCanvas = await html2canvas(frontEl, { scale: 3, useCORS: true, logging: false } as object);
+
   const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
-  doc.addImage(frontCanvas.toDataURL("image/png"), "PNG", x, y, cardW, cardH);
 
+  // ── PAGE 1: Front faces ──────────────────────────────────────────────────
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const x = marginX + col * (cardW + marginX);
+      const y = marginY + row * (cardH + marginY);
+      doc.addImage(frontCanvas.toDataURL("image/png"), "PNG", x, y, cardW, cardH);
+
+      // Crop marks (thin gray lines, 0.12" tick, 0.05" gap from card edge)
+      doc.setDrawColor(180, 180, 180);
+      doc.setLineWidth(0.005);
+      const gap = 0.05, tick = 0.12;
+      // top-left corner
+      doc.line(x - gap - tick, y, x - gap, y);
+      doc.line(x, y - gap - tick, x, y - gap);
+      // top-right corner
+      doc.line(x + cardW + gap, y, x + cardW + gap + tick, y);
+      doc.line(x + cardW, y - gap - tick, x + cardW, y - gap);
+      // bottom-left corner
+      doc.line(x - gap - tick, y + cardH, x - gap, y + cardH);
+      doc.line(x, y + cardH + gap, x, y + cardH + gap + tick);
+      // bottom-right corner
+      doc.line(x + cardW + gap, y + cardH, x + cardW + gap + tick, y + cardH);
+      doc.line(x + cardW, y + cardH + gap, x + cardW, y + cardH + gap + tick);
+    }
+  }
+
+  // ── PAGE 2: Back faces (if double-sided) ─────────────────────────────────
   if (back.include) {
     const backCanvas = await captureBackCard(style, fields, back, qrDataUrl, html2canvas);
     doc.addPage("letter", "portrait");
-    doc.addImage(backCanvas.toDataURL("image/png"), "PNG", x, y, cardW, cardH);
+
+    // Mirror columns left↔right so backs align when flipped on short edge
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const mirroredCol = cols - 1 - col;
+        const x = marginX + mirroredCol * (cardW + marginX);
+        const y = marginY + row * (cardH + marginY);
+        doc.addImage(backCanvas.toDataURL("image/png"), "PNG", x, y, cardW, cardH);
+
+        // Crop marks
+        doc.setDrawColor(180, 180, 180);
+        doc.setLineWidth(0.005);
+        const gap = 0.05, tick = 0.12;
+        doc.line(x - gap - tick, y, x - gap, y);
+        doc.line(x, y - gap - tick, x, y - gap);
+        doc.line(x + cardW + gap, y, x + cardW + gap + tick, y);
+        doc.line(x + cardW, y - gap - tick, x + cardW, y - gap);
+        doc.line(x - gap - tick, y + cardH, x - gap, y + cardH);
+        doc.line(x, y + cardH + gap, x, y + cardH + gap + tick);
+        doc.line(x + cardW + gap, y + cardH, x + cardW + gap + tick, y + cardH);
+        doc.line(x + cardW, y + cardH + gap, x + cardW, y + cardH + gap + tick);
+      }
+    }
   }
 
-  // Open in new tab so the user gets the browser's native print dialog
+  // Open in new tab for browser's native print dialog
   window.open(doc.output("bloburl"), "_blank");
 }
 
@@ -1080,7 +1131,7 @@ function IDCardEditor({
           )}
           {photoUrl && (
             <p className="text-[10px] text-[#b5aca4] text-right max-w-xs leading-relaxed">
-              💡 Print at 100% (do not scale to fit). Print on cardstock, then laminate. Standard size is 3.5″ × 2″.
+              💡 Print at 100% (do not scale to fit). Page 1 = fronts, Page 2 = backs if double-sided. Cut on the crop marks. Print on cardstock and laminate for best results.
             </p>
           )}
         </div>
