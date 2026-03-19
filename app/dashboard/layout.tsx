@@ -98,7 +98,7 @@ function SidebarProfile({ isPartner, ownerName }: { isPartner: boolean; ownerNam
         <p className="text-[11px] text-[#b5aca4] leading-none mb-0.5">
           {isPartner ? "Viewing family" : (displayName ? "Welcome back," : "Welcome back!")}
         </p>
-        <p className="text-sm font-medium text-[#5c7f63] truncate leading-tight">
+        <p data-sidebar-name className="text-sm font-medium text-[#5c7f63] truncate leading-tight">
           {displayName || (isPartner ? "" : "Your Family")}
         </p>
       </div>

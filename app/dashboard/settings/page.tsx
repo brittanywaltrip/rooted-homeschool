@@ -187,20 +187,45 @@ export default function SettingsPage() {
   // ── Family name ───────────────────────────────────────────────────────────
 
   async function saveFamilyName() {
+    const nameToSave = familyName.trim();
+    console.log("[Settings] saveFamilyName() called — familyName state value:", JSON.stringify(nameToSave));
     setSavingFamily(true);
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
-    if (!token) { setSavingFamily(false); return; }
 
-    await fetch("/api/profile/update", {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) { setSavingFamily(false); console.log("[Settings] saveFamilyName: no token, aborting"); return; }
+
+    // Primary: API route (uses service role key, bypasses RLS)
+    const res = await fetch("/api/profile/update", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-      body: JSON.stringify({ display_name: familyName.trim() }),
+      body: JSON.stringify({ display_name: nameToSave }),
     });
+    const resBody = await res.json().catch(() => ({}));
+    console.log("[Settings] API route response:", res.status, JSON.stringify(resBody));
+
+    // Fallback: direct Supabase client update in case API route failed
+    if (!res.ok) {
+      console.log("[Settings] API route failed — attempting direct Supabase fallback");
+      const userId = session.user.id;
+      const { data: fallbackData, error: fallbackErr } = await supabase
+        .from("profiles")
+        .update({ display_name: nameToSave })
+        .eq("id", userId)
+        .select();
+      console.log("[Settings] direct Supabase fallback result — data:", JSON.stringify(fallbackData), "error:", fallbackErr?.message ?? null);
+    }
 
     setSavingFamily(false);
     setSavedFamily(true);
+
+    // Update sidebar DOM directly as instant visual confirmation
+    document.querySelectorAll("[data-sidebar-name]").forEach((el) => {
+      el.textContent = nameToSave || "Your Family";
+    });
+
     refreshProfile();
-    console.log("[Settings] refreshProfile called after saving name:", familyName.trim());
+    console.log("[Settings] refreshProfile called after saving name:", nameToSave);
     setTimeout(() => window.location.reload(), 800);
   }
 
