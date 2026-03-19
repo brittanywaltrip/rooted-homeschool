@@ -392,14 +392,19 @@ export default function SettingsPage() {
   async function handleManageSubscription() {
     setPortalLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) { setPortalLoading(false); return; }
     const res = await fetch('/api/stripe/portal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: user.id }),
     });
-    const { url } = await res.json();
-    window.location.href = url;
+    const data = await res.json();
+    if (data.error === 'no_customer') {
+      setPortalLoading(false);
+      alert('To manage your subscription please email hello.rootedapp@gmail.com');
+      return;
+    }
+    window.location.href = data.url;
   }
 
   // ── New school year ───────────────────────────────────────────────────────

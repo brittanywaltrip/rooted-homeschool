@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     .single()
 
   if (!profile?.stripe_customer_id) {
-    return NextResponse.json({ error: 'No subscription found' }, { status: 400 })
+    return NextResponse.json({ error: 'no_customer' }, { status: 400 })
   }
 
   const session = await stripe.billingPortal.sessions.create({
