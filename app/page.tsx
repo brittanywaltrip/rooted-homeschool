@@ -847,8 +847,13 @@ export default function Home() {
       {/* ── 8b. FOUNDER STORY ──────────────────────────────────────────── */}
       <section className="px-6 sm:px-8 py-16 max-w-3xl mx-auto">
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-3xl p-8 sm:p-12 flex flex-col sm:flex-row gap-8 items-center">
-          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#e8f5ea] to-[#5c7f63] flex items-center justify-center text-4xl shrink-0 shadow-md">
-            🌿
+          <div className="shrink-0">
+            <img
+              src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/family-photos/f30ede7e-ad40-42a9-a134-8fd70932ba0f/family.jpg"
+              alt="Brittany and her family"
+              className="w-28 h-28 rounded-full object-cover shadow-lg border-4 border-white"
+              style={{ boxShadow: "0 4px 24px rgba(92, 127, 99, 0.25)" }}
+            />
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">From the founder</p>
