@@ -59,10 +59,6 @@ const ONBOARD_COLORS = [
   { label: "Pink",   value: "#c4697a" },
 ];
 
-const GRADES = [
-  "Kindergarten","1st Grade","2nd Grade","3rd Grade","4th Grade","5th Grade",
-  "6th Grade","7th Grade","8th Grade","9th Grade","10th Grade","11th Grade","12th Grade",
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -290,217 +286,6 @@ function TodayLessonCard({
   );
 }
 
-// ─── Onboarding Modal ─────────────────────────────────────────────────────────
-
-function OnboardingModal({
-  isOpen, onClose, onDone, isSkippedUser, openQuickLog,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onDone: () => void;
-  isSkippedUser: boolean;
-  openQuickLog: () => void;
-}) {
-  const [step,       setStep]       = useState(0);
-  const [childName,  setChildName]  = useState("");
-  const [childGrade, setChildGrade] = useState("");
-  const [childColor, setChildColor] = useState(ONBOARD_COLORS[0].value);
-  const [saving,     setSaving]     = useState(false);
-  const [error,      setError]      = useState("");
-
-  useEffect(() => {
-    if (isOpen) {
-      setStep(0); setChildName(""); setChildGrade("");
-      setChildColor(ONBOARD_COLORS[0].value); setError("");
-    }
-  }, [isOpen]);
-
-  async function markOnboarded() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-    await fetch("/api/profile/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-      body: JSON.stringify({ onboarded: true }),
-    });
-  }
-
-  async function addChild() {
-    if (!childName.trim()) return;
-    setSaving(true);
-    setError("");
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSaving(false); return; }
-    const { error: err } = await supabase.from("children").insert({
-      user_id: user.id, name: childName.trim(), color: childColor, sort_order: 0,
-    });
-    setSaving(false);
-    if (err) { setError("Couldn't save. Please try again."); return; }
-    await markOnboarded();
-    setStep(2);
-  }
-
-  if (!isOpen) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
-      onClick={isSkippedUser ? onClose : undefined}
-    >
-      <div
-        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Progress dots */}
-        <div className="flex justify-center gap-2 pt-5 pb-1">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className={`rounded-full transition-all duration-300 ${
-                i === step
-                  ? "w-6 h-2 bg-[#5c7f63]"
-                  : i < step
-                  ? "w-2 h-2 bg-[#5c7f63]/40"
-                  : "w-2 h-2 bg-[#e8e2d9]"
-              }`}
-            />
-          ))}
-        </div>
-
-        {/* Step 0 — Welcome */}
-        {step === 0 && (
-          <div className="px-7 pt-4 pb-7 text-center">
-            <div className="text-5xl mb-4">🌿</div>
-            <h1 className="text-2xl font-bold text-[#2d2926] mb-2">Welcome to Rooted!</h1>
-            <p className="text-sm text-[#7a6f65] mb-6 leading-relaxed max-w-xs mx-auto">
-              Your peaceful homeschool companion. Plan days, track lessons, and celebrate milestones.
-            </p>
-            <div className="grid grid-cols-3 gap-2 mb-6">
-              {[
-                { emoji: "🗓️", label: "Plan your days" },
-                { emoji: "📈", label: "Track growth" },
-                { emoji: "🌱", label: "Stay grounded" },
-              ].map((f) => (
-                <div key={f.label} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
-                  <div className="text-2xl mb-1">{f.emoji}</div>
-                  <p className="text-xs font-medium text-[#5c7f63]">{f.label}</p>
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={() => setStep(1)}
-              className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-medium py-3 rounded-xl transition-colors"
-            >
-              Get Started →
-            </button>
-            {isSkippedUser && (
-              <button
-                onClick={onClose}
-                className="mt-3 text-sm text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
-              >
-                Skip for now
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Step 1 — Add child */}
-        {step === 1 && (
-          <div className="px-7 pt-4 pb-7">
-            <div className="text-4xl mb-3 text-center">👧</div>
-            <h2 className="text-xl font-bold text-[#2d2926] mb-1 text-center">Add your first child</h2>
-            <p className="text-sm text-[#7a6f65] mb-5 text-center">You can add more children later in Settings.</p>
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child&apos;s name *</label>
-                <input
-                  value={childName}
-                  onChange={(e) => setChildName(e.target.value)}
-                  placeholder="e.g. Emma"
-                  autoFocus
-                  onKeyDown={(e) => e.key === "Enter" && addChild()}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-                  Grade level <span className="text-[#c8bfb5] font-normal">(optional)</span>
-                </label>
-                <select
-                  value={childGrade}
-                  onChange={(e) => setChildGrade(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                >
-                  <option value="">Select a grade…</option>
-                  {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-2">Color</label>
-                <div className="flex gap-2 flex-wrap">
-                  {ONBOARD_COLORS.map((c) => (
-                    <button
-                      key={c.value}
-                      onClick={() => setChildColor(c.value)}
-                      className={`w-8 h-8 rounded-full transition-transform ${
-                        childColor === c.value ? "ring-2 ring-offset-2 ring-[#5c7f63] scale-110" : "hover:scale-105"
-                      }`}
-                      style={{ backgroundColor: c.value }}
-                      title={c.label}
-                    />
-                  ))}
-                </div>
-              </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <div className="flex gap-2 pt-1">
-                <button
-                  onClick={() => setStep(0)}
-                  className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={addChild}
-                  disabled={saving || !childName.trim()}
-                  className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
-                >
-                  {saving ? "Saving…" : "Add Child →"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step 2 — Ready! */}
-        {step === 2 && (
-          <div className="px-7 pt-4 pb-7 text-center">
-            <div className="text-3xl mb-1">✨</div>
-            <div className="text-4xl mb-4">🌱</div>
-            <h2 className="text-xl font-bold text-[#2d2926] mb-2">You&apos;re all set!</h2>
-            <p className="text-sm text-[#7a6f65] mb-6 leading-relaxed">
-              {childName} is ready to start learning. Want to log your first lesson now?
-            </p>
-            <div className="space-y-3">
-              <button
-                onClick={openQuickLog}
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-medium py-3 rounded-xl transition-colors text-sm"
-              >
-                📝 Log my first lesson
-              </button>
-              <button
-                onClick={onDone}
-                className="w-full py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-              >
-                Go to my dashboard 🌿
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TodayPage() {
@@ -528,9 +313,8 @@ export default function TodayPage() {
   const [bookChild,     setBookChild]     = useState("");
   const [savingBook,    setSavingBook]    = useState(false);
 
-  // Onboarding modal
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [isSkippedUser,  setIsSkippedUser]  = useState(false);
+  // Setup banner (shown once per session for onboarded users with no children)
+  const [setupBannerDismissed, setSetupBannerDismissed] = useState(false);
 
   // Welcome banner
   const [dismissedBanner, setDismissedBanner] = useState(false);
@@ -665,17 +449,10 @@ export default function TodayPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   useEffect(() => {
-    if (loading) return;
-    if (children.length === 0 && onboarded !== true) {
-      setIsSkippedUser(false);
-      setShowOnboarding(true);
-    } else if (children.length === 0 && onboarded === true &&
-               !sessionStorage.getItem("onboarding-prompted")) {
-      sessionStorage.setItem("onboarding-prompted", "1");
-      setIsSkippedUser(true);
-      setShowOnboarding(true);
+    if (sessionStorage.getItem("setup-banner-dismissed") === "1") {
+      setSetupBannerDismissed(true);
     }
-  }, [loading, children.length, onboarded]);
+  }, []);
 
   // ── Lesson actions ────────────────────────────────────────────────────────
 
@@ -1012,14 +789,32 @@ export default function TodayPage() {
   return (
     <div className="max-w-2xl px-5 py-7 space-y-6">
 
-      {/* ── Onboarding Modal ────────────────────────────────── */}
-      <OnboardingModal
-        isOpen={showOnboarding}
-        onClose={() => setShowOnboarding(false)}
-        onDone={async () => { setShowOnboarding(false); await loadData(); }}
-        isSkippedUser={isSkippedUser}
-        openQuickLog={() => { setShowOnboarding(false); openQuickLog(); }}
-      />
+      {/* ── Setup Banner (skipped onboarding, no children) ─── */}
+      {onboarded === true && children.length === 0 && !setupBannerDismissed && (
+        <div className="relative flex items-center justify-between gap-4 bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4">
+          <p className="text-sm text-[#2d2926] font-medium leading-snug">
+            🌱 Finish setting up your homeschool — you haven&apos;t added any children yet.
+          </p>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href="/onboarding"
+              className="bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors whitespace-nowrap"
+            >
+              Add a Child →
+            </Link>
+            <button
+              onClick={() => {
+                sessionStorage.setItem("setup-banner-dismissed", "1");
+                setSetupBannerDismissed(true);
+              }}
+              aria-label="Dismiss"
+              className="w-7 h-7 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#b8d9bc]/50 transition-colors text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Welcome Banner ─────────────────────────────────── */}
       {children.length === 0 && !dismissedBanner && (
