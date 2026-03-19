@@ -13,7 +13,7 @@ const navItems = [
   { label: "Plan",       href: "/dashboard/plan",      icon: Calendar      },
   { label: "Garden",     href: "/dashboard/garden",    icon: Leaf          },
   { label: "Resources",  href: "/dashboard/resources", icon: BookOpen      },
-  { label: "Curriculum", href: "/dashboard/progress",  icon: GraduationCap },
+  { label: "Progress",   href: "/dashboard/progress",  icon: GraduationCap },
   { label: "Memories",   href: "/dashboard/memories",  icon: Camera        },
 ];
 
