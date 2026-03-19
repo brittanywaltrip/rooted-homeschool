@@ -192,15 +192,6 @@ export default function MemoriesPage() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
-  if (isPro === false) {
-    return (
-      <PaywallCard
-        feature="Memories"
-        description="Log photos, projects, and books to build a beautiful keepsake of your family's learning journey."
-      />
-    );
-  }
-
   return (
     <div className="max-w-3xl px-4 py-7 space-y-6">
 

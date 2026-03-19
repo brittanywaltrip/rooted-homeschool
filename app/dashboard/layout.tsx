@@ -13,6 +13,7 @@ const navItems = [
   { label: "Garden",     href: "/dashboard/garden",    icon: Leaf          },
   { label: "Resources",  href: "/dashboard/resources", icon: BookOpen      },
   { label: "Curriculum", href: "/dashboard/progress",  icon: GraduationCap },
+  { label: "Memories",   href: "/dashboard/memories",  icon: Camera        },
 ];
 
 // Primary tabs shown in mobile bottom nav

@@ -249,15 +249,6 @@ export default function ReportsPage() {
     );
   }
 
-  if (isPro === false) {
-    return (
-      <PaywallCard
-        feature="Compliance Reports"
-        description="Generate print-ready PDF progress reports for states that require homeschool documentation."
-      />
-    );
-  }
-
   return (
     <div className="max-w-3xl px-4 py-7 space-y-6">
       {/* Header */}

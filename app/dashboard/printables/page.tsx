@@ -1583,15 +1583,6 @@ export default function PrintablesPage() {
   const certsReady = gradCert !== null;
   const schoolName = familyName ? `${familyName} Academy` : "Family Academy";
 
-  if (isPro === false) {
-    return (
-      <PaywallCard
-        feature="Printables"
-        description="Access ID cards, certificates, and printable worksheets to celebrate your family's homeschool milestones."
-      />
-    );
-  }
-
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-10">
 
