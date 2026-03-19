@@ -7,13 +7,22 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pub = (file) => resolve(__dirname, '../public', file);
 
 function makeSvg(size) {
-  const rx = Math.round(size * 0.208); // ~40/192 ratio
-  const fontSize = Math.round(size * 0.573); // ~110/192 ratio
-  const textY = Math.round(size * 0.677); // ~130/192 ratio
-  const cx = Math.round(size / 2);
+  const s = size / 512; // scale factor relative to 512px master
+  const r = (n) => Math.round(n * s);
+  const f = (n) => parseFloat((n * s).toFixed(3));
+
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
-  <rect width="${size}" height="${size}" rx="${rx}" fill="#5c7f63"/>
-  <text x="${cx}" y="${textY}" font-size="${fontSize}" text-anchor="middle" font-family="Apple Color Emoji, Segoe UI Emoji, serif">🌿</text>
+  <rect width="${size}" height="${size}" rx="${r(115)}" fill="#5c7f63"/>
+  <!-- Stem -->
+  <rect x="${r(243)}" y="${r(280)}" width="${r(26)}" height="${r(120)}" rx="${r(13)}" fill="white"/>
+  <!-- Left leaf -->
+  <ellipse cx="${r(185)}" cy="${r(240)}" rx="${r(70)}" ry="${r(40)}" fill="white" transform="rotate(-35 ${r(185)} ${r(240)})"/>
+  <!-- Right leaf -->
+  <ellipse cx="${r(327)}" cy="${r(240)}" rx="${r(70)}" ry="${r(40)}" fill="white" transform="rotate(35 ${r(327)} ${r(240)})"/>
+  <!-- Top sprout -->
+  <ellipse cx="${r(256)}" cy="${r(190)}" rx="${r(38)}" ry="${r(55)}" fill="white"/>
+  <!-- Small soil mound -->
+  <ellipse cx="${r(256)}" cy="${r(395)}" rx="${r(60)}" ry="${r(18)}" fill="rgba(255,255,255,0.3)"/>
 </svg>`;
 }
 
