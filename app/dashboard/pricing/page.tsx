@@ -11,9 +11,8 @@ const features: { label: string; free: boolean; pro: boolean; foundingOnly?: boo
   { label: "Daily lesson logging",           free: true,  pro: true  },
   { label: "Garden & growing trees",         free: true,  pro: true  },
   { label: "Photo memories & book log",      free: true,  pro: true  },
+  { label: "Unlimited children",             free: true,  pro: true  },
   { label: "Compliance-ready PDF reports",   free: true,  pro: true  },
-  { label: "Up to 2 children",               free: true,  pro: true  },
-  { label: "Unlimited children",             free: false, pro: true  },
   { label: "Finish Line curriculum pacing",  free: false, pro: true  },
   { label: "AI Family Update narrative",     free: false, pro: true  },
   { label: "AI Graduation Letter",           free: false, pro: true  },
@@ -65,7 +64,7 @@ export default function DashboardPricingPage() {
         </p>
         <h1 className="text-2xl font-bold text-[#2d2926]">Choose your plan 🌿</h1>
         <p className="text-sm text-[#7a6f65] mt-1">
-          Rooted is free to start. Upgrade for AI features, unlimited children, and curriculum pacing.
+          Rooted is free to start. Upgrade for AI features and curriculum pacing.
         </p>
       </div>
 
@@ -102,13 +101,13 @@ export default function DashboardPricingPage() {
           )}
           <div className="mb-4">
             <p className="text-base font-bold text-[#2d2926] mb-1">Free Forever</p>
-            <p className="text-xs text-[#7a6f65] leading-relaxed">Lesson logging, garden, and reports — always free.</p>
+            <p className="text-xs text-[#7a6f65] leading-relaxed">Lesson logging, garden, reports, and unlimited children — always free.</p>
           </div>
           <div className="mb-5">
             <span className="text-3xl font-bold text-[#2d2926]">$0</span>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Lesson logging", "Garden", "2 children", "PDF reports", "Memories"].map(f => (
+            {["Lesson logging", "Garden", "Unlimited children", "PDF reports", "Memories"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}

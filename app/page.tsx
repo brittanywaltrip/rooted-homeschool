@@ -676,7 +676,7 @@ export default function Home() {
             Start free. Grow with Rooted.
           </h2>
           <p className="text-[#7a6f65] max-w-lg mx-auto">
-            Try everything free with one child. Upgrade when you&apos;re ready — lock in
+            Start free with unlimited children. Upgrade when you&apos;re ready — lock in
             the founding price before it&apos;s gone.
           </p>
         </div>
@@ -698,10 +698,10 @@ export default function Home() {
             <p className="text-xs text-[#b5aca4] mb-6">No credit card needed</p>
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
-                "1 child profile",
+                "Unlimited children",
                 "Daily lesson tracking",
                 "Basic progress view",
-                "Garden (limited stages)",
+                "Garden & memories",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -814,7 +814,7 @@ export default function Home() {
             </thead>
             <tbody>
               {[
-                { feature: "Children",               free: "1",     founding: "Unlimited",  standard: "Unlimited" },
+                { feature: "Children",               free: "Unlimited", founding: "Unlimited",  standard: "Unlimited" },
                 { feature: "Lesson tracking",        free: "✓",     founding: "✓",          standard: "✓"         },
                 { feature: "Garden & growth tree",   free: "Basic", founding: "Full",       standard: "Full"      },
                 { feature: "Memories log",           free: "—",     founding: "✓",          standard: "✓"         },

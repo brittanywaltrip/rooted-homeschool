@@ -104,7 +104,7 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "The free plan includes unlimited lesson logging, your family's Garden, up to 2 children, basic progress tracking, state compliance report generation, and the Memories section. It's genuinely useful for everyday homeschooling — Pro adds AI features, the Family Update, Graduation Slideshow, unlimited children, and priority support.",
+        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, basic progress tracking, state compliance report generation, and the Memories section. It's genuinely useful for everyday homeschooling — Pro adds AI features, the Family Update, Graduation Slideshow, curriculum pacing, and priority support.",
       },
       {
         q: "What is the Founding Family price?",
