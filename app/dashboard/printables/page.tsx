@@ -509,101 +509,84 @@ function buildSheetHtml(cardHtmlFn: () => string): string {
 </head><body><div style="position:relative;width:816px;height:1056px;">${cards}${CUT_GUIDES_HTML}</div></body></html>`;
 }
 
-// ─── Card PDF download (single card) ─────────────────────────────────────────
+// ─── Card PDF download (html2canvas-based) ────────────────────────────────────
 
-async function renderHtmlToDoc(
-  doc: { html: (el: HTMLElement, opts: object) => Promise<void> },
-  htmlStr: string,
-  width: number,
-  height: number,
-  pdfWidth: number,
-) {
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = `position:fixed;top:-9999px;left:-9999px;width:${width}px;height:${height}px;border:none;`;
-  document.body.appendChild(iframe);
-  iframe.contentDocument!.open();
-  iframe.contentDocument!.write(htmlStr);
-  iframe.contentDocument!.close();
-  await new Promise(r => setTimeout(r, 350));
-  await doc.html(iframe.contentDocument!.body as HTMLElement, {
-    x: 0, y: 0, width: pdfWidth, windowWidth: width,
-    html2canvas: { scale: 2, useCORS: true },
-  });
-  document.body.removeChild(iframe);
+// Renders the card back HTML into an off-screen div and captures it with
+// html2canvas. Needed because CardBackPreview uses an iframe (which html2canvas
+// cannot cross-capture), while the front card uses a regular React component.
+async function captureBackCard(
+  style: StyleId,
+  fields: CardFields,
+  back: BackFields,
+  qrDataUrl: string | null,
+  html2canvas: (el: HTMLElement, opts?: object) => Promise<HTMLCanvasElement>,
+): Promise<HTMLCanvasElement> {
+  const div = document.createElement("div");
+  div.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:336px;height:192px;overflow:hidden;";
+  div.innerHTML = cardBackBodyHtml(style, fields, back, qrDataUrl);
+  document.body.appendChild(div);
+  await new Promise(r => setTimeout(r, 100));
+  const canvas = await html2canvas(div, { scale: 2, useCORS: true, logging: false } as object);
+  document.body.removeChild(div);
+  return canvas;
 }
 
 async function downloadCard(
+  frontEl: HTMLElement,
   style: StyleId,
   fields: CardFields,
-  label: string,
-  photoUrl: string | null,
   back: BackFields,
   qrDataUrl: string | null,
+  label: string,
 ) {
+  const html2canvas = (await import("html2canvas")).default;
   const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ orientation: "landscape", unit: "in", format: [3.5, 2] });
 
-  const frontHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>*{margin:0;padding:0;box-sizing:border-box;}body{width:336px;height:192px;overflow:hidden;}</style>
-</head><body>${cardBodyHtml(style, fields)}</body></html>`;
+  // 3.5" × 2" in points (1" = 72pt)
+  const W = 252, H = 144;
 
-  await renderHtmlToDoc(doc as Parameters<typeof renderHtmlToDoc>[0], frontHtml, 336, 192, 3.5);
-
-  if (photoUrl) {
-    doc.addImage(photoUrl, "JPEG", PHOTO_PDF_X, PHOTO_PDF_Y, PHOTO_PDF_W, PHOTO_PDF_H, "", "FAST");
-  }
+  const frontCanvas = await html2canvas(frontEl, { scale: 2, useCORS: true, logging: false } as object);
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: [W, H] });
+  doc.addImage(frontCanvas.toDataURL("image/png"), "PNG", 0, 0, W, H);
 
   if (back.include) {
-    doc.addPage("landscape");
-    const backHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>*{margin:0;padding:0;box-sizing:border-box;}body{width:336px;height:192px;overflow:hidden;}</style>
-</head><body>${cardBackBodyHtml(style, fields, back, qrDataUrl)}</body></html>`;
-    await renderHtmlToDoc(doc as Parameters<typeof renderHtmlToDoc>[0], backHtml, 336, 192, 3.5);
+    const backCanvas = await captureBackCard(style, fields, back, qrDataUrl, html2canvas);
+    doc.addPage([W, H], "landscape");
+    doc.addImage(backCanvas.toDataURL("image/png"), "PNG", 0, 0, W, H);
   }
 
   doc.save(`${label.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`);
 }
 
-// ─── Print sheet (10-up, 2×5 grid) ───────────────────────────────────────────
+// ─── Print sheet (card centered on letter page) ───────────────────────────────
 
 async function downloadPrintSheet(
+  frontEl: HTMLElement,
   style: StyleId,
   fields: CardFields,
-  label: string,
-  photoUrl: string | null,
   back: BackFields,
   qrDataUrl: string | null,
+  label: string,
 ) {
+  const html2canvas = (await import("html2canvas")).default;
   const { jsPDF } = await import("jspdf");
+
+  const cardW = 3.5, cardH = 2;
+  const x = (8.5 - cardW) / 2;
+  const y = (11  - cardH) / 2;
+
+  const frontCanvas = await html2canvas(frontEl, { scale: 2, useCORS: true, logging: false } as object);
   const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
+  doc.addImage(frontCanvas.toDataURL("image/png"), "PNG", x, y, cardW, cardH);
 
-  // Page 1: fronts
-  const frontSheetHtml = buildSheetHtml(() => cardBodyHtml(style, fields));
-  await renderHtmlToDoc(doc as Parameters<typeof renderHtmlToDoc>[0], frontSheetHtml, 816, 1056, 8.5);
-
-  // Overlay photo at each of the 10 grid positions
-  if (photoUrl) {
-    const ML = 0.75, MT = 0.5;
-    for (let row = 0; row < 5; row++) {
-      for (let col = 0; col < 2; col++) {
-        doc.addImage(
-          photoUrl, "JPEG",
-          ML + col * 3.5 + PHOTO_PDF_X,
-          MT + row * 2.0 + PHOTO_PDF_Y,
-          PHOTO_PDF_W, PHOTO_PDF_H, "", "FAST",
-        );
-      }
-    }
-  }
-
-  // Page 2: backs (same grid positions for aligned double-sided printing)
   if (back.include) {
-    doc.addPage("portrait");
-    const backSheetHtml = buildSheetHtml(() => cardBackBodyHtml(style, fields, back, qrDataUrl));
-    await renderHtmlToDoc(doc as Parameters<typeof renderHtmlToDoc>[0], backSheetHtml, 816, 1056, 8.5);
+    const backCanvas = await captureBackCard(style, fields, back, qrDataUrl, html2canvas);
+    doc.addPage("letter", "portrait");
+    doc.addImage(backCanvas.toDataURL("image/png"), "PNG", x, y, cardW, cardH);
   }
 
-  doc.save(`${label.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-print-sheet.pdf`);
+  // Open in new tab so the user gets the browser's native print dialog
+  window.open(doc.output("bloburl"), "_blank");
 }
 
 // ─── Certificate HTML (letter 8.5"×11") ─────────────────────────────────────
@@ -1022,11 +1005,12 @@ function IDCardEditor({
     include: false, address: "", websiteOrEmail: "", note: "", includeQR: false,
   });
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const frontRef = useRef<HTMLDivElement>(null);
 
   const set = (key: keyof CardFields, val: string | boolean) => onChange({ ...fields, [key]: val });
   const setBackField = (key: keyof BackFields, val: string | boolean) =>
     setBack(prev => ({ ...prev, [key]: val }));
-  const canDownload = !!photoUrl;
+  const canDownload = !!photoUrl && !!frontRef.current;
 
   async function handleToggleQR(checked: boolean) {
     if (checked && !qrDataUrl) {
@@ -1041,10 +1025,10 @@ function IDCardEditor({
   }
 
   async function handleDownload() {
-    if (!photoUrl) return;
+    if (!photoUrl || !frontRef.current) return;
     setDownloading(true);
     try {
-      await downloadCard(style, fields, cardLabel, photoUrl, back, back.includeQR ? qrDataUrl : null);
+      await downloadCard(frontRef.current, style, fields, back, back.includeQR ? qrDataUrl : null, cardLabel);
     } catch (e) {
       console.error(e);
       alert("Download failed. Please try again.");
@@ -1054,10 +1038,10 @@ function IDCardEditor({
   }
 
   async function handlePrintSheet() {
-    if (!photoUrl) return;
+    if (!photoUrl || !frontRef.current) return;
     setDownloadingSheet(true);
     try {
-      await downloadPrintSheet(style, fields, cardLabel, photoUrl, back, back.includeQR ? qrDataUrl : null);
+      await downloadPrintSheet(frontRef.current, style, fields, back, back.includeQR ? qrDataUrl : null, cardLabel);
     } catch (e) {
       console.error(e);
       alert("Download failed. Please try again.");
@@ -1155,7 +1139,7 @@ function IDCardEditor({
         <div className="flex flex-col items-center gap-4">
           <div className="flex flex-col items-center gap-2">
             <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide">Front</p>
-            <div className="shadow-lg rounded overflow-hidden">
+            <div ref={frontRef} className="shadow-lg rounded overflow-hidden">
               <CardPreview style={style} fields={fields} photoUrl={photoUrl} scale={1.55} />
             </div>
             <p className="text-[10px] text-[#b5aca4]">3.5″ × 2″</p>
