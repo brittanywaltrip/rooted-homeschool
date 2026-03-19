@@ -1130,7 +1130,7 @@ export default function TodayPage() {
             <span className="text-4xl mb-3">🌱</span>
             <p className="text-base font-semibold text-[#2d2926] mb-1.5">No lessons yet today</p>
             <p className="text-sm text-[#7a6f65] leading-relaxed max-w-xs mb-5">
-              Set up your curriculum to have lessons scheduled automatically, or log one you already did.
+              Your homeschool journey starts here. Set up your curriculum to have lessons scheduled automatically, or just log one you already did.
             </p>
             <div className="flex gap-2 flex-wrap justify-center mb-4">
               <Link
@@ -1155,6 +1155,9 @@ export default function TodayPage() {
         )}
       </div>
 
+      {/* ── Growth Tree Card ──────────────────────────────── */}
+      <GrowthTreeCard leaves={treeLeaves} childName={treeLabel} />
+
       {/* ── Motivational Quote ───────────────────────────── */}
       <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
@@ -1162,9 +1165,6 @@ export default function TodayPage() {
         </p>
         <p className="text-sm text-[#5c7f63] italic leading-relaxed">&ldquo;{quote}&rdquo;</p>
       </div>
-
-      {/* ── Growth Tree Card ──────────────────────────────── */}
-      <GrowthTreeCard leaves={treeLeaves} childName={treeLabel} />
 
       {children.length > 0 && Object.values(leafCounts).reduce((a, b) => a + b, 0) === 0 && (
         <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">

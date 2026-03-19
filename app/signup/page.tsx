@@ -96,7 +96,7 @@ export default function SignupPage() {
                 type="text"
                 value={familyName}
                 onChange={(e) => setFamilyName(e.target.value)}
-                placeholder="e.g. The Waltrip Family"
+                placeholder="e.g. The Smith Family"
                 required
                 className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
               />

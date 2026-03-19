@@ -76,8 +76,9 @@ function SidebarProfile({ isPartner, ownerName }: { isPartner: boolean; ownerNam
   console.log("[SidebarProfile] render — displayName:", JSON.stringify(displayName), "photo:", familyPhotoUrl ? "set" : "null");
 
   const initial = (() => {
-    const words = displayName.replace(/\bfamily\b/gi, "").trim().split(/\s+/).filter(Boolean);
-    return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : null;
+    if (!displayName) return null;
+    const core = displayName.replace(/^the\s+/i, "").replace(/\s*family\s*$/i, "").trim();
+    return (core || displayName).charAt(0).toUpperCase() || null;
   })();
 
   return (
@@ -314,7 +315,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
           <div>
             <span className="text-sm font-bold text-[#2d2926] block leading-none">Rooted</span>
-            <span className="text-[10px] text-[#7a6f65] leading-none">Homeschool</span>
+            <span className="text-[10px] text-[#7a6f65] leading-none">{displayName || "Homeschool"}</span>
           </div>
         </Link>
       </div>

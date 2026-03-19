@@ -223,7 +223,7 @@ export default function YearInReviewPage() {
       {/* Header */}
       <div className="text-center space-y-2">
         <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">
-          {stats?.familyName ? `The ${stats.familyName} Family` : "Your Family"}
+          {stats?.familyName || "Your Family"}
         </p>
         <h1 className="text-3xl sm:text-4xl font-bold text-[#2d2926]">
           {year} Year in Review 🌿
@@ -355,7 +355,7 @@ export default function YearInReviewPage() {
           {/* Decorative header for print */}
           <div className="print-only hidden print:block text-center pb-4 border-b border-[#e8e2d9]">
             <p className="text-xs uppercase tracking-widest text-[#7a6f65]">
-              {stats.familyName ? `The ${stats.familyName} Family` : "Our Family"}
+              {stats.familyName || "Our Family"}
             </p>
             <h2 className="text-2xl font-bold text-[#2d2926] mt-1">{year} Year in Review</h2>
           </div>
