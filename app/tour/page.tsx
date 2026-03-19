@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
 import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
@@ -755,6 +756,21 @@ const MOCKUPS: Record<FeatureId, () => React.JSX.Element> = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TourPage() {
+  const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
+
+  const prev = () => setActive((i) => (i - 1 + FEATURES.length) % FEATURES.length);
+  const next = () => setActive((i) => (i + 1) % FEATURES.length);
+
+  useEffect(() => {
+    if (paused) return;
+    const id = setInterval(() => setActive((i) => (i + 1) % FEATURES.length), 5000);
+    return () => clearInterval(id);
+  }, [paused]);
+
+  const feature = FEATURES[active];
+  const MockupComponent = MOCKUPS[feature.id];
+
   return (
     <main className="min-h-screen bg-[#f8f7f4]">
 
@@ -792,78 +808,126 @@ export default function TourPage() {
           </p>
         </div>
 
-        {/* ── Feature sections ─────────────────────────────────────────────────── */}
-        {FEATURES.map((feature, index) => {
-          const MockupComponent = MOCKUPS[feature.id];
-          const mockupRight = index % 2 === 1;
-          return (
-            <section
-              key={feature.id}
-              className={`py-16 sm:py-20${index > 0 ? " border-t border-[#e8e2d9]" : ""}`}
-            >
-              <div className="flex gap-6 lg:gap-8">
+        {/* ── Carousel ─────────────────────────────────────────────────────────── */}
+        <style>{`
+          @keyframes carousel-fade {
+            from { opacity: 0; transform: translateY(10px); }
+            to   { opacity: 1; transform: translateY(0); }
+          }
+          .carousel-slide { animation: carousel-fade 0.35s ease-out; }
+        `}</style>
 
-                {/* Sticky left label — desktop only */}
-                <div className="hidden lg:block w-14 shrink-0">
-                  <div className="sticky top-24 flex flex-col items-center gap-1 pt-1">
-                    <span className="text-2xl">{feature.emoji}</span>
-                    <p className="text-[10px] font-semibold text-[#7a6f65] text-center leading-tight">{feature.label}</p>
-                  </div>
-                </div>
+        <div
+          className="relative mb-10"
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+        >
+          {/* Left arrow — desktop */}
+          <button
+            onClick={prev}
+            aria-label="Previous feature"
+            className="hidden lg:flex absolute -left-14 top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors shadow-sm z-10 text-2xl leading-none"
+          >
+            ‹
+          </button>
 
-                {/* Main grid */}
-                <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 gap-8 lg:gap-10 items-start">
+          {/* Slide */}
+          <div
+            key={active}
+            className="carousel-slide grid grid-cols-1 lg:grid-cols-5 gap-8 lg:gap-10 items-start"
+          >
+            {/* Mockup — left 3 cols */}
+            <div className="lg:col-span-3 order-2 lg:order-1">
+              <MockupComponent />
+            </div>
 
-                  {/* Mockup */}
-                  <div className={`lg:col-span-3 order-2 ${mockupRight ? "lg:order-2" : "lg:order-1"}`}>
-                    <MockupComponent />
-                  </div>
-
-                  {/* Description */}
-                  <div className={`lg:col-span-2 order-1 ${mockupRight ? "lg:order-1" : "lg:order-2"} space-y-5`}>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-widest text-[#5c7f63] mb-1.5">
-                        {feature.emoji} {feature.label}
-                      </p>
-                      <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] leading-tight mb-2">
-                        {feature.headline}
-                      </h2>
-                      <p className="text-[#7a6f65] leading-relaxed">
-                        {feature.sub}
-                      </p>
-                    </div>
-
-                    <ul className="space-y-3">
-                      {feature.bullets.map((b) => (
-                        <li key={b} className="flex items-start gap-3">
-                          <div className="w-5 h-5 rounded-full bg-[#e8f0e9] flex items-center justify-center shrink-0 mt-0.5">
-                            <Check size={11} className="text-[#5c7f63]" strokeWidth={3} />
-                          </div>
-                          <span className="text-sm text-[#5c5248] leading-relaxed">{b}</span>
-                        </li>
-                      ))}
-                    </ul>
-
-                    {/* Detail note */}
-                    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 flex items-center gap-2.5">
-                      <span className="text-base shrink-0">💡</span>
-                      <p className="text-sm text-[#5c7f63] font-medium">{feature.note}</p>
-                    </div>
-
-                    {/* Feature CTA */}
-                    <Link
-                      href="/signup"
-                      className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-xl transition-colors shadow-sm"
-                    >
-                      Try {feature.label} free →
-                    </Link>
-                  </div>
-
-                </div>
+            {/* Description — right 2 cols */}
+            <div className="lg:col-span-2 order-1 lg:order-2 space-y-5">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-[#5c7f63] mb-1.5">
+                  {feature.emoji} {feature.label}
+                </p>
+                <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] leading-tight mb-2">
+                  {feature.headline}
+                </h2>
+                <p className="text-[#7a6f65] leading-relaxed">
+                  {feature.sub}
+                </p>
               </div>
-            </section>
-          );
-        })}
+
+              <ul className="space-y-3">
+                {feature.bullets.map((b) => (
+                  <li key={b} className="flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-[#e8f0e9] flex items-center justify-center shrink-0 mt-0.5">
+                      <Check size={11} className="text-[#5c7f63]" strokeWidth={3} />
+                    </div>
+                    <span className="text-sm text-[#5c5248] leading-relaxed">{b}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Detail note */}
+              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 flex items-center gap-2.5">
+                <span className="text-base shrink-0">💡</span>
+                <p className="text-sm text-[#5c7f63] font-medium">{feature.note}</p>
+              </div>
+
+              {/* Feature CTA */}
+              <Link
+                href="/signup"
+                className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-xl transition-colors shadow-sm"
+              >
+                Try {feature.label} free →
+              </Link>
+            </div>
+          </div>
+
+          {/* Right arrow — desktop */}
+          <button
+            onClick={next}
+            aria-label="Next feature"
+            className="hidden lg:flex absolute -right-14 top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors shadow-sm z-10 text-2xl leading-none"
+          >
+            ›
+          </button>
+
+          {/* Mobile arrows */}
+          <div className="flex lg:hidden items-center justify-center gap-6 mt-8">
+            <button
+              onClick={prev}
+              aria-label="Previous feature"
+              className="w-11 h-11 flex items-center justify-center rounded-full bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors shadow-sm text-2xl leading-none"
+            >
+              ‹
+            </button>
+            <span className="text-xs font-medium text-[#b5aca4]">
+              {active + 1} / {FEATURES.length}
+            </span>
+            <button
+              onClick={next}
+              aria-label="Next feature"
+              className="w-11 h-11 flex items-center justify-center rounded-full bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors shadow-sm text-2xl leading-none"
+            >
+              ›
+            </button>
+          </div>
+
+          {/* Dot indicators */}
+          <div className="flex items-center justify-center gap-2.5 mt-5">
+            {FEATURES.map((f, i) => (
+              <button
+                key={f.id}
+                onClick={() => setActive(i)}
+                aria-label={`Go to ${f.label}`}
+                className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
+                  i === active
+                    ? "bg-[#5c7f63] scale-110"
+                    : "bg-transparent border-2 border-[#c8bfb5] hover:border-[#5c7f63]"
+                }`}
+              />
+            ))}
+          </div>
+        </div>
 
         {/* ── CTA section ──────────────────────────────────────────────────────── */}
         <div className="border-t border-[#e8e2d9] pt-14 sm:pt-16 text-center space-y-6">
