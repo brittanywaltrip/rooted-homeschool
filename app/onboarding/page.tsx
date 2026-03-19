@@ -100,7 +100,7 @@ function SkipLink({ onClick }: { onClick: () => void }) {
 function ProgressDots({ step }: { step: number }) {
   return (
     <div className="flex items-center justify-center gap-2 mb-8">
-      {[1,2,3,4,5].map((s) => (
+      {[1,2,3,4,5,6].map((s) => (
         <div
           key={s}
           className="rounded-full transition-all duration-300"
@@ -511,7 +511,7 @@ function StepAllSet({
             style={{ transformOrigin: "50px 58px", opacity: 0, animation: "crownIn 0.3s ease-out 1.7s forwards" }} />
         </svg>
 
-        <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#7a9e7e] mb-3">Step 5 of 5</p>
+        <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#7a9e7e] mb-3">Step 5 of 6</p>
         <h2 className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-2 leading-tight" style={{ fontFamily: "Georgia, serif" }}>
           Your Rooted home is ready!
         </h2>
@@ -556,6 +556,64 @@ function StepAllSet({
           🗓️ <span className="font-medium">Tip:</span> Head to <span className="text-[#5c7f63] font-medium">Plan</span> to schedule your first week of lessons.
         </p>
       </div>
+    </div>
+  );
+}
+
+// ─── Step 6 — Add to Home Screen ──────────────────────────────────────────────
+
+function StepAddToHomeScreen({ onDone, onSkip }: { onDone: () => void; onSkip: () => void }) {
+  return (
+    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
+      <ProgressDots step={6} />
+      <Card>
+        <StepHeading
+          eyebrow="Step 6 of 6"
+          title="One last thing — add Rooted to your home screen! 📱"
+          sub="This way you'll never forget to log your day. It takes 10 seconds and feels like a real app."
+        />
+
+        <div className="grid grid-cols-2 gap-3 mb-8">
+          {/* iPhone card */}
+          <div className="bg-[#f8f5f0] rounded-2xl p-4 border border-[#ede8de]">
+            <p className="text-lg mb-2">🍎</p>
+            <p className="text-xs font-bold text-[#2d2926] mb-2">iPhone</p>
+            <ol className="text-xs text-[#7a6f65] space-y-1 leading-relaxed">
+              <li>Open in <span className="font-medium text-[#2d2926]">Safari</span></li>
+              <li>Tap the Share button <span className="font-medium">⬆️</span></li>
+              <li>Tap <span className="font-medium text-[#2d2926]">"Add to Home Screen"</span></li>
+              <li>Tap <span className="font-medium text-[#2d2926]">Add</span></li>
+            </ol>
+          </div>
+
+          {/* Android card */}
+          <div className="bg-[#f8f5f0] rounded-2xl p-4 border border-[#ede8de]">
+            <p className="text-lg mb-2">🤖</p>
+            <p className="text-xs font-bold text-[#2d2926] mb-2">Android</p>
+            <ol className="text-xs text-[#7a6f65] space-y-1 leading-relaxed">
+              <li>Open in <span className="font-medium text-[#2d2926]">Chrome</span></li>
+              <li>Tap the menu <span className="font-medium">⋮</span></li>
+              <li>Tap <span className="font-medium text-[#2d2926]">"Add to Home Screen"</span></li>
+              <li>Tap <span className="font-medium text-[#2d2926]">Add</span></li>
+            </ol>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onDone}
+          className="w-full py-4 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98] mb-3"
+        >
+          Done — take me to my dashboard →
+        </button>
+        <button
+          type="button"
+          onClick={onSkip}
+          className="block w-full text-center text-sm text-[#b5aca4] hover:text-[#7a6f65] transition-colors py-1"
+        >
+          Skip for now
+        </button>
+      </Card>
     </div>
   );
 }
@@ -659,8 +717,9 @@ export default function OnboardingPage() {
       body:    JSON.stringify(profilePatch),
     });
 
-    router.push("/dashboard");
-  }, [familyPhotoFile, userId, children, selectedState, router]);
+    setStep(6);
+    setSaving(false);
+  }, [familyPhotoFile, userId, children, selectedState]);
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -691,6 +750,13 @@ export default function OnboardingPage() {
       children={children}
       onChange={updateChild} onAdd={() => setChildren((p) => [...p, mkChild()])} onRemove={removeChild}
       onNext={() => setStep(5)} onSkip={() => setStep(5)}
+    />
+  );
+
+  if (step === 6) return (
+    <StepAddToHomeScreen
+      onDone={() => router.push("/dashboard")}
+      onSkip={() => router.push("/dashboard")}
     />
   );
 
