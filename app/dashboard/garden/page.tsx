@@ -15,6 +15,54 @@ function treeEmoji(leaves: number): string {
 
 type Child = { id: string; name: string; color: string | null };
 
+type LessonRow = {
+  child_id: string;
+  date: string | null;
+  scheduled_date: string | null;
+  hours: number | null;
+};
+
+// ─── Stats helpers ────────────────────────────────────────────────────────────
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function toDateStr(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+function getStreak(activeDates: Set<string>): { current: number; best: number } {
+  let current = 0;
+  const cursor = new Date();
+  cursor.setHours(0, 0, 0, 0);
+  const temp = new Date(cursor);
+  while (activeDates.has(toDateStr(temp))) {
+    current++;
+    temp.setDate(temp.getDate() - 1);
+  }
+  if (current === 0) {
+    cursor.setDate(cursor.getDate() - 1);
+    while (activeDates.has(toDateStr(cursor))) {
+      current++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+  }
+  const sorted = [...activeDates].sort();
+  let best = 0, running = 0;
+  let prev: Date | null = null;
+  for (const ds of sorted) {
+    const d = new Date(ds + "T12:00:00");
+    if (prev) {
+      const diff = Math.round((d.getTime() - prev.getTime()) / 86400000);
+      running = diff === 1 ? running + 1 : 1;
+    } else {
+      running = 1;
+    }
+    best = Math.max(best, running);
+    prev = d;
+  }
+  return { current, best };
+}
+
 // ─── Stage helpers (delegate to GardenScene) ──────────────────────────────────
 
 const STAGES = STAGE_INFO.map((s, i) => ({
@@ -148,10 +196,11 @@ function getTreeX(index: number, total: number): number {
 
 export default function GardenPage() {
   const { effectiveUserId } = usePartner();
-  const [children, setChildren]   = useState<Child[]>([]);
+  const [children, setChildren]     = useState<Child[]>([]);
   const [leafCounts, setLeafCounts] = useState<Record<string, number>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading]     = useState(true);
+  const [loading, setLoading]       = useState(true);
+  const [allLessons, setAllLessons] = useState<LessonRow[]>([]);
 
   useEffect(() => {
     if (!effectiveUserId) return;
@@ -168,9 +217,11 @@ export default function GardenPage() {
       if (kids_.length > 0) setSelectedId(kids_[0].id);
 
       const [{ data: completed }, { data: bookEvents }] = await Promise.all([
-        supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
+        supabase.from("lessons").select("child_id, date, scheduled_date, hours").eq("user_id", effectiveUserId).eq("completed", true),
         supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
       ]);
+
+      setAllLessons((completed as LessonRow[]) ?? []);
 
       const counts: Record<string, number> = {};
       completed?.forEach((l) => {
@@ -468,6 +519,69 @@ export default function GardenPage() {
           </div>
         )}
       </div>
+
+      {/* ── Your Stats ─────────────────────────────── */}
+      {(() => {
+        const activeDates = new Set(
+          allLessons.map((l) => l.date ?? l.scheduled_date).filter(Boolean) as string[]
+        );
+        const { current: currentStreak, best: bestStreak } = getStreak(activeDates);
+        const totalHours = allLessons.reduce((s, l) => s + (l.hours ?? 0), 0);
+        const dayTotals = [0, 0, 0, 0, 0, 0, 0];
+        allLessons.forEach((l) => {
+          const d = l.date ?? l.scheduled_date;
+          if (d) dayTotals[new Date(d + "T12:00:00").getDay()]++;
+        });
+        const mostActiveDay = dayTotals.reduce((best, v, i) => (v > dayTotals[best] ? i : best), 0);
+        const hasSomeData = allLessons.length > 0;
+        return (
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
+              Your Stats
+            </h2>
+            {!hasSomeData ? (
+              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center">
+                <p className="text-sm text-[#7a6f65]">Complete lessons to see your stats here 📊</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-gradient-to-br from-[#fff8ed] to-[#fef3dc] border border-[#f5c97a]/40 rounded-2xl p-4 text-center">
+                  <div className="text-2xl mb-1">🔥</div>
+                  <p className="text-2xl font-bold text-[#c4956a]">{currentStreak}</p>
+                  <p className="text-xs font-medium text-[#8b6f47] mt-0.5">Current streak</p>
+                  <p className="text-[10px] text-[#b5aca4] mt-0.5">
+                    {currentStreak === 0 ? "Start today!" : `${currentStreak} day${currentStreak !== 1 ? "s" : ""}`}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-4 text-center">
+                  <div className="text-2xl mb-1">🏆</div>
+                  <p className="text-2xl font-bold text-[#3d5c42]">{bestStreak}</p>
+                  <p className="text-xs font-medium text-[#5c7f63] mt-0.5">Best streak</p>
+                  <p className="text-[10px] text-[#b5aca4] mt-0.5">Personal record</p>
+                </div>
+                <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-center">
+                  <div className="text-2xl mb-1">📚</div>
+                  <p className="text-2xl font-bold text-[#2d2926]">{allLessons.length}</p>
+                  <p className="text-xs font-medium text-[#7a6f65] mt-0.5">Lessons logged</p>
+                  <p className="text-[10px] text-[#b5aca4] mt-0.5">All time</p>
+                </div>
+                <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-center">
+                  <div className="text-2xl mb-1">⏱️</div>
+                  <p className="text-2xl font-bold text-[#2d2926]">
+                    {totalHours % 1 === 0 ? `${totalHours}h` : `${totalHours.toFixed(1)}h`}
+                  </p>
+                  <p className="text-xs font-medium text-[#7a6f65] mt-0.5">Total hours</p>
+                  {dayTotals[mostActiveDay] > 0 && (
+                    <p className="text-[10px] text-[#5c7f63] mt-0.5 font-medium">
+                      Most active: {DAY_NAMES[mostActiveDay]}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="h-4" />
     </div>

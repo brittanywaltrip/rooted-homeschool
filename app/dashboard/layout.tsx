@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp, MoreHorizontal, BarChart2, GraduationCap } from "lucide-react";
+import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp, MoreHorizontal, GraduationCap } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 
@@ -13,7 +13,6 @@ const navItems = [
   { label: "Garden",     href: "/dashboard/garden",    icon: Leaf          },
   { label: "Resources",  href: "/dashboard/resources", icon: BookOpen      },
   { label: "Curriculum", href: "/dashboard/progress",  icon: GraduationCap },
-  { label: "Stats",      href: "/dashboard/insights",  icon: BarChart2     },
 ];
 
 // Primary tabs shown in mobile bottom nav
