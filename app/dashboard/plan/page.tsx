@@ -41,25 +41,37 @@ function formatWeekRange(monday: Date): string {
   return `${start} – ${end}`;
 }
 
+// Subject color coding
+function getSubjectStyle(subjectName: string | undefined): { bg: string; text: string } {
+  if (!subjectName) return { bg: "#f0ede8", text: "#5c5248" };
+  const n = subjectName.toLowerCase();
+  if (n.includes("math") || n.includes("algebra") || n.includes("geometry") || n.includes("calculus"))
+    return { bg: "#e4f0f4", text: "#1a4a5a" };
+  if (n.includes("read") || n.includes("language") || n.includes("english") || n.includes("writing") || n.includes("grammar") || n.includes("lit") || n.includes("spelling") || n.includes("phonics"))
+    return { bg: "#f0e8f4", text: "#4a2a5a" };
+  if (n.includes("science") || n.includes("biology") || n.includes("chemistry") || n.includes("physics") || n.includes("nature"))
+    return { bg: "#e8f0e9", text: "#3d5c42" };
+  if (n.includes("history") || n.includes("social") || n.includes("geography") || n.includes("civics") || n.includes("government"))
+    return { bg: "#fef0e4", text: "#7a4a1a" };
+  if (n.includes("art") || n.includes("music") || n.includes("drama") || n.includes("theater") || n.includes("craft") || n.includes("draw"))
+    return { bg: "#fce8ec", text: "#7a2a36" };
+  return { bg: "#f0ede8", text: "#5c5248" };
+}
+
 // ─── Lesson Card ──────────────────────────────────────────────────────────────
 
 function LessonCard({
-  lesson,
-  childObj,
-  onToggle,
-  onEdit,
-  onDelete,
-  isPartner,
+  lesson, childObj, onToggle, onEdit, onDelete, isPartner,
 }: {
-  lesson:   Lesson;
-  childObj: Child | undefined;
-  onToggle: (id: string, current: boolean) => void;
-  onEdit:   (lesson: Lesson) => void;
-  onDelete: (id: string) => void;
+  lesson:    Lesson;
+  childObj:  Child | undefined;
+  onToggle:  (id: string, current: boolean) => void;
+  onEdit:    (lesson: Lesson) => void;
+  onDelete:  (id: string) => void;
   isPartner: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const subColor = lesson.subjects?.color ?? "#7a9e7e";
+  const subStyle = getSubjectStyle(lesson.subjects?.name);
 
   return (
     <div
@@ -67,7 +79,7 @@ function LessonCard({
         lesson.completed ? "opacity-55" : "shadow-sm"
       }`}
       style={{
-        borderLeftColor: subColor,
+        borderLeftColor: lesson.subjects?.color ?? subStyle.text,
         backgroundColor: lesson.completed ? "#f0f7f1" : "white",
       }}
     >
@@ -97,9 +109,12 @@ function LessonCard({
             {lesson.title}
           </p>
           {lesson.subjects && (
-            <p className="text-[9px] mt-0.5 font-medium truncate" style={{ color: subColor }}>
+            <span
+              className="inline-block text-[9px] mt-1 font-semibold px-1.5 py-0.5 rounded-full leading-none"
+              style={{ backgroundColor: subStyle.bg, color: subStyle.text }}
+            >
               {lesson.subjects.name}
-            </p>
+            </span>
           )}
           <div className="flex gap-1 mt-1 flex-wrap items-center">
             {childObj && (
@@ -179,10 +194,12 @@ function DayColumn({
 
   return (
     <div
-      className={`flex flex-col rounded-2xl overflow-hidden border min-w-[110px] ${
-        isToday   ? "border-[#5c7f63]"  :
-        isWeekend ? "border-[#ece8e2]"  :
-                    "border-[#e8e2d9]"
+      className={`flex flex-col rounded-2xl overflow-hidden transition-all ${
+        isToday
+          ? "border-2 border-[#5c7f63] shadow-md ring-2 ring-[#5c7f63]/10"
+          : isWeekend
+          ? "border border-[#ece8e2]"
+          : "border border-[#e8e2d9]"
       }`}
       style={{
         backgroundColor:
@@ -193,7 +210,7 @@ function DayColumn({
     >
       {/* Day header */}
       <div className={`px-2 pt-3 pb-2.5 flex flex-col items-center border-b ${
-        isToday ? "border-[#b8d9bc] bg-[#e8f5ea]" : "border-[#f0ede8]"
+        isToday ? "border-[#b8d9bc] bg-[#d4ead6]" : "border-[#f0ede8]"
       }`}>
         <span className={`text-[10px] font-bold uppercase tracking-widest ${
           isToday   ? "text-[#3d5c42]" :
@@ -210,13 +227,18 @@ function DayColumn({
         }`}>
           {dayNum}
         </span>
-        {isToday && <span className="w-1.5 h-1.5 rounded-full bg-[#5c7f63] mt-1" />}
-        {total > 0 && (
+        {isToday ? (
+          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-[#5c7f63] text-white mt-1 uppercase tracking-wide">
+            Today
+          </span>
+        ) : total > 0 ? (
           <span className={`text-[9px] mt-1 font-semibold ${
             allDone ? "text-[#5c7f63]" : "text-[#b5aca4]"
           }`}>
             {allDone ? "✓ done" : `${done}/${total}`}
           </span>
+        ) : (
+          <span className="mt-1 h-3" />
         )}
       </div>
 
@@ -262,11 +284,17 @@ export default function PlanPage() {
   const todayMidnight = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
   const todayStr = toDateStr(todayMidnight);
 
-  const [weekStart, setWeekStart] = useState(() => getMondayOf(new Date()));
-  const [lessons,   setLessons]   = useState<Lesson[]>([]);
-  const [children,  setChildren]  = useState<Child[]>([]);
-  const [subjects,  setSubjects]  = useState<Subject[]>([]);
-  const [loading,   setLoading]   = useState(true);
+  const [weekStart,    setWeekStart]    = useState(() => getMondayOf(new Date()));
+  const [lessons,      setLessons]      = useState<Lesson[]>([]);
+  const [children,     setChildren]     = useState<Child[]>([]);
+  const [subjects,     setSubjects]     = useState<Subject[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  // Mobile 3-day view: index of first visible day (0–4 for a 7-day week showing 3)
+  const [mobileOffset, setMobileOffset] = useState<number>(() => {
+    const dow = new Date().getDay();       // 0=Sun … 6=Sat
+    const idx = (dow + 6) % 7;            // Mon=0 … Sun=6
+    return Math.max(0, Math.min(4, idx));
+  });
 
   // Add modal
   const [showModal,   setShowModal]   = useState(false);
@@ -337,6 +365,17 @@ export default function PlanPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Reset mobile offset when week changes
+  useEffect(() => {
+    if (isCurrentWeek) {
+      const dow = new Date().getDay();
+      const idx = (dow + 6) % 7;
+      setMobileOffset(Math.max(0, Math.min(4, idx)));
+    } else {
+      setMobileOffset(0);
+    }
+  }, [weekStart, isCurrentWeek]);
+
   // ── Week navigation ───────────────────────────────────────────────────────
 
   function prevWeek() { setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; }); }
@@ -352,10 +391,12 @@ export default function PlanPage() {
 
   // ── Add lesson ────────────────────────────────────────────────────────────
 
-  function openAddModal(day: Date) {
+  function openAddModal(day: Date, preSubject?: string) {
     setModalDate(day);
     setFormChild(children.length === 1 ? children[0].id : "");
-    setFormSubject(""); setFormTitle(""); setFormHours("");
+    setFormSubject(preSubject ?? "");
+    setFormTitle("");
+    setFormHours("");
     setShowModal(true);
   }
 
@@ -462,10 +503,16 @@ export default function PlanPage() {
 
   const totalWeek     = lessons.length;
   const completedWeek = lessons.filter((l) => l.completed).length;
+  const progressPct   = totalWeek > 0 ? Math.round((completedWeek / totalWeek) * 100) : 0;
 
   const modalDateLabel = modalDate.toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric",
   });
+
+  // Mobile 3-day window
+  const mobileDays     = weekDays.slice(mobileOffset, mobileOffset + 3);
+  const canMobileLeft  = mobileOffset > 0;
+  const canMobileRight = mobileOffset < 4;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -501,63 +548,147 @@ export default function PlanPage() {
         </div>
       </div>
 
-      {/* ── Week stats bar ───────────────────────────────────── */}
-      {totalWeek > 0 && (
-        <div className="flex items-center gap-1.5 text-sm">
-          <span className="font-semibold text-[#2d2926]">{totalWeek}</span>
-          <span className="text-[#7a6f65]">lesson{totalWeek !== 1 ? "s" : ""} planned</span>
-          <span className="text-[#c8bfb5] px-0.5">·</span>
-          <span className="font-semibold text-[#5c7f63]">{completedWeek}</span>
-          <span className="text-[#7a6f65]">completed</span>
-          {completedWeek === totalWeek && (
-            <span className="ml-1 text-xs bg-[#e8f0e9] text-[#3d5c42] px-2.5 py-0.5 rounded-full font-semibold">
-              🌿 Perfect week!
-            </span>
-          )}
+      {/* ── Weekly Summary Bar ───────────────────────────────── */}
+      {!loading && totalWeek > 0 && (
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 text-sm flex-wrap">
+              <span className="font-semibold text-[#2d2926]">{totalWeek}</span>
+              <span className="text-[#7a6f65]">lesson{totalWeek !== 1 ? "s" : ""} planned</span>
+              <span className="text-[#c8bfb5]">·</span>
+              <span className="font-semibold text-[#5c7f63]">{completedWeek}</span>
+              <span className="text-[#7a6f65]">done</span>
+              <span className="text-[#c8bfb5]">·</span>
+              <span className="text-[#b5aca4]">{totalWeek - completedWeek} remaining</span>
+            </div>
+            {completedWeek === totalWeek && (
+              <span className="text-xs bg-[#e8f0e9] text-[#3d5c42] px-2.5 py-0.5 rounded-full font-semibold shrink-0">
+                🌿 Perfect week!
+              </span>
+            )}
+          </div>
+          <div className="h-1.5 bg-[#e8e2d9] rounded-full overflow-hidden">
+            <div
+              className="h-full bg-[#5c7f63] rounded-full transition-all duration-500"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
         </div>
       )}
 
-      {/* ── Calendar grid ───────────────────────────────────── */}
+      {/* ── Empty State ──────────────────────────────────────── */}
+      {!loading && !isPartner && totalWeek === 0 && (
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center space-y-3">
+          <div className="text-4xl">📅</div>
+          <div>
+            <h2 className="font-bold text-[#2d2926] text-lg mb-1" style={{ fontFamily: "Georgia, serif" }}>
+              Plan your first week
+            </h2>
+            <p className="text-sm text-[#7a6f65] leading-relaxed max-w-xs mx-auto">
+              Add lessons to any day and they&apos;ll appear on your Today page automatically.
+            </p>
+          </div>
+          <div className="flex gap-2 justify-center flex-wrap pt-1">
+            {["Math", "Reading", "Science"].map((subject) => (
+              <button
+                key={subject}
+                onClick={() => openAddModal(todayMidnight, subject)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-semibold border border-[#e8e2d9] bg-white hover:bg-[#e8f0e9] hover:border-[#5c7f63] hover:text-[#3d5c42] text-[#5c7f63] transition-colors shadow-sm"
+              >
+                <Plus size={13} strokeWidth={2.5} />
+                {subject}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Calendar ─────────────────────────────────────────── */}
       {loading ? (
         <div className="flex items-center justify-center py-24">
           <span className="text-4xl animate-pulse">🗓️</span>
         </div>
       ) : (
-        <div className="overflow-x-auto -mx-4 px-4 pb-2">
-          <div className="grid grid-cols-7 gap-2 min-w-[700px]">
-            {weekDays.map((day) => {
-              const key       = toDateStr(day);
-              const isToday   = key === todayStr;
-              const isPast    = day < todayMidnight;
-              const isWeekend = day.getDay() === 0 || day.getDay() === 6;
-              return (
-                <DayColumn
-                  key={key}
-                  day={day}
-                  lessons={lessonsByDay[key] ?? []}
-                  children={children}
-                  isToday={isToday}
-                  isPast={isPast}
-                  isWeekend={isWeekend}
-                  onAdd={isPartner ? () => {} : openAddModal}
-                  onToggle={isPartner ? () => {} : toggleLesson}
-                  onEdit={openEdit}
-                  onDelete={deleteLesson}
-                  hideAdd={isPartner}
-                  isPartner={isPartner}
-                />
-              );
-            })}
+        <>
+          {/* Desktop: full 7-day grid */}
+          <div className="hidden lg:block overflow-x-auto -mx-4 px-4 pb-2">
+            <div className="grid grid-cols-7 gap-2 min-w-[700px]">
+              {weekDays.map((day) => {
+                const key       = toDateStr(day);
+                const isToday   = key === todayStr;
+                const isPast    = day < todayMidnight;
+                const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                return (
+                  <DayColumn
+                    key={key}
+                    day={day}
+                    lessons={lessonsByDay[key] ?? []}
+                    children={children}
+                    isToday={isToday}
+                    isPast={isPast}
+                    isWeekend={isWeekend}
+                    onAdd={isPartner ? () => {} : openAddModal}
+                    onToggle={isPartner ? () => {} : toggleLesson}
+                    onEdit={openEdit}
+                    onDelete={deleteLesson}
+                    hideAdd={isPartner}
+                    isPartner={isPartner}
+                  />
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
 
-      {!loading && totalWeek === 0 && (
-        <div className="text-center py-4">
-          <p className="text-sm text-[#b5aca4]">
-            Click <strong className="text-[#7a6f65]">+ Add</strong> on any day to schedule a lesson.
-          </p>
-        </div>
+          {/* Mobile: 3-day view with nav arrows */}
+          <div className="lg:hidden">
+            <div className="flex items-center justify-between mb-3">
+              <button
+                onClick={() => setMobileOffset((v) => Math.max(0, v - 1))}
+                disabled={!canMobileLeft}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-25 transition-all"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <span className="text-xs font-semibold text-[#7a6f65]">
+                {mobileDays[0]?.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                {" – "}
+                {mobileDays[2]?.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
+              <button
+                onClick={() => setMobileOffset((v) => Math.min(4, v + 1))}
+                disabled={!canMobileRight}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-25 transition-all"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {mobileDays.map((day) => {
+                const key       = toDateStr(day);
+                const isToday   = key === todayStr;
+                const isPast    = day < todayMidnight;
+                const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                return (
+                  <DayColumn
+                    key={key}
+                    day={day}
+                    lessons={lessonsByDay[key] ?? []}
+                    children={children}
+                    isToday={isToday}
+                    isPast={isPast}
+                    isWeekend={isWeekend}
+                    onAdd={isPartner ? () => {} : openAddModal}
+                    onToggle={isPartner ? () => {} : toggleLesson}
+                    onEdit={openEdit}
+                    onDelete={deleteLesson}
+                    hideAdd={isPartner}
+                    isPartner={isPartner}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── Add Lesson Modal ─────────────────────────────────── */}
