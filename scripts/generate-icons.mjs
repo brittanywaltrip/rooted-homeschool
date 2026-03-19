@@ -1,44 +1,28 @@
-import { createCanvas } from 'canvas';
-import { writeFileSync } from 'fs';
+import sharp from 'sharp';
+import { copyFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const pub = (file) => resolve(__dirname, '../public', file);
 
-function generateIcon(size) {
-  const canvas = createCanvas(size, size);
-  const ctx = canvas.getContext('2d');
-
-  // Background: rounded square
-  const radius = size * 0.22;
-  ctx.fillStyle = '#5c7f63';
-  ctx.beginPath();
-  ctx.moveTo(radius, 0);
-  ctx.lineTo(size - radius, 0);
-  ctx.quadraticCurveTo(size, 0, size, radius);
-  ctx.lineTo(size, size - radius);
-  ctx.quadraticCurveTo(size, size, size - radius, size);
-  ctx.lineTo(radius, size);
-  ctx.quadraticCurveTo(0, size, 0, size - radius);
-  ctx.lineTo(0, radius);
-  ctx.quadraticCurveTo(0, 0, radius, 0);
-  ctx.closePath();
-  ctx.fill();
-
-  // Leaf emoji centered
-  const fontSize = Math.round(size * 0.55);
-  ctx.font = `${fontSize}px serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('🌿', size / 2, size / 2);
-
-  return canvas.toBuffer('image/png');
+function makeSvg(size) {
+  const rx = Math.round(size * 0.208); // ~40/192 ratio
+  const fontSize = Math.round(size * 0.573); // ~110/192 ratio
+  const textY = Math.round(size * 0.677); // ~130/192 ratio
+  const cx = Math.round(size / 2);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
+  <rect width="${size}" height="${size}" rx="${rx}" fill="#5c7f63"/>
+  <text x="${cx}" y="${textY}" font-size="${fontSize}" text-anchor="middle" font-family="Apple Color Emoji, Segoe UI Emoji, serif">🌿</text>
+</svg>`;
 }
 
-const sizes = [192, 512];
-for (const size of sizes) {
-  const buf = generateIcon(size);
-  const out = resolve(__dirname, `../public/icon-${size}.png`);
-  writeFileSync(out, buf);
+for (const size of [192, 512]) {
+  const svg = Buffer.from(makeSvg(size));
+  const out = pub(`icon-${size}.png`);
+  await sharp(svg).png().toFile(out);
   console.log(`✓ Generated public/icon-${size}.png (${size}×${size})`);
 }
+
+copyFileSync(pub('icon-192.png'), pub('apple-touch-icon.png'));
+console.log('✓ Copied icon-192.png → apple-touch-icon.png');
