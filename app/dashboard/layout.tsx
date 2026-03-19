@@ -67,6 +67,45 @@ function NavLink({
   );
 }
 
+// Extracted so it has its OWN context subscription — re-renders whenever
+// ProfileContext updates, independent of DashboardLayoutInner's render cycle.
+function SidebarProfile({ isPartner, ownerName }: { isPartner: boolean; ownerName: string }) {
+  const { displayName: profileName, familyPhotoUrl } = useProfile();
+  const displayName = isPartner ? ownerName : (profileName || "");
+
+  console.log("[SidebarProfile] render — displayName:", JSON.stringify(displayName), "photo:", familyPhotoUrl ? "set" : "null");
+
+  const initial = (() => {
+    const words = displayName.replace(/\bfamily\b/gi, "").trim().split(/\s+/).filter(Boolean);
+    return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : null;
+  })();
+
+  return (
+    <div className="px-4 py-3 border-b border-[#f0ede8] flex items-center gap-3">
+      {familyPhotoUrl && !isPartner ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={familyPhotoUrl}
+          alt="Family photo"
+          className="w-8 h-8 rounded-full object-cover shrink-0 border border-[#e8e2d9]"
+        />
+      ) : (
+        <div className="w-8 h-8 rounded-full bg-[#5c7f63] flex items-center justify-center shrink-0 text-sm font-bold text-white">
+          {initial ?? "🌿"}
+        </div>
+      )}
+      <div className="min-w-0">
+        <p className="text-[11px] text-[#b5aca4] leading-none mb-0.5">
+          {isPartner ? "Viewing family" : (displayName ? "Welcome back," : "Welcome back!")}
+        </p>
+        <p className="text-sm font-medium text-[#5c7f63] truncate leading-tight">
+          {displayName || (isPartner ? "" : "Your Family")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <ProfileProvider>
@@ -78,7 +117,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
-  const { displayName: profileName, familyPhotoUrl } = useProfile();
+  const { displayName: profileName } = useProfile();
   const [checking,        setChecking]        = useState(true);
   const [menuOpen,           setMenuOpen]           = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
@@ -280,34 +319,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         </Link>
       </div>
 
-      {/* Family avatar + name */}
-      <div className="px-4 py-3 border-b border-[#f0ede8] flex items-center gap-3">
-        {familyPhotoUrl && !partnerCtx.isPartner ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={familyPhotoUrl}
-            alt="Family photo"
-            className="w-8 h-8 rounded-full object-cover shrink-0 border border-[#e8e2d9]"
-          />
-        ) : (
-          <div className="w-8 h-8 rounded-full bg-[#5c7f63] flex items-center justify-center shrink-0 text-sm font-bold text-white">
-            {displayName
-              ? (() => {
-                  const words = displayName.replace(/\bfamily\b/gi, "").trim().split(/\s+/).filter(Boolean);
-                  return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "🌿";
-                })()
-              : "🌿"}
-          </div>
-        )}
-        <div className="min-w-0">
-          <p className="text-[11px] text-[#b5aca4] leading-none mb-0.5">
-            {partnerCtx.isPartner ? "Viewing family" : (displayName ? "Welcome back," : "Welcome back!")}
-          </p>
-          <p className="text-sm font-medium text-[#5c7f63] truncate leading-tight">
-            {displayName || (partnerCtx.isPartner ? "" : "Your Family")}
-          </p>
-        </div>
-      </div>
+      {/* Family avatar + name — reads directly from ProfileContext */}
+      <SidebarProfile isPartner={partnerCtx.isPartner} ownerName={partnerCtx.ownerName} />
 
       {/* Nav */}
       <nav className="flex-1 p-3 space-y-0.5">
