@@ -164,6 +164,21 @@ input:-webkit-autofill:focus {
   user-select: none;
 }
 
+/* ─── Per-card leaf pop ──────────────────────────────────────────────────────── */
+
+@keyframes leaf-card-pop {
+  0%   { transform: translateY(0) scale(0.4) rotate(-10deg); opacity: 0; }
+  25%  { transform: translateY(-10px) scale(1.2) rotate(5deg); opacity: 1; }
+  70%  { transform: translateY(-35px) scale(1) rotate(-8deg); opacity: 0.8; }
+  100% { transform: translateY(-55px) scale(0.7) rotate(12deg); opacity: 0; }
+}
+
+.leaf-card-pop {
+  animation: leaf-card-pop 1.2s ease-out forwards;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* ─── Toast notification ─────────────────────────────────────────────────────── */
 
 @keyframes toast-slide-up {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -59,9 +59,7 @@ const ONBOARD_COLORS = [
   { label: "Pink",   value: "#c4697a" },
 ];
 
-function getStage(leaves: number) {
-  return STAGES[getStageFromLeaves(leaves) - 1] ?? STAGES[0];
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getStageIndex(leaves: number) {
   return getStageFromLeaves(leaves) - 1;
@@ -78,6 +76,22 @@ function getGreeting() {
   if (h < 12) return "Good morning";
   if (h < 17) return "Good afternoon";
   return "Good evening";
+}
+
+function getSubjectStyle(subjectName: string | undefined): { bg: string; text: string } {
+  if (!subjectName) return { bg: "#f0ede8", text: "#5c5248" };
+  const n = subjectName.toLowerCase();
+  if (n.includes("math") || n.includes("algebra") || n.includes("geometry") || n.includes("calculus"))
+    return { bg: "#e4f0f4", text: "#1a4a5a" };
+  if (n.includes("read") || n.includes("language") || n.includes("english") || n.includes("writing") || n.includes("grammar") || n.includes("lit") || n.includes("spelling") || n.includes("phonics"))
+    return { bg: "#f0e8f4", text: "#4a2a5a" };
+  if (n.includes("science") || n.includes("biology") || n.includes("chemistry") || n.includes("physics") || n.includes("nature"))
+    return { bg: "#e8f0e9", text: "#3d5c42" };
+  if (n.includes("history") || n.includes("social") || n.includes("geography") || n.includes("civics") || n.includes("government"))
+    return { bg: "#fef0e4", text: "#7a4a1a" };
+  if (n.includes("art") || n.includes("music") || n.includes("drama") || n.includes("theater") || n.includes("craft") || n.includes("draw"))
+    return { bg: "#fce8ec", text: "#7a2a36" };
+  return { bg: "#f0ede8", text: "#5c5248" };
 }
 
 // ─── Floating Leaves Celebration ──────────────────────────────────────────────
@@ -112,8 +126,8 @@ function FloatingLeaves({ active }: { active: boolean }) {
 // ─── Growth Tree Card ──────────────────────────────────────────────────────────
 
 function GrowthTreeCard({ leaves, childName }: { leaves: number; childName: string }) {
-  const stageIdx = getStageIndex(leaves);
-  const stage    = STAGES[stageIdx];
+  const stageIdx  = getStageIndex(leaves);
+  const stage     = STAGES[stageIdx];
   const nextStage = STAGES[stageIdx + 1];
   const progress  = nextStage ? ((leaves - stage.min) / (nextStage.min - stage.min)) * 100 : 100;
 
@@ -146,82 +160,119 @@ function GrowthTreeCard({ leaves, childName }: { leaves: number; childName: stri
   );
 }
 
-// ─── Lesson Row ───────────────────────────────────────────────────────────────
+// ─── Today Lesson Card ────────────────────────────────────────────────────────
 
-function LessonRow({
-  lesson,
-  onToggle,
-  onEdit,
-  onDelete,
-  isPartner,
+function TodayLessonCard({
+  lesson, childObj, onToggle, onEdit, onDelete, isPartner,
 }: {
-  lesson: Lesson;
-  onToggle: (id: string, current: boolean) => void;
-  onEdit:   (lesson: Lesson) => void;
-  onDelete: (id: string) => void;
+  lesson:    Lesson;
+  childObj:  Child | undefined;
+  onToggle:  (id: string, current: boolean) => void;
+  onEdit:    (lesson: Lesson) => void;
+  onDelete:  (id: string) => void;
   isPartner: boolean;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const subjectColor = lesson.subjects?.color ?? "#7a9e7e";
+  const [menuOpen,  setMenuOpen]  = useState(false);
+  const [showLeaf,  setShowLeaf]  = useState(false);
+  const prevCompleted = useRef(lesson.completed);
+
+  useEffect(() => {
+    if (!prevCompleted.current && lesson.completed) {
+      setShowLeaf(true);
+      const t = setTimeout(() => setShowLeaf(false), 1300);
+      prevCompleted.current = true;
+      return () => clearTimeout(t);
+    }
+    prevCompleted.current = lesson.completed;
+  }, [lesson.completed]);
+
+  const subStyle    = getSubjectStyle(lesson.subjects?.name);
+  const borderColor = childObj?.color ?? subStyle.text;
+
+  function handleClick(e: React.MouseEvent) {
+    if ((e.target as Element).closest("[data-no-toggle]")) return;
+    onToggle(lesson.id, lesson.completed);
+  }
 
   return (
-    <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors relative ${
-      lesson.completed ? "bg-[#f0f7f1] border-[#c2dbc5]" : "bg-[#fefcf9] border-[#e8e2d9]"
-    }`}>
-      {/* Checkbox */}
-      <button
-        onClick={() => onToggle(lesson.id, lesson.completed)}
-        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-          lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5] hover:border-[#5c7f63]"
+    <div
+      className={`relative flex items-center gap-3 px-4 rounded-2xl border transition-all cursor-pointer select-none ${
+        lesson.completed
+          ? "bg-[#f0f7f1] border-[#c2dbc5]"
+          : "bg-[#fefcf9] border-[#e8e2d9] active:bg-[#f0f7f1]"
+      }`}
+      style={{ minHeight: "56px", borderLeftWidth: "4px", borderLeftColor: borderColor }}
+      onClick={handleClick}
+    >
+      {/* 32px circular checkbox */}
+      <div
+        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+          lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5]"
         }`}
-        aria-label={lesson.completed ? "Mark incomplete" : "Mark complete"}
       >
         {lesson.completed && (
-          <svg viewBox="0 0 10 8" className="w-2.5 h-2 fill-white">
-            <path d="M1 4l2.5 2.5L9 1" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <svg viewBox="0 0 10 8" className="w-3.5 h-2.5 fill-none">
+            <path d="M1 4l2.5 2.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-        )}
-      </button>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <p className={`text-sm font-medium truncate ${
-          lesson.completed ? "text-[#7a9e7e] line-through" : "text-[#2d2926]"
-        }`}>
-          {lesson.title}
-        </p>
-        {lesson.subjects && (
-          <p className="text-xs mt-0.5" style={{ color: subjectColor }}>{lesson.subjects.name}</p>
         )}
       </div>
 
-      {lesson.hours != null && lesson.hours > 0 && (
-        <span className="text-xs text-[#b5aca4] shrink-0">{lesson.hours}h</span>
+      {/* Content */}
+      <div className="flex-1 min-w-0 py-3.5">
+        {lesson.subjects && (
+          <span
+            className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full mb-1"
+            style={{ backgroundColor: subStyle.bg, color: subStyle.text }}
+          >
+            {lesson.subjects.name}
+          </span>
+        )}
+        <p className={`text-sm font-medium leading-snug ${
+          lesson.completed ? "line-through text-[#9a948e]" : "text-[#2d2926]"
+        }`}>
+          {lesson.title}
+        </p>
+        {lesson.hours != null && lesson.hours > 0 && (
+          <p className="text-xs text-[#b5aca4] mt-0.5">{lesson.hours}h</p>
+        )}
+      </div>
+
+      {/* Leaf pop animation */}
+      {showLeaf && (
+        <span
+          className="leaf-card-pop absolute text-xl"
+          style={{ right: "48px", top: "4px" }}
+        >
+          🍃
+        </span>
       )}
 
-      {/* Three-dot menu — only for non-partners */}
+      {/* 3-dot menu */}
       {!isPartner && (
-        <div className="relative shrink-0">
+        <div className="relative shrink-0" data-no-toggle>
           <button
             onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-            className="w-6 h-6 rounded-full flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-base leading-none pb-0.5"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
             aria-label="Lesson options"
+            data-no-toggle
           >
-            ···
+            <span className="text-base leading-none">···</span>
           </button>
           {menuOpen && (
             <>
-              <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-8 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[110px]">
+              <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
+              <div className="absolute right-0 top-9 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[110px]">
                 <button
-                  onClick={() => { onEdit(lesson); setMenuOpen(false); }}
+                  onClick={(e) => { e.stopPropagation(); onEdit(lesson); setMenuOpen(false); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
+                  data-no-toggle
                 >
                   ✏️ Edit
                 </button>
                 <button
-                  onClick={() => { onDelete(lesson.id); setMenuOpen(false); }}
+                  onClick={(e) => { e.stopPropagation(); onDelete(lesson.id); setMenuOpen(false); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                  data-no-toggle
                 >
                   🗑 Delete
                 </button>
@@ -344,7 +395,6 @@ function OnboardingFlow({ onDone }: { onDone: () => void }) {
     );
   }
 
-  // step 2: done
   return (
     <div className="max-w-sm mx-auto px-5 py-12 text-center">
       <div className="text-6xl mb-6">🌱</div>
@@ -380,6 +430,7 @@ export default function TodayPage() {
   const [saving,           setSaving]           = useState(false);
   const [savedFlash,       setSavedFlash]       = useState(false);
   const [loading,          setLoading]          = useState(true);
+  const [celebrating,      setCelebrating]      = useState(false);
 
   // Books
   const [todayBooks,    setTodayBooks]    = useState<BookLog[]>([]);
@@ -389,11 +440,11 @@ export default function TodayPage() {
   const [savingBook,    setSavingBook]    = useState(false);
 
   // Welcome banner
-  const [dismissedBanner,  setDismissedBanner]  = useState(false);
+  const [dismissedBanner, setDismissedBanner] = useState(false);
 
   // PWA install banner
-  const [showPwaBanner,  setShowPwaBanner]  = useState(false);
-  const [showPwaModal,   setShowPwaModal]   = useState(false);
+  const [showPwaBanner, setShowPwaBanner] = useState(false);
+  const [showPwaModal,  setShowPwaModal]  = useState(false);
 
   useEffect(() => {
     const dismissed = localStorage.getItem("pwa-banner-dismissed") === "true";
@@ -402,14 +453,13 @@ export default function TodayPage() {
   }, []);
 
   // Add lesson modal
-  const [subjects,         setSubjects]         = useState<Subject[]>([]);
-  const [showLessonModal,  setShowLessonModal]  = useState(false);
-  const [lessonChildId,    setLessonChildId]    = useState("");
-  const [lessonSubject,    setLessonSubject]    = useState("");
-  const [lessonTitle,      setLessonTitle]      = useState("");
-  const [lessonHours,      setLessonHours]      = useState("");
-  const [savingLesson,     setSavingLesson]     = useState(false);
-  const [celebrating,      setCelebrating]      = useState(false);
+  const [subjects,        setSubjects]        = useState<Subject[]>([]);
+  const [showLessonModal, setShowLessonModal] = useState(false);
+  const [lessonChildId,   setLessonChildId]   = useState("");
+  const [lessonSubject,   setLessonSubject]   = useState("");
+  const [lessonTitle,     setLessonTitle]     = useState("");
+  const [lessonHours,     setLessonHours]     = useState("");
+  const [savingLesson,    setSavingLesson]    = useState(false);
 
   // Edit lesson modal
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
@@ -419,19 +469,35 @@ export default function TodayPage() {
   const [editChildId,   setEditChildId]   = useState("");
   const [savingEdit,    setSavingEdit]    = useState(false);
 
-  // ── Leaf count refresh (correct per-child, includes book events) ───────────
+  // Quick log sheet
+  const [showQuickLog,  setShowQuickLog]  = useState(false);
+  const [qlMode,        setQlMode]        = useState<null | "book" | "project" | "field_trip" | "extra">(null);
+  const [qlTitle,       setQlTitle]       = useState("");
+  const [qlChild,       setQlChild]       = useState("");
+  const [qlChildrenIds, setQlChildrenIds] = useState<string[]>([]);
+  const [qlNotes,       setQlNotes]       = useState("");
+  const [qlSubject,     setQlSubject]     = useState("");
+  const [savingQL,      setSavingQL]      = useState(false);
+  const [showToast,     setShowToast]     = useState(false);
+
+  // ── Leaf count refresh ────────────────────────────────────────────────────
 
   const refreshLeafCounts = useCallback(async () => {
     if (!effectiveUserId) return;
-    const [{ data: completed }, { data: bookEvents }] = await Promise.all([
+    const [{ data: completed }, { data: bookEvents }, { data: memEvents }] = await Promise.all([
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
       supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_field_trip"]),
     ]);
     const counts: Record<string, number> = {};
     completed?.forEach((l) => {
       if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
     });
     bookEvents?.forEach((e) => {
+      const cid = e.payload?.child_id;
+      if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
+    });
+    memEvents?.forEach((e) => {
       const cid = e.payload?.child_id;
       if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
     });
@@ -460,9 +526,10 @@ export default function TodayPage() {
       .or(`date.eq.${today},scheduled_date.eq.${today}`);
     setLessons((lessonsData as unknown as Lesson[]) ?? []);
 
-    const [{ data: completed }, { data: bookEvents }] = await Promise.all([
+    const [{ data: completed }, { data: bookEvents }, { data: memEvents }] = await Promise.all([
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
       supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_field_trip"]),
     ]);
 
     const counts: Record<string, number> = {};
@@ -470,6 +537,10 @@ export default function TodayPage() {
       if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
     });
     bookEvents?.forEach((e) => {
+      const cid = e.payload?.child_id;
+      if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
+    });
+    memEvents?.forEach((e) => {
       const cid = e.payload?.child_id;
       if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
     });
@@ -507,11 +578,9 @@ export default function TodayPage() {
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
 
     if (!current) {
-      // Completing a lesson — celebrate
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 1600);
 
-      // Advance curriculum goal progress if this is a scheduled curriculum lesson
       if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
         const { data: goalRow } = await supabase
           .from("curriculum_goals")
@@ -545,7 +614,6 @@ export default function TodayPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingEdit(false); return; }
 
-    // Find or create subject
     let subjectId: string | null = null;
     if (editSubject.trim()) {
       const existing = subjects.find(
@@ -675,6 +743,104 @@ export default function TodayPage() {
     setShowLessonModal(false);
   }
 
+  // ── Quick Log ─────────────────────────────────────────────────────────────
+
+  function openQuickLog() {
+    setQlMode(null);
+    setQlTitle(""); setQlChild(""); setQlChildrenIds([]); setQlNotes(""); setQlSubject("");
+    setShowQuickLog(true);
+  }
+
+  function closeQuickLog() {
+    setShowQuickLog(false);
+    setTimeout(() => setQlMode(null), 300);
+  }
+
+  async function saveQuickLog() {
+    if (!qlTitle.trim()) return;
+    setSavingQL(true);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingQL(false); return; }
+
+    if (qlMode === "book") {
+      const payload = {
+        title:       qlTitle.trim(),
+        child_id:    qlChild || undefined,
+        date:        today,
+        description: qlNotes.trim() || undefined,
+      };
+      await supabase.from("app_events").insert({ user_id: user.id, type: "memory_book", payload });
+
+    } else if (qlMode === "project") {
+      const payload = {
+        title:       qlTitle.trim(),
+        child_id:    qlChild || undefined,
+        date:        today,
+        description: qlNotes.trim() || undefined,
+        subject:     qlSubject.trim() || undefined,
+      };
+      await supabase.from("app_events").insert({ user_id: user.id, type: "memory_project", payload });
+
+    } else if (qlMode === "field_trip") {
+      const ids = qlChildrenIds.length > 0 ? qlChildrenIds : [qlChild || ""];
+      await Promise.all(ids.map((cid) => {
+        const payload = {
+          title:       qlTitle.trim(),
+          child_id:    cid || undefined,
+          date:        today,
+          description: qlNotes.trim() || undefined,
+        };
+        return supabase.from("app_events").insert({ user_id: user.id, type: "memory_field_trip", payload });
+      }));
+
+    } else if (qlMode === "extra") {
+      let subjectId: string | null = null;
+      if (qlSubject.trim()) {
+        const existing = subjects.find((s) => s.name.toLowerCase() === qlSubject.trim().toLowerCase());
+        if (existing) {
+          subjectId = existing.id;
+        } else {
+          const { data: newSub } = await supabase
+            .from("subjects").insert({ user_id: user.id, name: qlSubject.trim() })
+            .select("id, name, color").single();
+          if (newSub) {
+            setSubjects((prev) => [...prev, newSub as Subject]);
+            subjectId = newSub.id;
+          }
+        }
+      }
+
+      const { data: newLesson } = await supabase.from("lessons").insert({
+        user_id:    user.id,
+        child_id:   qlChild || null,
+        subject_id: subjectId,
+        title:      qlTitle.trim(),
+        completed:  true,
+        date:       today,
+      }).select("id, title, completed, child_id, hours, subjects(name, color)").single();
+
+      if (newLesson) {
+        setLessons((prev) => [...prev, newLesson as unknown as Lesson]);
+        setCelebrating(true);
+        setTimeout(() => setCelebrating(false), 1600);
+      }
+
+      // Also save as memory
+      await supabase.from("app_events").insert({
+        user_id: user.id,
+        type:    "memory_project",
+        payload: { title: qlTitle.trim(), child_id: qlChild || undefined, date: today, description: qlNotes.trim() || undefined },
+      });
+    }
+
+    await refreshLeafCounts();
+    setSavingQL(false);
+    closeQuickLog();
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 2500);
+  }
+
   async function saveReflection() {
     setSaving(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -697,7 +863,6 @@ export default function TodayPage() {
     ? lessons
     : lessons.filter((l) => l.child_id === selectedChildId);
 
-  // Only sum leaves for known children (guards against null child_id pollution)
   const treeLeaves = selectedChildId === "all"
     ? children.reduce((sum, c) => sum + (leafCounts[c.id] ?? 0), 0)
     : leafCounts[selectedChildId] ?? 0;
@@ -708,6 +873,8 @@ export default function TodayPage() {
 
   const completedToday = filteredLessons.filter((l) => l.completed).length;
   const totalToday     = filteredLessons.length;
+  const progressPct    = totalToday > 0 ? Math.round((completedToday / totalToday) * 100) : 0;
+  const allDone        = totalToday > 0 && completedToday === totalToday;
 
   if (loading) {
     return (
@@ -720,7 +887,6 @@ export default function TodayPage() {
     );
   }
 
-  // Show old in-dashboard flow only for pre-onboarding users (no children, not yet through new wizard)
   if (children.length === 0 && onboarded !== true) {
     return <OnboardingFlow onDone={loadData} />;
   }
@@ -728,7 +894,7 @@ export default function TodayPage() {
   return (
     <div className="max-w-2xl px-5 py-7 space-y-6">
 
-      {/* ── Welcome Banner ────────────────────────────────── */}
+      {/* ── Welcome Banner ─────────────────────────────────── */}
       {children.length === 0 && !dismissedBanner && (
         <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
           <button
@@ -738,20 +904,18 @@ export default function TodayPage() {
           >
             ×
           </button>
-
           <h2 className="text-lg font-bold text-[#2d2926] mb-1">Welcome to Rooted! 🌿</h2>
           <p className="text-sm text-[#5c7f63] mb-4">Let&apos;s get your family set up in 3 easy steps</p>
-
           <div className="flex flex-col sm:flex-row gap-3 mb-4">
             {[
-              { step: "1", label: "Add a child", dest: "Settings", href: "/dashboard/settings" },
-              { step: "2", label: "Add your curriculum", dest: "Plan", href: "/dashboard/plan" },
-              { step: "3", label: "Check off your first lesson", dest: "Today", href: "#" },
+              { step: "1", label: "Add a child",               dest: "Settings", href: "/dashboard/settings" },
+              { step: "2", label: "Add your curriculum",       dest: "Plan",     href: "/dashboard/plan" },
+              { step: "3", label: "Check off your first lesson", dest: "Today",  href: "#" },
             ].map(({ step, label, dest, href }) => (
               <Link
                 key={step}
                 href={href}
-                className="flex-1 flex items-center gap-2.5 bg-white/70 hover:bg-white border border-[#b8d9bc] rounded-xl px-3.5 py-3 transition-colors group"
+                className="flex-1 flex items-center gap-2.5 bg-white/70 hover:bg-white border border-[#b8d9bc] rounded-xl px-3.5 py-3 transition-colors"
               >
                 <div className="w-7 h-7 rounded-full bg-[#5c7f63] text-white text-xs font-bold flex items-center justify-center shrink-0">
                   {step}
@@ -763,7 +927,6 @@ export default function TodayPage() {
               </Link>
             ))}
           </div>
-
           <Link
             href="/dashboard/settings"
             className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
@@ -781,10 +944,195 @@ export default function TodayPage() {
         <h1 className="text-2xl font-bold text-[#2d2926]">
           {getGreeting()}{familyName ? `, ${familyName}` : ""}! 👋
         </h1>
+      </div>
+
+      {/* ── Lesson Checklist ─────────────────────────────── */}
+      <div>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
+            Today&apos;s Lessons
+          </h2>
+          {!isPartner && (
+            <button
+              onClick={openLessonModal}
+              className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
+            >
+              + Add Lesson
+            </button>
+          )}
+        </div>
+
+        {/* Progress bar */}
         {totalToday > 0 && (
-          <p className="text-sm text-[#7a6f65] mt-1">
-            {completedToday} of {totalToday} lessons done today
-          </p>
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-sm text-[#7a6f65]">
+                {completedToday} of {totalToday} lessons done today
+              </span>
+              <span className="text-sm font-semibold text-[#5c7f63]">{progressPct}%</span>
+            </div>
+            <div className="w-full h-1.5 bg-[#e8e2d9] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#5c7f63] rounded-full transition-all duration-700"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Celebration banner */}
+        {allDone && (
+          <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
+            <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
+            <p className="text-sm text-[#5c7f63] mt-0.5">
+              You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃
+            </p>
+          </div>
+        )}
+
+        {/* Child filter tabs */}
+        {children.length > 1 && (
+          <div className="flex gap-2 flex-wrap mb-3">
+            <button
+              onClick={() => setSelectedChildId("all")}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                selectedChildId === "all"
+                  ? "bg-[#5c7f63] text-white border-[#5c7f63]"
+                  : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63] hover:text-[#5c7f63]"
+              }`}
+            >
+              All
+            </button>
+            {children.map((child) => (
+              <button
+                key={child.id}
+                onClick={() => setSelectedChildId(child.id)}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                  selectedChildId === child.id
+                    ? "text-white border-transparent"
+                    : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:text-[#2d2926]"
+                }`}
+                style={selectedChildId === child.id ? { backgroundColor: child.color ?? "#5c7f63" } : {}}
+              >
+                {child.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Lessons list */}
+        {filteredLessons.length > 0 ? (
+          <>
+            {/* Multi-child grouped view */}
+            {selectedChildId === "all" && children.length > 1 ? (
+              <div className="space-y-4">
+                {children.map((child) => {
+                  const childLessons = filteredLessons.filter((l) => l.child_id === child.id);
+                  if (childLessons.length === 0) return null;
+                  return (
+                    <div key={child.id}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <div
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{ backgroundColor: child.color ?? "#5c7f63" }}
+                        />
+                        <span
+                          className="text-xs font-bold uppercase tracking-widest"
+                          style={{ color: child.color ?? "#5c7f63" }}
+                        >
+                          {child.name}
+                        </span>
+                        <span className="text-[10px] text-[#b5aca4]">
+                          {childLessons.filter((l) => l.completed).length}/{childLessons.length}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {childLessons.map((lesson) => (
+                          <TodayLessonCard
+                            key={lesson.id}
+                            lesson={lesson}
+                            childObj={child}
+                            onToggle={toggleLesson}
+                            onEdit={openEdit}
+                            onDelete={deleteLesson}
+                            isPartner={isPartner}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Unassigned lessons */}
+                {(() => {
+                  const childIds = new Set(children.map((c) => c.id));
+                  const unassigned = filteredLessons.filter((l) => !l.child_id || !childIds.has(l.child_id));
+                  if (unassigned.length === 0) return null;
+                  return (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-[#c8bfb5]" />
+                        <span className="text-xs font-bold uppercase tracking-widest text-[#b5aca4]">Unassigned</span>
+                      </div>
+                      <div className="space-y-2">
+                        {unassigned.map((lesson) => (
+                          <TodayLessonCard
+                            key={lesson.id}
+                            lesson={lesson}
+                            childObj={undefined}
+                            onToggle={toggleLesson}
+                            onEdit={openEdit}
+                            onDelete={deleteLesson}
+                            isPartner={isPartner}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              /* Flat list (single child or filtered) */
+              <div className="space-y-2">
+                {filteredLessons.map((lesson) => (
+                  <TodayLessonCard
+                    key={lesson.id}
+                    lesson={lesson}
+                    childObj={children.find((c) => c.id === lesson.child_id)}
+                    onToggle={toggleLesson}
+                    onEdit={openEdit}
+                    onDelete={deleteLesson}
+                    isPartner={isPartner}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          /* Empty state */
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-8 flex flex-col items-center text-center">
+            <span className="text-4xl mb-3">🌱</span>
+            <p className="text-base font-semibold text-[#2d2926] mb-1.5">No lessons yet today</p>
+            <p className="text-sm text-[#7a6f65] leading-relaxed max-w-xs mb-5">
+              Set up your curriculum to have lessons scheduled automatically, or log one you already did.
+            </p>
+            <div className="flex gap-2 flex-wrap justify-center">
+              <Link
+                href="/dashboard/plan"
+                className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+              >
+                Set Up Curriculum →
+              </Link>
+              {!isPartner && (
+                <button
+                  onClick={openLessonModal}
+                  className="inline-flex items-center gap-1.5 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+                >
+                  + Add a lesson
+                </button>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
@@ -796,36 +1144,6 @@ export default function TodayPage() {
         <p className="text-sm text-[#5c7f63] italic leading-relaxed">&ldquo;{quote}&rdquo;</p>
       </div>
 
-      {/* ── Child Filter Tabs ─────────────────────────────── */}
-      {children.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setSelectedChildId("all")}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-              selectedChildId === "all"
-                ? "bg-[#5c7f63] text-white border-[#5c7f63]"
-                : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63] hover:text-[#5c7f63]"
-            }`}
-          >
-            All
-          </button>
-          {children.map((child) => (
-            <button
-              key={child.id}
-              onClick={() => setSelectedChildId(child.id)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                selectedChildId === child.id
-                  ? "text-white border-transparent"
-                  : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:text-[#2d2926]"
-              }`}
-              style={selectedChildId === child.id ? { backgroundColor: child.color ?? "#5c7f63" } : {}}
-            >
-              {child.name}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* ── Growth Tree Card ──────────────────────────────── */}
       <GrowthTreeCard leaves={treeLeaves} childName={treeLabel} />
 
@@ -835,13 +1153,13 @@ export default function TodayPage() {
             <span className="text-3xl">🌱</span>
             <div className="flex-1">
               <h3 className="font-bold text-[#2d2926] mb-1">
-                Welcome to Rooted{familyName ? `, ${familyName}` : ''}! Here&apos;s where to start:
+                Welcome to Rooted{familyName ? `, ${familyName}` : ""}! Here&apos;s where to start:
               </h3>
               <p className="text-sm text-[#5c7f63] mb-3 leading-relaxed">
                 Your garden is planted and ready to grow. Every lesson you log earns a leaf 🍃
               </p>
               <ol className="text-sm text-[#3d5c42] space-y-1.5">
-                <li className="flex items-start gap-2"><span>1️⃣</span><span><strong>Log today&apos;s lessons</strong> — tap &quot;+ Add Lesson&quot; below to get your first leaf</span></li>
+                <li className="flex items-start gap-2"><span>1️⃣</span><span><strong>Log today&apos;s lessons</strong> — tap a lesson card to check it off and earn your first leaf</span></li>
                 <li className="flex items-start gap-2"><span>2️⃣</span><span><strong>Set a Finish Line goal</strong> — track if you&apos;re on pace to finish your curriculum on time 🎯</span></li>
                 <li className="flex items-start gap-2"><span>3️⃣</span><span><strong>Explore Resources</strong> — free field trips, discounts, and printables curated for homeschoolers 📚</span></li>
               </ol>
@@ -851,59 +1169,6 @@ export default function TodayPage() {
       )}
 
       <FinishLineSection />
-
-      {/* ── Today's Lessons ───────────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
-            Today&apos;s Lessons
-          </h2>
-          <div className="flex items-center gap-2">
-            {totalToday > 0 && (
-              <span className="text-xs text-[#5c7f63] font-medium bg-[#e8f0e9] px-2 py-0.5 rounded-full">
-                {completedToday}/{totalToday} done
-              </span>
-            )}
-            {!isPartner && (
-              <button
-                onClick={openLessonModal}
-                className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
-              >
-                + Add Lesson
-              </button>
-            )}
-          </div>
-        </div>
-
-        {filteredLessons.length > 0 ? (
-          <div className="space-y-2">
-            {filteredLessons.map((lesson) => (
-              <LessonRow
-                key={lesson.id}
-                lesson={lesson}
-                onToggle={toggleLesson}
-                onEdit={openEdit}
-                onDelete={deleteLesson}
-                isPartner={isPartner}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-8 flex flex-col items-center text-center">
-            <span className="text-3xl mb-3">🌱</span>
-            <p className="text-sm font-semibold text-[#2d2926] mb-1">No lessons planned yet 🌱</p>
-            <p className="text-xs text-[#7a6f65] leading-relaxed max-w-xs mb-5">
-              Head to Plan to add your curriculum and we&apos;ll schedule your days automatically.
-            </p>
-            <Link
-              href="/dashboard/plan"
-              className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
-            >
-              Go to Plan →
-            </Link>
-          </div>
-        )}
-      </div>
 
       {/* ── Books Read Today ──────────────────────────────── */}
       <div>
@@ -987,6 +1252,22 @@ export default function TodayPage() {
       </div>
 
       <div className="h-4" />
+
+      {/* More hint */}
+      <p className="text-center text-xs text-[#b5aca4]">
+        <Link href="/dashboard/more">📋 Reports · 🖨️ Printables — find them in ··· More</Link>
+      </p>
+
+      {/* ── Floating Quick Log Button ─────────────────────── */}
+      {!isPartner && !showQuickLog && (
+        <button
+          onClick={openQuickLog}
+          className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-[#5c7f63] hover:bg-[#3d5c42] active:scale-95 text-white shadow-lg flex items-center justify-center text-2xl font-light transition-all"
+          aria-label="Quick log"
+        >
+          +
+        </button>
+      )}
 
       {/* ── Book modal ────────────────────────────────────── */}
       {showBookModal && (
@@ -1139,7 +1420,204 @@ export default function TodayPage() {
         </div>
       )}
 
-      <FloatingLeaves active={celebrating} />
+      {/* ── Quick Log Sheet ───────────────────────────────── */}
+      {showQuickLog && (
+        <div
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end justify-center"
+          onClick={closeQuickLog}
+        >
+          <div
+            className="bg-[#fefcf9] rounded-t-3xl shadow-xl w-full max-w-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drag handle */}
+            <div className="w-10 h-1 bg-[#e8e2d9] rounded-full mx-auto mt-3 mb-1" />
+
+            {qlMode === null ? (
+              /* 4-card picker */
+              <div className="px-5 pt-4 pb-8">
+                <h2 className="text-lg font-bold text-[#2d2926] mb-0.5">What happened today? 🌿</h2>
+                <p className="text-sm text-[#7a6f65] mb-5">Log something great. It only takes a second.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { mode: "book",       emoji: "📚", title: "Finished a book",     sub: "Earns a 🍃" },
+                    { mode: "project",    emoji: "🌋", title: "Project or activity", sub: "Earns a 🍃" },
+                    { mode: "field_trip", emoji: "🚌", title: "Field trip",          sub: "🍃 per child" },
+                    { mode: "extra",      emoji: "➕", title: "Extra lesson",        sub: "Earns a 🍃" },
+                  ].map(({ mode, emoji, title, sub }) => (
+                    <button
+                      key={mode}
+                      onClick={() => {
+                        setQlMode(mode as "book" | "project" | "field_trip" | "extra");
+                        if (children.length === 1) {
+                          setQlChild(children[0].id);
+                          if (mode === "field_trip") setQlChildrenIds([children[0].id]);
+                        }
+                      }}
+                      className="flex flex-col items-start gap-1 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#fafdf8] active:scale-95 rounded-2xl p-4 text-left transition-all"
+                    >
+                      <span className="text-3xl mb-0.5">{emoji}</span>
+                      <span className="text-sm font-semibold text-[#2d2926] leading-tight">{title}</span>
+                      <span className="text-[10px] text-[#5c7f63] font-medium">{sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              /* Sub-form */
+              <div className="px-5 pt-4 pb-8">
+                <div className="flex items-center gap-3 mb-5">
+                  <button
+                    onClick={() => setQlMode(null)}
+                    className="text-[#7a6f65] hover:text-[#2d2926] text-sm transition-colors"
+                  >
+                    ← Back
+                  </button>
+                  <h2 className="text-base font-bold text-[#2d2926]">
+                    {qlMode === "book"       ? "📚 Finished a book" :
+                     qlMode === "project"    ? "🌋 Project or activity" :
+                     qlMode === "field_trip" ? "🚌 Field trip" :
+                     "➕ Extra lesson"}
+                  </h2>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Title / main field */}
+                  <div>
+                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
+                      {qlMode === "book"       ? "Book title *" :
+                       qlMode === "project"    ? "What did you do? *" :
+                       qlMode === "field_trip" ? "Where did you go? *" :
+                       "What did you cover? *"}
+                    </label>
+                    <input
+                      value={qlTitle}
+                      onChange={(e) => setQlTitle(e.target.value)}
+                      placeholder={
+                        qlMode === "book"       ? "e.g. Charlotte's Web" :
+                        qlMode === "project"    ? "e.g. Built a model volcano" :
+                        qlMode === "field_trip" ? "e.g. Natural History Museum" :
+                        "e.g. Chapter 7 reading"
+                      }
+                      autoFocus
+                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                    />
+                  </div>
+
+                  {/* Subject (project + extra) */}
+                  {(qlMode === "project" || qlMode === "extra") && (
+                    <div>
+                      <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
+                        {qlMode === "extra" ? "Subject" : "Subject tag (optional)"}
+                      </label>
+                      <input
+                        value={qlSubject}
+                        onChange={(e) => setQlSubject(e.target.value)}
+                        list="ql-subjects-list"
+                        placeholder="e.g. Science, Art, History"
+                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                      />
+                      <datalist id="ql-subjects-list">
+                        {subjects.map((s) => <option key={s.id} value={s.name} />)}
+                      </datalist>
+                    </div>
+                  )}
+
+                  {/* Single child select (book, project, extra) */}
+                  {children.length > 0 && qlMode !== "field_trip" && (
+                    <div>
+                      <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Which child?</label>
+                      <select
+                        value={qlChild}
+                        onChange={(e) => setQlChild(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                      >
+                        <option value="">All / unassigned</option>
+                        {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Multi-child select (field trip) */}
+                  {qlMode === "field_trip" && children.length > 0 && (
+                    <div>
+                      <label className="text-xs font-medium text-[#7a6f65] block mb-2">Which child(ren)?</label>
+                      <div className="flex flex-wrap gap-2">
+                        {children.map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() =>
+                              setQlChildrenIds((prev) =>
+                                prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id]
+                              )
+                            }
+                            className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                              qlChildrenIds.includes(c.id)
+                                ? "text-white border-transparent"
+                                : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63]"
+                            }`}
+                            style={
+                              qlChildrenIds.includes(c.id)
+                                ? { backgroundColor: c.color ?? "#5c7f63", borderColor: c.color ?? "#5c7f63" }
+                                : {}
+                            }
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Notes (book) */}
+                  {qlMode === "book" && (
+                    <div>
+                      <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Notes (optional)</label>
+                      <input
+                        value={qlNotes}
+                        onChange={(e) => setQlNotes(e.target.value)}
+                        placeholder="What did they think of it?"
+                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                      />
+                    </div>
+                  )}
+
+                  {/* Notes (field trip) */}
+                  {qlMode === "field_trip" && (
+                    <div>
+                      <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Notes (optional)</label>
+                      <input
+                        value={qlNotes}
+                        onChange={(e) => setQlNotes(e.target.value)}
+                        placeholder="What did you see or do?"
+                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={saveQuickLog}
+                  disabled={savingQL || !qlTitle.trim()}
+                  className="mt-5 w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                >
+                  {savingQL ? "Saving…" : "Save 🍃"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast ─────────────────────────────────────────── */}
+      {showToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] toast-slide-up pointer-events-none">
+          <div className="bg-[#2d2926] text-white text-sm font-medium px-5 py-3 rounded-full shadow-lg flex items-center gap-2 whitespace-nowrap">
+            <span>🍃</span>
+            <span>Saved to Memories!</span>
+          </div>
+        </div>
+      )}
 
       {/* ── PWA Install Banner ────────────────────────────── */}
       {showPwaBanner && (
@@ -1190,10 +1668,7 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* More hint */}
-      <p className="text-center text-xs text-[#b5aca4]">
-        <Link href="/dashboard/more">📋 Reports · 🖨️ Printables — find them in ··· More</Link>
-      </p>
+      <FloatingLeaves active={celebrating} />
 
     </div>
   );
