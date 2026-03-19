@@ -1281,10 +1281,11 @@ export default function TodayPage() {
       {!isPartner && !showQuickLog && (
         <button
           onClick={openQuickLog}
-          className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-[#5c7f63] hover:bg-[#3d5c42] active:scale-95 text-white shadow-lg flex items-center justify-center text-2xl font-light transition-all"
+          className="fixed bottom-20 right-4 z-50 rounded-full bg-[#5c7f63] hover:bg-[#3d5c42] active:scale-95 text-white shadow-lg flex items-center gap-2 px-4 py-3 transition-all"
           aria-label="Quick log"
         >
-          +
+          <span className="text-2xl font-light leading-none">+</span>
+          <span className="text-sm font-semibold">Log Lesson</span>
         </button>
       )}
 
