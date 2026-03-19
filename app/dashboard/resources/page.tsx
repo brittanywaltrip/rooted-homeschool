@@ -223,7 +223,7 @@ function BookmarkBtn({ id, savedMap, onToggle }: { id: string; savedMap: Record<
 
 function GradePill({ grade }: { grade: string }) {
   return (
-    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#f5ede0] text-[#7a5020]">
+    <span className="bg-[#e8f0e9] text-[#3d5c42] rounded-full px-2 py-0.5 text-xs font-semibold">
       {grade}
     </span>
   );
@@ -369,27 +369,27 @@ export default function ResourcesPage() {
 
       {/* ── 2. Personalized State Banner ───────────────────────── */}
       {stateLoaded && userState && userState !== "Outside the US" && STATE_REQS[userState] ? (
-        <div className="rounded-2xl p-5 border border-[#b8d4be]" style={{ background: "linear-gradient(135deg, #eef5ec 0%, #f5fbf0 100%)" }}>
+        <div className="rounded-2xl p-6 border border-[#b8d4be]" style={{ background: "linear-gradient(135deg, #eef5ec 0%, #f5fbf0 100%)" }}>
           <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#4a7c59] flex items-center justify-center shrink-0">
-              <MapPin size={16} className="text-white" />
+            <div className="w-11 h-11 rounded-xl bg-[#4a7c59] flex items-center justify-center shrink-0">
+              <MapPin size={18} className="text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold tracking-widest uppercase text-[#4a7c59] mb-0.5">
+              <p className="text-sm font-bold tracking-widest uppercase text-[#4a7c59] mb-1">
                 📍 For {userState} Families
               </p>
-              <p className="text-sm font-semibold text-[#2d2926] mb-1">
+              <p className="text-base font-bold text-[#2d2926] mb-2">
                 Resources picked for {userState} homeschool families
               </p>
               <div className="flex items-center gap-2 mb-2">
                 <span
-                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                  className="text-xs font-semibold px-2.5 py-1 rounded-full"
                   style={{ backgroundColor: LEVEL_LABELS[STATE_REQS[userState].level].bg, color: LEVEL_LABELS[STATE_REQS[userState].level].color }}
                 >
                   {LEVEL_LABELS[STATE_REQS[userState].level].label}
                 </span>
               </div>
-              <p className="text-xs text-[#5c7a62] leading-relaxed">{STATE_REQS[userState].summary}</p>
+              <p className="text-sm text-[#5c7a62] leading-relaxed">{STATE_REQS[userState].summary}</p>
               <p className="text-[10px] text-[#8aaa90] mt-2">
                 Always verify with your state homeschool association or{" "}
                 <a href="https://hslda.org" target="_blank" rel="noopener noreferrer" className="underline">HSLDA.org</a>.
@@ -419,10 +419,10 @@ export default function ResourcesPage() {
 
       {/* ── 3. This Week's Free Picks ───────────────────────────── */}
       <div>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <div className="flex items-center gap-2 mb-0.5">
-              <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-xl font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
                 This Week&apos;s Free Picks ⭐
               </h2>
               <span className="text-[10px] font-semibold bg-[#fef5e4] text-[#8b6820] px-2 py-0.5 rounded-full border border-[#f0dda8]">
@@ -467,12 +467,12 @@ export default function ResourcesPage() {
       </div>
 
       {/* ── 4. Easy Win Today ───────────────────────────────────── */}
-      <div>
-        <div className="mb-4">
-          <h2 className="text-lg font-bold text-[#2d2926] mb-0.5" style={{ fontFamily: "Georgia, serif" }}>
+      <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #fef9e8 0%, #fef3d0 100%)" }}>
+        <div className="mb-5">
+          <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
             Easy Win Today ⚡
           </h2>
-          <p className="text-xs text-[#7a6f65]">Zero prep. Right now. You&apos;ve got this.</p>
+          <p className="text-sm text-[#7a6f65]">Zero prep. Right now. You&apos;ve got this.</p>
         </div>
 
         {/* Today's 2 featured activities */}
@@ -587,9 +587,11 @@ export default function ResourcesPage() {
             filteredDiscounts.map((d) => {
               const tags = (d.metadata?.tags as string[] | undefined) ?? [];
               return (
-                <div key={d.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5">
-                  <div className="flex items-start gap-4">
-                    <div className="text-3xl shrink-0 mt-0.5">{getDiscountEmoji(d.title)}</div>
+                <div key={d.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#c4956a] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
+                  <div className="flex items-start gap-3">
+                    <div className="bg-[#fef5e4] rounded-xl w-12 h-12 flex items-center justify-center shrink-0">
+                      <span className="text-3xl">{getDiscountEmoji(d.title)}</span>
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <a href={d.url} target="_blank" rel="noopener noreferrer"
@@ -627,9 +629,11 @@ export default function ResourcesPage() {
             <p className="text-sm text-[#b5aca4] text-center py-10">No field trips match that grade filter.</p>
           ) : (
             filteredTrips.map((t) => (
-              <div key={t.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5">
-                <div className="flex items-start gap-4">
-                  <div className="text-3xl shrink-0 mt-0.5">{getTripEmoji(t.title)}</div>
+              <div key={t.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#3d7080] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
+                <div className="flex items-start gap-3">
+                  <div className="bg-[#e4f2fb] rounded-xl w-12 h-12 flex items-center justify-center shrink-0">
+                    <span className="text-3xl">{getTripEmoji(t.title)}</span>
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2 mb-1.5">
                       <p className="font-bold text-[#2d2926] text-sm leading-snug">{t.title}</p>
@@ -661,9 +665,11 @@ export default function ResourcesPage() {
             filteredPrintables.map((p) => {
               const subjects = (p.metadata?.subjects as string[] | undefined) ?? [];
               return (
-                <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5">
-                  <div className="flex items-start gap-4">
-                    <div className="text-3xl shrink-0 mt-0.5">🖨️</div>
+                <div key={p.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#5c7f63] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
+                  <div className="flex items-start gap-3">
+                    <div className="bg-[#e8f0e9] rounded-xl w-12 h-12 flex items-center justify-center shrink-0">
+                      <span className="text-3xl">🖨️</span>
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <a href={p.url} target="_blank" rel="noopener noreferrer"
@@ -698,9 +704,11 @@ export default function ResourcesPage() {
               const time      = (p.metadata?.time as string | undefined) ?? "";
               const materials = (p.metadata?.materials as string | undefined) ?? "";
               return (
-                <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5">
-                  <div className="flex items-start gap-4">
-                    <div className="text-3xl shrink-0 mt-0.5">🔬</div>
+                <div key={p.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#7a5020] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
+                  <div className="flex items-start gap-3">
+                    <div className="bg-[#f5e8d8] rounded-xl w-12 h-12 flex items-center justify-center shrink-0">
+                      <span className="text-3xl">🔬</span>
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <a href={p.url} target="_blank" rel="noopener noreferrer"
@@ -823,9 +831,11 @@ export default function ResourcesPage() {
             </div>
           ) : (
             savedItems.map((item) => (
-              <div key={item.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5">
+              <div key={item.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#5c7f63] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
                 <div className="flex items-start gap-3">
-                  <div className="text-2xl shrink-0">{item.emoji}</div>
+                  <div className="bg-[#e8f0e9] rounded-xl w-12 h-12 flex items-center justify-center shrink-0">
+                    <span className="text-3xl">{item.emoji}</span>
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <a href={item.url} target="_blank" rel="noopener noreferrer"
