@@ -174,12 +174,14 @@ export default function SettingsPage() {
 
   async function saveFamilyName() {
     setSavingFamily(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) { setSavingFamily(false); return; }
 
-    await supabase
-      .from("profiles")
-      .upsert({ id: user.id, display_name: familyName.trim() }, { onConflict: "id" });
+    await fetch("/api/profile/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      body: JSON.stringify({ display_name: familyName.trim() }),
+    });
 
     setSavingFamily(false);
     setSavedFamily(true);
@@ -363,21 +365,21 @@ export default function SettingsPage() {
   async function savePartnerEmail() {
     setSavingPartner(true);
     setPartnerError("");
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSavingPartner(false); return; }
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) { setSavingPartner(false); return; }
 
-    const { error } = await supabase
-      .from("profiles")
-      .upsert(
-        { id: user.id, partner_email: partnerEmail.trim() || null },
-        { onConflict: "id" }
-      );
+    const res = await fetch("/api/profile/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      body: JSON.stringify({ partner_email: partnerEmail.trim() || null }),
+    });
 
-    if (error) {
+    if (!res.ok) {
+      const { error } = await res.json();
       setPartnerError(
-        error.message.includes("partner_email")
+        (error as string)?.includes("partner_email")
           ? "Column missing. Run this SQL in Supabase: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS partner_email text;"
-          : error.message
+          : (error as string) ?? "Failed to save. Please try again."
       );
     } else {
       setSavedPartnerEmail(partnerEmail.trim());
