@@ -188,8 +188,9 @@ export default function SettingsPage() {
 
     setSavingFamily(false);
     setSavedFamily(true);
-    setTimeout(() => setSavedFamily(false), 2500);
     refreshProfile();
+    console.log("[Settings] refreshProfile called after saving name:", familyName.trim());
+    setTimeout(() => window.location.reload(), 800);
   }
 
   // ── Homeschool state ──────────────────────────────────────────────────────
@@ -259,6 +260,8 @@ export default function SettingsPage() {
     setFamilyPhotoUrl(`${url}?t=${Date.now()}`);
     setPhotoUploading(false);
     refreshProfile();
+    console.log("[Settings] refreshProfile called after uploading photo:", url);
+    setTimeout(() => window.location.reload(), 800);
   }
 
   // ── Add child ─────────────────────────────────────────────────────────────

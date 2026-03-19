@@ -21,16 +21,21 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const [familyPhotoUrl, setFamilyPhotoUrl] = useState<string | null>(null);
 
   const refreshProfile = useCallback(async () => {
+    console.log("[ProfileContext] refreshProfile() called");
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data } = await supabase
+    if (!user) { console.log("[ProfileContext] no user, aborting"); return; }
+    const { data, error } = await supabase
       .from("profiles")
       .select("display_name, family_photo_url")
       .eq("id", user.id)
       .maybeSingle();
+    console.log("[ProfileContext] fetched profile data:", data, "error:", error);
     if (data) {
-      setDisplayName((data as { display_name?: string }).display_name ?? "");
-      setFamilyPhotoUrl((data as { family_photo_url?: string }).family_photo_url ?? null);
+      const name = (data as { display_name?: string }).display_name ?? "";
+      const photo = (data as { family_photo_url?: string }).family_photo_url ?? null;
+      console.log("[ProfileContext] setting displayName:", name, "familyPhotoUrl:", photo);
+      setDisplayName(name);
+      setFamilyPhotoUrl(photo);
     }
   }, []);
 
