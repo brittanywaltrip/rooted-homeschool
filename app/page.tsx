@@ -861,7 +861,7 @@ export default function Home() {
               Built by a homeschool mom, for homeschool families.
             </h2>
             <p className="text-[#7a6f65] leading-relaxed text-sm mb-4">
-              Hi, I&apos;m Brittany — homeschool mom to Zoe and Emma. I built Rooted for myself, because I couldn&apos;t find an app that felt calm, simple, and actually built for how we homeschool. If it helps and inspires even one other family along the way, that means everything.
+              Hi, I&apos;m Brittany — homeschool mom and creator of the Rooted App. I built Rooted because I always felt unorganized and was constantly wondering if we were falling behind. Rooted helps you plan your days, track learning, capture memories, and see your child&apos;s growth — and honestly, it does so much more than that. I didn&apos;t want something complicated. I just wanted to feel organized and on track. So I made it. From our family to yours — we hope you join our Rooted family.
             </p>
             <p className="text-sm font-semibold text-[#5c7f63]">— Brittany, founder &amp; homeschool mom 🌱</p>
           </div>
