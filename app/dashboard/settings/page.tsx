@@ -608,6 +608,8 @@ export default function SettingsPage() {
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
+                // Reset immediately so the same file can be re-selected on the next click
+                e.target.value = "";
                 if (file) uploadFamilyPhoto(file);
               }}
             />
