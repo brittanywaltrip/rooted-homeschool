@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp, MoreHorizontal, Tag, Printer } from "lucide-react";
+import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, TrendingUp, MoreHorizontal, Printer } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 
@@ -12,7 +12,6 @@ const navItems = [
   { label: "Plan",      href: "/dashboard/plan",       icon: Calendar   },
   { label: "Garden",    href: "/dashboard/garden",     icon: Leaf       },
   { label: "Resources", href: "/dashboard/resources",  icon: BookOpen   },
-  { label: "Pricing",   href: "/dashboard/pricing",    icon: Tag        },
   { label: "Progress",  href: "/dashboard/progress",   icon: TrendingUp },
   { label: "Insights",  href: "/dashboard/insights",   icon: TrendingUp },
   { label: "Memories",  href: "/dashboard/memories",   icon: Camera     },
@@ -286,6 +285,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Settings + Sign out */}
       <div className="p-3 border-t border-[#e8e2d9] space-y-0.5">
+        <NavLink
+          label="Upgrade ✨"
+          href="/dashboard/pricing"
+          icon={TrendingUp}
+          active={isActive("/dashboard/pricing")}
+          onClick={() => setMenuOpen(false)}
+        />
         {!partnerCtx.isPartner && (
           <NavLink
             label="Settings"
