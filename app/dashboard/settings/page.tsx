@@ -511,9 +511,16 @@ export default function SettingsPage() {
           : (error as string) ?? "Failed to save. Please try again."
       );
     } else {
-      setSavedPartnerEmail(partnerEmail.trim());
+      const saved = partnerEmail.trim();
+      setSavedPartnerEmail(saved);
       setPartnerSaved(true);
       setTimeout(() => setPartnerSaved(false), 2500);
+      // Fire-and-forget invite email — don't block UI
+      fetch("/api/partner/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: saved, familyName }),
+      }).catch(() => {});
     }
     setSavingPartner(false);
   }
@@ -1056,10 +1063,10 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* ── Partner Access ──────────────────────────────────── */}
+      {/* ── Co-teacher Access ───────────────────────────────── */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-[#2d2926]">Partner Access</h2>
+          <h2 className="text-sm font-semibold text-[#2d2926]">Co-teacher Access</h2>
           <span className="h-px flex-1 bg-[#e8e2d9]" />
         </div>
 
@@ -1069,54 +1076,71 @@ export default function SettingsPage() {
               <Users size={16} className="text-[#5c7f63]" />
             </div>
             <div>
-              <p className="text-sm font-medium text-[#2d2926] mb-0.5">Invite a Partner</p>
+              <p className="text-sm font-medium text-[#2d2926] mb-0.5">Invite a Co-teacher</p>
               <p className="text-xs text-[#7a6f65] leading-relaxed">
-                Enter your co-parent&apos;s email address. When they sign up or log in with that
-                email, they&apos;ll see your family&apos;s dashboard in read-only mode.
+                Invite your spouse, co-parent, or anyone who teaches alongside you. They&apos;ll be able
+                to view your family&apos;s dashboard — lessons, garden, memories, and progress.
               </p>
             </div>
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-              Partner email address
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="email"
-                value={partnerEmail}
-                onChange={(e) => setPartnerEmail(e.target.value)}
-                placeholder="partner@email.com"
-                className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
-              />
+          {savedPartnerEmail && !partnerError ? (
+            <div className="flex items-center justify-between gap-3 bg-[#e8f0e9] rounded-xl px-4 py-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[#3d5c42] font-semibold text-sm shrink-0">✓</span>
+                <p className="text-sm text-[#3d5c42] font-medium truncate">
+                  Invite sent to {savedPartnerEmail}
+                </p>
+              </div>
               <button
-                onClick={savePartnerEmail}
-                disabled={savingPartner}
-                className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
-                  partnerSaved
-                    ? "bg-[#e8f0e9] text-[#3d5c42]"
-                    : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
-                }`}
+                onClick={async () => {
+                  setPartnerEmail("");
+                  setSavedPartnerEmail("");
+                  setPartnerError("");
+                  setSavingPartner(true);
+                  const token = (await supabase.auth.getSession()).data.session?.access_token;
+                  if (token) {
+                    await fetch("/api/profile/update", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                      body: JSON.stringify({ partner_email: null }),
+                    });
+                  }
+                  setSavingPartner(false);
+                }}
+                className="text-xs font-medium text-[#7a6f65] hover:text-red-500 transition-colors shrink-0"
               >
-                {partnerSaved ? "✓ Saved" : savingPartner ? "Saving…" : "Save"}
+                Remove
               </button>
             </div>
-          </div>
+          ) : (
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
+                Co-teacher email address
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={partnerEmail}
+                  onChange={(e) => setPartnerEmail(e.target.value)}
+                  placeholder="coteacher@email.com"
+                  className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+                />
+                <button
+                  onClick={savePartnerEmail}
+                  disabled={savingPartner || !partnerEmail.trim()}
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                >
+                  {savingPartner ? "Sending…" : "Send Invite"}
+                </button>
+              </div>
+            </div>
+          )}
 
           {partnerError && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
               {partnerError}
             </p>
-          )}
-
-          {savedPartnerEmail && !partnerError && (
-            <div className="bg-[#e8f0e9] rounded-xl px-3 py-2.5">
-              <p className="text-xs text-[#3d5c42] font-medium mb-0.5">Partner invite active</p>
-              <p className="text-xs text-[#5c7f63]">
-                <span className="font-medium">{savedPartnerEmail}</span> can log in at rootedhomeschoolapp.com
-                to view your family&apos;s dashboard in read-only mode.
-              </p>
-            </div>
           )}
         </div>
       </section>
