@@ -123,6 +123,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [menuOpen,           setMenuOpen]           = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [resourcesBadge,     setResourcesBadge]     = useState(false);
+  const [isAdmin,            setIsAdmin]            = useState(false);
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
     isPartner: false,
     effectiveUserId: "",
@@ -142,6 +143,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       if (!session) {
         router.replace("/login");
         return;
+      }
+
+      if (session.user.email === "garfieldbrittany@gmail.com") {
+        setIsAdmin(true);
       }
 
       // Check if Resources has new Fresh Drops this week
@@ -166,6 +171,14 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       setSubscriptionStatus(profile?.subscription_status ?? null);
 
       // ── Partner detection ──────────────────────────────────────────────────
+      // The owner/admin account is never a partner view — skip the check entirely.
+      if (session.user.email === "garfieldbrittany@gmail.com") {
+        sessionStorage.removeItem("rooted_partner");
+        setPartnerCtx({ isPartner: false, effectiveUserId: session.user.id, ownerName: "" });
+        setChecking(false);
+        return;
+      }
+
       // Check sessionStorage cache first (avoids extra DB call on nav)
       const cached = sessionStorage.getItem("rooted_partner");
       if (cached) {
@@ -383,6 +396,16 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             active={isActive("/dashboard/settings")}
             onClick={() => setMenuOpen(false)}
           />
+        )}
+        {isAdmin && (
+          <Link
+            href="/admin"
+            onClick={() => setMenuOpen(false)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] hover:text-[#2d2926] transition-colors"
+          >
+            <span className="text-[15px]">🔒</span>
+            Admin
+          </Link>
         )}
         <button
           onClick={handleSignOut}
