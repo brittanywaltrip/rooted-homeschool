@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Camera,
@@ -118,7 +118,18 @@ const HELP_ITEMS: CardItem[] = [
   { icon: Mail,       label: "Contact Us", sub: "hello.rootedapp@gmail.com",    mailto: "hello.rootedapp@gmail.com" },
 ];
 
+// Most recent update date as ISO string (first of the month)
+const LATEST_UPDATE_DATE = "2026-03-01";
+const LAST_SEEN_KEY = "rooted_whats_new_last_seen";
+
 export default function MorePage() {
+  const [hasUnread, setHasUnread] = useState(false);
+
+  useEffect(() => {
+    const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
+    setHasUnread(!lastSeen || lastSeen < LATEST_UPDATE_DATE);
+  }, []);
+
   return (
     <div className="max-w-xl mx-auto px-5 py-8 space-y-8">
 
@@ -129,6 +140,31 @@ export default function MorePage() {
           More
         </h1>
         <p className="text-sm text-[#7a6f65] mt-1">Tools &amp; resources</p>
+      </div>
+
+      {/* What's New */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4]">Updates</p>
+        <Link
+          href="/dashboard/more/whats-new"
+          className="block bg-[#fefcf9] border border-[#c8ddb8] rounded-2xl overflow-hidden"
+        >
+          <div className="flex items-center gap-4 px-5 py-4 hover:bg-[#faf8f5] transition-colors">
+            <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0 text-lg">
+              🌱
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-[#2d2926]">What&apos;s New</p>
+                {hasUnread && (
+                  <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" aria-label="Unread updates" />
+                )}
+              </div>
+              <p className="text-xs text-[#7a6f65]">Latest updates &amp; improvements</p>
+            </div>
+            <span className="text-[#c8bfb5] text-lg leading-none">›</span>
+          </div>
+        </Link>
       </div>
 
       {/* Feature pages */}
