@@ -1,23 +1,13 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
-
-const FOUNDING_LIMIT = 200
 
 export default function UpgradePage() {
   const router = useRouter()
   const [loadingPlan, setLoadingPlan] = useState<'founding' | 'standard' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [foundingCount, setFoundingCount] = useState<number | null>(null)
-
-  useEffect(() => {
-    fetch('/api/founding-count')
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(d => setFoundingCount(d.count))
-      .catch(() => setFoundingCount(null))
-  }, [])
 
   async function handleClick(plan: 'founding' | 'standard') {
     setError(null)
@@ -96,23 +86,7 @@ export default function UpgradePage() {
                   </span>
                 </div>
                 <p className="text-sm text-[#5c7f63]">Lock in forever — first 200 families only</p>
-                <div className="mt-2.5">
-                  {foundingCount !== null ? (
-                    <>
-                      <p className="text-xs text-[#3d5c42] font-medium mb-1.5">
-                        🌿 {foundingCount} of {FOUNDING_LIMIT} spots claimed — <span className="font-bold">{FOUNDING_LIMIT - foundingCount} remaining</span>
-                      </p>
-                      <div className="w-full h-1.5 bg-[#c8ddb8] rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-[#5c7f63] transition-all duration-700"
-                          style={{ width: `${Math.min((foundingCount / FOUNDING_LIMIT) * 100, 100)}%` }}
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-xs text-[#5c7f63]">🌿 Limited spots remaining</p>
-                  )}
-                </div>
+                <p className="text-sm text-[#7a6f65] mt-1">🕐 Founding Family pricing ends April 30</p>
               </div>
               <div className="text-right shrink-0 ml-4">
                 <span className="text-3xl font-bold text-[#2d2926]">$39</span>
