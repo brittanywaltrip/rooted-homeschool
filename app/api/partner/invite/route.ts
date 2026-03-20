@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
 
     const displayName = familyName || "Your family";
 
-    await resend.emails.send({
+    const result = await resend.emails.send({
       from: "Rooted <hello@rootedhomeschoolapp.com>",
       to: email,
       subject: `${displayName} invited you to Rooted 🌱`,
@@ -30,9 +30,14 @@ Once you're in, you'll see ${displayName}'s dashboard automatically.
 — The Rooted Team 🌱`,
     });
 
+    if (result.error) {
+      console.error("Resend error:", result.error);
+      return NextResponse.json({ error: result.error }, { status: 500 });
+    }
+
     return NextResponse.json({ ok: true });
-  } catch {
-    // Fire-and-forget — caller doesn't block on this, so just log
+  } catch (err) {
+    console.error("Partner invite error:", err);
     return NextResponse.json({ ok: false }, { status: 500 });
   }
 }

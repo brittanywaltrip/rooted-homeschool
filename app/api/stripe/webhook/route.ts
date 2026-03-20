@@ -39,7 +39,8 @@ async function getActiveSubCount(): Promise<number> {
 async function sendEmail(to: string, subject: string, text: string, from = 'Rooted <hello@rootedhomeschoolapp.com>') {
   const { Resend } = await import('resend')
   const resend = new Resend(process.env.RESEND_API_KEY)
-  await resend.emails.send({ from, to, subject, text })
+  const result = await resend.emails.send({ from, to, subject, text })
+  if (result.error) console.error('Resend sendEmail error:', result.error)
 }
 
 export async function POST(req: NextRequest) {
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
         ADMIN_EMAIL,
         `🌱 New ${plan === 'founding_family' ? 'Founding Member' : 'Subscriber'}! ${familyName} just subscribed`,
         `New subscription on Rooted!\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(priceId)}\nTime: ${now}\nTotal active subscribers: ${activeCount}\n\nRooted is growing! 🌱`
-      ).catch(() => {})
+      )\.catch((err) => console.error("Resend sendEmail error:", err))
 
       // Thank-you email to the new subscriber
       if (customerEmail !== '—') {
@@ -106,7 +107,7 @@ export async function POST(req: NextRequest) {
           subjectLine,
           body,
           'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
-        ).catch(() => {})
+        )\.catch((err) => console.error("Resend sendEmail error:", err))
       }
     }
   }
@@ -148,7 +149,7 @@ export async function POST(req: NextRequest) {
         ADMIN_EMAIL,
         `💔 Subscription cancelled — ${familyName}`,
         `A subscription was cancelled.\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(priceId)}\nMember since: ${startDate}\nCancelled: ${endDate}\n\nRemaining active subscribers: ${activeCount}\n\nConsider reaching out personally to learn why.`
-      ).catch(() => {}) // fire-and-forget
+      )\.catch((err) => console.error("Resend sendEmail error:", err)) // fire-and-forget
     }
   }
 
