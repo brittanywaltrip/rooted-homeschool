@@ -156,7 +156,7 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="📋" title="Recent Signups" />
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#e8e2d9] bg-[#f8f5f0]">

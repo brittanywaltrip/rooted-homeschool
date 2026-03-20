@@ -96,7 +96,6 @@ export async function GET(req: Request) {
   const recentSignups = allUsers
     .filter(u => !TEST_EMAILS.some(t => (u.email ?? "").includes(t)))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 20)
     .map(u => {
       const profile = profileMap.get(u.id);
       const planType = profile?.plan_type ?? null;
