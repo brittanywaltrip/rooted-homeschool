@@ -461,6 +461,36 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── 3b. CURRICULUM CLARIFIER ─────────────────────────────────────────── */}
+      <section className="bg-[#fefcf9] border-b border-[#e8e2d9] py-6 px-6">
+        <div className="max-w-3xl mx-auto text-center">
+          <p className="text-sm sm:text-base text-[#7a6f65] leading-relaxed">
+            <span className="font-semibold text-[#2d2926]">Rooted isn&apos;t a curriculum</span>
+            {" "}— it&apos;s the calm companion that works{" "}
+            <em className="not-italic font-semibold text-[#5c7f63]">alongside</em>
+            {" "}the one you already love. 🌿
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+            {[
+              "Charlotte Mason",
+              "The Good and the Beautiful",
+              "Classical",
+              "Sonlight",
+              "Unit Studies",
+              "Unschooling",
+              "Any approach ✨",
+            ].map((c) => (
+              <span
+                key={c}
+                className="text-xs bg-[#e8f0e9] text-[#5c7f63] px-3 py-1.5 rounded-full border border-[#c2dbc5] font-medium"
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── 4. APP PREVIEW ─────────────────────────────────────────────────── */}
       <section id="features" className="px-6 sm:px-8 py-20 max-w-5xl mx-auto">
         <div className="text-center mb-14">
