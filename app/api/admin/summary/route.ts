@@ -94,26 +94,26 @@ export async function GET(req: Request) {
 
   const TEST_EMAILS = ["test@", "example.com", ADMIN_EMAIL];
 
-  const recentSignups = allUsers
+  // Build signups without plan first — plan will be overridden from Stripe below
+  let recentSignups = allUsers
     .filter(u => !TEST_EMAILS.some(t => (u.email ?? "").includes(t)))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .map(u => {
       const profile = profileMap.get(u.id);
-      const planType = profile?.plan_type ?? null;
       return {
-        id:              u.id,
-        email:           u.email ?? "—",
-        first_name:      profile?.first_name ?? null,
-        last_name:       profile?.last_name ?? null,
-        family_name:     profile?.display_name ?? null,
-        plan:            planType === "founding_family" ? "Founding" : planType === "standard" ? "Standard" : "Free",
-        children_count:  childrenByUser.get(u.id) ?? 0,
-        lessons_done:    lessonsByUser.get(u.id) ?? 0,
-        joined:          u.created_at,
+        id:             u.id,
+        email:          u.email ?? "—",
+        first_name:     profile?.first_name ?? null,
+        last_name:      profile?.last_name ?? null,
+        family_name:    profile?.display_name ?? null,
+        plan:           "Free" as string,
+        children_count: childrenByUser.get(u.id) ?? 0,
+        lessons_done:   lessonsByUser.get(u.id) ?? 0,
+        joined:         u.created_at,
       };
     });
 
-  // Revenue — live from Stripe
+  // Revenue — live from Stripe, also used to tag plan on signups
   let stripeFoundingCount = 0;
   let stripeStandardCount = 0;
   let cancelledFoundingCount = 0;
@@ -124,18 +124,56 @@ export async function GET(req: Request) {
       stripe.subscriptions.list({ status: "active", limit: 100 }),
       stripe.subscriptions.list({ status: "canceled", limit: 100 }),
     ]);
+
+    // Count active by price
     for (const sub of activeSubs.data) {
       const priceId = sub.items.data[0]?.price.id;
       if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID) stripeFoundingCount++;
       else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID) stripeStandardCount++;
     }
+
+    // Count cancelled by price
     for (const sub of cancelledSubs.data) {
       const priceId = sub.items.data[0]?.price.id;
       if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID) cancelledFoundingCount++;
       else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID) cancelledStandardCount++;
     }
+
+    // Build email → plan map from active Stripe customers
+    const customerObjects = await Promise.all(
+      activeSubs.data.map(sub => stripe.customers.retrieve(sub.customer as string))
+    );
+    // Map: lowercase email → "Founding" | "Standard"
+    const payingEmails = new Map<string, string>();
+    for (const sub of activeSubs.data) {
+      const customer = customerObjects.find(c => !c.deleted && c.id === sub.customer);
+      if (!customer || customer.deleted) continue;
+      const email = (customer as Stripe.Customer).email?.toLowerCase();
+      if (!email) continue;
+      const priceId = sub.items.data[0]?.price.id;
+      const plan = priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID
+        ? "Founding"
+        : priceId === process.env.STRIPE_STANDARD_PRICE_ID
+        ? "Standard"
+        : null;
+      if (plan) payingEmails.set(email, plan);
+    }
+
+    // Override plan on signups using Stripe as source of truth
+    recentSignups = recentSignups.map(signup => ({
+      ...signup,
+      plan: payingEmails.get(signup.email.toLowerCase()) ?? "Free",
+    }));
   } catch {
-    // Fall back to DB counts if Stripe is unavailable
+    // Fall back to DB plan_type if Stripe is unavailable
+    recentSignups = recentSignups.map(signup => {
+      const profile = profileMap.get(signup.id);
+      const planType = profile?.plan_type ?? null;
+      return {
+        ...signup,
+        plan: planType === "founding_family" ? "Founding" : planType === "standard" ? "Standard" : "Free",
+      };
+    });
     stripeFoundingCount = foundingFamilies;
     stripeStandardCount = standardSubs;
   }

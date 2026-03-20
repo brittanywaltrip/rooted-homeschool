@@ -276,6 +276,7 @@ export default function AdminPage() {
               <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-1">Est. Annual Revenue</p>
               <p className="text-4xl font-bold text-[#2d2926] leading-none">${data.estAnnualRevenue.toLocaleString()}</p>
               <p className="text-xs text-[#7a6f65] mt-2">Based on live Stripe active subscriptions</p>
+              <p className="text-xs text-[#b5aca4] mt-1">If you issued a refund, cancel the subscription in Stripe to keep this accurate.</p>
             </div>
             <StatCard
               label="Founding Members Paying"
