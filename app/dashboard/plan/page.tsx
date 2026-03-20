@@ -804,6 +804,14 @@ export default function PlanPage() {
                   </p>
                 </div>
 
+                {/* Finish line nudge — full-width row in the flex-wrap container */}
+                <Link
+                  href="/dashboard#finish-line"
+                  className="w-full text-[10px] text-[#b5aca4] hover:text-[#5c7f63] transition-colors -mt-1"
+                >
+                  🎯 No finish line set — Add a goal to track your pace
+                </Link>
+
                 {/* Actions */}
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button onClick={() => openEditDays(group)}
@@ -1406,6 +1414,13 @@ export default function PlanPage() {
                         className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors shadow-sm">
                         View my plan →
                       </button>
+                      <Link
+                        href="/dashboard#finish-line"
+                        onClick={closeWizard}
+                        className="text-xs text-[#7a6f65] hover:text-[#3d5c42] transition-colors"
+                      >
+                        🎯 Set a finish line goal →
+                      </Link>
                     </div>
                   </div>
                 )}

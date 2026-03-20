@@ -52,7 +52,7 @@ export default function FinishLineSection() {
   if (loading) return null
 
   return (
-    <div>
+    <div id="finish-line">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">Finish Line 🎯</h2>
         <button onClick={() => setShowAddModal(true)} className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors">+ Add Goal</button>
