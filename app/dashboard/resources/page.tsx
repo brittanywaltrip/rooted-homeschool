@@ -18,7 +18,7 @@ type DbResource = {
   metadata: Record<string, unknown>;
 };
 type FreshDrop = { name: string; desc: string; type: string; grade: GradeTag; url: string; emoji: string; };
-type EasyWin   = { emoji: string; title: string; desc: string; time: string; grade: string; };
+type EasyWin   = { emoji: string; title: string; desc: string; time: string; grade: string; url?: string; };
 
 // ─── State Requirements (all 50 states) ──────────────────────────────────────
 
@@ -105,12 +105,12 @@ const FRESH_DROPS_POOL: FreshDrop[] = [
 // ─── Easy Wins ────────────────────────────────────────────────────────────────
 
 const EASY_WINS: EasyWin[] = [
-  { emoji: "🎨", title: "Salt Tray Writing",          desc: "Pour salt in a tray, practice spelling words or letters with a finger.",                  time: "5 min",    grade: "K–2"      },
-  { emoji: "🔭", title: "Shadow Tracing",             desc: "Trace your shadow at different times of day. Watch it move and discuss why.",              time: "10 min",   grade: "All Ages" },
-  { emoji: "📚", title: "Audiobook Hour",             desc: "Put on a great audiobook and do a puzzle together. Zero prep, total engagement.",          time: "0 min prep", grade: "All Ages" },
-  { emoji: "🌿", title: "Nature Alphabet Hunt",       desc: "Go outside and find something in nature for each letter of the alphabet.",                 time: "15 min",   grade: "K–5"      },
-  { emoji: "🍳", title: "Kitchen Math",               desc: "Double a recipe together. Real fractions, real reward, and everyone eats the results.",   time: "20 min",   grade: "3–8"      },
-  { emoji: "🎭", title: "History Podcast",            desc: "Put on a 'Stuff You Missed in History Class' episode during lunch or craft time.",         time: "0 min prep", grade: "All Ages" },
+  { emoji: "🎨", title: "Salt Tray Writing",          desc: "Pour salt in a tray, practice spelling words or letters with a finger.",                  time: "5 min",    grade: "K–2",      url: "https://www.growinghandsonkids.com/salt-tray-writing-activity.html" },
+  { emoji: "🔭", title: "Shadow Tracing",             desc: "Trace your shadow at different times of day. Watch it move and discuss why.",              time: "10 min",   grade: "All Ages", url: "https://spaceplace.nasa.gov/menu/teach/" },
+  { emoji: "📚", title: "Audiobook Hour",             desc: "Put on a great audiobook and do a puzzle together. Zero prep, total engagement.",          time: "0 min prep", grade: "All Ages", url: "https://librivox.org" },
+  { emoji: "🌿", title: "Nature Alphabet Hunt",       desc: "Go outside and find something in nature for each letter of the alphabet.",                 time: "15 min",   grade: "K–5",      url: "https://www.kidsactivitiesblog.com/73217/nature-scavenger-hunt-alphabet/" },
+  { emoji: "🍳", title: "Kitchen Math",               desc: "Double a recipe together. Real fractions, real reward, and everyone eats the results.",   time: "20 min",   grade: "3–8",      url: "https://www.khanacademy.org/math/cc-fourth-grade-math/cc-4th-fractions-topic" },
+  { emoji: "🎭", title: "History Podcast",            desc: "Put on a 'Stuff You Missed in History Class' episode during lunch or craft time.",         time: "0 min prep", grade: "All Ages", url: "https://www.missedinhistory.com" },
 ];
 
 const EASY_WIN_COLORS = [
@@ -646,13 +646,19 @@ export default function ResourcesPage() {
                 <div className="text-4xl mb-3">{win.emoji}</div>
                 <p className="font-bold text-[#2d2926] text-sm mb-1">{win.title}</p>
                 <p className="text-xs text-[#5c5550] leading-relaxed mb-3">{win.desc}</p>
-                <div className="flex gap-1.5 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-white/70 text-[#7a6f65] border border-white">
                     ⏱ {win.time}
                   </span>
                   <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-white/70 text-[#7a6f65] border border-white">
                     {win.grade}
                   </span>
+                  {win.url && (
+                    <a href={win.url} target="_blank" rel="noopener noreferrer"
+                      className="ml-auto text-[10px] font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-2.5 py-0.5 rounded-lg transition-colors">
+                      Try it ↗
+                    </a>
+                  )}
                 </div>
               </div>
             );
@@ -671,9 +677,17 @@ export default function ResourcesPage() {
               >
                 <div className="text-2xl mb-2">{win.emoji}</div>
                 <p className="font-semibold text-[#2d2926] text-xs mb-1 leading-snug">{win.title}</p>
-                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-white/70 text-[#7a6f65]">
-                  ⏱ {win.time}
-                </span>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-white/70 text-[#7a6f65]">
+                    ⏱ {win.time}
+                  </span>
+                  {win.url && (
+                    <a href={win.url} target="_blank" rel="noopener noreferrer"
+                      className="text-[9px] font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-1.5 py-0.5 rounded transition-colors">
+                      ↗
+                    </a>
+                  )}
+                </div>
               </div>
             );
           })}
