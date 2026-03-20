@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, MoreHorizontal, GraduationCap } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
+import UpgradeBanner from "@/app/components/UpgradeBanner";
 import { ProfileProvider, useProfile } from "@/lib/profile-context";
 
 const navItems = [
@@ -425,6 +426,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
   return (
     <PartnerContext.Provider value={partnerCtx}>
+      <UpgradeBanner />
       <div className="min-h-screen bg-[#f8f7f4] flex">
         {/* Desktop sidebar */}
         <aside className="hidden md:flex flex-col w-52 bg-[#fefcf9] border-r border-[#e8e2d9] fixed top-0 left-0 h-full z-40">
