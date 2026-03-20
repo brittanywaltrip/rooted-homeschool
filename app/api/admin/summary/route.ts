@@ -113,6 +113,44 @@ export async function GET(req: Request) {
       };
     });
 
+  // User funnel — unique user counts per table
+  let funnel: {
+    totalSignups: number;
+    completedOnboarding: number;
+    addedChild: number;
+    loggedLesson: number;
+    addedSubject: number;
+    addedResource: number;
+    createdReflection: number;
+    usedVacation: number;
+  } | null = null;
+  try {
+    const tables = ['children', 'lessons', 'subjects', 'resources', 'daily_reflections', 'vacation_blocks'];
+    const [
+      { count: totalSignups },
+      { count: completedOnboarding },
+      ...tableResults
+    ] = await Promise.all([
+      supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }).eq('onboarded', true),
+      ...tables.map(t => supabaseAdmin.from(t).select('user_id')),
+    ]);
+    const [childRows, lessonRows, subjectRows, resourceRows, reflectionRows, vacationRows] = tableResults as { data: { user_id: string }[] | null }[];
+    const uniq = (rows: { user_id: string }[] | null) => new Set(rows?.map(x => x.user_id) ?? []).size;
+    funnel = {
+      totalSignups:        totalSignups        ?? 0,
+      completedOnboarding: completedOnboarding ?? 0,
+      addedChild:          uniq(childRows.data),
+      loggedLesson:        uniq(lessonRows.data),
+      addedSubject:        uniq(subjectRows.data),
+      addedResource:       uniq(resourceRows.data),
+      createdReflection:   uniq(reflectionRows.data),
+      usedVacation:        uniq(vacationRows.data),
+    };
+  } catch {
+    funnel = null;
+  }
+
   // Revenue — live from Stripe, also used to tag plan on signups
   let stripeFoundingCount = 0;
   let stripeStandardCount = 0;
@@ -207,6 +245,8 @@ export async function GET(req: Request) {
     stripeActiveTotal,
     cancelledFoundingCount,
     cancelledStandardCount,
+    // Funnel
+    funnel,
     // Recent signups
     recentSignups,
   });

@@ -33,6 +33,17 @@ interface AdminSummary {
   stripeActiveTotal: number;
   cancelledFoundingCount: number;
   cancelledStandardCount: number;
+  // Funnel
+  funnel: {
+    totalSignups: number;
+    completedOnboarding: number;
+    addedChild: number;
+    loggedLesson: number;
+    addedSubject: number;
+    addedResource: number;
+    createdReflection: number;
+    usedVacation: number;
+  } | null;
   // Recent signups
   recentSignups: {
     id: string;
@@ -159,7 +170,45 @@ export default function AdminPage() {
           </div>
         </section>
 
-        {/* Section 4 — Recent Signups */}
+        {/* Section 4 — User Funnel */}
+        <section>
+          <SectionHeader emoji="🔍" title="User Funnel" />
+          {data.funnel === null ? (
+            <p className="text-sm text-[#8cba8e] opacity-60">Funnel data unavailable.</p>
+          ) : (() => {
+            const base = data.funnel!.totalSignups || 1;
+            const steps = [
+              { label: "Signed up",             count: data.funnel!.totalSignups },
+              { label: "Completed onboarding",  count: data.funnel!.completedOnboarding },
+              { label: "Added a child",          count: data.funnel!.addedChild },
+              { label: "Set up subjects",        count: data.funnel!.addedSubject },
+              { label: "Logged a lesson",        count: data.funnel!.loggedLesson },
+              { label: "Logged a resource",      count: data.funnel!.addedResource },
+              { label: "Created a reflection",   count: data.funnel!.createdReflection },
+              { label: "Used vacation blocking", count: data.funnel!.usedVacation },
+            ];
+            return (
+              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 space-y-3">
+                {steps.map(({ label, count }) => {
+                  const pct = Math.round((count / base) * 100);
+                  const barColor = pct >= 60 ? "bg-green-500" : pct >= 30 ? "bg-amber-400" : "bg-rose-400";
+                  return (
+                    <div key={label} className="flex items-center gap-3">
+                      <p className="text-sm text-[#2d2926] w-44 shrink-0">{label}</p>
+                      <div className="flex-1 bg-[#f0ede8] rounded-full h-2 overflow-hidden">
+                        <div className={`${barColor} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <p className="text-sm text-[#2d2926] w-10 text-right shrink-0">{count}</p>
+                      <p className="text-xs text-[#b5aca4] w-10 text-right shrink-0">{pct}%</p>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </section>
+
+        {/* Section 5 — Recent Signups */}
         <section>
           <SectionHeader emoji="📋" title={`All Signups (${data.recentSignups.length})`} />
 
