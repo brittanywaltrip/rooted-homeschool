@@ -842,6 +842,14 @@ export default function PlanPage() {
 
   const modalDateLabel = modalDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
+  // ── Vacation modal derived ────────────────────────────────────────────────
+  const vacDays = vacStart && vacEnd && vacEnd >= vacStart
+    ? Math.round((new Date(vacEnd + "T00:00:00").getTime() - new Date(vacStart + "T00:00:00").getTime()) / 86400000) + 1
+    : 0;
+  const vacStartLabel = vacStart ? new Date(vacStart + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+  const vacEndLabel   = vacEnd   ? new Date(vacEnd   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+  const vacCanSave    = !!(vacName.trim() && vacStart && vacEnd && vacEnd >= vacStart);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -1290,14 +1298,7 @@ export default function PlanPage() {
       {/* ══════════════════════════════════════════════════════
           ADD A BREAK MODAL
       ══════════════════════════════════════════════════════ */}
-      {showVacModal && (() => {
-        const vacDays = vacStart && vacEnd && vacEnd >= vacStart
-          ? Math.round((new Date(vacEnd + "T00:00:00").getTime() - new Date(vacStart + "T00:00:00").getTime()) / 86400000) + 1
-          : 0;
-        const startLabel = vacStart ? new Date(vacStart + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-        const endLabel   = vacEnd   ? new Date(vacEnd   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-        const canSave = vacName.trim() && vacStart && vacEnd && vacEnd >= vacStart;
-        return (
+      {showVacModal && (
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
             <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
               <div className="flex items-start justify-between">
@@ -1334,7 +1335,7 @@ export default function PlanPage() {
 
               {vacDays > 0 && (
                 <div className="bg-[#fef9e8] border border-[#f0dda8] rounded-2xl px-4 py-3 text-center text-sm text-[#7a4a1a] font-medium">
-                  🌴 {vacDays} {vacDays === 1 ? "day" : "days"} off — {startLabel} to {endLabel}
+                  🌴 {vacDays} {vacDays === 1 ? "day" : "days"} off — {vacStartLabel} to {vacEndLabel}
                 </div>
               )}
 
@@ -1366,15 +1367,14 @@ export default function PlanPage() {
 
               <div className="flex gap-2 pt-1">
                 <button onClick={() => setShowVacModal(false)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
-                <button onClick={saveVacationBlock} disabled={savingVac || !canSave}
+                <button onClick={saveVacationBlock} disabled={savingVac || !vacCanSave}
                   className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
                   {savingVac ? "Saving…" : "Save Break 🌴"}
                 </button>
               </div>
             </div>
           </div>
-        );
-      })()}
+      )}
 
       {/* ══════════════════════════════════════════════════════
           CURRICULUM SETUP WIZARD

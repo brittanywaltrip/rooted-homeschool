@@ -62,13 +62,13 @@ const LAST_SEEN_KEY = "rooted_whats_new_last_seen";
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function WhatsNewPage() {
-  // Mark as seen on every visit
   useEffect(() => {
     localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString().split("T")[0]);
   }, []);
 
   return (
     <div className="max-w-xl mx-auto px-5 py-8 space-y-6">
+
       {/* Back link */}
       <Link
         href="/dashboard/more"
@@ -79,9 +79,7 @@ export default function WhatsNewPage() {
 
       {/* Header */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a9e7e] mb-1">
-          Rooted
-        </p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a9e7e] mb-1">Rooted</p>
         <h1 className="text-2xl font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
           What&apos;s New 🌱
         </h1>
@@ -97,22 +95,15 @@ export default function WhatsNewPage() {
             key={i}
             className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 space-y-2"
           >
-            {/* Date */}
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4]">
               {update.date}
             </p>
-
-            {/* Title */}
             <h2 className="text-base font-bold text-[#2d2926] leading-snug">
               {update.emoji} {update.title}
             </h2>
-
-            {/* Description */}
             <p className="text-sm text-[#7a6f65] leading-relaxed">
               {update.description}
             </p>
-
-            {/* Inspired-by tag */}
             {update.inspiredByFamily && (
               <div className="inline-flex items-center gap-1.5 bg-[#fef9e8] border border-[#f0dda8] rounded-full px-3 py-1 text-xs font-semibold text-[#7a4a1a]">
                 💛 Inspired by a Rooted family!
@@ -122,9 +113,7 @@ export default function WhatsNewPage() {
         ))}
       </div>
 
-      <p className="text-center text-xs text-[#c8bfb5] pb-4">
-        More updates coming soon 🌿
-      </p>
+      <p className="text-center text-xs text-[#c8bfb5] pb-4">More updates coming soon 🌿</p>
     </div>
   );
 }
