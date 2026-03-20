@@ -637,7 +637,7 @@ export default function PlanPage() {
 
     const inserts = rows.map(({ date, n }) => ({
       user_id: user.id, child_id: wizChildId || null, subject_id: subjectId,
-      title: `${wizCurricName} — Lesson ${n}`, date, scheduled_date: date, completed: false, hours: null,
+      title: `${wizCurricName} — Lesson ${n}`, date, scheduled_date: date, completed: false, hours: 0,
     }));
     for (let i = 0; i < inserts.length; i += 100) {
       const { error: insertErr } = await supabase.from("lessons").insert(inserts.slice(i, i + 100));
