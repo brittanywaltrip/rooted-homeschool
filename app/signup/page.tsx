@@ -44,7 +44,7 @@ export default function SignupPage() {
     "Plan your week in minutes",
     "Watch their tree grow with every lesson",
     "Capture memories automatically",
-    "Print state-ready reports in one click",
+    "Look back on everything they've learned this year",
   ];
 
   return (
