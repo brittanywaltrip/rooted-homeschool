@@ -26,6 +26,19 @@ const FEATURES: {
   note: string;
 }[] = [
   {
+    id: "memories",
+    label: "Memories",
+    emoji: "📸",
+    headline: "Capture every learning moment",
+    sub: "The years go by so fast. Rooted helps you hold onto them — photos, quotes, books, and moments you'd otherwise forget.",
+    bullets: [
+      "Save photos, field trip moments, and little things they said — it takes 10 seconds",
+      "Build a book log as you go — a record of everything they've ever read",
+      "Generate a warm AI-written Family Update to share with grandparents — no app needed",
+    ],
+    note: "Shareable link, no app download needed 🔗",
+  },
+  {
     id: "today",
     label: "Today",
     emoji: "☀️",
@@ -76,19 +89,6 @@ const FEATURES: {
       "Filter by child, date range, and subject — then download as a PDF",
     ],
     note: "Works for all 50 states 🗺️",
-  },
-  {
-    id: "memories",
-    label: "Memories",
-    emoji: "📸",
-    headline: "Capture every learning moment",
-    sub: "Your family's story — photos, books, and projects all in one place.",
-    bullets: [
-      "Log photos, field trips, projects, and books as you go — takes 10 seconds",
-      "Generate a warm AI-written Family Update to share with grandparents",
-      "No login needed for recipients — just send the link and they can read it",
-    ],
-    note: "Shareable link, no app download needed 🔗",
   },
   {
     id: "resources",
@@ -804,7 +804,7 @@ export default function TourPage() {
             See Rooted in Action
           </h1>
           <p className="text-[#7a6f65] text-base sm:text-lg max-w-2xl mx-auto leading-relaxed">
-            Every lesson grows their tree. Every memory is saved automatically. Every year ends with a letter you&apos;ll treasure forever.
+            Not a curriculum — a calm companion that works alongside the one you already love. Plan your days, capture memories, and actually see how far your kids have come.
           </p>
         </div>
 
