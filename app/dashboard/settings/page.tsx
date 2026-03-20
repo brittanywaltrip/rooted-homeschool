@@ -625,7 +625,7 @@ export default function SettingsPage() {
             ) : (
               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] group">
                 <span className="flex-1 text-sm text-[#2d2926]">
-                  {firstName || <span className="text-[#c8bfb5]">Not set — tap ✏️ to add</span>}
+                  {firstName || <span className="text-[#c8bfb5]">Not set — click ✏️ to add</span>}
                 </span>
                 <button onClick={() => setEditingFirst(true)} className="shrink-0 p-1 rounded-lg text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors" aria-label="Edit first name">
                   <Pencil size={13} />
@@ -664,7 +664,7 @@ export default function SettingsPage() {
             ) : (
               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] group">
                 <span className="flex-1 text-sm text-[#2d2926]">
-                  {lastName || <span className="text-[#c8bfb5]">Not set — tap ✏️ to add</span>}
+                  {lastName || <span className="text-[#c8bfb5]">Not set — click ✏️ to add</span>}
                 </span>
                 <button onClick={() => setEditingLast(true)} className="shrink-0 p-1 rounded-lg text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors" aria-label="Edit last name">
                   <Pencil size={13} />
@@ -783,7 +783,7 @@ export default function SettingsPage() {
             ) : (
               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] group">
                 <span className="flex-1 text-sm text-[#2d2926]">
-                  {familyName || <span className="text-[#c8bfb5]">Not set — tap ✏️ to add</span>}
+                  {familyName || <span className="text-[#c8bfb5]">Not set — click ✏️ to add</span>}
                 </span>
                 <button
                   onClick={() => setEditingName(true)}
