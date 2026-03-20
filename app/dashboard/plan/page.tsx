@@ -29,6 +29,12 @@ type CurriculumGroup = {
   remainingCount: number;
   lessonIds: string[];
 };
+type VacationBlock = {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -67,6 +73,35 @@ function formatWeekRange(monday: Date): string {
   const start = monday.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const end   = sunday.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   return `${start} – ${end}`;
+}
+
+function countWeekdays(start: Date, end: Date): number {
+  let count = 0;
+  const cursor = new Date(start);
+  cursor.setHours(0, 0, 0, 0);
+  const endMs = new Date(end);
+  endMs.setHours(0, 0, 0, 0);
+  while (cursor <= endMs) {
+    const d = cursor.getDay();
+    if (d !== 0 && d !== 6) count++;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+function addWeekdays(date: Date, days: number): Date {
+  const result = new Date(date);
+  let added = 0;
+  while (added < days) {
+    result.setDate(result.getDate() + 1);
+    const d = result.getDay();
+    if (d !== 0 && d !== 6) added++;
+  }
+  return result;
+}
+
+function isDateInBlocks(dateStr: string, blocks: { start_date: string; end_date: string }[]): boolean {
+  return blocks.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
 }
 
 function getSubjectStyle(subjectName: string | undefined): { bg: string; text: string } {
@@ -299,6 +334,15 @@ export default function PlanPage() {
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
   const [curricMenuOpen,   setCurricMenuOpen]   = useState<string | null>(null);
 
+  // ── Vacation blocks ───────────────────────────────────────────────────────
+  const [vacationBlocks,   setVacationBlocks]   = useState<VacationBlock[]>([]);
+  const [showVacModal,     setShowVacModal]     = useState(false);
+  const [vacName,          setVacName]          = useState("");
+  const [vacStart,         setVacStart]         = useState("");
+  const [vacEnd,           setVacEnd]           = useState("");
+  const [vacReschedule,    setVacReschedule]    = useState<"shift" | "leave">("shift");
+  const [savingVac,        setSavingVac]        = useState(false);
+
   // ── Wizard state ──────────────────────────────────────────────────────────
   const [showWizard,       setShowWizard]       = useState(false);
   const [wizStep,          setWizStep]          = useState<1|2|3|4>(1);
@@ -354,8 +398,19 @@ export default function PlanPage() {
     setAllLessons((data as unknown as Lesson[]) ?? []);
   }, [effectiveUserId]);
 
-  useEffect(() => { loadData(); },      [loadData]);
-  useEffect(() => { loadAllLessons(); }, [loadAllLessons]);
+  const loadVacationBlocks = useCallback(async () => {
+    if (!effectiveUserId) return;
+    const { data } = await supabase
+      .from("vacation_blocks")
+      .select("id, name, start_date, end_date")
+      .eq("user_id", effectiveUserId)
+      .order("start_date");
+    setVacationBlocks((data as VacationBlock[]) ?? []);
+  }, [effectiveUserId]);
+
+  useEffect(() => { loadData(); },           [loadData]);
+  useEffect(() => { loadAllLessons(); },     [loadAllLessons]);
+  useEffect(() => { loadVacationBlocks(); }, [loadVacationBlocks]);
 
   useEffect(() => {
     if (isCurrentWeek) {
@@ -516,6 +571,62 @@ export default function PlanPage() {
     loadAllLessons();
   }
 
+  // ── Vacation blocks ───────────────────────────────────────────────────────
+
+  async function saveVacationBlock() {
+    if (!vacName.trim() || !vacStart || !vacEnd || vacStart > vacEnd) return;
+    setSavingVac(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingVac(false); return; }
+
+    const { data: block, error } = await supabase
+      .from("vacation_blocks")
+      .insert({ user_id: user.id, name: vacName.trim(), start_date: vacStart, end_date: vacEnd })
+      .select("id, name, start_date, end_date")
+      .single();
+    if (error || !block) { setSavingVac(false); return; }
+    setVacationBlocks((p) => [...p, block as VacationBlock]);
+
+    if (vacReschedule === "shift") {
+      const startD = new Date(vacStart + "T00:00:00");
+      const endD   = new Date(vacEnd   + "T00:00:00");
+      const shiftDays = countWeekdays(startD, endD);
+      if (shiftDays > 0) {
+        const { data: affected } = await supabase
+          .from("lessons")
+          .select("id, scheduled_date, date")
+          .eq("user_id", user.id)
+          .eq("completed", false)
+          .gte("scheduled_date", vacStart);
+        if (affected && affected.length > 0) {
+          const updates = (affected as { id: string; scheduled_date: string | null; date: string | null }[]).map((l) => {
+            const orig = new Date((l.scheduled_date ?? l.date ?? vacStart) + "T00:00:00");
+            const newD = addWeekdays(orig, shiftDays);
+            return { id: l.id, date: toDateStr(newD) };
+          });
+          for (let i = 0; i < updates.length; i += 20) {
+            await Promise.all(
+              updates.slice(i, i + 20).map(({ id, date }) =>
+                supabase.from("lessons").update({ scheduled_date: date, date }).eq("id", id)
+              )
+            );
+          }
+          loadData();
+          loadAllLessons();
+        }
+      }
+    }
+
+    setSavingVac(false);
+    setShowVacModal(false);
+    setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift");
+  }
+
+  async function deleteVacationBlock(id: string) {
+    setVacationBlocks((p) => p.filter((b) => b.id !== id));
+    await supabase.from("vacation_blocks").delete().eq("id", id);
+  }
+
   // ── Wizard ────────────────────────────────────────────────────────────────
 
   function openWizard(preChildId?: string) {
@@ -617,6 +728,13 @@ export default function PlanPage() {
       }
     }
 
+    // Fetch current vacation blocks to skip those dates
+    const { data: vacBlocks } = await supabase
+      .from("vacation_blocks")
+      .select("start_date, end_date")
+      .eq("user_id", user.id);
+    const vacBlockList = (vacBlocks ?? []) as { start_date: string; end_date: string }[];
+
     const total  = parseInt(wizTotalLessons) || 0;
     const start  = parseInt(wizStartLesson)  || 1;
     const perDay = parseInt(wizLessonsPerDay) || 1;
@@ -626,9 +744,10 @@ export default function PlanPage() {
     let safety    = 0;
     while (lessonNum <= total && safety < 3650) {
       const dayIdx = (cursor.getDay() + 6) % 7;
-      if (wizSchoolDays[dayIdx]) {
+      const dateStr = toDateStr(cursor);
+      if (wizSchoolDays[dayIdx] && !isDateInBlocks(dateStr, vacBlockList)) {
         for (let i = 0; i < perDay && lessonNum <= total; i++, lessonNum++) {
-          rows.push({ date: toDateStr(cursor), n: lessonNum });
+          rows.push({ date: dateStr, n: lessonNum });
         }
       }
       cursor.setDate(cursor.getDate() + 1);
@@ -866,6 +985,38 @@ export default function PlanPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── Breaks & Holidays ────────────────────────────────── */}
+      {!isPartner && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">Breaks &amp; Holidays</p>
+
+          {/* Saved blocks as chips */}
+          {vacationBlocks.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {vacationBlocks.map((block) => {
+                const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                return (
+                  <div key={block.id} className="flex items-center gap-1.5 bg-[#fef9e8] border border-[#f0dda8] rounded-full px-3 py-1.5 text-sm text-[#7a4a1a]">
+                    <span>🌴 {block.name} · {s}–{e}</span>
+                    <button onClick={() => deleteVacationBlock(block.id)} className="text-[#c8bfb5] hover:text-red-400 transition-colors ml-0.5" aria-label="Remove break">
+                      <X size={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <button
+            onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+            className="flex items-center gap-1.5 text-xs font-semibold text-[#7a4a1a] bg-[#fef9e8] hover:bg-[#fef0d0] px-3 py-1.5 rounded-full transition-colors border border-[#f0dda8]"
+          >
+            <Plus size={12} strokeWidth={2.5} />Add a Break
+          </button>
         </div>
       )}
 
@@ -1135,6 +1286,95 @@ export default function PlanPage() {
           </div>
         </div>
       )}
+
+      {/* ══════════════════════════════════════════════════════
+          ADD A BREAK MODAL
+      ══════════════════════════════════════════════════════ */}
+      {showVacModal && (() => {
+        const vacDays = vacStart && vacEnd && vacEnd >= vacStart
+          ? Math.round((new Date(vacEnd + "T00:00:00").getTime() - new Date(vacStart + "T00:00:00").getTime()) / 86400000) + 1
+          : 0;
+        const startLabel = vacStart ? new Date(vacStart + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+        const endLabel   = vacEnd   ? new Date(vacEnd   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+        const canSave = vacName.trim() && vacStart && vacEnd && vacEnd >= vacStart;
+        return (
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+            <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="font-bold text-[#2d2926]">🌴 Add a Break</h2>
+                  <p className="text-xs text-[#7a6f65] mt-0.5">Mark dates off for vacation or holidays</p>
+                </div>
+                <button onClick={() => setShowVacModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] mt-0.5"><X size={18} /></button>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Break name</label>
+                <input
+                  value={vacName}
+                  onChange={(e) => setVacName(e.target.value)}
+                  placeholder="Spring Break, Christmas, Beach Trip..."
+                  autoFocus
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Start date</label>
+                  <input type="date" value={vacStart} onChange={(e) => setVacStart(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">End date</label>
+                  <input type="date" value={vacEnd} onChange={(e) => setVacEnd(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+                </div>
+              </div>
+
+              {vacDays > 0 && (
+                <div className="bg-[#fef9e8] border border-[#f0dda8] rounded-2xl px-4 py-3 text-center text-sm text-[#7a4a1a] font-medium">
+                  🌴 {vacDays} {vacDays === 1 ? "day" : "days"} off — {startLabel} to {endLabel}
+                </div>
+              )}
+
+              {vacDays > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#7a6f65]">What would you like to do with your scheduled lessons?</p>
+                  <label className={`flex items-start gap-3 p-3 rounded-2xl border-2 cursor-pointer transition-all ${
+                    vacReschedule === "shift" ? "border-[#5c7f63] bg-[#f2f9f3]" : "border-[#e8e2d9] bg-white hover:border-[#c8ddb8]"
+                  }`}>
+                    <input type="radio" name="vac-reschedule" value="shift" checked={vacReschedule === "shift"}
+                      onChange={() => setVacReschedule("shift")} className="mt-0.5 accent-[#5c7f63]" />
+                    <div>
+                      <p className="text-sm font-semibold text-[#2d2926]">Shift everything forward <span className="text-[10px] font-medium text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full ml-1">recommended</span></p>
+                      <p className="text-xs text-[#7a6f65] mt-0.5">Reschedule all upcoming lessons after your break</p>
+                    </div>
+                  </label>
+                  <label className={`flex items-start gap-3 p-3 rounded-2xl border-2 cursor-pointer transition-all ${
+                    vacReschedule === "leave" ? "border-[#5c7f63] bg-[#f2f9f3]" : "border-[#e8e2d9] bg-white hover:border-[#c8ddb8]"
+                  }`}>
+                    <input type="radio" name="vac-reschedule" value="leave" checked={vacReschedule === "leave"}
+                      onChange={() => setVacReschedule("leave")} className="mt-0.5 accent-[#5c7f63]" />
+                    <div>
+                      <p className="text-sm font-semibold text-[#2d2926]">Leave my schedule as is</p>
+                      <p className="text-xs text-[#7a6f65] mt-0.5">I&apos;ll pick up where I left off when we&apos;re back</p>
+                    </div>
+                  </label>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setShowVacModal(false)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
+                <button onClick={saveVacationBlock} disabled={savingVac || !canSave}
+                  className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
+                  {savingVac ? "Saving…" : "Save Break 🌴"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ══════════════════════════════════════════════════════
           CURRICULUM SETUP WIZARD

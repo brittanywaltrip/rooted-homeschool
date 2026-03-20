@@ -363,6 +363,9 @@ export default function TodayPage() {
   const [showToast,     setShowToast]     = useState(false);
   const [qlError,       setQlError]       = useState("");
 
+  // Vacation blocks
+  const [activeVacation, setActiveVacation] = useState<{ name: string; end_date: string } | null>(null);
+
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
   const refreshLeafCounts = useCallback(async () => {
@@ -454,6 +457,15 @@ export default function TodayPage() {
       setReflectionText(reflectionData.reflection ?? "");
       setReflectionExists(true);
     }
+
+    const { data: vacBlocks } = await supabase
+      .from("vacation_blocks")
+      .select("name, end_date, start_date")
+      .eq("user_id", effectiveUserId);
+    const currentVac = (vacBlocks ?? []).find(
+      (b: { start_date: string; end_date: string; name: string }) => today >= b.start_date && today <= b.end_date
+    );
+    setActiveVacation(currentVac ? { name: currentVac.name, end_date: currentVac.end_date } : null);
 
     setLoading(false);
   }, [today, effectiveUserId]);
@@ -877,6 +889,21 @@ export default function TodayPage() {
           {getGreeting()}{familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 👋
         </h1>
       </div>
+
+      {/* ── Vacation Banner ──────────────────────────────── */}
+      {activeVacation && (() => {
+        const backDate = new Date(activeVacation.end_date + "T00:00:00");
+        backDate.setDate(backDate.getDate() + 1);
+        const backLabel = backDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+        return (
+          <div className="rounded-2xl px-4 py-3 space-y-0.5" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
+            <p className="text-sm font-semibold text-[#7a4a1a]">
+              🌴 You&apos;re on {activeVacation.name}! Enjoy the time off.
+            </p>
+            <p className="text-xs text-[#c4956a]">Back on {backLabel}</p>
+          </div>
+        );
+      })()}
 
       {/* ── Lesson Checklist ─────────────────────────────── */}
       <div>

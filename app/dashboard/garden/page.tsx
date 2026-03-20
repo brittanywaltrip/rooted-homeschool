@@ -22,6 +22,8 @@ type LessonRow = {
   hours: number | null;
 };
 
+type VacationBlock = { start_date: string; end_date: string; name: string };
+
 // ─── Stats helpers ────────────────────────────────────────────────────────────
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -196,11 +198,16 @@ function getTreeX(index: number, total: number): number {
 
 export default function GardenPage() {
   const { effectiveUserId } = usePartner();
-  const [children, setChildren]     = useState<Child[]>([]);
-  const [leafCounts, setLeafCounts] = useState<Record<string, number>>({});
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading]       = useState(true);
-  const [allLessons, setAllLessons] = useState<LessonRow[]>([]);
+  const [children, setChildren]         = useState<Child[]>([]);
+  const [leafCounts, setLeafCounts]     = useState<Record<string, number>>({});
+  const [selectedId, setSelectedId]     = useState<string | null>(null);
+  const [loading, setLoading]           = useState(true);
+  const [allLessons, setAllLessons]     = useState<LessonRow[]>([]);
+  const [vacationBlocks, setVacationBlocks] = useState<VacationBlock[]>([]);
+  const [familyName, setFamilyName]     = useState("");
+
+  const todayStr = toDateStr(new Date());
+  const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
 
   useEffect(() => {
     if (!effectiveUserId) return;
@@ -216,12 +223,16 @@ export default function GardenPage() {
       setChildren(kids_);
       if (kids_.length > 0) setSelectedId(kids_[0].id);
 
-      const [{ data: completed }, { data: bookEvents }] = await Promise.all([
+      const [{ data: completed }, { data: bookEvents }, { data: vacBlocks }, { data: profile }] = await Promise.all([
         supabase.from("lessons").select("child_id, date, scheduled_date, hours").eq("user_id", effectiveUserId).eq("completed", true),
         supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+        supabase.from("vacation_blocks").select("start_date, end_date, name").eq("user_id", effectiveUserId),
+        supabase.from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle(),
       ]);
 
       setAllLessons((completed as LessonRow[]) ?? []);
+      setVacationBlocks((vacBlocks as VacationBlock[]) ?? []);
+      setFamilyName((profile as { display_name?: string } | null)?.display_name ?? "");
 
       const counts: Record<string, number> = {};
       completed?.forEach((l) => {
@@ -324,6 +335,27 @@ export default function GardenPage() {
         <Butterfly x={12} y={30} delay={0}   color="#f9a8d4" />
         <Butterfly x={72} y={24} delay={1.8} color="#fbbf24" />
         <Butterfly x={45} y={38} delay={3.2} color="#86efac" />
+
+        {/* Vacation palm tree + sign */}
+        {activeVacation && (
+          <>
+            <div
+              className="absolute garden-sway"
+              style={{ bottom: "27%", left: "50%", transform: "translateX(-50%)", transformOrigin: "center bottom", fontSize: "clamp(36px, 8vw, 56px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
+              aria-hidden
+            >
+              🌴
+            </div>
+            <div
+              className="absolute bottom-[52%] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-2xl px-3 py-1.5 text-center shadow-md z-10"
+              style={{ background: "#fef3dc", border: "1.5px solid #f0dda8" }}
+            >
+              <p className="text-xs font-semibold text-[#7a4a1a] leading-snug">
+                {familyName ? `The ${familyName.replace(/^The\s+/i, "").trim() || familyName} Family` : "Your family"} is on vacation 🌴
+              </p>
+            </div>
+          </>
+        )}
 
         {/* Ground layers */}
         <div className="absolute bottom-0 left-0 right-0 overflow-hidden" style={{ height: "32%" }}>
