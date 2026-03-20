@@ -588,10 +588,24 @@ export default function PlanPage() {
     const effectiveSub = wizSubject === "Other" ? wizCustomSubject.trim() : wizSubject;
     let subjectId: string | null = null;
     if (effectiveSub) {
-      const existing = subjects.find((s) => s.name.toLowerCase() === effectiveSub.toLowerCase());
-      if (existing) { subjectId = existing.id; }
-      else {
-        const { data: ns, error: subErr } = await supabase.from("subjects").insert({ user_id: user.id, name: effectiveSub }).select("id, name, color").single();
+      // Always query the DB — in-memory state may be stale or empty, causing a
+      // spurious re-insert that hits a unique constraint and returns 400.
+      const { data: existing } = await supabase
+        .from("subjects")
+        .select("id, name, color")
+        .eq("user_id", user.id)
+        .ilike("name", effectiveSub)
+        .maybeSingle();
+      if (existing) {
+        subjectId = existing.id;
+        // Keep local state in sync
+        setSubjects((p) => p.some((s) => s.id === existing.id) ? p : [...p, existing as Subject]);
+      } else {
+        const { data: ns, error: subErr } = await supabase
+          .from("subjects")
+          .insert({ user_id: user.id, name: effectiveSub })
+          .select("id, name, color")
+          .single();
         if (subErr) { setWizGenerating(false); setWizError(`Could not create subject: ${subErr.message}`); return; }
         if (ns) { setSubjects((p) => [...p, ns as Subject]); subjectId = ns.id; }
       }
