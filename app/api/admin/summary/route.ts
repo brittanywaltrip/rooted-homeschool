@@ -219,13 +219,13 @@ export async function GET(req: Request) {
   const estAnnualRevenue = stripeFoundingCount * 39 + stripeStandardCount * 59;
 
   return NextResponse.json({
-    // Growth
+    // Growth (founding/standard sourced from Stripe, not DB)
     totalUsers,
     weekSignups,
     todaySignups,
     proUsers,
-    foundingFamilies,
-    standardSubs,
+    foundingFamilies: stripeFoundingCount,
+    standardSubs:     stripeStandardCount,
     freeUsers,
     // Kids & Learning
     totalChildren,
