@@ -996,6 +996,34 @@ export default function PlanPage() {
         </div>
       )}
 
+      {/* ── Curriculum empty state ───────────────────────────── */}
+      {!isPartner && curricGroups.length === 0 && (
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-8 flex flex-col items-center text-center">
+          <span className="text-4xl mb-4">🌱</span>
+          <h2 className="text-xl font-semibold text-[#3d5c42] mb-2">Your plan is ready to grow!</h2>
+          <p className="text-sm text-[#7a6f65] leading-relaxed max-w-sm mx-auto mb-6">
+            Start by setting up your curriculum. Add your subjects, lessons, and schedule — it only takes a few minutes and sets the foundation for everything in Rooted.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-5">
+            <button
+              onClick={() => setShowWizard(true)}
+              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
+            >
+              Set Up Curriculum →
+            </button>
+            <a
+              href="https://rootedhomeschoolapp.com/tour"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+            >
+              Watch how it works
+            </a>
+          </div>
+          <p className="text-xs text-[#b5aca4]">💡 Tip: Most families get set up in under 5 minutes</p>
+        </div>
+      )}
+
       {/* ── Breaks & Holidays ────────────────────────────────── */}
       {!isPartner && (
         <div className="space-y-2">

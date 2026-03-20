@@ -324,6 +324,14 @@ export default function TodayPage() {
     }
   }, []);
 
+  // Curriculum nudge — shown when user has children but no subjects/lessons yet
+  const [nudgeDismissed, setNudgeDismissed] = useState(false);
+  useEffect(() => {
+    if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") {
+      setNudgeDismissed(true);
+    }
+  }, []);
+
   // PWA install banner
   const [showPwaBanner, setShowPwaBanner] = useState(false);
   const [showPwaModal,  setShowPwaModal]  = useState(false);
@@ -904,6 +912,34 @@ export default function TodayPage() {
           </div>
         );
       })()}
+
+      {/* ── Curriculum setup nudge ───────────────────────── */}
+      {!isPartner && !nudgeDismissed && children.length > 0 && subjects.length === 0 && (
+        <div className="flex items-start justify-between gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
+          <div className="flex items-start gap-3 min-w-0">
+            <span className="text-xl shrink-0 mt-0.5">👋</span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[#2d2926] leading-snug">Welcome to Rooted! Set up your curriculum to start seeing lessons here.</p>
+              <Link
+                href="/dashboard/plan"
+                className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-white bg-[#5c7f63] hover:bg-[#3d5c42] px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Get started →
+              </Link>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              localStorage.setItem("rooted_setup_nudge_dismissed", "1");
+              setNudgeDismissed(true);
+            }}
+            aria-label="Dismiss"
+            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors text-lg leading-none mt-0.5"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* ── Lesson Checklist ─────────────────────────────── */}
       <div>
