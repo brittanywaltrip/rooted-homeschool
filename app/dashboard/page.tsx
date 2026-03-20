@@ -326,6 +326,7 @@ export default function TodayPage() {
 
   // Curriculum nudge — shown when user has children but no subjects/lessons yet
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
+  const [isPro, setIsPro] = useState(false);
   useEffect(() => {
     if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") {
       setNudgeDismissed(true);
@@ -401,12 +402,14 @@ export default function TodayPage() {
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
 
-    const [{ data: profile }, { data: { user: authUser } }] = await Promise.all([
+    const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
       supabase.from("profiles").select("display_name, onboarded").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
+      supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
     ]);
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
+    setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
 
     const { data: childrenData } = await supabase
       .from("children").select("id, name, color")
@@ -911,6 +914,27 @@ export default function TodayPage() {
           </div>
         );
       })()}
+
+      {/* ── Upgrade nudge (free users, no subjects) ──────── */}
+      {!isPartner && !isPro && children.length > 0 && subjects.length === 0 && (
+        <div className="bg-gradient-to-br from-[#fef9f0] to-[#fef6e4] border border-[#f0d090] rounded-2xl p-5 mb-4 flex items-start gap-4">
+          <span className="text-2xl shrink-0">🌱</span>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-[#2d2926] mb-1">
+              Lock in your Founding Family price — {Math.max(0, Math.ceil((new Date("2026-04-30").getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))} days left
+            </p>
+            <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">
+              Memories, insights, transcripts and more — $39/yr locked forever for the first 200 families.
+            </p>
+            <a
+              href="/upgrade"
+              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+            >
+              Claim Founding Price →
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* ── Curriculum setup nudge ───────────────────────── */}
       {!isPartner && !nudgeDismissed && children.length > 0 && subjects.length === 0 && (
