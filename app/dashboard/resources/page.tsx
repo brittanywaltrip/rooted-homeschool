@@ -337,6 +337,7 @@ export default function ResourcesPage() {
   const { effectiveUserId } = usePartner();
 
   const [activeTab,     setActiveTab]     = useState("discounts");
+  const [selectedTour,  setSelectedTour]  = useState<{ title: string; url: string } | null>(null);
   const [gradeFilter,   setGradeFilter]   = useState<GradeTag | "">("");
   const [stateSearch,   setStateSearch]   = useState("");
   const [selectedLevel, setSelectedLevel] = useState<RegLevel | "all">("all");
@@ -435,6 +436,12 @@ export default function ResourcesPage() {
   const todayWin1 = EASY_WINS[dayIdx % 6];
   const todayWin2 = EASY_WINS[(dayIdx + 1) % 6];
   const restWins  = EASY_WINS.filter((_, i) => i !== dayIdx % 6 && i !== (dayIdx + 1) % 6);
+
+  function getEmbedUrl(url: string): string {
+    const match = url.match(/[?&]v=([^&]+)/);
+    if (match) return `https://www.youtube.com/embed/${match[1]}?autoplay=1`;
+    return '';
+  }
 
   function matchesGrade(grade: string) {
     return !gradeFilter || grade === gradeFilter || grade === "All Ages";
@@ -961,25 +968,37 @@ export default function ResourcesPage() {
       {/* ── Virtual Tours ─────────────────────────────────────── */}
       {activeTab === "tours" && (
         <div className="space-y-3">
-          <p className="text-xs text-[#7a6f65]">Free virtual field trips and immersive video experiences — all open in a new tab.</p>
+          <p className="text-xs text-[#7a6f65]">Free virtual field trips and immersive video experiences — click Watch to play inline.</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {VIRTUAL_TOURS.map((tour) => (
-              <div key={tour.name} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden">
-                <div className="p-5">
-                  <div className="text-4xl mb-3">{tour.emoji}</div>
-                  <p className="font-bold text-[#2d2926] text-sm leading-snug mb-1.5">{tour.name}</p>
-                  <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">{tour.desc}</p>
-                  <div className="flex items-center gap-2 flex-wrap mb-3">
-                    <GradePill grade={tour.grade} />
-                    <span className="text-[10px] font-medium bg-[#e4f2fb] text-[#1a5c80] px-2 py-0.5 rounded-full">{tour.subject}</span>
+            {VIRTUAL_TOURS.map((tour) => {
+              const isYouTube = /[?&]v=/.test(tour.url);
+              return (
+                <div key={tour.name} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden">
+                  <div className="p-5">
+                    <div className="text-4xl mb-3">{tour.emoji}</div>
+                    <p className="font-bold text-[#2d2926] text-sm leading-snug mb-1.5">{tour.name}</p>
+                    <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">{tour.desc}</p>
+                    <div className="flex items-center gap-2 flex-wrap mb-3">
+                      <GradePill grade={tour.grade} />
+                      <span className="text-[10px] font-medium bg-[#e4f2fb] text-[#1a5c80] px-2 py-0.5 rounded-full">{tour.subject}</span>
+                    </div>
+                    {isYouTube ? (
+                      <button
+                        onClick={() => setSelectedTour({ title: tour.name, url: tour.url })}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        Watch ▶
+                      </button>
+                    ) : (
+                      <a href={tour.url} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
+                        Watch ↗
+                      </a>
+                    )}
                   </div>
-                  <a href={tour.url} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
-                    Watch ↗
-                  </a>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -1102,6 +1121,37 @@ export default function ResourcesPage() {
       )}
 
       <div className="h-4" />
+
+      {/* ── YouTube embed modal ──────────────────────────────── */}
+      {selectedTour && (
+        <div
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedTour(null)}
+        >
+          <div
+            className="bg-white rounded-xl w-full max-w-3xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center p-4 border-b border-gray-100">
+              <h3 className="font-semibold text-[#2d2926] text-sm">{selectedTour.title}</h3>
+              <button
+                onClick={() => setSelectedTour(null)}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="aspect-video">
+              <iframe
+                src={getEmbedUrl(selectedTour.url)}
+                className="w-full h-full rounded-b-xl"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
