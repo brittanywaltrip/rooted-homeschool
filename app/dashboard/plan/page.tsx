@@ -47,7 +47,12 @@ const SUBJECT_CHIPS = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function toDateStr(d: Date): string { return d.toISOString().split("T")[0]; }
+function toDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 function getMondayOf(d: Date): Date {
   const day = new Date(d);
@@ -760,12 +765,12 @@ export default function PlanPage() {
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5 text-sm flex-wrap">
               <span className="font-semibold text-[#2d2926]">{totalWeek}</span>
-              <span className="text-[#7a6f65]">lesson{totalWeek !== 1 ? "s" : ""} planned</span>
+              <span className="text-[#7a6f65]">lesson{totalWeek !== 1 ? "s" : ""} this week</span>
               <span className="text-[#c8bfb5]">·</span>
               <span className="font-semibold text-[#5c7f63]">{completedWeek}</span>
               <span className="text-[#7a6f65]">done</span>
               <span className="text-[#c8bfb5]">·</span>
-              <span className="text-[#b5aca4]">{totalWeek - completedWeek} remaining</span>
+              <span className="text-[#b5aca4]">{totalWeek - completedWeek} remaining this week</span>
             </div>
             {completedWeek === totalWeek && (
               <span className="text-xs bg-[#e8f0e9] text-[#3d5c42] px-2.5 py-0.5 rounded-full font-semibold shrink-0">🌿 Perfect week!</span>

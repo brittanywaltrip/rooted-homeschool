@@ -971,7 +971,6 @@ export default function SettingsPage() {
                           title="Mark as graduated"
                         >
                           <GraduationCap size={12} />
-                          <span className="hidden sm:inline">Graduate</span>
                         </button>
                       )}
                       <button
