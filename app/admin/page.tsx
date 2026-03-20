@@ -161,7 +161,7 @@ export default function AdminPage() {
           <SectionHeader emoji="📋" title={`All Signups (${data.recentSignups.length})`} />
 
           {/* Mobile card list */}
-          <div className="md:hidden max-h-[70vh] overflow-y-auto space-y-2">
+          <div className="block lg:hidden max-h-[70vh] overflow-y-auto space-y-2">
             {data.recentSignups.map((u) => {
               const primaryName = (u.first_name || u.last_name)
                 ? [u.first_name, u.last_name].filter(Boolean).join(" ")
@@ -208,7 +208,7 @@ export default function AdminPage() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden md:block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+          <div className="hidden lg:block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
             <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10">
