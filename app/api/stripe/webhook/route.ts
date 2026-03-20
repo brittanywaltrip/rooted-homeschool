@@ -36,15 +36,10 @@ async function getActiveSubCount(): Promise<number> {
   }
 }
 
-async function sendEmail(subject: string, text: string) {
+async function sendEmail(to: string, subject: string, text: string, from = 'Rooted <hello@rootedhomeschoolapp.com>') {
   const { Resend } = await import('resend')
   const resend = new Resend(process.env.RESEND_API_KEY)
-  await resend.emails.send({
-    from: 'Rooted <hello@rootedhomeschoolapp.com>',
-    to: ADMIN_EMAIL,
-    subject,
-    text,
-  })
+  await resend.emails.send({ from, to, subject, text })
 }
 
 export async function POST(req: NextRequest) {
@@ -75,22 +70,44 @@ export async function POST(req: NextRequest) {
         stripe_customer_id: session.customer as string,
       }).eq('id', userId)
 
-      // Look up family name for email
+      // Look up family name + first name for emails
       const { data: profile } = await supabase
         .from('profiles')
-        .select('display_name')
+        .select('display_name, first_name')
         .eq('id', userId)
         .maybeSingle()
 
-      const familyName = profile?.display_name ?? 'Unknown Family'
+      const familyName    = profile?.display_name ?? 'Unknown Family'
+      const firstName     = profile?.first_name ?? 'friend'
       const customerEmail = session.customer_details?.email ?? '—'
-      const activeCount = await getActiveSubCount()
-      const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })
+      const activeCount   = await getActiveSubCount()
+      const now           = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })
 
+      const SIGNATURE = `— Brittany Waltrip\nFounder, Rooted Homeschool App\nhello@rootedhomeschoolapp.com\nrootedhomeschoolapp.com`
+
+      // Notify Brittany
       await sendEmail(
+        ADMIN_EMAIL,
         `🌱 New ${plan === 'founding_family' ? 'Founding Member' : 'Subscriber'}! ${familyName} just subscribed`,
         `New subscription on Rooted!\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(priceId)}\nTime: ${now}\nTotal active subscribers: ${activeCount}\n\nRooted is growing! 🌱`
-      ).catch(() => {}) // fire-and-forget
+      ).catch(() => {})
+
+      // Thank-you email to the new subscriber
+      if (customerEmail !== '—') {
+        const isFounding = plan === 'founding_family'
+        const subjectLine = isFounding
+          ? `Welcome to the Rooted family, ${firstName}! 🌱`
+          : `Welcome to Rooted, ${firstName}! 🌱`
+        const body = isFounding
+          ? `Hi ${firstName},\n\nI just wanted to personally thank you for becoming a Founding Member of Rooted.\n\nYou're one of the first families to believe in what we're building here — and that genuinely means the world to me. Rooted exists because of families like yours.\n\nAs a Founding Member, you've locked in your $39/yr rate forever. While I keep building and improving Rooted, your price will never go up.\n\nI'd love to hear how it's going for your family. Feel free to reply to this email anytime — I personally read every response.\n\nThank you for being here. 🌱\n\n${SIGNATURE}`
+          : `Hi ${firstName},\n\nThank you so much for subscribing to Rooted — welcome to the family! 🌱\n\nI'm so glad you're here. Rooted is built for families like yours, and I'm genuinely excited to be a part of your homeschool journey.\n\nIf you ever have questions, ideas, or just want to share how it's going — reply to this email anytime. I personally read every response.\n\nThank you for being here. 🌱\n\n${SIGNATURE}`
+        await sendEmail(
+          customerEmail,
+          subjectLine,
+          body,
+          'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
+        ).catch(() => {})
+      }
     }
   }
 
@@ -128,6 +145,7 @@ export async function POST(req: NextRequest) {
         : new Date().toLocaleDateString('en-US', { dateStyle: 'medium' })
 
       await sendEmail(
+        ADMIN_EMAIL,
         `💔 Subscription cancelled — ${familyName}`,
         `A subscription was cancelled.\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(priceId)}\nMember since: ${startDate}\nCancelled: ${endDate}\n\nRemaining active subscribers: ${activeCount}\n\nConsider reaching out personally to learn why.`
       ).catch(() => {}) // fire-and-forget

@@ -81,6 +81,7 @@ export default function AdminPage() {
   const router = useRouter();
   const [data, setData] = useState<AdminSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Free">("All");
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -212,9 +213,37 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="📋" title={`All Signups (${data.recentSignups.length})`} />
 
+          {/* Filter tabs */}
+          {(() => {
+            const counts = {
+              All:      data.recentSignups.length,
+              Founding: data.recentSignups.filter(u => u.plan === "Founding").length,
+              Free:     data.recentSignups.filter(u => u.plan === "Free").length,
+            };
+            return (
+              <div className="flex gap-2 mb-4 flex-wrap">
+                {(["All", "Founding", "Free"] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setSignupFilter(tab)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                      signupFilter === tab
+                        ? tab === "Founding"
+                          ? "bg-amber-100 text-amber-800 border-amber-300"
+                          : "bg-[#e8f0e9] text-[#3d5c42] border-[#b8d9bc]"
+                        : "bg-[#fefcf9] text-[#7a6f65] border-[#e8e2d9] hover:border-[#b5aca4]"
+                    }`}
+                  >
+                    {tab} ({counts[tab]})
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* Mobile card list */}
           <div className="block lg:hidden max-h-[70vh] overflow-y-auto space-y-2">
-            {data.recentSignups.map((u) => {
+            {data.recentSignups.filter(u => signupFilter === "All" || u.plan === signupFilter).map((u) => {
               const primaryName = (u.first_name || u.last_name)
                 ? [u.first_name, u.last_name].filter(Boolean).join(" ")
                 : null;
@@ -276,7 +305,7 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#f0ede8]">
-                  {data.recentSignups.map((u) => (
+                  {data.recentSignups.filter(u => signupFilter === "All" || u.plan === signupFilter).map((u) => (
                     <tr
                       key={u.id}
                       className={`hover:brightness-95 transition-colors ${
