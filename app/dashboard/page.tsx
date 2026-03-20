@@ -297,6 +297,7 @@ export default function TodayPage() {
   const [onboarded,        setOnboarded]        = useState<boolean | null>(null);
   const [children,         setChildren]         = useState<Child[]>([]);
   const [lessons,          setLessons]          = useState<Lesson[]>([]);
+  const [hasAnyLessons,    setHasAnyLessons]    = useState(false);
   const [leafCounts,       setLeafCounts]       = useState<Record<string, number>>({});
   const [selectedChildId,  setSelectedChildId]  = useState<string>("all");
   const [reflectionText,   setReflectionText]   = useState("");
@@ -401,12 +402,19 @@ export default function TodayPage() {
       .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order");
     setChildren(childrenData ?? []);
 
-    const { data: lessonsData } = await supabase
-      .from("lessons")
-      .select("id, title, completed, child_id, hours, subjects(name, color), curriculum_goal_id, lesson_number")
-      .eq("user_id", effectiveUserId)
-      .or(`date.eq.${today},scheduled_date.eq.${today}`);
+    const [{ data: lessonsData }, { count: totalLessons }] = await Promise.all([
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, hours, subjects(name, color), curriculum_goal_id, lesson_number")
+        .eq("user_id", effectiveUserId)
+        .or(`date.eq.${today},scheduled_date.eq.${today}`),
+      supabase
+        .from("lessons")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", effectiveUserId),
+    ]);
     setLessons((lessonsData as unknown as Lesson[]) ?? []);
+    setHasAnyLessons((totalLessons ?? 0) > 0);
 
     const [{ data: completed }, { data: bookEvents }, { data: memEvents }] = await Promise.all([
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
@@ -1074,7 +1082,7 @@ export default function TodayPage() {
         <p className="text-sm text-[#5c7f63] italic leading-relaxed">&ldquo;{quote}&rdquo;</p>
       </div>
 
-      {children.length > 0 && Object.values(leafCounts).reduce((a, b) => a + b, 0) === 0 && (
+      {children.length > 0 && !hasAnyLessons && Object.values(leafCounts).reduce((a, b) => a + b, 0) === 0 && (
         <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
           <div className="flex items-start gap-4">
             <span className="text-3xl">🌱</span>
