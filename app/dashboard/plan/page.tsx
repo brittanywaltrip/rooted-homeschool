@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { ChevronLeft, ChevronRight, Plus, X, BookOpen, Trash2, CalendarDays } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X, BookOpen, Trash2, CalendarDays, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -288,9 +288,11 @@ export default function PlanPage() {
   const [savingEdit,    setSavingEdit]    = useState(false);
 
   // ── Curriculum management ─────────────────────────────────────────────────
-  const [editDaysGroup,  setEditDaysGroup]  = useState<CurriculumGroup | null>(null);
-  const [editDaysDays,   setEditDaysDays]   = useState([true, true, true, true, true, false, false]);
-  const [editDaysSaving, setEditDaysSaving] = useState(false);
+  const [editDaysGroup,    setEditDaysGroup]    = useState<CurriculumGroup | null>(null);
+  const [editDaysDays,     setEditDaysDays]     = useState([true, true, true, true, true, false, false]);
+  const [editDaysSaving,   setEditDaysSaving]   = useState(false);
+  const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
+  const [curricMenuOpen,   setCurricMenuOpen]   = useState<string | null>(null);
 
   // ── Wizard state ──────────────────────────────────────────────────────────
   const [showWizard,       setShowWizard]       = useState(false);
@@ -446,14 +448,13 @@ export default function PlanPage() {
   // ── Curriculum management ─────────────────────────────────────────────────
 
   async function deleteCurriculumGroup(group: CurriculumGroup) {
-    const label = `"${group.curricName}"${group.childId ? ` (${children.find(c => c.id === group.childId)?.name ?? ""})` : ""}`;
-    if (!window.confirm(`Delete all ${group.totalCount} lessons for ${label}? This cannot be undone.`)) return;
     const ids = group.lessonIds;
     for (let i = 0; i < ids.length; i += 100) {
       await supabase.from("lessons").delete().in("id", ids.slice(i, i + 100));
     }
     setAllLessons((p) => p.filter((l) => !ids.includes(l.id)));
     setLessons((p) => p.filter((l) => !ids.includes(l.id)));
+    setDeleteConfirmGroup(null);
   }
 
   function openEditDays(group: CurriculumGroup) {
@@ -804,15 +805,40 @@ export default function PlanPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   <button onClick={() => openEditDays(group)}
                     className="flex items-center gap-1 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-2.5 py-1.5 rounded-xl transition-colors">
                     <CalendarDays size={12} />Edit Days
                   </button>
-                  <button onClick={() => deleteCurriculumGroup(group)}
-                    className="flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-xl transition-colors">
-                    <Trash2 size={12} />Delete All
-                  </button>
+                  {/* Overflow menu */}
+                  <div className="relative">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setCurricMenuOpen((k) => k === group.key ? null : group.key); }}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                      aria-label="More options"
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                    {curricMenuOpen === group.key && (
+                      <>
+                        <div className="fixed inset-0 z-20" onClick={() => setCurricMenuOpen(null)} />
+                        <div className="absolute right-0 top-8 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[130px]">
+                          <button
+                            onClick={() => { openEditDays(group); setCurricMenuOpen(null); }}
+                            className="w-full text-left px-3 py-2 text-xs text-[#2d2926] hover:bg-[#f8f7f4] flex items-center gap-2 transition-colors"
+                          >
+                            <CalendarDays size={12} className="text-[#5c7f63]" />Edit Days
+                          </button>
+                          <button
+                            onClick={() => { setDeleteConfirmGroup(group); setCurricMenuOpen(null); }}
+                            className="w-full text-left px-3 py-2 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                          >
+                            <Trash2 size={12} />Delete All
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -1008,6 +1034,39 @@ export default function PlanPage() {
               <button onClick={() => setEditingLesson(null)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
               <button onClick={saveEdit} disabled={savingEdit || !editTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {savingEdit ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          DELETE CURRICULUM CONFIRM MODAL
+      ══════════════════════════════════════════════════════ */}
+      {deleteConfirmGroup && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+              Delete all lessons?
+            </h2>
+            <p className="text-sm text-[#7a6f65] leading-relaxed">
+              This will permanently delete all{" "}
+              <strong className="text-[#2d2926]">{deleteConfirmGroup.totalCount} lessons</strong> for{" "}
+              <strong className="text-[#2d2926]">&ldquo;{deleteConfirmGroup.curricName}&rdquo;</strong>.
+              This cannot be undone.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setDeleteConfirmGroup(null)}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-semibold text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteCurriculumGroup(deleteConfirmGroup)}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
+              >
+                Delete All
               </button>
             </div>
           </div>
