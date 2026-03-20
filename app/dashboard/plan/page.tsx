@@ -636,6 +636,16 @@ export default function PlanPage() {
       return;
     }
 
+    // Dedup guard: remove any incomplete lessons for this curriculum that may
+    // have been orphaned by a previous failed insert attempt.
+    await supabase
+      .from("lessons")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("child_id", wizChildId || null)
+      .ilike("title", `${wizCurricName} — Lesson%`)
+      .eq("completed", false);
+
     const inserts = rows.map(({ date, n }) => ({
       user_id: user.id, child_id: wizChildId || null, subject_id: subjectId,
       title: `${wizCurricName} — Lesson ${n}`, date, scheduled_date: date, completed: false, hours: 0,
