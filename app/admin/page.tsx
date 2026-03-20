@@ -158,11 +158,60 @@ export default function AdminPage() {
 
         {/* Section 4 — Recent Signups */}
         <section>
-          <SectionHeader emoji="📋" title="Recent Signups" />
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+          <SectionHeader emoji="📋" title={`All Signups (${data.recentSignups.length})`} />
+
+          {/* Mobile card list */}
+          <div className="md:hidden max-h-[70vh] overflow-y-auto space-y-2">
+            {data.recentSignups.map((u) => {
+              const primaryName = (u.first_name || u.last_name)
+                ? [u.first_name, u.last_name].filter(Boolean).join(" ")
+                : null;
+              const joinedStr = new Date(u.joined).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+              return (
+                <div
+                  key={u.id}
+                  className={`bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-4 ${
+                    u.plan === "Founding" ? "border-l-4 border-l-amber-400" : u.plan === "Standard" ? "border-l-4 border-l-green-500" : ""
+                  }`}
+                >
+                  {/* Row 1: name + badge */}
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-[#2d2926] text-sm truncate">
+                      {primaryName ?? u.email}
+                    </p>
+                    <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                      u.plan === "Founding"
+                        ? "bg-amber-100 text-amber-800"
+                        : u.plan === "Standard"
+                        ? "bg-green-100 text-green-800"
+                        : "bg-[#f0ede8] text-[#7a6f65]"
+                    }`}>
+                      {u.plan}
+                    </span>
+                  </div>
+                  {/* Row 2: email (only if we showed name above) */}
+                  {primaryName && (
+                    <p className="text-xs text-[#7a6f65] mt-1 truncate">{u.email}</p>
+                  )}
+                  {/* Row 3: family name · kids · lessons · joined */}
+                  <p className="text-[11px] text-[#b5aca4] mt-1.5 leading-snug">
+                    {[
+                      u.family_name,
+                      `${u.children_count} kid${u.children_count !== 1 ? "s" : ""}`,
+                      `${u.lessons_done} lesson${u.lessons_done !== 1 ? "s" : ""}`,
+                      joinedStr,
+                    ].filter(Boolean).join(" · ")}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
             <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="border-b border-[#e8e2d9] bg-[#f8f5f0]">
                     <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">First Name</th>
                     <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Last Name</th>
@@ -176,7 +225,12 @@ export default function AdminPage() {
                 </thead>
                 <tbody className="divide-y divide-[#f0ede8]">
                   {data.recentSignups.map((u) => (
-                    <tr key={u.id} className="hover:bg-[#f8f5f0] transition-colors">
+                    <tr
+                      key={u.id}
+                      className={`hover:brightness-95 transition-colors ${
+                        u.plan === "Founding" ? "bg-amber-50" : ""
+                      }`}
+                    >
                       <td className="px-4 py-3 text-[#2d2926]">
                         {u.first_name ?? <span className="text-[#c8bfb5] italic">—</span>}
                       </td>
@@ -190,9 +244,9 @@ export default function AdminPage() {
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
                           u.plan === "Founding"
-                            ? "bg-[#fef9e8] text-[#7a4a1a] border border-[#f0dda8]"
+                            ? "bg-amber-100 text-amber-800"
                             : u.plan === "Standard"
-                            ? "bg-[#e8f0e9] text-[#3d5c42] border border-[#b8d9bc]"
+                            ? "bg-green-100 text-green-800"
                             : "bg-[#f0ede8] text-[#7a6f65] border border-[#e8e2d9]"
                         }`}>
                           {u.plan}
