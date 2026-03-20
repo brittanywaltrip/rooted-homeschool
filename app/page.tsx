@@ -589,7 +589,7 @@ export default function Home() {
                 title: "Generate Reports",
                 color: "#f5ede0",
                 border: "#d4b896",
-                desc: "Professional compliance reports in one click. Print or save as PDF.",
+                desc: "See exactly how much your kids have learned — then print it, share it with grandparents, or save it forever.",
               },
               {
                 emoji: "💡",
@@ -768,24 +768,23 @@ export default function Home() {
 
             <div className="order-1 lg:order-2">
               <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-                Peace of mind, one click away
+                Your family&apos;s story, beautifully documented
               </p>
               <h2
                 className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
                 style={{ fontFamily: "var(--font-display)" }}
               >
-                Beautiful reports.{" "}
-                <em className="not-italic" style={{ color: "#5c7f63" }}>No stress.</em>
+                See how far they&apos;ve come.
               </h2>
               <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                Whether you need to submit to your state or simply want to see how far your kids have come — Rooted generates clean, professional progress reports in one click. Print, save as PDF, or share with your co-op.
+                At the end of a homeschool year it&apos;s easy to wonder — did we do enough? Rooted answers that question beautifully. Every lesson, every book, every subject — all in one place you can print, share, or save forever.
               </p>
               <ul className="space-y-4 mb-8">
                 {[
-                  { emoji: "📋", title: "State compliance, simplified", desc: "Meets common homeschool reporting requirements. Just configure, preview, and print." },
-                  { emoji: "🖨️", title: "Printable & PDF-ready", desc: "Clean, professional layout. Looks great on paper and on screen." },
-                  { emoji: "📊", title: "Per subject & per child", desc: "Individual reports for each child showing lessons, hours, books read, and subjects covered." },
-                  { emoji: "📅", title: "Any date range", desc: "Pull a semester, a full year, or a custom window — however your state requires it." },
+                  { emoji: "📸", title: "A keepsake, not just a document", desc: "Every lesson logged becomes part of a beautiful record of your child's entire learning life." },
+                  { emoji: "👵", title: "Share with grandparents", desc: "Send a PDF showing everything your kids learned this year. They'll treasure it." },
+                  { emoji: "🎓", title: "High school transcripts", desc: "Build a college-ready transcript automatically as your teen logs lessons and credits." },
+                  { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-xl bg-[#f5ede0] flex items-center justify-center text-lg shrink-0 mt-0.5">
