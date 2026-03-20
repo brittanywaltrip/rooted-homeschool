@@ -848,7 +848,7 @@ export default function PlanPage() {
     : 0;
   const vacStartLabel = vacStart ? new Date(vacStart + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
   const vacEndLabel   = vacEnd   ? new Date(vacEnd   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-  const vacCanSave    = !!(vacName.trim() && vacStart && vacEnd && vacEnd >= vacStart);
+  const vacCanSave    = !!(vacName.trim() && vacStart && vacEnd);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1333,13 +1333,13 @@ export default function PlanPage() {
                 </div>
               </div>
 
-              {vacDays > 0 && (
+              {vacStart && vacEnd && (
                 <div className="bg-[#fef9e8] border border-[#f0dda8] rounded-2xl px-4 py-3 text-center text-sm text-[#7a4a1a] font-medium">
-                  🌴 {vacDays} {vacDays === 1 ? "day" : "days"} off — {vacStartLabel} to {vacEndLabel}
+                  🌴 {vacDays > 0 ? `${vacDays} ${vacDays === 1 ? "day" : "days"} off` : "Check dates"} — {vacStartLabel} to {vacEndLabel}
                 </div>
               )}
 
-              {vacDays > 0 && (
+              {vacStart && vacEnd && (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-[#7a6f65]">What would you like to do with your scheduled lessons?</p>
                   <label className={`flex items-start gap-3 p-3 rounded-2xl border-2 cursor-pointer transition-all ${
