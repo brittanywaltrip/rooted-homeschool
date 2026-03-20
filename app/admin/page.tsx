@@ -30,6 +30,9 @@ interface AdminSummary {
   estAnnualRevenue: number;
   stripeFoundingCount: number;
   stripeStandardCount: number;
+  stripeActiveTotal: number;
+  cancelledFoundingCount: number;
+  cancelledStandardCount: number;
   // Recent signups
   recentSignups: {
     id: string;
@@ -127,7 +130,7 @@ export default function AdminPage() {
             <StatCard label="Total Families" value={data.totalUsers} />
             <StatCard label="New This Week" value={data.weekSignups} />
             <StatCard label="New Today" value={data.todaySignups} />
-            <StatCard label="Paying Subscribers" value={data.proUsers} sub={`${data.foundingFamilies} founding · ${data.standardSubs} standard`} />
+            <StatCard label="Paying Subscribers" value={data.stripeActiveTotal} sub={`${data.stripeFoundingCount} founding · ${data.stripeStandardCount} standard · live from Stripe`} />
             <StatCard label="Founding Members" value={data.foundingFamilies} />
             <StatCard label="Free Users" value={data.freeUsers} />
           </div>
@@ -284,6 +287,15 @@ export default function AdminPage() {
               value={data.stripeStandardCount}
               sub={`$${(data.stripeStandardCount * 59).toLocaleString()} · $59/yr each`}
             />
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl px-5 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-rose-400 mb-1">Refunded / Cancelled</p>
+              <p className="text-2xl font-bold text-rose-700 leading-none">
+                {data.cancelledFoundingCount + data.cancelledStandardCount}
+              </p>
+              <p className="text-xs text-rose-500 mt-1">
+                {data.cancelledFoundingCount} founding · {data.cancelledStandardCount} standard
+              </p>
+            </div>
           </div>
         </section>
 

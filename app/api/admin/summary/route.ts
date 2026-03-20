@@ -113,22 +113,33 @@ export async function GET(req: Request) {
       };
     });
 
-  // Revenue — live from Stripe active subscriptions
+  // Revenue — live from Stripe
   let stripeFoundingCount = 0;
   let stripeStandardCount = 0;
+  let cancelledFoundingCount = 0;
+  let cancelledStandardCount = 0;
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-    const subs = await stripe.subscriptions.list({ status: "active", limit: 100 });
-    for (const sub of subs.data) {
+    const [activeSubs, cancelledSubs] = await Promise.all([
+      stripe.subscriptions.list({ status: "active", limit: 100 }),
+      stripe.subscriptions.list({ status: "canceled", limit: 100 }),
+    ]);
+    for (const sub of activeSubs.data) {
       const priceId = sub.items.data[0]?.price.id;
       if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID) stripeFoundingCount++;
       else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID) stripeStandardCount++;
+    }
+    for (const sub of cancelledSubs.data) {
+      const priceId = sub.items.data[0]?.price.id;
+      if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID) cancelledFoundingCount++;
+      else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID) cancelledStandardCount++;
     }
   } catch {
     // Fall back to DB counts if Stripe is unavailable
     stripeFoundingCount = foundingFamilies;
     stripeStandardCount = standardSubs;
   }
+  const stripeActiveTotal = stripeFoundingCount + stripeStandardCount;
   const estAnnualRevenue = stripeFoundingCount * 39 + stripeStandardCount * 59;
 
   return NextResponse.json({
@@ -155,6 +166,9 @@ export async function GET(req: Request) {
     estAnnualRevenue,
     stripeFoundingCount,
     stripeStandardCount,
+    stripeActiveTotal,
+    cancelledFoundingCount,
+    cancelledStandardCount,
     // Recent signups
     recentSignups,
   });
