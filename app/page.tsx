@@ -706,6 +706,106 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── 6b. PRINTABLES & REPORTS ──────────────────────────────────────────── */}
+      <section className="bg-[#fefcf9] border-y border-[#e8e2d9] px-6 sm:px-8 py-20">
+        <div className="max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+
+            <div className="flex justify-center lg:justify-start order-2 lg:order-1">
+              <div
+                className="bg-white rounded-3xl shadow-xl border border-[#e8e2d9] overflow-hidden w-full max-w-sm select-none"
+                style={{ boxShadow: "0 16px 48px rgba(139, 111, 71, 0.10), 0 2px 8px rgba(0,0,0,0.05)" }}
+              >
+                <div className="bg-[#fefcf9] border-b border-[#e8e2d9] px-4 py-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-[#8b6f47]" />
+                    <span className="text-xs font-semibold text-[#2d2926]">Progress Report</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-[#5c7f63] text-white text-[10px] font-bold px-2.5 py-1 rounded-lg">
+                    🖨️ Print
+                  </div>
+                </div>
+                <div className="p-5 space-y-4">
+                  <div>
+                    <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Zoe Parker · 2025–2026</p>
+                    <p className="text-sm font-bold text-[#2d2926] mt-0.5">Annual Progress Report</p>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { label: "Lessons", value: "53" },
+                      { label: "Hours", value: "26h" },
+                      { label: "Books", value: "8" },
+                      { label: "Subjects", value: "4" },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="text-center bg-[#f8f5f0] rounded-xl py-2.5">
+                        <p className="text-sm font-bold text-[#2d2926]">{value}</p>
+                        <p className="text-[8px] text-[#7a6f65]">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { subject: "Math", pct: 90, color: "#5c7f63" },
+                      { subject: "Reading", pct: 78, color: "#4a7a8a" },
+                      { subject: "Science", pct: 60, color: "#8b6f47" },
+                      { subject: "History", pct: 45, color: "#7a6f8a" },
+                    ].map((s) => (
+                      <div key={s.subject} className="flex items-center gap-3">
+                        <span className="text-[9px] w-14 text-[#7a6f65] shrink-0">{s.subject}</span>
+                        <div className="flex-1 h-1.5 bg-[#f0ede8] rounded-full overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${s.pct}%`, backgroundColor: s.color }} />
+                        </div>
+                        <span className="text-[9px] text-[#b5aca4] w-6 text-right">{s.pct}%</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-[#e8f0e9] rounded-xl px-3 py-2 text-center">
+                    <p className="text-[10px] text-[#5c7f63] font-semibold">✓ Ready for state submission</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="order-1 lg:order-2">
+              <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
+                Peace of mind, one click away
+              </p>
+              <h2
+                className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                Beautiful reports.{" "}
+                <em className="not-italic" style={{ color: "#5c7f63" }}>No stress.</em>
+              </h2>
+              <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
+                Whether you need to submit to your state or simply want to see how far your kids have come — Rooted generates clean, professional progress reports in one click. Print, save as PDF, or share with your co-op.
+              </p>
+              <ul className="space-y-4 mb-8">
+                {[
+                  { emoji: "📋", title: "State compliance, simplified", desc: "Meets common homeschool reporting requirements. Just configure, preview, and print." },
+                  { emoji: "🖨️", title: "Printable & PDF-ready", desc: "Clean, professional layout. Looks great on paper and on screen." },
+                  { emoji: "📊", title: "Per subject & per child", desc: "Individual reports for each child showing lessons, hours, books read, and subjects covered." },
+                  { emoji: "📅", title: "Any date range", desc: "Pull a semester, a full year, or a custom window — however your state requires it." },
+                ].map((item) => (
+                  <li key={item.title} className="flex gap-4 items-start">
+                    <div className="w-9 h-9 rounded-xl bg-[#f5ede0] flex items-center justify-center text-lg shrink-0 mt-0.5">
+                      {item.emoji}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-[#2d2926] text-sm mb-0.5">{item.title}</p>
+                      <p className="text-xs text-[#7a6f65] leading-relaxed">{item.desc}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <Link href="/signup" className="inline-flex items-center gap-2 border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm">
+                Try it free →
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── 7. FOUNDER QUOTE ───────────────────────────────────────────────── */}
       <section className="bg-[#fefcf9] border-y border-[#e8e2d9]">
         <div className="max-w-2xl mx-auto px-6 sm:px-8 py-20 text-center">
