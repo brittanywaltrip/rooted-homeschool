@@ -350,16 +350,18 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         </Link>
       </div>
 
-      {/* Upgrade to Pro */}
+      {/* Upgrade CTA */}
       {subscriptionStatus !== 'active' && (
         <div className="px-3 pb-2">
           <Link
             href="/upgrade"
             onClick={() => setMenuOpen(false)}
-            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-[#5c7f63] to-[#3d8c5c] text-white hover:from-[#3d5c42] hover:to-[#2d6644] transition-colors shadow-sm"
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#5c7f63] text-[#3d5c42] bg-[#f0f7f1] hover:bg-[#e0f0e3] transition-colors"
           >
             <span className="text-base">✨</span>
-            Upgrade to Pro
+            {new Date() < new Date('2026-05-01')
+              ? 'Become a Founding Member'
+              : 'Upgrade to Rooted'}
           </Link>
         </div>
       )}
