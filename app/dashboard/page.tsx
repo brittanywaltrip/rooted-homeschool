@@ -906,7 +906,7 @@ export default function TodayPage() {
         return (
           <div className="rounded-2xl px-4 py-3" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
             <p className="text-sm font-semibold text-[#7a4a1a]">
-              🌴 No lessons today — you&apos;re on {activeVacation.name}! Back on {backLabel}.
+              🌴 {activeVacation.name} — no lessons today! Back on {backLabel}.
             </p>
           </div>
         );
