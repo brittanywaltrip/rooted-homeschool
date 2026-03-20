@@ -28,10 +28,14 @@ interface AdminSummary {
   coTeachers: number;
   // Revenue
   estAnnualRevenue: number;
+  stripeFoundingCount: number;
+  stripeStandardCount: number;
   // Recent signups
   recentSignups: {
     id: string;
     email: string;
+    first_name: string | null;
+    last_name: string | null;
     family_name: string | null;
     plan: string;
     children_count: number;
@@ -160,7 +164,9 @@ export default function AdminPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#e8e2d9] bg-[#f8f5f0]">
-                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Family</th>
+                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">First Name</th>
+                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Last Name</th>
+                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Family Name</th>
                     <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Email</th>
                     <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Plan</th>
                     <th className="text-right px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Kids</th>
@@ -171,8 +177,14 @@ export default function AdminPage() {
                 <tbody className="divide-y divide-[#f0ede8]">
                   {data.recentSignups.map((u) => (
                     <tr key={u.id} className="hover:bg-[#f8f5f0] transition-colors">
+                      <td className="px-4 py-3 text-[#2d2926]">
+                        {u.first_name ?? <span className="text-[#c8bfb5] italic">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-[#2d2926]">
+                        {u.last_name ?? <span className="text-[#c8bfb5] italic">—</span>}
+                      </td>
                       <td className="px-4 py-3 font-medium text-[#2d2926]">
-                        {u.family_name ?? <span className="text-[#c8bfb5] italic">No name</span>}
+                        {u.family_name ?? <span className="text-[#c8bfb5] italic">—</span>}
                       </td>
                       <td className="px-4 py-3 text-[#7a6f65] text-xs">{u.email}</td>
                       <td className="px-4 py-3">
@@ -203,20 +215,20 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="💰" title="Revenue" />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 sm:col-span-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-1">Est. Annual Revenue</p>
+              <p className="text-4xl font-bold text-[#2d2926] leading-none">${data.estAnnualRevenue.toLocaleString()}</p>
+              <p className="text-xs text-[#7a6f65] mt-2">Based on live Stripe active subscriptions</p>
+            </div>
             <StatCard
-              label="Est. Annual Revenue"
-              value={`$${data.estAnnualRevenue.toLocaleString()}`}
-              sub={`${data.foundingFamilies}×$39 + ${data.standardSubs}×$59`}
+              label="Founding Members Paying"
+              value={data.stripeFoundingCount}
+              sub={`$${(data.stripeFoundingCount * 39).toLocaleString()} · $39/yr each`}
             />
             <StatCard
-              label="Founding Revenue"
-              value={`$${(data.foundingFamilies * 39).toLocaleString()}`}
-              sub={`${data.foundingFamilies} families × $39/yr`}
-            />
-            <StatCard
-              label="Standard Revenue"
-              value={`$${(data.standardSubs * 59).toLocaleString()}`}
-              sub={`${data.standardSubs} families × $59/yr`}
+              label="Standard Paying"
+              value={data.stripeStandardCount}
+              sub={`$${(data.stripeStandardCount * 59).toLocaleString()} · $59/yr each`}
             />
           </div>
         </section>

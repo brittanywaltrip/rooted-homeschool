@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import Stripe from "stripe";
 
 const ADMIN_EMAIL = "garfieldbrittany@gmail.com";
 
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
   // Profiles
   const { data: profiles } = await supabaseAdmin
     .from("profiles")
-    .select("id, display_name, plan_type, is_pro, partner_email, created_at");
+    .select("id, display_name, first_name, last_name, plan_type, is_pro, partner_email, created_at");
 
   const proUsers         = profiles?.filter(p => p.is_pro).length ?? 0;
   const freeUsers        = (profiles?.length ?? 0) - proUsers;
@@ -102,6 +103,8 @@ export async function GET(req: Request) {
       return {
         id:              u.id,
         email:           u.email ?? "—",
+        first_name:      profile?.first_name ?? null,
+        last_name:       profile?.last_name ?? null,
         family_name:     profile?.display_name ?? null,
         plan:            planType === "founding_family" ? "Founding" : planType === "standard" ? "Standard" : "Free",
         children_count:  childrenByUser.get(u.id) ?? 0,
@@ -110,8 +113,23 @@ export async function GET(req: Request) {
       };
     });
 
-  // Revenue estimate
-  const estAnnualRevenue = foundingFamilies * 39 + standardSubs * 59;
+  // Revenue — live from Stripe active subscriptions
+  let stripeFoundingCount = 0;
+  let stripeStandardCount = 0;
+  try {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    const subs = await stripe.subscriptions.list({ status: "active", limit: 100 });
+    for (const sub of subs.data) {
+      const priceId = sub.items.data[0]?.price.id;
+      if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID) stripeFoundingCount++;
+      else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID) stripeStandardCount++;
+    }
+  } catch {
+    // Fall back to DB counts if Stripe is unavailable
+    stripeFoundingCount = foundingFamilies;
+    stripeStandardCount = standardSubs;
+  }
+  const estAnnualRevenue = stripeFoundingCount * 39 + stripeStandardCount * 59;
 
   return NextResponse.json({
     // Growth
@@ -133,8 +151,10 @@ export async function GET(req: Request) {
     booksLogged:     booksLogged     ?? 0,
     memoriesCreated: memoriesCreated ?? 0,
     coTeachers,
-    // Revenue
+    // Revenue (Stripe live counts)
     estAnnualRevenue,
+    stripeFoundingCount,
+    stripeStandardCount,
     // Recent signups
     recentSignups,
   });
