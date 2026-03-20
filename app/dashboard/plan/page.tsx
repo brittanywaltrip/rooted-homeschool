@@ -36,12 +36,13 @@ const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CURRICULUM_RE = /^(.+) — Lesson \d+$/;
 
 const SUBJECT_CHIPS = [
-  { label: "Math",     bg: "#e4f0f4", text: "#1a4a5a" },
-  { label: "Reading",  bg: "#f0e8f4", text: "#4a2a5a" },
-  { label: "Science",  bg: "#e8f0e9", text: "#3d5c42" },
-  { label: "History",  bg: "#fef0e4", text: "#7a4a1a" },
-  { label: "Art",      bg: "#fce8ec", text: "#7a2a36" },
-  { label: "Other",    bg: "#f0ede8", text: "#5c5248" },
+  { label: "Math",          bg: "#e4f0f4", text: "#1a4a5a" },
+  { label: "Reading",       bg: "#f0e8f4", text: "#4a2a5a" },
+  { label: "Language Arts", bg: "#ede8f4", text: "#3a2a6a" },
+  { label: "Science",       bg: "#e8f0e9", text: "#3d5c42" },
+  { label: "History",       bg: "#fef0e4", text: "#7a4a1a" },
+  { label: "Art",           bg: "#fce8ec", text: "#7a2a36" },
+  { label: "Other",         bg: "#f0ede8", text: "#5c5248" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -306,6 +307,7 @@ export default function PlanPage() {
   const [wizGenerating,    setWizGenerating]    = useState(false);
   const [wizDone,          setWizDone]          = useState(false);
   const [wizGenCount,      setWizGenCount]      = useState(0);
+  const [wizError,         setWizError]         = useState<string | null>(null);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
@@ -515,7 +517,7 @@ export default function PlanPage() {
     setWizTotalLessons(""); setWizStartLesson("1");
     setWizSchoolDays([true, true, true, true, true, false, false]);
     setWizLessonsPerDay("1"); setWizGoalDate("");
-    setWizGenerating(false); setWizDone(false); setWizGenCount(0);
+    setWizGenerating(false); setWizDone(false); setWizGenCount(0); setWizError(null);
     if (preChildId) {
       setWizChildId(preChildId); setWizStep(2);
     } else if (children.length === 1) {
@@ -532,7 +534,7 @@ export default function PlanPage() {
     setWizTotalLessons(""); setWizStartLesson("1");
     setWizSchoolDays([true, true, true, true, true, false, false]);
     setWizLessonsPerDay("1"); setWizGoalDate("");
-    setWizGenerating(false); setWizDone(false); setWizGenCount(0);
+    setWizGenerating(false); setWizDone(false); setWizGenCount(0); setWizError(null);
     setWizChildId(savedChildId); setWizStep(2);
   }
 
@@ -579,8 +581,9 @@ export default function PlanPage() {
 
   async function generateSchedule() {
     setWizGenerating(true);
+    setWizError(null);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setWizGenerating(false); return; }
+    if (!user) { setWizGenerating(false); setWizError("Not logged in. Please refresh and try again."); return; }
 
     const effectiveSub = wizSubject === "Other" ? wizCustomSubject.trim() : wizSubject;
     let subjectId: string | null = null;
@@ -588,7 +591,8 @@ export default function PlanPage() {
       const existing = subjects.find((s) => s.name.toLowerCase() === effectiveSub.toLowerCase());
       if (existing) { subjectId = existing.id; }
       else {
-        const { data: ns } = await supabase.from("subjects").insert({ user_id: user.id, name: effectiveSub }).select("id, name, color").single();
+        const { data: ns, error: subErr } = await supabase.from("subjects").insert({ user_id: user.id, name: effectiveSub }).select("id, name, color").single();
+        if (subErr) { setWizGenerating(false); setWizError(`Could not create subject: ${subErr.message}`); return; }
         if (ns) { setSubjects((p) => [...p, ns as Subject]); subjectId = ns.id; }
       }
     }
@@ -611,19 +615,30 @@ export default function PlanPage() {
       safety++;
     }
 
+    if (rows.length === 0) {
+      setWizGenerating(false);
+      setWizError("No lessons to schedule. Check that your start lesson number is less than or equal to total lessons.");
+      return;
+    }
+
     const inserts = rows.map(({ date, n }) => ({
       user_id: user.id, child_id: wizChildId || null, subject_id: subjectId,
       title: `${wizCurricName} — Lesson ${n}`, date, scheduled_date: date, completed: false, hours: null,
     }));
     for (let i = 0; i < inserts.length; i += 100) {
-      await supabase.from("lessons").insert(inserts.slice(i, i + 100));
+      const { error: insertErr } = await supabase.from("lessons").insert(inserts.slice(i, i + 100));
+      if (insertErr) {
+        setWizGenerating(false);
+        setWizError(`Failed to save lessons: ${insertErr.message}`);
+        return;
+      }
     }
 
     setWizGenCount(rows.length);
     setWizGenerating(false);
     setWizDone(true);
-    loadData();
-    loadAllLessons();
+    await loadData();
+    await loadAllLessons();
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -1247,7 +1262,7 @@ export default function PlanPage() {
             {/* ── STEP 4: Confirm & Generate ───────────────────── */}
             {wizStep === 4 && (
               <div className="space-y-5">
-                {!wizDone && !wizGenerating && (
+                {!wizDone && !wizGenerating && !wizError && (
                   <>
                     <div className="text-center">
                       <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
@@ -1279,6 +1294,15 @@ export default function PlanPage() {
                       </button>
                     </div>
                   </>
+                )}
+
+                {wizError && !wizGenerating && !wizDone && (
+                  <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3 space-y-2">
+                    <p className="text-sm font-semibold text-red-700">Could not save your schedule</p>
+                    <p className="text-xs text-red-600">{wizError}</p>
+                    <button onClick={() => setWizError(null)}
+                      className="text-xs font-semibold text-red-700 underline">Try again</button>
+                  </div>
                 )}
 
                 {wizGenerating && (
