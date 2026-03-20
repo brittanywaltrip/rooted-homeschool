@@ -133,9 +133,13 @@ export default function UpgradePage() {
             <ul className="space-y-2 mb-6 flex-1">
               {[
                 'Unlimited children',
-                'Everything in the app',
+                'Memories & photo log',
+                'Insights & learning streaks',
+                'Progress reports & transcripts',
+                'AI-written family updates',
+                'Co-teacher access',
                 'Priority support from Brittany',
-                'Founding member pricing locked forever',
+                'Founding price locked forever 🎁',
               ].map(f => (
                 <li key={f} className="flex items-center gap-2 text-sm text-[#2d5c38] font-medium">
                   <span className="text-[#5c7f63] shrink-0">✓</span>{f}
@@ -167,8 +171,11 @@ export default function UpgradePage() {
             <ul className="space-y-2 mb-6 flex-1">
               {[
                 'Unlimited children',
-                'Everything in the app',
-                'Priority support from Brittany',
+                'Memories & photo log',
+                'Insights & learning streaks',
+                'Progress reports & transcripts',
+                'AI-written family updates',
+                'Co-teacher access',
               ].map(f => (
                 <li key={f} className="flex items-center gap-2 text-sm text-[#7a6f65]">
                   <span className="text-[#5c7f63] shrink-0">✓</span>{f}
