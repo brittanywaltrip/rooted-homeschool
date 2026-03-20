@@ -82,27 +82,29 @@ export default function AdminPage() {
   const [data, setData] = useState<AdminSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Free">("All");
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session || session.user.email !== ADMIN_EMAIL) {
-        router.replace("/dashboard");
-        return;
-      }
-
-      const res = await fetch("/api/admin/summary", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-
-      if (!res.ok) {
-        setError("Failed to load admin data.");
-        return;
-      }
-
-      const json = await res.json();
-      setData(json);
+  const loadData = async () => {
+    setRefreshing(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || session.user.email !== ADMIN_EMAIL) {
+      router.replace("/dashboard");
+      return;
+    }
+    const res = await fetch("/api/admin/summary", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
     });
-  }, [router]);
+    if (!res.ok) {
+      setError("Failed to load admin data.");
+      setRefreshing(false);
+      return;
+    }
+    const json = await res.json();
+    setData(json);
+    setRefreshing(false);
+  };
+
+  useEffect(() => { loadData(); }, [router]);
 
   if (error) {
     return (
@@ -123,14 +125,24 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-[#2d3e30]">
       {/* Header */}
-      <div className="bg-[#3d5c42] border-b border-[#4e7055] px-6 py-6">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#8cba8e] mb-1">Rooted</p>
-        <h1 className="text-2xl font-bold text-[#fefcf9]" style={{ fontFamily: "Georgia, serif" }}>
-          Founder Dashboard 🌱
-        </h1>
-        <p className="text-sm text-[#a8c5a0] mt-1">
-          {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-        </p>
+      <div className="bg-[#3d5c42] border-b border-[#4e7055] px-6 py-6 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-[#8cba8e] mb-1">Rooted</p>
+          <h1 className="text-2xl font-bold text-[#fefcf9]" style={{ fontFamily: "Georgia, serif" }}>
+            Founder Dashboard 🌱
+          </h1>
+          <p className="text-sm text-[#a8c5a0] mt-1">
+            {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+          </p>
+        </div>
+        <button
+          onClick={loadData}
+          disabled={refreshing}
+          className="mt-1 flex items-center gap-2 bg-[#4e7055] hover:bg-[#5c7f63] disabled:opacity-50 text-[#fefcf9] text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors border border-[#6a9070] shrink-0"
+        >
+          <span className={refreshing ? "animate-spin" : ""}>🔄</span>
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
       </div>
 
       <div className="max-w-4xl mx-auto px-5 py-8 space-y-10">
