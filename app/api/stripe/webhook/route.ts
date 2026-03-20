@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
         ADMIN_EMAIL,
         `🌱 New ${plan === 'founding_family' ? 'Founding Member' : 'Subscriber'}! ${familyName} just subscribed`,
         `New subscription on Rooted!\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(priceId)}\nTime: ${now}\nTotal active subscribers: ${activeCount}\n\nRooted is growing! 🌱`
-      )\.catch((err) => console.error("Resend sendEmail error:", err))
+      ).catch((err) => console.error("Resend sendEmail error:", err))
 
       // Thank-you email to the new subscriber
       if (customerEmail !== '—') {
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
           subjectLine,
           body,
           'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
-        )\.catch((err) => console.error("Resend sendEmail error:", err))
+        ).catch((err) => console.error("Resend sendEmail error:", err))
       }
     }
   }
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
         ADMIN_EMAIL,
         `💔 Subscription cancelled — ${familyName}`,
         `A subscription was cancelled.\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(priceId)}\nMember since: ${startDate}\nCancelled: ${endDate}\n\nRemaining active subscribers: ${activeCount}\n\nConsider reaching out personally to learn why.`
-      )\.catch((err) => console.error("Resend sendEmail error:", err)) // fire-and-forget
+      ).catch((err) => console.error("Resend sendEmail error:", err)) // fire-and-forget
     }
   }
 
