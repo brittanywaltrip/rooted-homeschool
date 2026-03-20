@@ -904,11 +904,10 @@ export default function TodayPage() {
         backDate.setDate(backDate.getDate() + 1);
         const backLabel = backDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
         return (
-          <div className="rounded-2xl px-4 py-3 space-y-0.5" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
+          <div className="rounded-2xl px-4 py-3" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
             <p className="text-sm font-semibold text-[#7a4a1a]">
-              🌴 You&apos;re on {activeVacation.name}! Enjoy the time off.
+              🌴 No lessons today — you&apos;re on {activeVacation.name}! Back on {backLabel}.
             </p>
-            <p className="text-xs text-[#c4956a]">Back on {backLabel}</p>
           </div>
         );
       })()}
