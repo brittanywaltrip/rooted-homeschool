@@ -64,6 +64,9 @@ export default function UpgradePage() {
             You&apos;re not just getting an app — you&apos;re supporting a homeschool mom building something
             for all of us. Founding members get the best price, forever.
           </p>
+          <p className="text-sm text-[#5c7f63] font-semibold mt-3">
+            🌱 3 families are already Founding Members — spots are limited to 200
+          </p>
         </div>
 
         {/* Error banner */}
@@ -92,7 +95,7 @@ export default function UpgradePage() {
               <p className="text-sm text-[#7a6f65]">Get started</p>
             </div>
             <ul className="space-y-2 mb-6 flex-1">
-              {['1 child', 'Basic planning', 'Resources'].map(f => (
+              {['Unlimited children', 'Basic lesson tracking', 'Family garden', 'Curated resources'].map(f => (
                 <li key={f} className="flex items-center gap-2 text-sm text-[#7a6f65]">
                   <span className="text-[#c8bfb5] shrink-0">✓</span>{f}
                 </li>
