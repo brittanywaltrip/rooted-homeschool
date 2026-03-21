@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, Camera, Calendar, MoreHorizontal } from "lucide-react";
+import { Sun, Leaf, Camera, Calendar, MoreHorizontal, Settings } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
@@ -338,6 +338,13 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           href="/dashboard/more"
           icon={MoreHorizontal}
           active={isActive("/dashboard/more")}
+          onClick={() => setMenuOpen(false)}
+        />
+        <NavLink
+          label="Settings"
+          href="/dashboard/settings"
+          icon={Settings}
+          active={isActive("/dashboard/settings")}
           onClick={() => setMenuOpen(false)}
         />
         {isAdmin && (

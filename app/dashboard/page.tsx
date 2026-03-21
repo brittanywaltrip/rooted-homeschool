@@ -776,13 +776,11 @@ export default function TodayPage() {
   }
 
   return (
-    <div className="max-w-2xl px-5 pt-0 pb-7 space-y-6">
-
+    <>
       {/* ── Hero Header ──────────────────────────────────────── */}
       <PageHero
         overline={formatDateHero(new Date())}
         title={`${getGreeting()}${familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 🌿`}
-        className="-mx-5"
       >
         {totalToday > 0 ? (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
@@ -798,6 +796,8 @@ export default function TodayPage() {
           </div>
         )}
       </PageHero>
+
+      <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
 
       {/* ── Setup Banner (skipped onboarding, no children) ─── */}
       {onboarded === true && children.length === 0 && !bannerDismissed && (
@@ -1077,37 +1077,30 @@ export default function TodayPage() {
           </>
         ) : subjects.length === 0 ? (
           /* Empty state — no curriculum set up yet */
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-8 flex flex-col items-center text-center">
-            <span className="text-4xl mb-3">🌱</span>
-            <p className="text-base font-semibold text-[#2d2926] mb-1.5">Welcome to Rooted</p>
-            <p className="text-sm text-[#7a6f65] leading-relaxed max-w-xs mb-5">
-              Your garden grows every time you learn. Start by setting up your curriculum — it only takes 2 minutes.
+          <div className="py-8 flex flex-col items-center text-center">
+            <span className="text-[52px] block mb-2">🌿</span>
+            <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+              Welcome to Rooted 🌱
+            </p>
+            <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
+              Your garden grows with every lesson you log together.
             </p>
             <Link
               href="/dashboard/plan"
-              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors mb-3"
+              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
             >
               Set Up Curriculum →
             </Link>
-            {!isPartner && (
-              <p className="text-xs text-[#b5aca4]">
-                Already learned something today?{" "}
-                <button
-                  onClick={() => setShowLogModal(true)}
-                  className="text-[#5c7f63] underline underline-offset-2 hover:text-[#3d5c42]"
-                >
-                  Log it now →
-                </button>
-              </p>
-            )}
           </div>
         ) : (
           /* Empty state — has subjects but no lessons today */
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-8 flex flex-col items-center text-center">
-            <span className="text-4xl mb-3">🌱</span>
-            <p className="text-base font-semibold text-[#2d2926] mb-1.5">No lessons yet today</p>
-            <p className="text-sm text-[#7a6f65] leading-relaxed max-w-xs mb-5">
-              Ready to grow? Log what you learned today.
+          <div className="py-8 flex flex-col items-center text-center">
+            <span className="text-[52px] block mb-2">🌱</span>
+            <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+              Ready to grow today?
+            </p>
+            <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
+              Log what you learned — every lesson grows your garden.
             </p>
             {!isPartner && (
               <button
@@ -1144,13 +1137,13 @@ export default function TodayPage() {
                   ? Math.min(100, Math.max(0, ((leaves - stage.min) / (nextStage.min - stage.min)) * 100))
                   : 100;
                 return (
-                  <div key={child.id} className="bg-[#eef5ef] rounded-xl px-3.5 py-2.5 flex items-center gap-2.5">
+                  <div key={child.id} className="bg-[#e8f2e9] border border-[#d4e8d6] rounded-xl px-3.5 py-2.5 flex items-center gap-2.5">
                     <span className="text-base">🌱</span>
                     <span className="text-[11px] font-bold uppercase tracking-wide text-[#3d5c42] min-w-[44px]">
                       {child.name}
                     </span>
                     <span className="text-[13px] font-semibold text-[#2d2926] flex-1">{stage.name}</span>
-                    <div className="flex-1 h-[3px] bg-[#c8dfc9] rounded-full overflow-hidden">
+                    <div className="flex-1 min-w-0 h-[3px] bg-[#c8dfc9] rounded-full overflow-hidden">
                       <div
                         className="h-full bg-[#5c7f63] rounded-full transition-all duration-500"
                         style={{ width: `${pct}%` }}
@@ -1189,7 +1182,9 @@ export default function TodayPage() {
       {/* ── Reflect Zone ──────────────────────────────────── */}
       <hr className="border-[#e8e2d9] my-2" />
       <div>
-        <p className="text-[13px] italic leading-relaxed border-l-2 border-[#e8e2d9] pl-3 mb-3" style={{ color: "#9e958d" }}>&ldquo;{quote}&rdquo;</p>
+        <div className="bg-[#f5f2ec] rounded-xl px-4 py-3 my-1 mb-3">
+          <p className="text-[13px] italic leading-relaxed border-l-2 border-[#e8e2d9] pl-3" style={{ color: "#9e958d" }}>&ldquo;{quote}&rdquo;</p>
+        </div>
         <div className="flex items-center gap-2 mb-2">
           <h2 className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9e958d" }}>
             Reflect
@@ -1198,7 +1193,7 @@ export default function TodayPage() {
             <span className="text-xs text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">saved</span>
           )}
         </div>
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden focus-within:border-[#5c7f63] focus-within:ring-2 focus-within:ring-[#5c7f63]/20 transition">
+        <div className="bg-[#fefcf9] border border-[#ddd7ce] ring-1 ring-[#ede8e0] rounded-2xl overflow-hidden focus-within:border-[#5c7f63] focus-within:ring-2 focus-within:ring-[#5c7f63]/20 transition">
           <textarea
             value={reflectionText}
             onChange={(e) => {
@@ -1291,7 +1286,7 @@ export default function TodayPage() {
       {!isPartner && !showLogModal && (
         <button
           onClick={() => setShowLogModal(true)}
-          className="fixed bottom-20 right-4 z-50 rounded-full bg-[#5c7f63] hover:bg-[#3d5c42] active:scale-95 text-white shadow-lg flex items-center gap-2 px-4 py-3 transition-all"
+          className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 rounded-full bg-[#5c7f63] hover:bg-[#3d5c42] active:scale-95 text-white shadow-lg flex items-center gap-2 px-4 py-3 transition-all"
           aria-label="Log today"
         >
           <span className="text-2xl font-light leading-none">+</span>
@@ -1522,6 +1517,7 @@ export default function TodayPage() {
 
       <FloatingLeaves active={celebrating} />
 
-    </div>
+      </div>
+    </>
   );
 }
