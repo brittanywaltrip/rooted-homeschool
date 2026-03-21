@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Plus, X, BookOpen, Trash2, CalendarDays } fr
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import DayDetailPanel from "@/app/components/DayDetailPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -135,21 +136,23 @@ function LessonCard({
   onDelete:  (id: string) => void;
   isPartner: boolean;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const subStyle   = getSubjectStyle(lesson.subjects?.name);
-  // Child color takes priority over subject color for left border
-  const borderColor = childObj?.color ?? subStyle.text;
+  const [menuOpen,    setMenuOpen]    = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const subStyle    = getSubjectStyle(lesson.subjects?.name);
+  // Use subject color from DB as left border; fall back to computed style
+  const borderColor = lesson.subjects?.color ?? subStyle.text;
 
   return (
     <div
-      className={`rounded-xl p-2 border-l-[3px] transition-all relative ${
+      className={`rounded-xl p-2 border-l-[3px] transition-all relative cursor-pointer ${
         lesson.completed ? "opacity-55" : "shadow-sm"
       }`}
       style={{ borderLeftColor: borderColor, backgroundColor: lesson.completed ? "#f0f7f1" : "white" }}
+      onClick={() => setPopoverOpen((v) => !v)}
     >
       <div className="flex items-start gap-1.5">
         <button
-          onClick={() => onToggle(lesson.id, lesson.completed)}
+          onClick={(e) => { e.stopPropagation(); onToggle(lesson.id, lesson.completed); }}
           className={`mt-0.5 w-[15px] h-[15px] rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
             lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5] hover:border-[#5c7f63]"
           }`}
@@ -196,11 +199,11 @@ function LessonCard({
             </button>
             {menuOpen && (
               <>
-                <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
+                <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
                 <div className="absolute right-0 top-6 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[100px]">
-                  <button onClick={() => { onEdit(lesson); setMenuOpen(false); }}
+                  <button onClick={(e) => { e.stopPropagation(); onEdit(lesson); setMenuOpen(false); }}
                     className="w-full text-left px-3 py-2 text-xs text-[#2d2926] hover:bg-[#f8f7f4] transition-colors">✏️ Edit</button>
-                  <button onClick={() => { onDelete(lesson.id); setMenuOpen(false); }}
+                  <button onClick={(e) => { e.stopPropagation(); onDelete(lesson.id); setMenuOpen(false); }}
                     className="w-full text-left px-3 py-2 text-xs text-red-500 hover:bg-red-50 transition-colors">🗑 Delete</button>
                 </div>
               </>
@@ -208,6 +211,47 @@ function LessonCard({
           </div>
         )}
       </div>
+
+      {/* Lesson detail popover */}
+      {popoverOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setPopoverOpen(false); }} />
+          <div
+            className="fixed top-1/2 left-1/2 z-50 bg-white border border-[#e8e2d9] rounded-2xl shadow-xl p-4 w-72"
+            style={{ transform: "translate(-50%, -50%)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm font-semibold text-[#2d2926] mb-2 leading-snug">{lesson.title}</p>
+            <div className="flex flex-wrap items-center gap-1.5 mb-3">
+              {lesson.subjects && (
+                <span
+                  className="text-xs font-medium px-2 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: (lesson.subjects.color ?? "#5c7f63") + "22",
+                    color: lesson.subjects.color ?? "#5c7f63",
+                  }}
+                >
+                  {lesson.subjects.name}
+                </span>
+              )}
+              {childObj && (
+                <span className="text-xs text-[#7a6f65]">{childObj.name}</span>
+              )}
+            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle(lesson.id, lesson.completed);
+                setPopoverOpen(false);
+              }}
+              className="w-full py-2 rounded-xl text-xs font-semibold text-white transition-colors"
+              style={{ backgroundColor: lesson.completed ? "#b5aca4" : "#5c7f63" }}
+            >
+              {lesson.completed ? "↩ Mark Incomplete" : "✓ Mark Complete"}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -316,6 +360,9 @@ export default function PlanPage() {
     const dow = new Date().getDay();
     return Math.max(0, Math.min(4, (dow + 6) % 7));
   });
+
+  // ── Day detail panel (month view) ─────────────────────────────────────────
+  const [dayDetailDate, setDayDetailDate] = useState<string | null>(null);
 
   // ── Quick-add modal ───────────────────────────────────────────────────────
   const [showModal,   setShowModal]   = useState(false);
@@ -461,6 +508,7 @@ export default function PlanPage() {
 
   async function toggleLesson(id: string, current: boolean) {
     setLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
+    setMonthLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
   }
 
@@ -877,6 +925,14 @@ export default function PlanPage() {
 
   const modalDateLabel = modalDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
+  // Month lesson map (shared by calendar grid + DayDetailPanel)
+  const monthLessonMap: Record<string, Lesson[]> = {};
+  monthLessons.forEach((l) => {
+    const key = l.scheduled_date ?? l.date ?? "";
+    if (!monthLessonMap[key]) monthLessonMap[key] = [];
+    monthLessonMap[key].push(l);
+  });
+
   // ── Vacation modal derived ────────────────────────────────────────────────
   const vacDays = vacStart && vacEnd && vacEnd >= vacStart
     ? Math.round((new Date(vacEnd + "T00:00:00").getTime() - new Date(vacStart + "T00:00:00").getTime()) / 86400000) + 1
@@ -888,6 +944,7 @@ export default function PlanPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
+    <>
     <div className="px-4 py-7 space-y-5 max-w-5xl">
 
       {/* ── Header ───────────────────────────────────────────── */}
@@ -1153,40 +1210,82 @@ export default function PlanPage() {
             ];
             // Pad to complete rows
             while (cells.length % 7 !== 0) cells.push(null);
-            const monthLessonMap: Record<string, Lesson[]> = {};
-            monthLessons.forEach((l) => {
-              const key = l.scheduled_date ?? l.date ?? "";
-              if (!monthLessonMap[key]) monthLessonMap[key] = [];
-              monthLessonMap[key].push(l);
-            });
             return (
               <div className="grid grid-cols-7 gap-1">
                 {cells.map((day, idx) => {
                   if (!day) return <div key={`empty-${idx}`} />;
-                  const key = toDateStr(day);
-                  const isToday = key === todayStr;
-                  const isPast  = day < todayMidnight;
+                  const key        = toDateStr(day);
+                  const isToday    = key === todayStr;
+                  const isPast     = day < todayMidnight;
+                  const isBreak    = isDateInBlocks(key, vacationBlocks);
                   const dayLessons = monthLessonMap[key] ?? [];
-                  const done = dayLessons.filter((l) => l.completed).length;
+                  const done       = dayLessons.filter((l) => l.completed).length;
+                  const allDone    = dayLessons.length > 0 && done === dayLessons.length;
+                  const someDone   = done > 0 && !allDone;
+
+                  if (isBreak) {
+                    return (
+                      <div
+                        key={key}
+                        className="min-h-[64px] rounded-xl p-1.5 flex flex-col border border-[#e0d9d0]"
+                        style={{ backgroundColor: "#f0ede8" }}
+                      >
+                        <span className={`text-xs font-bold ${isPast ? "text-[#c8bfb5]" : "text-[#b5aca4]"}`}>
+                          {day.getDate()}
+                        </span>
+                        <span className="text-base mt-1 leading-none">🌴</span>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div
                       key={key}
-                      className={`min-h-[64px] rounded-xl p-1.5 flex flex-col border transition-all ${
-                        isToday ? "border-[#5c7f63] bg-[#f2f9f3]" : "border-[#e8e2d9] bg-[#fefcf9]"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setDayDetailDate(key)}
+                      onKeyDown={(e) => e.key === "Enter" && setDayDetailDate(key)}
+                      className={`min-h-[64px] rounded-xl p-1.5 flex flex-col border transition-all cursor-pointer hover:shadow-sm ${
+                        isToday
+                          ? "border-[#5c7f63] bg-[#f2f9f3] hover:bg-[#ecf7ed]"
+                          : "border-[#e8e2d9] bg-[#fefcf9] hover:bg-[#faf8f4]"
                       }`}
                     >
-                      <span className={`text-xs font-bold mb-1 ${
-                        isToday ? "text-[#3d5c42]" : isPast ? "text-[#c8bfb5]" : "text-[#2d2926]"
-                      }`}>{day.getDate()}</span>
+                      {/* Date row: number + completion indicator */}
+                      <div className="flex items-start justify-between mb-1">
+                        <span className={`font-bold leading-none ${
+                          isToday
+                            ? "text-base text-[#3d5c42]"
+                            : isPast
+                            ? "text-xs text-[#c8bfb5]"
+                            : "text-xs text-[#2d2926]"
+                        }`}>
+                          {day.getDate()}
+                        </span>
+                        {allDone && (
+                          <span className="text-[10px] font-bold text-[#5c7f63] leading-none">✓</span>
+                        )}
+                        {someDone && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 mt-0.5" />
+                        )}
+                      </div>
+
+                      {/* Lesson pills */}
                       {dayLessons.length > 0 && (
                         <div className="space-y-0.5">
                           {dayLessons.slice(0, 3).map((l) => {
-                            const subStyle = getSubjectStyle(l.subjects?.name);
+                            const subStyle  = getSubjectStyle(l.subjects?.name);
+                            const subColor  = l.subjects?.color ?? subStyle.text;
                             return (
                               <div
                                 key={l.id}
-                                className="text-[9px] font-medium px-1 py-0.5 rounded truncate"
-                                style={{ backgroundColor: subStyle.bg, color: subStyle.text, opacity: l.completed ? 0.5 : 1 }}
+                                className="text-[9px] font-medium px-1 py-0.5 rounded truncate border-l-2"
+                                style={{
+                                  backgroundColor: subStyle.bg,
+                                  color: subStyle.text,
+                                  borderLeftColor: subColor,
+                                  opacity: l.completed ? 0.5 : 1,
+                                }}
                               >
                                 {l.title}
                               </div>
@@ -1196,9 +1295,6 @@ export default function PlanPage() {
                             <span className="text-[9px] text-[#b5aca4]">+{dayLessons.length - 3} more</span>
                           )}
                         </div>
-                      )}
-                      {done > 0 && dayLessons.length > 0 && (
-                        <span className="text-[8px] text-[#5c7f63] mt-auto">{done}/{dayLessons.length} ✓</span>
                       )}
                     </div>
                   );
@@ -1860,5 +1956,20 @@ export default function PlanPage() {
 
       <div className="h-4" />
     </div>
+
+    {/* ── Day Detail Panel (month view) ──────────────────── */}
+    {dayDetailDate && (
+      <DayDetailPanel
+        date={new Date(dayDetailDate + "T00:00:00")}
+        lessons={monthLessonMap[dayDetailDate] ?? []}
+        children={children}
+        subjects={subjects}
+        onClose={() => setDayDetailDate(null)}
+        onToggle={toggleLesson}
+        onSaved={() => { loadMonthData(); setDayDetailDate(null); }}
+        isPartner={isPartner}
+      />
+    )}
+    </>
   );
 }

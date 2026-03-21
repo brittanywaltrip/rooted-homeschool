@@ -14,6 +14,7 @@ interface LogTodayModalProps {
   children: Child[];
   subjects: Subject[];
   today: string;
+  selectedDate?: string;
   onClose: () => void;
   onSaved: (type: string, childId?: string) => void;
 }
@@ -100,8 +101,9 @@ function SubjectPills({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function LogTodayModal({
-  children, subjects, today, onClose, onSaved,
+  children, subjects, today, selectedDate, onClose, onSaved,
 }: LogTodayModalProps) {
+  const saveDate = selectedDate ?? today;
   const [mode,    setMode]    = useState<Mode>(null);
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState("");
@@ -157,7 +159,7 @@ export default function LogTodayModal({
           subject_id: subjectId,
           title: lessonTitle.trim(),
           completed: true,
-          date: today,
+          date: saveDate,
         });
         onSaved("lesson", lessonChild || undefined);
 
@@ -166,7 +168,7 @@ export default function LogTodayModal({
         await supabase.from("app_events").insert({
           user_id: user.id,
           type: "memory_book",
-          payload: { title: bookTitle.trim(), date: today, child_id: bookChild || undefined },
+          payload: { title: bookTitle.trim(), date: saveDate, child_id: bookChild || undefined },
         });
         onSaved("book", bookChild || undefined);
 
@@ -178,7 +180,7 @@ export default function LogTodayModal({
           payload: {
             title: projectTitle.trim(),
             description: projectDesc.trim() || undefined,
-            date: today,
+            date: saveDate,
             child_id: projectChild || undefined,
           },
         });
@@ -189,14 +191,14 @@ export default function LogTodayModal({
         await supabase.from("app_events").insert({
           user_id: user.id,
           type: "memory_photo",
-          payload: { title: photoTitle.trim(), date: today, child_id: photoChild || undefined },
+          payload: { title: photoTitle.trim(), date: saveDate, child_id: photoChild || undefined },
         });
         onSaved("photo", photoChild || undefined);
 
       } else if (mode === "reflection") {
         if (!reflectionText.trim()) { setError("Please write something first."); setSaving(false); return; }
         await supabase.from("daily_reflections").upsert(
-          { user_id: user.id, date: today, reflection: reflectionText.trim(), updated_at: new Date().toISOString() },
+          { user_id: user.id, date: saveDate, reflection: reflectionText.trim(), updated_at: new Date().toISOString() },
           { onConflict: "user_id,date" }
         );
         onSaved("reflection");
