@@ -197,14 +197,12 @@ export default function MemoriesPage() {
 
   return (
     <>
-    <div className="max-w-3xl px-4 pt-0 pb-7 space-y-6">
-
-      <PageHero
-        overline="Your Family Story"
-        title="Memories 📸"
-        subtitle="Capture photos, projects, and books."
-        className="-mx-4"
-      />
+    <PageHero
+      overline="Your Family Story"
+      title="Memories 📸"
+      subtitle="Capture photos, projects, and books."
+    />
+    <div className="max-w-3xl px-4 pt-5 pb-7 space-y-6">
 
       {/* Add memory */}
       {!isPartner && (

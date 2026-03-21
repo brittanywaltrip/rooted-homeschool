@@ -420,11 +420,11 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             </div>
           )}
 
-          <div className="flex-1 pb-16 md:pb-0">{children}</div>
+          <div className="flex-1 pb-24 md:pb-0">{children}</div>
         </main>
 
         {/* Mobile bottom nav bar */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#fefcf9] border-t border-[#e8e2d9] flex items-stretch safe-area-inset-bottom" style={{ height: "3.75rem" }}>
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#fefcf9] border-t border-[#e8e2d9] flex items-stretch" style={{ minHeight: "3.75rem", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           {mobileBottomNav.map(({ label, href, icon: Icon }) => {
             const active = isActive(href);
             return (

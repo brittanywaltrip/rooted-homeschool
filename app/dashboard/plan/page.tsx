@@ -1005,21 +1005,21 @@ export default function PlanPage() {
         {dragToast}
       </div>
     )}
-    <div className="px-4 pt-0 pb-7 space-y-5 max-w-5xl">
 
-      {/* ── Hero Header ──────────────────────────────────────── */}
-      <PageHero overline="Curriculum Setup" title="Plan 📋" className="-mx-4">
-        {!loading && totalWeek > 0 && (
-          <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
-            <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.80)" }}>
-              {totalWeek} lesson{totalWeek !== 1 ? "s" : ""} this week
-              {" · "}{completedWeek} done
-              {" · "}{totalWeek - completedWeek} remaining
-              {completedWeek === totalWeek && totalWeek > 0 ? " 🌿" : ""}
-            </span>
-          </div>
-        )}
-      </PageHero>
+    {/* ── Hero Header ──────────────────────────────────────── */}
+    <PageHero overline="Curriculum Setup" title="Plan 📋">
+      {!loading && totalWeek > 0 && (
+        <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
+          <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.80)" }}>
+            {totalWeek} lesson{totalWeek !== 1 ? "s" : ""} this week
+            {" · "}{completedWeek} done
+            {" · "}{totalWeek - completedWeek} remaining
+            {completedWeek === totalWeek && totalWeek > 0 ? " 🌿" : ""}
+          </span>
+        </div>
+      )}
+    </PageHero>
+    <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
 
       {/* ── Action bar ───────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-2 flex-wrap">

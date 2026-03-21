@@ -133,14 +133,13 @@ export default function MorePage() {
   }, []);
 
   return (
-    <div className="max-w-xl mx-auto px-5 pt-0 pb-8 space-y-8">
-
-      <PageHero
-        overline="Tools & Extras"
-        title="More 🌿"
-        subtitle="Everything else, all in one place."
-        className="-mx-5"
-      />
+    <>
+    <PageHero
+      overline="Tools & Extras"
+      title="More 🌿"
+      subtitle="Everything else, all in one place."
+    />
+    <div className="max-w-xl mx-auto px-5 pt-5 pb-8 space-y-8">
 
       {/* What's New */}
       <div className="space-y-3">
@@ -193,5 +192,6 @@ export default function MorePage() {
         Rooted Homeschool · Built with love for learning families
       </p>
     </div>
+    </>
   );
 }

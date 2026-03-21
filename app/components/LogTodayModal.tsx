@@ -293,7 +293,7 @@ export default function LogTodayModal({
                       key={m}
                       type="button"
                       onClick={() => selectMode(m)}
-                      className="flex flex-col items-start gap-1 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#fafdf8] active:scale-95 rounded-2xl p-4 text-left transition-all"
+                      className="flex flex-col items-start gap-1 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#fafdf8] active:scale-95 rounded-2xl p-4 text-left transition-all min-h-[80px]"
                     >
                       <span className="text-3xl mb-0.5">{emoji}</span>
                       <span className="text-sm font-semibold text-[#2d2926]">{label}</span>
