@@ -10,6 +10,7 @@ import { usePartner } from "@/lib/partner-context";
 
 type Child   = { id: string; name: string; color: string | null };
 type Subject = { id: string; name: string; color: string | null };
+type CurriculumGoal = { id: string; curriculum_name: string; subject_label: string | null; child_id: string | null };
 type Lesson  = {
   id: string;
   title: string;
@@ -19,6 +20,7 @@ type Lesson  = {
   date: string | null;
   scheduled_date: string | null;
   subjects: { name: string; color: string | null } | null;
+  goal_id?: string | null;
 };
 type CurriculumGroup = {
   key: string;
@@ -300,11 +302,12 @@ export default function PlanPage() {
   const todayStr = toDateStr(todayMidnight);
 
   const [weekStart,    setWeekStart]    = useState(() => getMondayOf(new Date()));
-  const [lessons,      setLessons]      = useState<Lesson[]>([]);
-  const [children,     setChildren]     = useState<Child[]>([]);
-  const [subjects,     setSubjects]     = useState<Subject[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [allLessons,   setAllLessons]   = useState<Lesson[]>([]);
+  const [lessons,          setLessons]          = useState<Lesson[]>([]);
+  const [children,         setChildren]         = useState<Child[]>([]);
+  const [subjects,         setSubjects]         = useState<Subject[]>([]);
+  const [curriculumGoals,  setCurriculumGoals]  = useState<CurriculumGoal[]>([]);
+  const [loading,          setLoading]          = useState(true);
+  const [allLessons,       setAllLessons]       = useState<Lesson[]>([]);
   const [mobileOffset, setMobileOffset] = useState<number>(() => {
     const dow = new Date().getDay();
     return Math.max(0, Math.min(4, (dow + 6) % 7));
@@ -317,6 +320,7 @@ export default function PlanPage() {
   const [formSubject, setFormSubject] = useState("");
   const [formTitle,   setFormTitle]   = useState("");
   const [formHours,   setFormHours]   = useState("");
+  const [formGoalId,  setFormGoalId]  = useState("");
   const [saving,      setSaving]      = useState(false);
 
   // ── Edit modal ────────────────────────────────────────────────────────────
@@ -373,9 +377,10 @@ export default function PlanPage() {
     const ws = new Date(weekStart), we = new Date(weekStart);
     we.setDate(we.getDate() + 6);
     const s = toDateStr(ws), e = toDateStr(we);
-    const [{ data: kids }, { data: subs }, { data: bySched }, { data: byDate }] = await Promise.all([
+    const [{ data: kids }, { data: subs }, { data: goals }, { data: bySched }, { data: byDate }] = await Promise.all([
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id").eq("user_id", effectiveUserId).order("created_at"),
       supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
       supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
@@ -383,6 +388,7 @@ export default function PlanPage() {
     ]);
     setChildren(kids ?? []);
     setSubjects((subs as Subject[]) ?? []);
+    setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
     setLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
     setLoading(false);
   }, [weekStart, effectiveUserId]);
@@ -440,7 +446,7 @@ export default function PlanPage() {
     setModalDate(day);
     setFormChild(children.length === 1 ? children[0].id : "");
     setFormSubject(preSubject ?? "");
-    setFormTitle(""); setFormHours("");
+    setFormTitle(""); setFormHours(""); setFormGoalId("");
     setShowModal(true);
   }
 
@@ -460,7 +466,7 @@ export default function PlanPage() {
     }
     const dateStr = toDateStr(modalDate);
     const { data: nl } = await supabase.from("lessons")
-      .insert({ user_id: user.id, child_id: formChild || null, subject_id: subjectId, title: formTitle.trim(), hours: formHours ? parseFloat(formHours) : null, completed: false, date: dateStr, scheduled_date: dateStr })
+      .insert({ user_id: user.id, child_id: formChild || null, subject_id: subjectId, title: formTitle.trim(), hours: formHours ? parseFloat(formHours) : null, completed: false, date: dateStr, scheduled_date: dateStr, goal_id: formGoalId || null })
       .select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)").single();
     if (nl) setLessons((p) => [...p, nl as unknown as Lesson]);
     setSaving(false); setShowModal(false);
@@ -862,6 +868,12 @@ export default function PlanPage() {
           <h1 className="text-2xl font-bold text-[#2d2926]">Plan 📋</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href="/dashboard/plan/schedule"
+            className="flex items-center gap-1.5 text-xs font-semibold text-[#7a6f65] bg-[#f0ede8] hover:bg-[#e8e2d9] px-3 py-1.5 rounded-full transition-colors border border-[#e0d8ce]"
+          >
+            📅 View Schedule
+          </Link>
           {!isPartner && (
             <button onClick={() => openWizard()}
               className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors border border-[#c8ddb8]">
@@ -1190,6 +1202,20 @@ export default function PlanPage() {
                 type="number" min="0" max="24" step="0.5" placeholder="e.g. 1.5"
                 className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
+            {curriculumGoals.length > 0 && (
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Link to goal (optional)</label>
+                <select value={formGoalId} onChange={(e) => setFormGoalId(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
+                  <option value="">None</option>
+                  {curriculumGoals.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.curriculum_name}{g.subject_label ? ` (${g.subject_label})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="flex gap-2 pt-1">
               <button onClick={() => setShowModal(false)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
               <button onClick={saveLesson} disabled={saving || !formTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">

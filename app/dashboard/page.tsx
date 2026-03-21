@@ -20,6 +20,13 @@ type Lesson = {
   subjects: { name: string; color: string | null } | null;
   curriculum_goal_id?: string | null;
   lesson_number?: number | null;
+  goal_id?: string | null;
+};
+
+type TodayEvent = {
+  id: string;
+  type: string;
+  payload: { title?: string; date?: string };
 };
 
 type BookLog = {
@@ -307,6 +314,9 @@ export default function TodayPage() {
   const [loading,          setLoading]          = useState(true);
   const [celebrating,      setCelebrating]      = useState(false);
 
+  // Today's memory events
+  const [todayMemoryEvents, setTodayMemoryEvents] = useState<TodayEvent[]>([]);
+
   // Books
   const [todayBooks,    setTodayBooks]    = useState<BookLog[]>([]);
   const [showBookModal, setShowBookModal] = useState(false);
@@ -419,7 +429,7 @@ export default function TodayPage() {
     const [{ data: lessonsData }, { count: totalLessons }] = await Promise.all([
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, hours, subjects(name, color), curriculum_goal_id, lesson_number")
+        .select("id, title, completed, child_id, hours, subjects(name, color), curriculum_goal_id, lesson_number, goal_id")
         .eq("user_id", effectiveUserId)
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
       supabase
@@ -455,6 +465,13 @@ export default function TodayPage() {
       .eq("user_id", effectiveUserId).eq("type", "book_read")
       .filter("payload->>date", "eq", today);
     setTodayBooks((todayBooksData as unknown as BookLog[]) ?? []);
+
+    const { data: todayMemData } = await supabase
+      .from("app_events").select("id, type, payload")
+      .eq("user_id", effectiveUserId)
+      .in("type", ["memory_book", "memory_project", "memory_photo"])
+      .filter("payload->>date", "eq", today);
+    setTodayMemoryEvents((todayMemData as unknown as TodayEvent[]) ?? []);
 
     const { data: subjectsData } = await supabase
       .from("subjects").select("id, name, color")
@@ -506,6 +523,17 @@ export default function TodayPage() {
             .from("curriculum_goals")
             .update({ current_lesson: lesson.lesson_number })
             .eq("id", lesson.curriculum_goal_id);
+        }
+      }
+
+      if (lesson?.goal_id) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("app_events").insert({
+            user_id: user.id,
+            type: "lesson_goal_complete",
+            payload: { title: lesson.title, goal_id: lesson.goal_id, date: today },
+          });
         }
       }
     }
@@ -1271,6 +1299,47 @@ export default function TodayPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Today's Activity ──────────────────────────────── */}
+      {(() => {
+        const completedLessons = filteredLessons.filter((l) => l.completed);
+        const activityItems: { emoji: string; title: string; sub?: string }[] = [
+          ...completedLessons.map((l) => ({
+            emoji: "📚",
+            title: l.title,
+            sub: l.subjects?.name,
+          })),
+          ...todayMemoryEvents.map((e) => ({
+            emoji: e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷",
+            title: e.payload.title ?? "Memory",
+          })),
+          ...(reflectionExists ? [{ emoji: "💭", title: "Daily reflection saved" }] : []),
+        ];
+        if (activityItems.length === 0) return null;
+        return (
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
+              Today&apos;s Activity
+            </h2>
+            <div className="space-y-2">
+              {activityItems.map((item, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3"
+                >
+                  <span className="text-lg shrink-0">{item.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[#2d2926] truncate">{item.title}</p>
+                    {item.sub && (
+                      <p className="text-xs text-[#7a6f65]">{item.sub}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="h-4" />
 
