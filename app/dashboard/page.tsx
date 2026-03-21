@@ -1124,21 +1124,27 @@ export default function TodayPage() {
         )}
       </div>
 
-      {/* ── Your Garden ──────────────────────────────────── */}
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">Your Garden</h2>
-        <Link href="/dashboard/garden" className="block">
-          <GrowthTreeCard
-            leaves={treeLeaves}
-            childName={treeLabel}
-            animating={gardenAnimatingChildId !== undefined && (
-              gardenAnimatingChildId === null
-                ? selectedChildId === "all"
-                : gardenAnimatingChildId === selectedChildId || selectedChildId === "all"
-            )}
-          />
-        </Link>
-      </div>
+      {/* ── Your Children's Gardens ──────────────────────── */}
+      {children.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
+            {children.length === 1 ? "Your Garden" : "Your Children's Gardens"}
+          </h2>
+          <div className={children.length >= 2 ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : "block"}>
+            {children.map((child) => (
+              <Link key={child.id} href="/dashboard/garden" className="block">
+                <GrowthTreeCard
+                  leaves={leafCounts[child.id] ?? 0}
+                  childName={child.name}
+                  animating={gardenAnimatingChildId !== undefined && (
+                    gardenAnimatingChildId === null || gardenAnimatingChildId === child.id
+                  )}
+                />
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Motivational Quote ───────────────────────────── */}
       <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
