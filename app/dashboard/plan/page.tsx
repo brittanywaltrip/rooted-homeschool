@@ -148,8 +148,10 @@ function LessonCard({
     <div
       draggable={canDrag}
       onDragStart={(e) => {
-        e.dataTransfer.setData("lessonId", lesson.id);
-        e.dataTransfer.setData("fromDate", lesson.scheduled_date ?? lesson.date ?? "");
+        e.dataTransfer.setData("text/plain", JSON.stringify({
+          lessonId: lesson.id,
+          fromDate: lesson.scheduled_date ?? lesson.date ?? "",
+        }));
         e.dataTransfer.effectAllowed = "move";
         setIsDragging(true);
       }}
@@ -166,7 +168,7 @@ function LessonCard({
     >
       <div className="flex items-start gap-1.5">
         {canDrag && (
-          <span className="opacity-0 group-hover:opacity-100 text-[#c8bfb5] text-[10px] leading-none mt-1 transition-opacity shrink-0 select-none">⠿</span>
+          <span className="opacity-0 group-hover:opacity-100 text-[#b5aca4] text-[14px] leading-none mt-0.5 transition-opacity shrink-0 select-none cursor-grab">⠿</span>
         )}
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(lesson.id, lesson.completed); }}
@@ -310,9 +312,10 @@ function DayColumn({
       onDrop={(e) => {
         e.preventDefault();
         setIsDragOver(false);
-        const lessonId = e.dataTransfer.getData("lessonId");
-        const fromDate = e.dataTransfer.getData("fromDate");
-        if (lessonId && onDropLesson) onDropLesson(lessonId, fromDate);
+        try {
+          const { lessonId, fromDate } = JSON.parse(e.dataTransfer.getData("text/plain"));
+          if (lessonId && onDropLesson) onDropLesson(lessonId, fromDate);
+        } catch { /* ignore malformed drops */ }
       }}
     >
       <div className={`px-2 pt-3 pb-2.5 flex flex-col items-center border-b ${
