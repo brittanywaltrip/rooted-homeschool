@@ -23,15 +23,19 @@ export async function GET(req: Request) {
   const now = new Date();
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
-  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const last48h = new Date(now.getTime() - 48 * 60 * 60 * 1000);
 
   // Auth users
   const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
   const allUsers = authData?.users ?? [];
 
-  const totalUsers   = allUsers.length;
-  const todaySignups = allUsers.filter(u => new Date(u.created_at) >= todayStart).length;
-  const weekSignups  = allUsers.filter(u => new Date(u.created_at) >= weekAgo).length;
+  const totalUsers = allUsers.length;
+  const last24hSignups = allUsers.filter(u => new Date(u.created_at) >= last24h).length;
+  const yesterdaySignups = allUsers.filter(u => {
+    const d = new Date(u.created_at);
+    return d >= last48h && d < last24h;
+  }).length;
 
   // Profiles
   const { data: profiles } = await supabaseAdmin
@@ -221,8 +225,8 @@ export async function GET(req: Request) {
   return NextResponse.json({
     // Growth (founding/standard sourced from Stripe, not DB)
     totalUsers,
-    weekSignups,
-    todaySignups,
+    last24hSignups,
+    yesterdaySignups,
     proUsers,
     foundingFamilies: stripeFoundingCount,
     standardSubs:     stripeStandardCount,

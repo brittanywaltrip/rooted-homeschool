@@ -9,8 +9,8 @@ const ADMIN_EMAIL = "garfieldbrittany@gmail.com";
 interface AdminSummary {
   // Growth
   totalUsers: number;
-  weekSignups: number;
-  todaySignups: number;
+  last24hSignups: number;
+  yesterdaySignups: number;
   proUsers: number;
   foundingFamilies: number;
   standardSubs: number;
@@ -152,8 +152,8 @@ export default function AdminPage() {
           <SectionHeader emoji="🌱" title="Growth" />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <StatCard label="Total Families" value={data.totalUsers} />
-            <StatCard label="New This Week" value={data.weekSignups} />
-            <StatCard label="New Today" value={data.todaySignups} />
+            <StatCard label="Last 24 Hours" value={data.last24hSignups} />
+            <StatCard label="Yesterday" value={data.yesterdaySignups} />
             <StatCard label="Paying Subscribers" value={data.stripeActiveTotal} sub={`${data.stripeFoundingCount} founding · ${data.stripeStandardCount} standard · live from Stripe`} />
             <StatCard label="Founding Members" value={data.foundingFamilies} />
             <StatCard label="Free Users" value={data.freeUsers} />
