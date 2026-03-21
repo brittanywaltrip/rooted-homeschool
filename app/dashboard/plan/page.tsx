@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { ChevronLeft, ChevronRight, Plus, X, BookOpen, Trash2, CalendarDays, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X, BookOpen, Trash2, CalendarDays } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -302,6 +302,9 @@ export default function PlanPage() {
   const todayStr = toDateStr(todayMidnight);
 
   const [weekStart,    setWeekStart]    = useState(() => getMondayOf(new Date()));
+  const [viewMode,     setViewMode]     = useState<"week" | "month">("week");
+  const [monthStart,   setMonthStart]   = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
+  const [monthLessons, setMonthLessons] = useState<Lesson[]>([]);
   const [lessons,          setLessons]          = useState<Lesson[]>([]);
   const [children,         setChildren]         = useState<Child[]>([]);
   const [subjects,         setSubjects]         = useState<Subject[]>([]);
@@ -336,7 +339,6 @@ export default function PlanPage() {
   const [editDaysDays,     setEditDaysDays]     = useState([true, true, true, true, true, false, false]);
   const [editDaysSaving,   setEditDaysSaving]   = useState(false);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
-  const [curricMenuOpen,   setCurricMenuOpen]   = useState<string | null>(null);
 
   // ── Vacation blocks ───────────────────────────────────────────────────────
   const [vacationBlocks,   setVacationBlocks]   = useState<VacationBlock[]>([]);
@@ -414,9 +416,24 @@ export default function PlanPage() {
     setVacationBlocks((data as VacationBlock[]) ?? []);
   }, [effectiveUserId]);
 
+  const loadMonthData = useCallback(async () => {
+    if (!effectiveUserId) return;
+    const ms = new Date(monthStart);
+    const me = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+    const s = toDateStr(ms), e = toDateStr(me);
+    const [{ data: bySched }, { data: byDate }] = await Promise.all([
+      supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
+        .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
+      supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
+        .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
+    ]);
+    setMonthLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
+  }, [monthStart, effectiveUserId]);
+
   useEffect(() => { loadData(); },           [loadData]);
   useEffect(() => { loadAllLessons(); },     [loadAllLessons]);
   useEffect(() => { loadVacationBlocks(); }, [loadVacationBlocks]);
+  useEffect(() => { if (viewMode === "month") loadMonthData(); }, [viewMode, loadMonthData]);
 
   useEffect(() => {
     if (isCurrentWeek) {
@@ -432,6 +449,12 @@ export default function PlanPage() {
   function prevWeek() { setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; }); }
   function nextWeek() { setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; }); }
   function goToToday() { setWeekStart(getMondayOf(new Date())); }
+
+  // ── Month navigation ──────────────────────────────────────────────────────
+
+  function prevMonth() { setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1)); }
+  function nextMonth() { setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1)); }
+  function goToCurrentMonth() { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); setMonthStart(d); }
 
   // ── Toggle ────────────────────────────────────────────────────────────────
 
@@ -864,20 +887,14 @@ export default function PlanPage() {
       {/* ── Header ───────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">Curriculum &amp; Schedule</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">Curriculum Setup</p>
           <h1 className="text-2xl font-bold text-[#2d2926]">Plan 📋</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Link
-            href="/dashboard/plan/schedule"
-            className="flex items-center gap-1.5 text-xs font-semibold text-[#7a6f65] bg-[#f0ede8] hover:bg-[#e8e2d9] px-3 py-1.5 rounded-full transition-colors border border-[#e0d8ce]"
-          >
-            📅 View Schedule
-          </Link>
           {!isPartner && (
             <button onClick={() => openWizard()}
               className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors border border-[#c8ddb8]">
-              <BookOpen size={13} strokeWidth={2} />Set Up Curriculum
+              + Add Curriculum
             </button>
           )}
           <div className="flex items-center gap-1.5">
@@ -970,37 +987,12 @@ export default function PlanPage() {
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button onClick={() => openEditDays(group)}
                     className="flex items-center gap-1 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-2.5 py-1.5 rounded-xl transition-colors">
-                    <CalendarDays size={12} />Edit Days
+                    ✏️ Edit
                   </button>
-                  {/* Overflow menu */}
-                  <div className="relative">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setCurricMenuOpen((k) => k === group.key ? null : group.key); }}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-                      aria-label="More options"
-                    >
-                      <MoreHorizontal size={14} />
-                    </button>
-                    {curricMenuOpen === group.key && (
-                      <>
-                        <div className="fixed inset-0 z-20" onClick={() => setCurricMenuOpen(null)} />
-                        <div className="absolute right-0 top-8 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[130px]">
-                          <button
-                            onClick={() => { openEditDays(group); setCurricMenuOpen(null); }}
-                            className="w-full text-left px-3 py-2 text-xs text-[#2d2926] hover:bg-[#f8f7f4] flex items-center gap-2 transition-colors"
-                          >
-                            <CalendarDays size={12} className="text-[#5c7f63]" />Edit Days
-                          </button>
-                          <button
-                            onClick={() => { setDeleteConfirmGroup(group); setCurricMenuOpen(null); }}
-                            className="w-full text-left px-3 py-2 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2 transition-colors"
-                          >
-                            <Trash2 size={12} />Delete All
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <button onClick={() => setDeleteConfirmGroup(group)}
+                    className="flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-xl transition-colors">
+                    🗑️ Remove
+                  </button>
                 </div>
               </div>
             );
@@ -1090,12 +1082,133 @@ export default function PlanPage() {
         </div>
       )}
 
+      {/* ── Week / Month toggle ──────────────────────────────── */}
+      <div className="flex items-center gap-1 bg-[#f0ede8] rounded-full p-1 w-fit">
+        <button
+          onClick={() => setViewMode("week")}
+          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+            viewMode === "week" ? "bg-white text-[#2d2926] shadow-sm" : "text-[#7a6f65] hover:text-[#2d2926]"
+          }`}
+        >
+          Week
+        </button>
+        <button
+          onClick={() => setViewMode("month")}
+          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+            viewMode === "month" ? "bg-white text-[#2d2926] shadow-sm" : "text-[#7a6f65] hover:text-[#2d2926]"
+          }`}
+        >
+          Month
+        </button>
+      </div>
+
+      {/* ── Month View ───────────────────────────────────────── */}
+      {viewMode === "month" && !loading && (
+        <div>
+          {/* Month nav */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              {!(monthStart.getFullYear() === new Date().getFullYear() && monthStart.getMonth() === new Date().getMonth()) && (
+                <button
+                  onClick={goToCurrentMonth}
+                  className="text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors mr-1"
+                >
+                  This month
+                </button>
+              )}
+              <button onClick={prevMonth} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+                <ChevronLeft size={16} />
+              </button>
+              <span className="text-sm font-semibold text-[#2d2926] px-1">
+                {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+              </span>
+              <button onClick={nextMonth} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+          {/* Day headers */}
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => (
+              <div key={d} className="text-center text-[10px] font-bold uppercase tracking-widest text-[#b5aca4] py-1">{d}</div>
+            ))}
+          </div>
+          {/* Calendar grid */}
+          {(() => {
+            const year = monthStart.getFullYear();
+            const month = monthStart.getMonth();
+            const firstDay = new Date(year, month, 1);
+            // Monday-based offset (0=Mon...6=Sun)
+            const startOffset = (firstDay.getDay() + 6) % 7;
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const cells: (Date | null)[] = [
+              ...Array(startOffset).fill(null),
+              ...Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1)),
+            ];
+            // Pad to complete rows
+            while (cells.length % 7 !== 0) cells.push(null);
+            const monthLessonMap: Record<string, Lesson[]> = {};
+            monthLessons.forEach((l) => {
+              const key = l.scheduled_date ?? l.date ?? "";
+              if (!monthLessonMap[key]) monthLessonMap[key] = [];
+              monthLessonMap[key].push(l);
+            });
+            return (
+              <div className="grid grid-cols-7 gap-1">
+                {cells.map((day, idx) => {
+                  if (!day) return <div key={`empty-${idx}`} />;
+                  const key = toDateStr(day);
+                  const isToday = key === todayStr;
+                  const isPast  = day < todayMidnight;
+                  const dayLessons = monthLessonMap[key] ?? [];
+                  const done = dayLessons.filter((l) => l.completed).length;
+                  return (
+                    <div
+                      key={key}
+                      className={`min-h-[64px] rounded-xl p-1.5 flex flex-col border transition-all ${
+                        isToday ? "border-[#5c7f63] bg-[#f2f9f3]" : "border-[#e8e2d9] bg-[#fefcf9]"
+                      }`}
+                    >
+                      <span className={`text-xs font-bold mb-1 ${
+                        isToday ? "text-[#3d5c42]" : isPast ? "text-[#c8bfb5]" : "text-[#2d2926]"
+                      }`}>{day.getDate()}</span>
+                      {dayLessons.length > 0 && (
+                        <div className="space-y-0.5">
+                          {dayLessons.slice(0, 3).map((l) => {
+                            const subStyle = getSubjectStyle(l.subjects?.name);
+                            return (
+                              <div
+                                key={l.id}
+                                className="text-[9px] font-medium px-1 py-0.5 rounded truncate"
+                                style={{ backgroundColor: subStyle.bg, color: subStyle.text, opacity: l.completed ? 0.5 : 1 }}
+                              >
+                                {l.title}
+                              </div>
+                            );
+                          })}
+                          {dayLessons.length > 3 && (
+                            <span className="text-[9px] text-[#b5aca4]">+{dayLessons.length - 3} more</span>
+                          )}
+                        </div>
+                      )}
+                      {done > 0 && dayLessons.length > 0 && (
+                        <span className="text-[8px] text-[#5c7f63] mt-auto">{done}/{dayLessons.length} ✓</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* ── Calendar ─────────────────────────────────────────── */}
-      {loading ? (
+      {viewMode === "week" && loading ? (
         <div className="flex items-center justify-center py-24">
           <span className="text-4xl animate-pulse">🗓️</span>
         </div>
-      ) : (
+      ) : viewMode === "week" ? (
         <>
           {/* Desktop: full 7-day grid */}
           <div className="hidden lg:block overflow-x-auto -mx-4 px-4 pb-2">
@@ -1157,7 +1270,7 @@ export default function PlanPage() {
             </div>
           )}
         </>
-      )}
+      ) : null}
 
       {/* ══════════════════════════════════════════════════════
           QUICK-ADD LESSON MODAL

@@ -3,40 +3,26 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, BookOpen, Camera, FileText, Menu, X, LogOut, Settings, Calendar, MoreHorizontal, GraduationCap } from "lucide-react";
+import { Sun, Leaf, Camera, Menu, Settings, Calendar, MoreHorizontal } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
 import { ProfileProvider, useProfile } from "@/lib/profile-context";
 
 const navItems = [
-  { label: "Today",      href: "/dashboard",           icon: Sun           },
-  { label: "Plan",       href: "/dashboard/plan",      icon: Calendar      },
-  { label: "Garden",     href: "/dashboard/garden",    icon: Leaf          },
-  { label: "Resources",  href: "/dashboard/resources", icon: BookOpen      },
-  { label: "Progress",   href: "/dashboard/progress",  icon: GraduationCap },
-  { label: "Memories",   href: "/dashboard/memories",  icon: Camera        },
+  { label: "Today",    href: "/dashboard",          icon: Sun      },
+  { label: "Plan",     href: "/dashboard/plan",     icon: Calendar },
+  { label: "Garden",   href: "/dashboard/garden",   icon: Leaf     },
+  { label: "Memories", href: "/dashboard/memories", icon: Camera   },
 ];
 
 // Primary tabs shown in mobile bottom nav
 const mobileBottomNav = [
-  { label: "Today",     href: "/dashboard",           icon: Sun      },
-  { label: "Garden",    href: "/dashboard/garden",    icon: Leaf     },
-  { label: "Resources", href: "/dashboard/resources", icon: BookOpen },
-  { label: "Memories",  href: "/dashboard/memories",  icon: Camera   },
-  { label: "Reports",   href: "/dashboard/reports",   icon: FileText },
+  { label: "Today",    href: "/dashboard",          icon: Sun      },
+  { label: "Plan",     href: "/dashboard/plan",     icon: Calendar },
+  { label: "Garden",   href: "/dashboard/garden",   icon: Leaf     },
+  { label: "Memories", href: "/dashboard/memories", icon: Camera   },
 ];
-
-function getISOWeekKey(): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const week1 = new Date(d.getFullYear(), 0, 4);
-  const weekNum = 1 + Math.round(
-    ((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7
-  );
-  return `${d.getFullYear()}-W${weekNum}`;
-}
 
 function NavLink({
   label, href, icon: Icon, active, onClick, badge,
@@ -120,24 +106,14 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
   const { displayName: profileName } = useProfile();
-  const [checking,        setChecking]        = useState(true);
-  const [menuOpen,           setMenuOpen]           = useState(false);
-  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
-  const [resourcesBadge,     setResourcesBadge]     = useState(false);
-  const [isAdmin,            setIsAdmin]            = useState(false);
+  const [checking,  setChecking]  = useState(true);
+  const [menuOpen,  setMenuOpen]  = useState(false);
+  const [isAdmin,   setIsAdmin]   = useState(false);
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
     isPartner: false,
     effectiveUserId: "",
     ownerName: "",
   });
-
-  // Clear badge when user visits Resources
-  useEffect(() => {
-    if (pathname === "/dashboard/resources") {
-      localStorage.setItem("resources_seen_week", getISOWeekKey());
-      setResourcesBadge(false);
-    }
-  }, [pathname]);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -148,12 +124,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
       if (session.user.email === "garfieldbrittany@gmail.com") {
         setIsAdmin(true);
-      }
-
-      // Check if Resources has new Fresh Drops this week
-      const seenWeek = localStorage.getItem("resources_seen_week");
-      if (seenWeek !== getISOWeekKey()) {
-        setResourcesBadge(true);
       }
 
       // Load family name + subscription status
@@ -168,8 +138,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         router.replace("/onboarding");
         return;
       }
-
-      setSubscriptionStatus(profile?.subscription_status ?? null);
 
       // ── Partner detection ──────────────────────────────────────────────────
       // The owner/admin account is never a partner view — skip the check entirely.
@@ -347,7 +315,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             icon={icon}
             active={isActive(href)}
             onClick={() => setMenuOpen(false)}
-            badge={href === "/dashboard/resources" && resourcesBadge}
           />
         ))}
       </nav>
@@ -363,22 +330,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           Child View
         </Link>
       </div>
-
-      {/* Upgrade CTA */}
-      {subscriptionStatus !== 'active' && (
-        <div className="px-3 pb-2">
-          <Link
-            href="/upgrade"
-            onClick={() => setMenuOpen(false)}
-            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold border border-[#5c7f63] text-[#3d5c42] bg-[#f0f7f1] hover:bg-[#e0f0e3] transition-colors"
-          >
-            <span className="text-base">✨</span>
-            {new Date() < new Date('2026-05-01')
-              ? 'Become a Founding Member'
-              : 'Upgrade to Rooted'}
-          </Link>
-        </div>
-      )}
 
       {/* Settings + Sign out */}
       <div className="p-3 border-t border-[#e8e2d9] space-y-0.5">
@@ -485,7 +436,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#fefcf9] border-t border-[#e8e2d9] flex items-stretch safe-area-inset-bottom" style={{ height: "3.75rem" }}>
           {mobileBottomNav.map(({ label, href, icon: Icon }) => {
             const active = isActive(href);
-            const isBadged = href === "/dashboard/resources" && resourcesBadge;
             return (
               <Link
                 key={href}
@@ -494,11 +444,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                   active ? "text-[#3d5c42]" : "text-[#7a6f65]"
                 }`}
               >
-                <div className={`relative p-1.5 rounded-lg ${active ? "bg-[#e8f0e9]" : ""}`}>
+                <div className={`p-1.5 rounded-lg ${active ? "bg-[#e8f0e9]" : ""}`}>
                   <Icon size={18} strokeWidth={active ? 2.5 : 1.8} />
-                  {isBadged && (
-                    <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-[#c4956a] border border-[#fefcf9]" />
-                  )}
                 </div>
                 {label}
               </Link>

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
-import FinishLineSection from '@/components/FinishLineSection';
+import LogTodayModal from "@/app/components/LogTodayModal";
 import GardenScene, { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -133,14 +133,28 @@ function FloatingLeaves({ active }: { active: boolean }) {
 
 // ─── Growth Tree Card ──────────────────────────────────────────────────────────
 
-function GrowthTreeCard({ leaves, childName }: { leaves: number; childName: string }) {
+function GrowthTreeCard({
+  leaves, childName, animating,
+}: { leaves: number; childName: string; animating?: boolean }) {
   const stageIdx  = getStageIndex(leaves);
   const stage     = STAGES[stageIdx];
   const nextStage = STAGES[stageIdx + 1];
   const progress  = nextStage ? ((leaves - stage.min) / (nextStage.min - stage.min)) * 100 : 100;
 
   return (
-    <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 flex gap-5 items-center">
+    <div
+      className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 flex gap-5 items-center relative overflow-hidden transition-all duration-300"
+      style={animating ? { transform: "scale(1.02)", boxShadow: "0 0 20px rgba(92,127,99,0.4)" } : {}}
+    >
+      {/* Floating leaf animation */}
+      {animating && (
+        <span
+          className="absolute left-1/2 -translate-x-1/2 text-2xl pointer-events-none leaf-float-up"
+          style={{ bottom: "20%" }}
+        >
+          🌿
+        </span>
+      )}
       <div className="w-24 h-24 shrink-0">
         <GardenScene leafCount={leaves} compact />
       </div>
@@ -150,7 +164,9 @@ function GrowthTreeCard({ leaves, childName }: { leaves: number; childName: stri
         <p className="text-sm text-[#5c7f63] mb-3">{stage.desc}</p>
         <div className="flex items-center gap-2 mb-2">
           <span className="text-base">🍃</span>
-          <span className="text-sm font-semibold text-[#2d2926]">
+          <span
+            className={`text-sm font-semibold text-[#2d2926] transition-all duration-300 ${animating ? "scale-110 text-[#3d5c42]" : ""}`}
+          >
             {leaves} {leaves === 1 ? "leaf" : "leaves"}
           </span>
           {nextStage && (
@@ -370,17 +386,12 @@ export default function TodayPage() {
   const [editChildId,   setEditChildId]   = useState("");
   const [savingEdit,    setSavingEdit]    = useState(false);
 
-  // Quick log sheet
-  const [showQuickLog,  setShowQuickLog]  = useState(false);
-  const [qlMode,        setQlMode]        = useState<null | "book" | "project" | "field_trip" | "extra">(null);
-  const [qlTitle,       setQlTitle]       = useState("");
-  const [qlChild,       setQlChild]       = useState("");
-  const [qlChildrenIds, setQlChildrenIds] = useState<string[]>([]);
-  const [qlNotes,       setQlNotes]       = useState("");
-  const [qlSubject,     setQlSubject]     = useState("");
-  const [savingQL,      setSavingQL]      = useState(false);
-  const [showToast,     setShowToast]     = useState(false);
-  const [qlError,       setQlError]       = useState("");
+  // Log Today modal
+  const [showLogModal, setShowLogModal] = useState(false);
+
+  // Garden growth animation
+  const [gardenAnimatingChildId, setGardenAnimatingChildId] = useState<string | null>(null);
+  const [gardenToast, setGardenToast] = useState<{ name: string; leaves: number } | null>(null);
 
   // Vacation blocks
   const [activeVacation, setActiveVacation] = useState<{ name: string; end_date: string } | null>(null);
@@ -503,6 +514,17 @@ export default function TodayPage() {
 
   // ── Lesson actions ────────────────────────────────────────────────────────
 
+  function triggerGardenAnimation(childId?: string) {
+    const cid = childId || null;
+    setGardenAnimatingChildId(cid);
+    setTimeout(() => setGardenAnimatingChildId(null), 1600);
+    // Show toast with updated leaf count
+    const child = children.find((c) => c.id === cid);
+    const newLeaves = (leafCounts[cid ?? ""] ?? 0) + 1;
+    setGardenToast({ name: child?.name ?? "Your garden", leaves: newLeaves });
+    setTimeout(() => setGardenToast(null), 2500);
+  }
+
   async function toggleLesson(id: string, current: boolean) {
     const lesson = lessons.find((l) => l.id === id);
     setLessons((prev) => prev.map((l) => (l.id === id ? { ...l, completed: !current } : l)));
@@ -511,6 +533,7 @@ export default function TodayPage() {
     if (!current) {
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 1600);
+      triggerGardenAnimation(lesson?.child_id ?? undefined);
 
       if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
         const { data: goalRow } = await supabase
@@ -685,117 +708,18 @@ export default function TodayPage() {
     setShowLessonModal(false);
   }
 
-  // ── Quick Log ─────────────────────────────────────────────────────────────
 
-  function openQuickLog() {
-    setQlMode(null);
-    setQlTitle(""); setQlChild(""); setQlChildrenIds([]); setQlNotes(""); setQlSubject("");
-    setShowQuickLog(true);
-  }
-
-  function closeQuickLog() {
-    setShowQuickLog(false);
-    setTimeout(() => setQlMode(null), 300);
-  }
-
-  async function saveQuickLog() {
-    if (!qlTitle.trim()) return;
-    setSavingQL(true);
-    setQlError("");
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setSavingQL(false); return; }
-
-      if (qlMode === "book") {
-        const payload = {
-          title:       qlTitle.trim(),
-          child_id:    qlChild || undefined,
-          date:        today,
-          description: qlNotes.trim() || undefined,
-        };
-        const { error } = await supabase.from("app_events").insert({ user_id: user.id, type: "memory_book", payload });
-        if (error) throw error;
-
-      } else if (qlMode === "project") {
-        const payload = {
-          title:       qlTitle.trim(),
-          child_id:    qlChild || undefined,
-          date:        today,
-          description: qlNotes.trim() || undefined,
-          subject:     qlSubject.trim() || undefined,
-        };
-        const { error } = await supabase.from("app_events").insert({ user_id: user.id, type: "memory_project", payload });
-        if (error) throw error;
-
-      } else if (qlMode === "field_trip") {
-        const ids = qlChildrenIds.length > 0 ? qlChildrenIds : [qlChild || ""];
-        const results = await Promise.all(ids.map((cid) => {
-          const payload = {
-            title:       qlTitle.trim(),
-            child_id:    cid || undefined,
-            date:        today,
-            description: qlNotes.trim() || undefined,
-          };
-          return supabase.from("app_events").insert({ user_id: user.id, type: "memory_field_trip", payload });
-        }));
-        const failed = results.find((r) => r.error);
-        if (failed?.error) throw failed.error;
-
-      } else if (qlMode === "extra") {
-        let subjectId: string | null = null;
-        if (qlSubject.trim()) {
-          const existing = subjects.find((s) => s.name.toLowerCase() === qlSubject.trim().toLowerCase());
-          if (existing) {
-            subjectId = existing.id;
-          } else {
-            const { data: newSub } = await supabase
-              .from("subjects").insert({ user_id: user.id, name: qlSubject.trim() })
-              .select("id, name, color").single();
-            if (newSub) {
-              setSubjects((prev) => [...prev, newSub as Subject]);
-              subjectId = newSub.id;
-            }
-          }
-        }
-
-        const { data: newLesson, error: lessonError } = await supabase.from("lessons").insert({
-          user_id:    user.id,
-          child_id:   qlChild || null,
-          subject_id: subjectId,
-          title:      qlTitle.trim(),
-          completed:  true,
-          date:       today,
-        }).select("id, title, completed, child_id, hours, subjects(name, color)").single();
-
-        if (lessonError) throw lessonError;
-
-        if (newLesson) {
-          setLessons((prev) => [...prev, newLesson as unknown as Lesson]);
-          setCelebrating(true);
-          setTimeout(() => setCelebrating(false), 1600);
-        }
-
-        // Also save as memory
-        const { error: memError } = await supabase.from("app_events").insert({
-          user_id: user.id,
-          type:    "memory_project",
-          payload: { title: qlTitle.trim(), child_id: qlChild || undefined, date: today, description: qlNotes.trim() || undefined },
-        });
-        if (memError) throw memError;
+  function handleLogSaved(type: string, childId?: string) {
+    setShowLogModal(false);
+    if (type === "lesson") {
+      setCelebrating(true);
+      setTimeout(() => setCelebrating(false), 1600);
+      if (childId) {
+        setLeafCounts((prev) => ({ ...prev, [childId]: (prev[childId] ?? 0) + 1 }));
       }
-
-      await refreshLeafCounts();
-      setSavingQL(false);
-      closeQuickLog();
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 2500);
-    } catch (err) {
-      setSavingQL(false);
-      const msg = err instanceof Error ? err.message : "Something went wrong. Please try again.";
-      setQlError(msg);
-      setTimeout(() => setQlError(""), 3500);
+      triggerGardenAnimation(childId);
     }
+    loadData();
   }
 
   async function saveReflection() {
@@ -1171,10 +1095,10 @@ export default function TodayPage() {
               </Link>
               {!isPartner && (
                 <button
-                  onClick={openQuickLog}
+                  onClick={() => setShowLogModal(true)}
                   className="inline-flex items-center gap-1.5 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
                 >
-                  + Add a single lesson
+                  + Log something
                 </button>
               )}
             </div>
@@ -1185,8 +1109,21 @@ export default function TodayPage() {
         )}
       </div>
 
-      {/* ── Growth Tree Card ──────────────────────────────── */}
-      <GrowthTreeCard leaves={treeLeaves} childName={treeLabel} />
+      {/* ── Your Garden ──────────────────────────────────── */}
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">Your Garden</h2>
+        <Link href="/dashboard/garden" className="block">
+          <GrowthTreeCard
+            leaves={treeLeaves}
+            childName={treeLabel}
+            animating={gardenAnimatingChildId !== undefined && (
+              gardenAnimatingChildId === null
+                ? selectedChildId === "all"
+                : gardenAnimatingChildId === selectedChildId || selectedChildId === "all"
+            )}
+          />
+        </Link>
+      </div>
 
       {/* ── Motivational Quote ───────────────────────────── */}
       <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
@@ -1216,52 +1153,6 @@ export default function TodayPage() {
           </div>
         </div>
       )}
-
-      <FinishLineSection />
-
-      {/* ── Books Read Today ──────────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
-            Books Read Today
-          </h2>
-          {!isPartner && (
-            <button
-              onClick={() => setShowBookModal(true)}
-              className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
-            >
-              + Log a Book
-            </button>
-          )}
-        </div>
-
-        {todayBooks.length > 0 ? (
-          <div className="space-y-2">
-            {todayBooks.map((b) => (
-              <div key={b.id} className="flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3">
-                <span className="text-lg">📖</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
-                  {b.payload.child_id && (
-                    <p className="text-xs text-[#7a6f65]">
-                      {children.find((c) => c.id === b.payload.child_id)?.name}
-                    </p>
-                  )}
-                </div>
-                <span className="text-xs text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">+1 🍃</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 flex items-center gap-3">
-            <span className="text-2xl">📚</span>
-            <div>
-              <p className="text-sm font-medium text-[#2d2926]">No books logged yet today</p>
-              <p className="text-xs text-[#b5aca4]">Each book earns a leaf on the garden tree.</p>
-            </div>
-          </div>
-        )}
-      </div>
 
       {/* ── Daily Reflection ──────────────────────────────── */}
       <div>
@@ -1303,17 +1194,25 @@ export default function TodayPage() {
       {/* ── Today's Activity ──────────────────────────────── */}
       {(() => {
         const completedLessons = filteredLessons.filter((l) => l.completed);
-        const activityItems: { emoji: string; title: string; sub?: string }[] = [
+        const activityItems: { key: string; emoji: string; title: string; sub?: string }[] = [
           ...completedLessons.map((l) => ({
-            emoji: "📚",
+            key: `lesson-${l.id}`,
+            emoji: "✅",
             title: l.title,
             sub: l.subjects?.name,
           })),
+          ...todayBooks.map((b) => ({
+            key: `book-${b.id}`,
+            emoji: "📖",
+            title: b.payload.title,
+            sub: b.payload.child_id ? children.find((c) => c.id === b.payload.child_id)?.name : undefined,
+          })),
           ...todayMemoryEvents.map((e) => ({
+            key: `mem-${e.id}`,
             emoji: e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷",
             title: e.payload.title ?? "Memory",
           })),
-          ...(reflectionExists ? [{ emoji: "💭", title: "Daily reflection saved" }] : []),
+          ...(reflectionExists ? [{ key: "reflection", emoji: "💭", title: "Daily reflection saved" }] : []),
         ];
         if (activityItems.length === 0) return null;
         return (
@@ -1322,9 +1221,9 @@ export default function TodayPage() {
               Today&apos;s Activity
             </h2>
             <div className="space-y-2">
-              {activityItems.map((item, i) => (
+              {activityItems.map((item) => (
                 <div
-                  key={i}
+                  key={item.key}
                   className="flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3"
                 >
                   <span className="text-lg shrink-0">{item.emoji}</span>
@@ -1348,15 +1247,15 @@ export default function TodayPage() {
         <Link href="/dashboard/more">📋 Reports · 🖨️ Printables — find them in ··· More</Link>
       </p>
 
-      {/* ── Floating Quick Log Button ─────────────────────── */}
-      {!isPartner && !showQuickLog && (
+      {/* ── Floating Log Today Button ─────────────────────── */}
+      {!isPartner && !showLogModal && (
         <button
-          onClick={openQuickLog}
+          onClick={() => setShowLogModal(true)}
           className="fixed bottom-20 right-4 z-50 rounded-full bg-[#5c7f63] hover:bg-[#3d5c42] active:scale-95 text-white shadow-lg flex items-center gap-2 px-4 py-3 transition-all"
-          aria-label="Quick log"
+          aria-label="Log today"
         >
           <span className="text-2xl font-light leading-none">+</span>
-          <span className="text-sm font-semibold">Log Lesson</span>
+          <span className="text-sm font-semibold">Log Today</span>
         </button>
       )}
 
@@ -1511,210 +1410,23 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Quick Log Sheet ───────────────────────────────── */}
-      {showQuickLog && (
-        <div
-          className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end justify-center"
-          onClick={closeQuickLog}
-        >
-          <div
-            className="bg-[#fefcf9] rounded-t-3xl shadow-xl w-full max-w-lg"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Drag handle */}
-            <div className="w-10 h-1 bg-[#e8e2d9] rounded-full mx-auto mt-3 mb-1" />
-
-            {qlMode === null ? (
-              /* 4-card picker */
-              <div className="px-5 pt-4 pb-8">
-                <h2 className="text-lg font-bold text-[#2d2926] mb-0.5">What happened today? 🌿</h2>
-                <p className="text-sm text-[#7a6f65] mb-5">Log something great. It only takes a second.</p>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { mode: "book",       emoji: "📚", title: "Finished a book",     sub: "Earns a 🍃" },
-                    { mode: "project",    emoji: "🌋", title: "Project or activity", sub: "Earns a 🍃" },
-                    { mode: "field_trip", emoji: "🚌", title: "Field trip",          sub: "🍃 per child" },
-                    { mode: "extra",      emoji: "➕", title: "Extra lesson",        sub: "Earns a 🍃" },
-                  ].map(({ mode, emoji, title, sub }) => (
-                    <button
-                      key={mode}
-                      onClick={() => {
-                        setQlMode(mode as "book" | "project" | "field_trip" | "extra");
-                        if (children.length === 1) {
-                          setQlChild(children[0].id);
-                          if (mode === "field_trip") setQlChildrenIds([children[0].id]);
-                        }
-                      }}
-                      className="flex flex-col items-start gap-1 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#fafdf8] active:scale-95 rounded-2xl p-4 text-left transition-all"
-                    >
-                      <span className="text-3xl mb-0.5">{emoji}</span>
-                      <span className="text-sm font-semibold text-[#2d2926] leading-tight">{title}</span>
-                      <span className="text-[10px] text-[#5c7f63] font-medium">{sub}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              /* Sub-form */
-              <div className="px-5 pt-4 pb-8">
-                <div className="flex items-center gap-3 mb-5">
-                  <button
-                    onClick={() => setQlMode(null)}
-                    className="text-[#7a6f65] hover:text-[#2d2926] text-sm transition-colors"
-                  >
-                    ← Back
-                  </button>
-                  <h2 className="text-base font-bold text-[#2d2926]">
-                    {qlMode === "book"       ? "📚 Finished a book" :
-                     qlMode === "project"    ? "🌋 Project or activity" :
-                     qlMode === "field_trip" ? "🚌 Field trip" :
-                     "➕ Extra lesson"}
-                  </h2>
-                </div>
-
-                <div className="space-y-3">
-                  {/* Title / main field */}
-                  <div>
-                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-                      {qlMode === "book"       ? "Book title *" :
-                       qlMode === "project"    ? "What did you do? *" :
-                       qlMode === "field_trip" ? "Where did you go? *" :
-                       "What did you cover? *"}
-                    </label>
-                    <input
-                      value={qlTitle}
-                      onChange={(e) => setQlTitle(e.target.value)}
-                      placeholder={
-                        qlMode === "book"       ? "e.g. Charlotte's Web" :
-                        qlMode === "project"    ? "e.g. Built a model volcano" :
-                        qlMode === "field_trip" ? "e.g. Natural History Museum" :
-                        "e.g. Chapter 7 reading"
-                      }
-                      autoFocus
-                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                    />
-                  </div>
-
-                  {/* Subject (project + extra) */}
-                  {(qlMode === "project" || qlMode === "extra") && (
-                    <div>
-                      <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-                        {qlMode === "extra" ? "Subject" : "Subject tag (optional)"}
-                      </label>
-                      <input
-                        value={qlSubject}
-                        onChange={(e) => setQlSubject(e.target.value)}
-                        list="ql-subjects-list"
-                        placeholder="e.g. Science, Art, History"
-                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                      />
-                      <datalist id="ql-subjects-list">
-                        {subjects.map((s) => <option key={s.id} value={s.name} />)}
-                      </datalist>
-                    </div>
-                  )}
-
-                  {/* Single child select (book, project, extra) */}
-                  {children.length > 0 && qlMode !== "field_trip" && (
-                    <div>
-                      <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Which child?</label>
-                      <select
-                        value={qlChild}
-                        onChange={(e) => setQlChild(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                      >
-                        <option value="">All / unassigned</option>
-                        {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Multi-child select (field trip) */}
-                  {qlMode === "field_trip" && children.length > 0 && (
-                    <div>
-                      <label className="text-xs font-medium text-[#7a6f65] block mb-2">Which child(ren)?</label>
-                      <div className="flex flex-wrap gap-2">
-                        {children.map((c) => (
-                          <button
-                            key={c.id}
-                            onClick={() =>
-                              setQlChildrenIds((prev) =>
-                                prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id]
-                              )
-                            }
-                            className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                              qlChildrenIds.includes(c.id)
-                                ? "text-white border-transparent"
-                                : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63]"
-                            }`}
-                            style={
-                              qlChildrenIds.includes(c.id)
-                                ? { backgroundColor: c.color ?? "#5c7f63", borderColor: c.color ?? "#5c7f63" }
-                                : {}
-                            }
-                          >
-                            {c.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Notes (book) */}
-                  {qlMode === "book" && (
-                    <div>
-                      <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Notes (optional)</label>
-                      <input
-                        value={qlNotes}
-                        onChange={(e) => setQlNotes(e.target.value)}
-                        placeholder="What did they think of it?"
-                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                      />
-                    </div>
-                  )}
-
-                  {/* Notes (field trip) */}
-                  {qlMode === "field_trip" && (
-                    <div>
-                      <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Notes (optional)</label>
-                      <input
-                        value={qlNotes}
-                        onChange={(e) => setQlNotes(e.target.value)}
-                        placeholder="What did you see or do?"
-                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  onClick={saveQuickLog}
-                  disabled={savingQL || !qlTitle.trim()}
-                  className="mt-5 w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
-                >
-                  {savingQL ? "Saving…" : "Save 🍃"}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+      {/* ── Log Today Modal ───────────────────────────────── */}
+      {showLogModal && (
+        <LogTodayModal
+          children={children}
+          subjects={subjects}
+          today={today}
+          onClose={() => setShowLogModal(false)}
+          onSaved={handleLogSaved}
+        />
       )}
 
-      {/* ── Toast ─────────────────────────────────────────── */}
-      {showToast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] toast-slide-up pointer-events-none">
-          <div className="bg-[#2d2926] text-white text-sm font-medium px-5 py-3 rounded-full shadow-lg flex items-center gap-2 whitespace-nowrap">
-            <span>🍃</span>
-            <span>Saved to Memories!</span>
-          </div>
-        </div>
-      )}
-
-      {qlError && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] toast-slide-up pointer-events-none">
-          <div className="bg-[#c0392b] text-white text-sm font-medium px-5 py-3 rounded-full shadow-lg flex items-center gap-2 whitespace-nowrap max-w-[90vw] text-center">
-            <span>⚠️</span>
-            <span>Couldn&apos;t save — {qlError}</span>
+      {/* ── Garden growth toast ───────────────────────────── */}
+      {gardenToast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
+          <div className="bg-[#3d5c42] text-white text-sm font-medium px-5 py-3 rounded-xl shadow-lg flex items-center gap-2 whitespace-nowrap animate-bounce-once">
+            <span>🌿</span>
+            <span>{gardenToast.name} earned a leaf! {gardenToast.leaves} total</span>
           </div>
         </div>
       )}

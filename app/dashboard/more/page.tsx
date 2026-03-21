@@ -108,7 +108,9 @@ function RowCard({ item }: { item: CardItem }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const FEATURE_ITEMS: CardItem[] = [
-  { emoji: "📸", label: "Memories",   sub: "Photos, projects, and books",     href: "/dashboard/memories",   accent: true },
+  { emoji: "📚", label: "Resources",  sub: "Deals, freebies & field trips",    href: "/dashboard/resources",  accent: true },
+  { emoji: "📈", label: "Progress",   sub: "Track learning over time",         href: "/dashboard/progress",   accent: true },
+  { emoji: "📸", label: "Memories",   sub: "Photos, projects, and books",      href: "/dashboard/memories",   accent: true },
   { emoji: "📋", label: "Reports",    sub: "Generate progress reports",        href: "/dashboard/reports",    accent: true },
   { emoji: "🖨️", label: "Printables", sub: "Worksheets and activity sheets",   href: "/dashboard/printables", accent: true },
 ];
