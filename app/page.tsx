@@ -828,7 +828,7 @@ export default function Home() {
             I built Rooted for families like mine. I hope it brings your homeschool a little more calm and a lot more joy.
           </p>
           <p className="text-sm font-semibold text-[#5c7f63]">
-            — Brittany, homeschool mom to Zoe and Emma
+            — Brittany W., homeschool mom of 2
           </p>
         </div>
       </section>
