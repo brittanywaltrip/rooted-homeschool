@@ -110,7 +110,6 @@ function RowCard({ item }: { item: CardItem }) {
 const FEATURE_ITEMS: CardItem[] = [
   { emoji: "📚", label: "Resources",  sub: "Deals, freebies & field trips",    href: "/dashboard/resources",  accent: true },
   { emoji: "📈", label: "Progress",   sub: "Track learning over time",         href: "/dashboard/progress",   accent: true },
-  { emoji: "📸", label: "Memories",   sub: "Photos, projects, and books",      href: "/dashboard/memories",   accent: true },
   { emoji: "📋", label: "Reports",    sub: "Generate progress reports",        href: "/dashboard/reports",    accent: true },
   { emoji: "🖨️", label: "Printables", sub: "Worksheets and activity sheets",   href: "/dashboard/printables", accent: true },
 ];
@@ -137,11 +136,11 @@ export default function MorePage() {
 
       {/* Header */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a9e7e] mb-1">Dashboard</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a9e7e] mb-1">Tools &amp; Extras</p>
         <h1 className="text-2xl font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
           More
         </h1>
-        <p className="text-sm text-[#7a6f65] mt-1">Tools &amp; resources</p>
+        <p className="text-sm text-[#7a6f65] mt-1">Everything else, all in one place</p>
       </div>
 
       {/* What's New */}

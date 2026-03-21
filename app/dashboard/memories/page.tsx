@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import PaywallCard from "@/components/PaywallCard";
+import LogTodayModal from "@/app/components/LogTodayModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ export default function MemoriesPage() {
   const [isPro,       setIsPro]       = useState<boolean | null>(null);
   const [showModal,   setShowModal]   = useState(false);
   const [modalType,   setModalType]   = useState<"photo" | "project" | "book">("photo");
+  const [showLogModal, setShowLogModal] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   // Form state
@@ -193,6 +195,7 @@ export default function MemoriesPage() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
+    <>
     <div className="max-w-3xl px-4 py-7 space-y-6">
 
       {/* Header */}
@@ -206,29 +209,21 @@ export default function MemoriesPage() {
         </p>
       </div>
 
-      {/* Add buttons */}
+      {/* Add memory */}
       {!isPartner && (
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { type: "photo"   as const, icon: Camera,     label: "Add Photo",   color: "#5c7f63" },
-            { type: "project" as const, icon: FolderOpen,  label: "Log Project", color: "#8b6f47" },
-            { type: "book"    as const, icon: BookOpen,   label: "Log Book",    color: "#4a7a8a" },
-          ].map(({ type, icon: Icon, label, color }) => (
-            <button
-              key={type}
-              onClick={() => openModal(type)}
-              className="flex flex-col items-center gap-2 bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#f8f5f0] rounded-2xl p-4 transition-colors"
-            >
-              <div
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ backgroundColor: color + "20" }}
-              >
-                <Icon size={18} style={{ color }} strokeWidth={1.8} />
-              </div>
-              <span className="text-xs font-medium text-[#2d2926]">{label}</span>
-            </button>
-          ))}
-        </div>
+        <button
+          onClick={() => setShowLogModal(true)}
+          className="w-full flex items-center gap-4 bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#f8f5f0] rounded-2xl px-5 py-4 transition-colors"
+        >
+          <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0 text-lg">
+            📸
+          </div>
+          <div className="flex-1 text-left">
+            <p className="text-sm font-semibold text-[#2d2926]">+ Log a Memory</p>
+            <p className="text-xs text-[#7a6f65]">Photo, project, book, or anything you want to remember</p>
+          </div>
+          <span className="text-[#c8bfb5] text-lg leading-none">›</span>
+        </button>
       )}
 
       {/* AI Year in Review — live feature */}
@@ -601,5 +596,16 @@ export default function MemoriesPage() {
 
       <div className="h-4" />
     </div>
+
+    {showLogModal && (
+      <LogTodayModal
+        children={children}
+        subjects={[]}
+        today={new Date().toISOString().split("T")[0]}
+        onClose={() => setShowLogModal(false)}
+        onSaved={() => { setShowLogModal(false); load(); }}
+      />
+    )}
+    </>
   );
 }

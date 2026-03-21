@@ -1078,32 +1078,47 @@ export default function TodayPage() {
               </div>
             )}
           </>
+        ) : subjects.length === 0 ? (
+          /* Empty state — no curriculum set up yet */
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-8 flex flex-col items-center text-center">
+            <span className="text-4xl mb-3">🌱</span>
+            <p className="text-base font-semibold text-[#2d2926] mb-1.5">Welcome to Rooted</p>
+            <p className="text-sm text-[#7a6f65] leading-relaxed max-w-xs mb-5">
+              Your garden grows every time you learn. Start by setting up your curriculum — it only takes 2 minutes.
+            </p>
+            <Link
+              href="/dashboard/plan"
+              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors mb-3"
+            >
+              Set Up Curriculum →
+            </Link>
+            {!isPartner && (
+              <p className="text-xs text-[#b5aca4]">
+                Already learned something today?{" "}
+                <button
+                  onClick={() => setShowLogModal(true)}
+                  className="text-[#5c7f63] underline underline-offset-2 hover:text-[#3d5c42]"
+                >
+                  Log it now →
+                </button>
+              </p>
+            )}
+          </div>
         ) : (
-          /* Empty state */
+          /* Empty state — has subjects but no lessons today */
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-8 flex flex-col items-center text-center">
             <span className="text-4xl mb-3">🌱</span>
             <p className="text-base font-semibold text-[#2d2926] mb-1.5">No lessons yet today</p>
             <p className="text-sm text-[#7a6f65] leading-relaxed max-w-xs mb-5">
-              Your homeschool journey starts here. Set up your curriculum to have lessons scheduled automatically, or just log one you already did.
+              Ready to grow? Log what you learned today.
             </p>
-            <div className="flex gap-2 flex-wrap justify-center mb-4">
-              <Link
-                href="/dashboard/plan"
-                className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+            {!isPartner && (
+              <button
+                onClick={() => setShowLogModal(true)}
+                className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
               >
-                Set Up Curriculum 📚
-              </Link>
-              {!isPartner && (
-                <button
-                  onClick={() => setShowLogModal(true)}
-                  className="inline-flex items-center gap-1.5 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
-                >
-                  + Log something
-                </button>
-              )}
-            </div>
-            {children.length === 0 && (
-              <p className="text-xs text-[#b5aca4]">Tip: add your children in Settings first if you haven&apos;t yet 🌱</p>
+                + Log Today
+              </button>
             )}
           </div>
         )}

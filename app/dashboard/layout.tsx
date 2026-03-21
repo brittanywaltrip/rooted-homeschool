@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, Camera, Settings, Calendar, MoreHorizontal } from "lucide-react";
+import { Sun, Leaf, Camera, Calendar, MoreHorizontal } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
@@ -327,7 +327,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-[#e8f5ea] to-[#f0f7e8] text-[#3d5c42] hover:from-[#d4ead4] hover:to-[#e4f0d4] transition-colors"
         >
           <span className="text-base">🌱</span>
-          Child View
+          Kid Mode
         </Link>
       </div>
 
@@ -340,15 +340,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           active={isActive("/dashboard/more")}
           onClick={() => setMenuOpen(false)}
         />
-        {!partnerCtx.isPartner && (
-          <NavLink
-            label="Settings"
-            href="/dashboard/settings"
-            icon={Settings}
-            active={isActive("/dashboard/settings")}
-            onClick={() => setMenuOpen(false)}
-          />
-        )}
         {isAdmin && (
           <Link
             href="/admin"

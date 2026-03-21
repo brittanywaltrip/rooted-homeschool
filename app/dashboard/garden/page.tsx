@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
@@ -299,15 +300,24 @@ export default function GardenPage() {
 
       {/* ── First-visit tip banner ───────────────────────── */}
       {!tipDismissed && totalLeaves === 0 && (
-        <div className="flex items-start gap-3 rounded-2xl border px-4 py-3" style={{ background: "#e8f0e9", borderColor: "#5c7f63" }}>
-          <p className="flex-1 text-sm text-[#2d2926] leading-relaxed">
-            🌱 Every lesson you log grows a leaf! Complete 5 lessons to reach Seedling stage.
-          </p>
+        <div className="flex items-start gap-3 rounded-xl border-l-4 border-[#7ab87a] bg-[#f4faf4] px-4 py-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-[#3d5c42] mb-0.5">🌿 Your garden grows with every lesson</p>
+            <p className="text-xs text-[#5c7f63] leading-relaxed">
+              Log a lesson on Today to earn a leaf and watch your family&apos;s garden come to life.
+            </p>
+            <Link
+              href="/dashboard"
+              className="inline-block mt-1.5 text-xs font-semibold text-[#3d5c42] hover:underline"
+            >
+              Go to Today →
+            </Link>
+          </div>
           <button
             type="button"
             onClick={dismissTip}
             aria-label="Dismiss tip"
-            className="shrink-0 text-[#5c7f63] hover:text-[#2d5a3d] text-lg leading-none mt-0.5 transition-colors"
+            className="shrink-0 text-[#7ab87a] hover:text-[#3d5c42] text-lg leading-none mt-0.5 transition-colors"
           >
             ×
           </button>
