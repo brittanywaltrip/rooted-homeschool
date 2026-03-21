@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
         stripe_subscription_id: subscription.id,
         subscription_status: 'active',
         plan_type: subscription.items.data[0].price.id === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID ? 'founding_family' : 'standard',
-        current_period_end: new Date(subscription.items.data[0].current_period_end * 1000).toISOString(),
+        current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
       }).eq('id', userId)
     }
   }
