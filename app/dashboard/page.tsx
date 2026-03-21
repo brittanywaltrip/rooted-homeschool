@@ -79,6 +79,12 @@ function formatDate(date: Date) {
   });
 }
 
+function formatDateHero(date: Date) {
+  const weekday = date.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
+  const rest    = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }).toUpperCase();
+  return `${weekday} · ${rest}`;
+}
+
 function getGreeting() {
   const h = new Date().getHours();
   if (h < 12) return "Good morning";
@@ -769,7 +775,30 @@ export default function TodayPage() {
   }
 
   return (
-    <div className="max-w-2xl px-5 py-7 space-y-6">
+    <div className="max-w-2xl px-5 pt-0 pb-7 space-y-6">
+
+      {/* ── Hero Header ──────────────────────────────────────── */}
+      <div className="-mx-5 -mt-0 rounded-b-3xl px-6 pt-7 pb-8" style={{ background: "#3d5c42" }}>
+        <p className="text-[11px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "#8cba8e" }}>
+          {formatDateHero(new Date())}
+        </p>
+        <h1 className="text-[26px] font-bold leading-tight" style={{ color: "#fefcf9", fontFamily: "Georgia, serif" }}>
+          {getGreeting()}{familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 🌿
+        </h1>
+        {totalToday > 0 ? (
+          <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
+            <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.70)" }}>Today&apos;s lessons</span>
+            <div className="flex-1 rounded-full overflow-hidden" style={{ height: 3, background: "rgba(255,255,255,0.20)" }}>
+              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${progressPct}%`, background: "#a8d4aa" }} />
+            </div>
+            <span className="text-[12px] font-semibold text-white">{completedToday} / {totalToday}</span>
+          </div>
+        ) : (
+          <div className="flex items-center rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
+            <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.70)" }}>Ready to grow today 🌱</span>
+          </div>
+        )}
+      </div>
 
       {/* ── Setup Banner (skipped onboarding, no children) ─── */}
       {onboarded === true && children.length === 0 && !bannerDismissed && (
@@ -843,16 +872,6 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Date & Greeting ──────────────────────────────── */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">
-          {formatDate(new Date())}
-        </p>
-        <h1 className="text-2xl font-bold text-[#2d2926]">
-          {getGreeting()}{familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 👋
-        </h1>
-      </div>
-
       {/* ── Vacation Banner ──────────────────────────────── */}
       {activeVacation && (() => {
         const backDate = new Date(activeVacation.end_date + "T00:00:00");
@@ -918,36 +937,15 @@ export default function TodayPage() {
 
       {/* ── Lesson Checklist ─────────────────────────────── */}
       <div>
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
-            Today&apos;s Lessons
-          </h2>
-          {!isPartner && (
+        {/* Add Lesson button */}
+        {!isPartner && (
+          <div className="flex justify-end mb-3">
             <button
               onClick={openLessonModal}
               className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
             >
               + Add Lesson
             </button>
-          )}
-        </div>
-
-        {/* Progress bar */}
-        {totalToday > 0 && (
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-sm text-[#7a6f65]">
-                {completedToday} of {totalToday} lessons done today
-              </span>
-              <span className="text-sm font-semibold text-[#5c7f63]">{progressPct}%</span>
-            </div>
-            <div className="w-full h-1.5 bg-[#e8e2d9] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[#5c7f63] rounded-full transition-all duration-700"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
           </div>
         )}
 
@@ -1124,35 +1122,40 @@ export default function TodayPage() {
         )}
       </div>
 
-      {/* ── Your Children's Gardens ──────────────────────── */}
+      {/* ── Garden Strip ─────────────────────────────────── */}
       {children.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-            {children.length === 1 ? "Your Garden" : "Your Children's Gardens"}
-          </h2>
-          <div className={children.length >= 2 ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : "block"}>
-            {children.map((child) => (
-              <Link key={child.id} href="/dashboard/garden" className="block">
-                <GrowthTreeCard
-                  leaves={leafCounts[child.id] ?? 0}
-                  childName={child.name}
-                  animating={gardenAnimatingChildId !== undefined && (
-                    gardenAnimatingChildId === null || gardenAnimatingChildId === child.id
-                  )}
-                />
-              </Link>
-            ))}
-          </div>
-        </div>
+        <>
+          <hr className="border-[#f0ede8]" />
+          <Link href="/dashboard/garden" className="block">
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3 flex items-center gap-4 hover:bg-[#f4faf4] hover:border-[#b8d9bc] transition-colors">
+              <div className="flex gap-2 shrink-0">
+                {children.slice(0, 3).map((child) => {
+                  const si = getStageIndex(leafCounts[child.id] ?? 0);
+                  const st = STAGES[si];
+                  return (
+                    <div key={child.id} className="flex flex-col items-center gap-1">
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-lg"
+                        style={{ backgroundColor: (child.color ?? "#5c7f63") + "22" }}
+                      >
+                        {st.name === "Seedling" ? "🌱" : st.name === "Sprout" ? "🌿" : st.name === "Sapling" ? "🌳" : st.name === "Grove" ? "🌲" : "🌳"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#2d2926] leading-tight">
+                  {children.length === 1 ? `${children[0].name}'s Garden` : "Your Gardens"}
+                </p>
+                <p className="text-xs text-[#7a9e7e] mt-0.5">
+                  {Object.values(leafCounts).reduce((a, b) => a + b, 0)} leaves earned total · View progress →
+                </p>
+              </div>
+            </div>
+          </Link>
+        </>
       )}
-
-      {/* ── Motivational Quote ───────────────────────────── */}
-      <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
-          Today&apos;s Thought
-        </p>
-        <p className="text-sm text-[#5c7f63] italic leading-relaxed">&ldquo;{quote}&rdquo;</p>
-      </div>
 
       {children.length > 0 && !hasAnyLessons && Object.values(leafCounts).reduce((a, b) => a + b, 0) === 0 && (
         <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
@@ -1175,11 +1178,13 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Daily Reflection ──────────────────────────────── */}
+      {/* ── Reflect Zone ──────────────────────────────────── */}
+      <hr className="border-[#f0ede8]" />
       <div>
-        <div className="flex items-center gap-2 mb-3">
+        <p className="text-xs text-[#5c7f63] italic leading-relaxed mb-3">&ldquo;{quote}&rdquo;</p>
+        <div className="flex items-center gap-2 mb-2">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
-            Daily Reflection
+            Reflect
           </h2>
           {reflectionExists && (
             <span className="text-xs text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">saved</span>
@@ -1190,7 +1195,7 @@ export default function TodayPage() {
             value={reflectionText}
             onChange={(e) => setReflectionText(e.target.value)}
             placeholder="How did today's learning go? What went well? What would you do differently?"
-            rows={4}
+            rows={3}
             className="w-full px-4 pt-4 pb-2 text-sm text-[#2d2926] placeholder-[#c8bfb5] bg-transparent resize-none focus:outline-none leading-relaxed"
           />
           <div className="flex items-center justify-between px-4 py-2.5 border-t border-[#f0ede8]">
@@ -1213,6 +1218,7 @@ export default function TodayPage() {
       </div>
 
       {/* ── Today's Activity ──────────────────────────────── */}
+      <hr className="border-[#f0ede8]" />
       {(() => {
         const completedLessons = filteredLessons.filter((l) => l.completed);
         const activityItems: { key: string; emoji: string; title: string; sub?: string }[] = [
