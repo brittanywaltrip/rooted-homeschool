@@ -30,6 +30,7 @@ type CurriculumGroup = {
   totalCount: number;
   remainingCount: number;
   lessonIds: string[];
+  goalId: string | null;
 };
 type VacationBlock = {
   id: string;
@@ -541,6 +542,10 @@ export default function PlanPage() {
     for (let i = 0; i < ids.length; i += 100) {
       await supabase.from("lessons").delete().in("id", ids.slice(i, i + 100));
     }
+    if (group.goalId) {
+      await supabase.from("curriculum_goals").delete().eq("id", group.goalId);
+      setCurriculumGoals((p) => p.filter((g) => g.id !== group.goalId));
+    }
     setAllLessons((p) => p.filter((l) => !ids.includes(l.id)));
     setLessons((p) => p.filter((l) => !ids.includes(l.id)));
     setDeleteConfirmGroup(null);
@@ -844,7 +849,8 @@ export default function PlanPage() {
       const cName = match[1];
       const key = `${cName}||${l.child_id ?? ""}`;
       if (!map.has(key)) {
-        map.set(key, { key, curricName: cName, childId: l.child_id, subjectName: l.subjects?.name ?? null, totalCount: 0, remainingCount: 0, lessonIds: [] });
+        const goal = curriculumGoals.find((g) => g.curriculum_name === cName && g.child_id === l.child_id);
+        map.set(key, { key, curricName: cName, childId: l.child_id, subjectName: l.subjects?.name ?? null, totalCount: 0, remainingCount: 0, lessonIds: [], goalId: goal?.id ?? null });
       }
       const g = map.get(key)!;
       g.totalCount++;
@@ -989,7 +995,7 @@ export default function PlanPage() {
                     className="flex items-center gap-1 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-2.5 py-1.5 rounded-xl transition-colors">
                     ✏️ Edit
                   </button>
-                  <button onClick={() => setDeleteConfirmGroup(group)}
+                  <button onClick={() => { setEditDaysGroup(null); setDeleteConfirmGroup(group); }}
                     className="flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-xl transition-colors">
                     🗑️ Remove
                   </button>
@@ -1396,12 +1402,11 @@ export default function PlanPage() {
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
             <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
-              Delete all lessons?
+              Remove &ldquo;{deleteConfirmGroup.curricName}&rdquo;?
             </h2>
             <p className="text-sm text-[#7a6f65] leading-relaxed">
-              This will permanently delete all{" "}
-              <strong className="text-[#2d2926]">{deleteConfirmGroup.totalCount} lessons</strong> for{" "}
-              <strong className="text-[#2d2926]">&ldquo;{deleteConfirmGroup.curricName}&rdquo;</strong>.
+              This will delete all{" "}
+              <strong className="text-[#2d2926]">{deleteConfirmGroup.remainingCount} remaining lessons</strong>.
               This cannot be undone.
             </p>
             <div className="flex gap-2 pt-1">
@@ -1415,7 +1420,7 @@ export default function PlanPage() {
                 onClick={() => deleteCurriculumGroup(deleteConfirmGroup)}
                 className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
               >
-                Delete All
+                Yes, Remove
               </button>
             </div>
           </div>
