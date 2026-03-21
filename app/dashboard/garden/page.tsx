@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
+import PageHero from "@/app/components/PageHero";
 
 function treeEmoji(leaves: number): string {
   const s = getStageFromLeaves(leaves);
@@ -286,17 +287,13 @@ export default function GardenPage() {
   }
 
   return (
-    <div className="max-w-3xl px-4 py-7 space-y-6">
-      {/* Header */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">
-          Your Family&apos;s
-        </p>
-        <h1 className="text-2xl font-bold text-[#2d2926]">Garden 🌿</h1>
-        <p className="text-sm text-[#7a6f65] mt-1">
-          Every lesson learned grows a leaf. Watch your family bloom.
-        </p>
-      </div>
+    <div className="max-w-3xl px-4 pt-0 pb-7 space-y-6">
+      <PageHero
+        overline="Your Family's"
+        title="Garden 🌿"
+        subtitle="Every lesson learned grows a leaf."
+        className="-mx-4"
+      />
 
       {/* ── First-visit tip banner ───────────────────────── */}
       {!tipDismissed && totalLeaves === 0 && (

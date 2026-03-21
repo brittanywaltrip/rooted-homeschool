@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import PageHero from "@/app/components/PageHero";
 
 // ─── Install instructions card ────────────────────────────────────────────────
 
@@ -132,16 +133,14 @@ export default function MorePage() {
   }, []);
 
   return (
-    <div className="max-w-xl mx-auto px-5 py-8 space-y-8">
+    <div className="max-w-xl mx-auto px-5 pt-0 pb-8 space-y-8">
 
-      {/* Header */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a9e7e] mb-1">Tools &amp; Extras</p>
-        <h1 className="text-2xl font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
-          More
-        </h1>
-        <p className="text-sm text-[#7a6f65] mt-1">Everything else, all in one place</p>
-      </div>
+      <PageHero
+        overline="Tools & Extras"
+        title="More 🌿"
+        subtitle="Everything else, all in one place."
+        className="-mx-5"
+      />
 
       {/* What's New */}
       <div className="space-y-3">

@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import LogTodayModal from "@/app/components/LogTodayModal";
 import GardenScene, { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
+import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -778,13 +779,11 @@ export default function TodayPage() {
     <div className="max-w-2xl px-5 pt-0 pb-7 space-y-6">
 
       {/* ── Hero Header ──────────────────────────────────────── */}
-      <div className="-mx-5 -mt-0 rounded-b-3xl px-6 pt-7 pb-8" style={{ background: "#3d5c42" }}>
-        <p className="text-[11px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "#8cba8e" }}>
-          {formatDateHero(new Date())}
-        </p>
-        <h1 className="text-[26px] font-bold leading-tight" style={{ color: "#fefcf9", fontFamily: "Georgia, serif" }}>
-          {getGreeting()}{familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 🌿
-        </h1>
+      <PageHero
+        overline={formatDateHero(new Date())}
+        title={`${getGreeting()}${familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 🌿`}
+        className="-mx-5"
+      >
         {totalToday > 0 ? (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
             <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.70)" }}>Today&apos;s lessons</span>
@@ -798,7 +797,7 @@ export default function TodayPage() {
             <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.70)" }}>Ready to grow today 🌱</span>
           </div>
         )}
-      </div>
+      </PageHero>
 
       {/* ── Setup Banner (skipped onboarding, no children) ─── */}
       {onboarded === true && children.length === 0 && !bannerDismissed && (
@@ -1125,35 +1124,44 @@ export default function TodayPage() {
       {/* ── Garden Strip ─────────────────────────────────── */}
       {children.length > 0 && (
         <>
-          <hr className="border-[#f0ede8]" />
-          <Link href="/dashboard/garden" className="block">
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3 flex items-center gap-4 hover:bg-[#f4faf4] hover:border-[#b8d9bc] transition-colors">
-              <div className="flex gap-2 shrink-0">
-                {children.slice(0, 3).map((child) => {
-                  const si = getStageIndex(leafCounts[child.id] ?? 0);
-                  const st = STAGES[si];
-                  return (
-                    <div key={child.id} className="flex flex-col items-center gap-1">
-                      <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-lg"
-                        style={{ backgroundColor: (child.color ?? "#5c7f63") + "22" }}
-                      >
-                        {st.name === "Seedling" ? "🌱" : st.name === "Sprout" ? "🌿" : st.name === "Sapling" ? "🌳" : st.name === "Grove" ? "🌲" : "🌳"}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-[#2d2926] leading-tight">
-                  {children.length === 1 ? `${children[0].name}'s Garden` : "Your Gardens"}
-                </p>
-                <p className="text-xs text-[#7a9e7e] mt-0.5">
-                  {Object.values(leafCounts).reduce((a, b) => a + b, 0)} leaves earned total · View progress →
-                </p>
-              </div>
+          <hr className="border-[#e8e2d9] my-2" />
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[#9e958d]">
+                {children.length === 1 ? "Your Garden" : "Your Children's Gardens"}
+              </span>
+              <Link href="/dashboard/garden" className="text-[11px] font-semibold text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
+                View →
+              </Link>
             </div>
-          </Link>
+            <Link href="/dashboard/garden" className="block space-y-1.5">
+              {children.map((child) => {
+                const leaves    = leafCounts[child.id] ?? 0;
+                const si        = getStageIndex(leaves);
+                const stage     = STAGES[si];
+                const nextStage = STAGES[si + 1];
+                const pct       = nextStage
+                  ? Math.min(100, Math.max(0, ((leaves - stage.min) / (nextStage.min - stage.min)) * 100))
+                  : 100;
+                return (
+                  <div key={child.id} className="bg-[#eef5ef] rounded-xl px-3.5 py-2.5 flex items-center gap-2.5">
+                    <span className="text-base">🌱</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-[#3d5c42] min-w-[44px]">
+                      {child.name}
+                    </span>
+                    <span className="text-[13px] font-semibold text-[#2d2926] flex-1">{stage.name}</span>
+                    <div className="flex-1 h-[3px] bg-[#c8dfc9] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-[#5c7f63] rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="text-[11px] font-semibold text-[#5c7f63]">{leaves} 🌿</span>
+                  </div>
+                );
+              })}
+            </Link>
+          </div>
         </>
       )}
 
@@ -1179,11 +1187,11 @@ export default function TodayPage() {
       )}
 
       {/* ── Reflect Zone ──────────────────────────────────── */}
-      <hr className="border-[#f0ede8]" />
+      <hr className="border-[#e8e2d9] my-2" />
       <div>
-        <p className="text-xs text-[#5c7f63] italic leading-relaxed mb-3">&ldquo;{quote}&rdquo;</p>
+        <p className="text-[13px] italic leading-relaxed border-l-2 border-[#e8e2d9] pl-3 mb-3" style={{ color: "#9e958d" }}>&ldquo;{quote}&rdquo;</p>
         <div className="flex items-center gap-2 mb-2">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
+          <h2 className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9e958d" }}>
             Reflect
           </h2>
           {reflectionExists && (
@@ -1193,10 +1201,15 @@ export default function TodayPage() {
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden focus-within:border-[#5c7f63] focus-within:ring-2 focus-within:ring-[#5c7f63]/20 transition">
           <textarea
             value={reflectionText}
-            onChange={(e) => setReflectionText(e.target.value)}
+            onChange={(e) => {
+              setReflectionText(e.target.value);
+              const t = e.target;
+              t.style.height = "auto";
+              t.style.height = t.scrollHeight + "px";
+            }}
             placeholder="How did today's learning go? What went well? What would you do differently?"
-            rows={3}
-            className="w-full px-4 pt-4 pb-2 text-sm text-[#2d2926] placeholder-[#c8bfb5] bg-transparent resize-none focus:outline-none leading-relaxed"
+            rows={2}
+            className="w-full px-4 pt-4 pb-2 text-sm text-[#2d2926] placeholder-[#c8bfb5] bg-transparent resize-none focus:outline-none leading-relaxed overflow-hidden"
           />
           <div className="flex items-center justify-between px-4 py-2.5 border-t border-[#f0ede8]">
             <p className="text-xs text-[#c8bfb5]">

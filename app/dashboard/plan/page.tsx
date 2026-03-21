@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import DayDetailPanel from "@/app/components/DayDetailPanel";
+import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,19 +139,35 @@ function LessonCard({
 }) {
   const [menuOpen,    setMenuOpen]    = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [isDragging,  setIsDragging]  = useState(false);
   const subStyle    = getSubjectStyle(lesson.subjects?.name);
-  // Use subject color from DB as left border; fall back to computed style
   const borderColor = lesson.subjects?.color ?? subStyle.text;
+  const canDrag     = !isPartner;
 
   return (
     <div
-      className={`rounded-xl p-2 border-l-[3px] transition-all relative cursor-pointer ${
-        lesson.completed ? "opacity-55" : "shadow-sm"
-      }`}
+      draggable={canDrag}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("lessonId", lesson.id);
+        e.dataTransfer.setData("fromDate", lesson.scheduled_date ?? lesson.date ?? "");
+        e.dataTransfer.effectAllowed = "move";
+        setIsDragging(true);
+      }}
+      onDragEnd={() => setIsDragging(false)}
+      className={`group rounded-xl p-2 border-l-[3px] transition-all relative ${
+        isDragging
+          ? "opacity-50 shadow-none cursor-grabbing"
+          : canDrag
+          ? "cursor-grab"
+          : "cursor-pointer"
+      } ${!isDragging && lesson.completed ? "opacity-55" : ""} ${!isDragging && !lesson.completed ? "shadow-sm" : ""}`}
       style={{ borderLeftColor: borderColor, backgroundColor: lesson.completed ? "#f0f7f1" : "white" }}
-      onClick={() => setPopoverOpen((v) => !v)}
+      onClick={() => !isDragging && setPopoverOpen((v) => !v)}
     >
       <div className="flex items-start gap-1.5">
+        {canDrag && (
+          <span className="opacity-0 group-hover:opacity-100 text-[#c8bfb5] text-[10px] leading-none mt-1 transition-opacity shrink-0 select-none">⠿</span>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); onToggle(lesson.id, lesson.completed); }}
           className={`mt-0.5 w-[15px] h-[15px] rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
@@ -260,7 +277,7 @@ function LessonCard({
 
 function DayColumn({
   day, lessons, children, isToday, isPast, isWeekend,
-  onAdd, onToggle, onEdit, onDelete, hideAdd, isPartner,
+  onAdd, onToggle, onEdit, onDelete, hideAdd, isPartner, onDropLesson,
 }: {
   day: Date; lessons: Lesson[]; children: Child[];
   isToday: boolean; isPast: boolean; isWeekend: boolean;
@@ -269,7 +286,9 @@ function DayColumn({
   onEdit: (lesson: Lesson) => void;
   onDelete: (id: string) => void;
   hideAdd?: boolean; isPartner: boolean;
+  onDropLesson?: (lessonId: string, fromDate: string) => void;
 }) {
+  const [isDragOver, setIsDragOver] = useState(false);
   const dayName = day.toLocaleDateString("en-US", { weekday: "short" });
   const dayNum  = day.getDate();
   const done    = lessons.filter((l) => l.completed).length;
@@ -277,10 +296,25 @@ function DayColumn({
   const allDone = total > 0 && done === total;
 
   return (
-    <div className={`flex flex-col rounded-2xl overflow-hidden transition-all ${
-      isToday ? "border-2 border-[#5c7f63] shadow-md ring-2 ring-[#5c7f63]/10"
-      : isWeekend ? "border border-[#ece8e2]" : "border border-[#e8e2d9]"
-    }`} style={{ backgroundColor: isToday ? "#f2f9f3" : isWeekend ? "#faf9f7" : "#fefcf9" }}>
+    <div
+      className={`flex flex-col rounded-2xl overflow-hidden transition-all ${
+        isDragOver
+          ? "border-2 border-dashed border-[#5c7f63]"
+          : isToday
+          ? "border-2 border-[#5c7f63] shadow-md ring-2 ring-[#5c7f63]/10"
+          : isWeekend ? "border border-[#ece8e2]" : "border border-[#e8e2d9]"
+      }`}
+      style={{ backgroundColor: isDragOver ? "#e8f0e9" : isToday ? "#f2f9f3" : isWeekend ? "#faf9f7" : "#fefcf9" }}
+      onDragOver={(e) => { e.preventDefault(); if (onDropLesson) setIsDragOver(true); }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        const lessonId = e.dataTransfer.getData("lessonId");
+        const fromDate = e.dataTransfer.getData("fromDate");
+        if (lessonId && onDropLesson) onDropLesson(lessonId, fromDate);
+      }}
+    >
       <div className={`px-2 pt-3 pb-2.5 flex flex-col items-center border-b ${
         isToday ? "border-[#b8d9bc] bg-[#d4ead6]" : "border-[#f0ede8]"
       }`}>
@@ -363,6 +397,9 @@ export default function PlanPage() {
 
   // ── Day detail panel (month view) ─────────────────────────────────────────
   const [dayDetailDate, setDayDetailDate] = useState<string | null>(null);
+
+  // ── Drag & drop ────────────────────────────────────────────────────────────
+  const [dragToast, setDragToast] = useState<string | null>(null);
 
   // ── Quick-add modal ───────────────────────────────────────────────────────
   const [showModal,   setShowModal]   = useState(false);
@@ -941,65 +978,70 @@ export default function PlanPage() {
   const vacEndLabel   = vacEnd   ? new Date(vacEnd   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
   const vacCanSave    = !!(vacName.trim() && vacStart && vacEnd);
 
+  // ── Move lesson (drag & drop) ─────────────────────────────────────────────
+
+  async function moveLesson(lessonId: string, fromDate: string, toDate: string) {
+    if (!toDate || fromDate === toDate) return;
+    // Optimistic update
+    setLessons((prev) => prev.map((l) => l.id === lessonId ? { ...l, scheduled_date: toDate } : l));
+    setAllLessons((prev) => prev.map((l) => l.id === lessonId ? { ...l, scheduled_date: toDate } : l));
+    setMonthLessons((prev) => prev.map((l) => l.id === lessonId ? { ...l, scheduled_date: toDate } : l));
+    await supabase.from("lessons").update({ scheduled_date: toDate }).eq("id", lessonId);
+    const toDay = new Date(toDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" });
+    setDragToast(`📅 Moved to ${toDay}`);
+    setTimeout(() => setDragToast(null), 2000);
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <>
-    <div className="px-4 py-7 space-y-5 max-w-5xl">
+    {/* Drag-and-drop toast */}
+    {dragToast && (
+      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-2xl shadow-xl pointer-events-none">
+        {dragToast}
+      </div>
+    )}
+    <div className="px-4 pt-0 pb-7 space-y-5 max-w-5xl">
 
-      {/* ── Header ───────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">Curriculum Setup</p>
-          <h1 className="text-2xl font-bold text-[#2d2926]">Plan 📋</h1>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {!isPartner && (
-            <button onClick={() => openWizard()}
-              className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors border border-[#c8ddb8]">
-              + Add Curriculum
+      {/* ── Hero Header ──────────────────────────────────────── */}
+      <PageHero overline="Curriculum Setup" title="Plan 📋" className="-mx-4">
+        {!loading && totalWeek > 0 && (
+          <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
+            <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.80)" }}>
+              {totalWeek} lesson{totalWeek !== 1 ? "s" : ""} this week
+              {" · "}{completedWeek} done
+              {" · "}{totalWeek - completedWeek} remaining
+              {completedWeek === totalWeek && totalWeek > 0 ? " 🌿" : ""}
+            </span>
+          </div>
+        )}
+      </PageHero>
+
+      {/* ── Action bar ───────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        {!isPartner && (
+          <button onClick={() => openWizard()}
+            className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors border border-[#c8ddb8]">
+            + Add Curriculum
+          </button>
+        )}
+        <div className="flex items-center gap-1.5 ml-auto">
+          {!isCurrentWeek && (
+            <button onClick={goToToday}
+              className="text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors mr-1">
+              This week
             </button>
           )}
-          <div className="flex items-center gap-1.5">
-            {!isCurrentWeek && (
-              <button onClick={goToToday}
-                className="text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors mr-1">
-                This week
-              </button>
-            )}
-            <button onClick={prevWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
-              <ChevronLeft size={16} />
-            </button>
-            <span className="text-sm font-semibold text-[#2d2926] whitespace-nowrap px-1">{formatWeekRange(weekStart)}</span>
-            <button onClick={nextWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
-              <ChevronRight size={16} />
-            </button>
-          </div>
+          <button onClick={prevWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+            <ChevronLeft size={16} />
+          </button>
+          <span className="text-sm font-semibold text-[#2d2926] whitespace-nowrap px-1">{formatWeekRange(weekStart)}</span>
+          <button onClick={nextWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+            <ChevronRight size={16} />
+          </button>
         </div>
       </div>
-
-      {/* ── Weekly Summary Bar ───────────────────────────────── */}
-      {!loading && totalWeek > 0 && (
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3 space-y-2">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5 text-sm flex-wrap">
-              <span className="font-semibold text-[#2d2926]">{totalWeek}</span>
-              <span className="text-[#7a6f65]">lesson{totalWeek !== 1 ? "s" : ""} this week</span>
-              <span className="text-[#c8bfb5]">·</span>
-              <span className="font-semibold text-[#5c7f63]">{completedWeek}</span>
-              <span className="text-[#7a6f65]">done</span>
-              <span className="text-[#c8bfb5]">·</span>
-              <span className="text-[#b5aca4]">{totalWeek - completedWeek} remaining this week</span>
-            </div>
-            {completedWeek === totalWeek && (
-              <span className="text-xs bg-[#e8f0e9] text-[#3d5c42] px-2.5 py-0.5 rounded-full font-semibold shrink-0">🌿 Perfect week!</span>
-            )}
-          </div>
-          <div className="h-1.5 bg-[#e8e2d9] rounded-full overflow-hidden">
-            <div className="h-full bg-[#5c7f63] rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
-          </div>
-        </div>
-      )}
 
       {/* ── Manage Curriculum ────────────────────────────────── */}
       {!isPartner && curricGroups.length > 0 && (
@@ -1322,7 +1364,8 @@ export default function PlanPage() {
                     isToday={key === todayStr} isPast={day < todayMidnight} isWeekend={day.getDay() === 0 || day.getDay() === 6}
                     onAdd={isPartner ? () => {} : openAddModal}
                     onToggle={isPartner ? () => {} : toggleLesson}
-                    onEdit={openEdit} onDelete={deleteLesson} hideAdd={isPartner} isPartner={isPartner} />
+                    onEdit={openEdit} onDelete={deleteLesson} hideAdd={isPartner} isPartner={isPartner}
+                    onDropLesson={isPartner ? undefined : (lessonId, fromDate) => moveLesson(lessonId, fromDate, key)} />
                 );
               })}
             </div>
@@ -1353,7 +1396,8 @@ export default function PlanPage() {
                     isToday={key === todayStr} isPast={day < todayMidnight} isWeekend={day.getDay() === 0 || day.getDay() === 6}
                     onAdd={isPartner ? () => {} : openAddModal}
                     onToggle={isPartner ? () => {} : toggleLesson}
-                    onEdit={openEdit} onDelete={deleteLesson} hideAdd={isPartner} isPartner={isPartner} />
+                    onEdit={openEdit} onDelete={deleteLesson} hideAdd={isPartner} isPartner={isPartner}
+                    onDropLesson={isPartner ? undefined : (lessonId, fromDate) => moveLesson(lessonId, fromDate, key)} />
                 );
               })}
             </div>

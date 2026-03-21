@@ -7,6 +7,7 @@ import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import PaywallCard from "@/components/PaywallCard";
 import LogTodayModal from "@/app/components/LogTodayModal";
+import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -196,18 +197,14 @@ export default function MemoriesPage() {
 
   return (
     <>
-    <div className="max-w-3xl px-4 py-7 space-y-6">
+    <div className="max-w-3xl px-4 pt-0 pb-7 space-y-6">
 
-      {/* Header */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">
-          Your Family Story
-        </p>
-        <h1 className="text-2xl font-bold text-[#2d2926]">Memories 📷</h1>
-        <p className="text-sm text-[#7a6f65] mt-1">
-          Capture photos, projects, and books. Create a keepsake your family will treasure.
-        </p>
-      </div>
+      <PageHero
+        overline="Your Family Story"
+        title="Memories 📸"
+        subtitle="Capture photos, projects, and books."
+        className="-mx-4"
+      />
 
       {/* Add memory */}
       {!isPartner && (
