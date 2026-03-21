@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, Camera, Menu, Settings, Calendar, MoreHorizontal } from "lucide-react";
+import { Sun, Leaf, Camera, Settings, Calendar, MoreHorizontal } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
@@ -451,15 +451,17 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium text-[#7a6f65]"
+          <Link
+            href="/dashboard/more"
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors ${
+              isActive("/dashboard/more") ? "text-[#3d5c42]" : "text-[#7a6f65]"
+            }`}
           >
-            <div className="p-1.5 rounded-lg">
-              <Menu size={18} strokeWidth={1.8} />
+            <div className={`p-1.5 rounded-lg ${isActive("/dashboard/more") ? "bg-[#e8f0e9]" : ""}`}>
+              <MoreHorizontal size={18} strokeWidth={isActive("/dashboard/more") ? 2.5 : 1.8} />
             </div>
             More
-          </button>
+          </Link>
         </nav>
       </div>
     </PartnerContext.Provider>
