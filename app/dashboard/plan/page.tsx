@@ -139,10 +139,21 @@ function calcPaceStatus(
     cursor.setDate(cursor.getDate() + 1);
     safety++;
   }
-  if (futureDays === 0) return { label: "⚠ Behind pace", color: "#b91c1c", bg: "#fef2f2" };
-  const ratio = remainingCount / futureDays;
-  if (ratio <= 1.0) return { label: "✓ On pace", color: "#3d5c42", bg: "#e8f0e9" };
-  if (ratio <= 1.5) return { label: "⚡ Slightly behind", color: "#7a4a1a", bg: "#fef9e8" };
+  if (futureDays >= remainingCount) return { label: "✓ On pace", color: "#3d5c42", bg: "#e8f0e9" };
+  // Count how many calendar days past target to finish remaining lessons
+  const extraNeeded = remainingCount - futureDays;
+  let extraFound = 0;
+  const futureCursor = new Date(target);
+  futureCursor.setDate(futureCursor.getDate() + 1);
+  let calendarDaysExtra = 0;
+  let safety2 = 0;
+  while (extraFound < extraNeeded && safety2 < 500) {
+    if (dayNums.has(futureCursor.getDay())) extraFound++;
+    futureCursor.setDate(futureCursor.getDate() + 1);
+    calendarDaysExtra++;
+    safety2++;
+  }
+  if (calendarDaysExtra <= 14) return { label: "⚡ Slightly behind", color: "#7a4a1a", bg: "#fef9e8" };
   return { label: "⚠ Behind pace", color: "#b91c1c", bg: "#fef2f2" };
 }
 
@@ -909,20 +920,7 @@ export default function PlanPage() {
                         🎯 Finish line: <span className="font-medium">{targetDateLabel}</span>
                       </p>
                     ) : (
-                      <button
-                        onClick={() => setEditWizardData({
-                          goalId: group.goalId ?? undefined,
-                          childId: group.childId ?? "",
-                          curricName: group.curricName,
-                          subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
-                          totalLessons: group.goalData?.total_lessons ?? group.totalCount,
-                          currentLesson: group.goalData?.current_lesson ?? completedCount,
-                          targetDate: "",
-                          schoolDays: group.goalData?.school_days ?? [],
-                        })}
-                        className="text-[10px] text-[#b5aca4] hover:text-[#5c7f63] transition-colors text-left">
-                        🎯 No finish line set — tap Edit to add one
-                      </button>
+                      <span className="text-xs text-[#b5aca4]">No finish line set</span>
                     )}
                   </div>
                 );
