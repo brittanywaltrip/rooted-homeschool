@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 
-const ADMIN_EMAIL = "garfieldbrittany@gmail.com";
+// Manual SQL fix 2026-03-21: amannda86@yahoo.com + dward67@yahoo.com
+// updated to founding_family via Supabase SQL.
+// garfieldbrittany@gmail.com founding membership was a test/refunded —
+// update plan_type to 'refunded', subscription_status to 'refunded'.
+// Webhook handles all future paying members automatically.
+
+const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"];
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,7 +22,7 @@ export async function GET(req: Request) {
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(token);
-  if (authErr || !user || user.email !== ADMIN_EMAIL) {
+  if (authErr || !user || !ADMIN_EMAILS.includes(user.email ?? "")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -26,40 +32,53 @@ export async function GET(req: Request) {
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const last48h = new Date(now.getTime() - 48 * 60 * 60 * 1000);
 
-  // Auth users
+  // Auth users — no limit beyond perPage
   const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
   const allUsers = authData?.users ?? [];
 
   const totalUsers = allUsers.length;
-  const last24hSignups = allUsers.filter(u => new Date(u.created_at) >= last24h).length;
+  const last24hSignups  = allUsers.filter(u => new Date(u.created_at) >= last24h).length;
   const yesterdaySignups = allUsers.filter(u => {
     const d = new Date(u.created_at);
     return d >= last48h && d < last24h;
   }).length;
 
-  // Profiles
+  // Profiles — all rows, no limit
   const { data: profiles } = await supabaseAdmin
     .from("profiles")
-    .select("id, display_name, first_name, last_name, plan_type, is_pro, partner_email, created_at");
+    .select("id, display_name, first_name, last_name, plan_type, subscription_status, is_pro, partner_email, created_at");
 
   const proUsers         = profiles?.filter(p => p.is_pro).length ?? 0;
   const freeUsers        = (profiles?.length ?? 0) - proUsers;
-  const foundingFamilies = profiles?.filter(p => p.plan_type === "founding_family").length ?? 0;
-  const standardSubs     = profiles?.filter(p => p.plan_type === "standard").length ?? 0;
-  const coTeachers       = profiles?.filter(p => p.partner_email).length ?? 0;
+  const foundingFamilies = profiles?.filter(
+    p => p.plan_type === "founding_family" && p.subscription_status === "active"
+  ).length ?? 0;
+  const standardSubs = profiles?.filter(p => p.plan_type === "standard").length ?? 0;
+  const coTeachers   = profiles?.filter(p => p.partner_email).length ?? 0;
 
-  // Lessons
-  const [
-    { count: totalLessons },
-    { count: lessonsToday },
-    { count: totalCurricula },
-  ] = await Promise.all([
-    supabaseAdmin.from("lessons").select("*", { count: "exact", head: true }).eq("completed", true),
-    supabaseAdmin.from("lessons").select("*", { count: "exact", head: true })
-      .eq("completed", true)
-      .gte("completed_at", todayStart.toISOString()),
-    supabaseAdmin.from("curriculum_goals").select("*", { count: "exact", head: true }),
-  ]);
+  // Completed lessons — user_id + dates for count, last active, and today count
+  const { data: lessonsByUserRows } = await supabaseAdmin
+    .from("lessons")
+    .select("user_id, completed_at, date")
+    .eq("completed", true);
+
+  // Build lesson count per user + last lesson date per user
+  const lessonsByUser    = new Map<string, number>();
+  const lastLessonDate   = new Map<string, string>();
+  for (const l of lessonsByUserRows ?? []) {
+    lessonsByUser.set(l.user_id, (lessonsByUser.get(l.user_id) ?? 0) + 1);
+    const dateStr = l.completed_at ?? l.date ?? null;
+    if (dateStr) {
+      const current = lastLessonDate.get(l.user_id);
+      if (!current || dateStr > current) lastLessonDate.set(l.user_id, dateStr);
+    }
+  }
+
+  const totalLessons  = lessonsByUserRows?.length ?? 0;
+  const lessonsToday  = lessonsByUserRows?.filter(l => {
+    const d = l.completed_at ?? l.date ?? "";
+    return d >= todayStart.toISOString().split("T")[0];
+  }).length ?? 0;
 
   // Children
   const { data: childrenRows } = await supabaseAdmin.from("children").select("user_id");
@@ -69,6 +88,27 @@ export async function GET(req: Request) {
     childrenByUser.set(c.user_id, (childrenByUser.get(c.user_id) ?? 0) + 1);
   }
   const avgChildrenPerFamily = totalUsers > 0 ? (totalChildren / totalUsers).toFixed(1) : "0.0";
+
+  // Curricula per user
+  const { data: curriculaUserRows } = await supabaseAdmin
+    .from("curriculum_goals")
+    .select("user_id");
+  const totalCurricula = curriculaUserRows?.length ?? 0;
+  const curriculaByUser = new Map<string, number>();
+  for (const c of curriculaUserRows ?? []) {
+    curriculaByUser.set(c.user_id, (curriculaByUser.get(c.user_id) ?? 0) + 1);
+  }
+
+  // App events — for last active date per user
+  const { data: appEventRows } = await supabaseAdmin
+    .from("app_events")
+    .select("user_id, created_at");
+  const lastEventDate = new Map<string, string>();
+  for (const e of appEventRows ?? []) {
+    if (!e.created_at) continue;
+    const current = lastEventDate.get(e.user_id);
+    if (!current || e.created_at > current) lastEventDate.set(e.user_id, e.created_at);
+  }
 
   // Features
   const [
@@ -82,42 +122,41 @@ export async function GET(req: Request) {
       .in("type", ["memory_photo", "memory_project", "memory_book"]),
   ]);
 
-  // Recent signups — last 20, with display_name + lesson/child counts
-  const { data: lessonsByUserRows } = await supabaseAdmin
-    .from("lessons")
-    .select("user_id")
-    .eq("completed", true);
+  const profileMap    = new Map(profiles?.map(p => [p.id, p]) ?? []);
+  const TEST_EMAILS   = ["test@", "example.com"];
 
-  const lessonsByUser = new Map<string, number>();
-  for (const l of lessonsByUserRows ?? []) {
-    lessonsByUser.set(l.user_id, (lessonsByUser.get(l.user_id) ?? 0) + 1);
+  // Helper — compute last active from lesson and event dates
+  function getLastActive(userId: string): string | null {
+    const ld = lastLessonDate.get(userId) ?? null;
+    const ed = lastEventDate.get(userId) ?? null;
+    if (ld && ed) return ld > ed ? ld : ed;
+    return ld ?? ed ?? null;
   }
 
-  const profileMap = new Map(profiles?.map(p => [p.id, p]) ?? []);
-  const authEmailMap = new Map(allUsers.map(u => [u.id, u.email ?? "—"]));
-
-  const TEST_EMAILS = ["test@", "example.com", ADMIN_EMAIL];
-
-  // Build signups without plan first — plan will be overridden from Stripe below
+  // Build signups — all users, newest first
   let recentSignups = allUsers
     .filter(u => !TEST_EMAILS.some(t => (u.email ?? "").includes(t)))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .map(u => {
       const profile = profileMap.get(u.id);
       return {
-        id:             u.id,
-        email:          u.email ?? "—",
-        first_name:     profile?.first_name ?? null,
-        last_name:      profile?.last_name ?? null,
-        family_name:    profile?.display_name ?? null,
-        plan:           "Free" as string,
-        children_count: childrenByUser.get(u.id) ?? 0,
-        lessons_done:   lessonsByUser.get(u.id) ?? 0,
-        joined:         u.created_at,
+        id:                  u.id,
+        email:               u.email ?? "—",
+        first_name:          profile?.first_name ?? null,
+        last_name:           profile?.last_name ?? null,
+        family_name:         profile?.display_name ?? null,
+        plan:                "Free" as string,
+        plan_type:           profile?.plan_type ?? null,
+        subscription_status: profile?.subscription_status ?? null,
+        children_count:      childrenByUser.get(u.id) ?? 0,
+        lessons_done:        lessonsByUser.get(u.id) ?? 0,
+        curricula_count:     curriculaByUser.get(u.id) ?? 0,
+        joined:              u.created_at,
+        last_active:         getLastActive(u.id),
       };
     });
 
-  // User funnel — unique user counts per table
+  // User funnel
   let funnel: {
     totalSignups: number;
     completedOnboarding: number;
@@ -155,75 +194,84 @@ export async function GET(req: Request) {
     funnel = null;
   }
 
-  // Revenue — live from Stripe, also used to tag plan on signups
-  let stripeFoundingCount = 0;
-  let stripeStandardCount = 0;
+  // Revenue — live from Stripe; also sets plan on signups
+  let stripeFoundingCount    = 0;
+  let stripeStandardCount    = 0;
   let cancelledFoundingCount = 0;
   let cancelledStandardCount = 0;
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
     const [activeSubs, cancelledSubs] = await Promise.all([
-      stripe.subscriptions.list({ status: "active", limit: 100 }),
+      stripe.subscriptions.list({ status: "active",   limit: 100 }),
       stripe.subscriptions.list({ status: "canceled", limit: 100 }),
     ]);
 
-    // Count active by price
     for (const sub of activeSubs.data) {
       const priceId = sub.items.data[0]?.price.id;
-      if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID) stripeFoundingCount++;
-      else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID) stripeStandardCount++;
+      if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID)  stripeFoundingCount++;
+      else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID)    stripeStandardCount++;
     }
-
-    // Count cancelled by price
     for (const sub of cancelledSubs.data) {
       const priceId = sub.items.data[0]?.price.id;
-      if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID) cancelledFoundingCount++;
-      else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID) cancelledStandardCount++;
+      if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID)  cancelledFoundingCount++;
+      else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID)    cancelledStandardCount++;
     }
 
-    // Build email → plan map from active Stripe customers
     const customerObjects = await Promise.all(
       activeSubs.data.map(sub => stripe.customers.retrieve(sub.customer as string))
     );
-    // Map: lowercase email → "Founding" | "Standard"
     const payingEmails = new Map<string, string>();
     for (const sub of activeSubs.data) {
       const customer = customerObjects.find(c => !c.deleted && c.id === sub.customer);
       if (!customer || customer.deleted) continue;
-      const email = (customer as Stripe.Customer).email?.toLowerCase();
+      const email   = (customer as Stripe.Customer).email?.toLowerCase();
       if (!email) continue;
       const priceId = sub.items.data[0]?.price.id;
-      const plan = priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID
-        ? "Founding"
-        : priceId === process.env.STRIPE_STANDARD_PRICE_ID
-        ? "Standard"
-        : null;
+      const plan    = priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID ? "Founding"
+        : priceId === process.env.STRIPE_STANDARD_PRICE_ID ? "Standard" : null;
       if (plan) payingEmails.set(email, plan);
     }
 
-    // Override plan on signups using Stripe as source of truth
+    // Set plan from Stripe active subs
     recentSignups = recentSignups.map(signup => ({
       ...signup,
       plan: payingEmails.get(signup.email.toLowerCase()) ?? "Free",
     }));
   } catch {
-    // Fall back to DB plan_type if Stripe is unavailable
+    // Stripe unavailable — fall back to DB plan_type
     recentSignups = recentSignups.map(signup => {
       const profile = profileMap.get(signup.id);
       const planType = profile?.plan_type ?? null;
       return {
         ...signup,
-        plan: planType === "founding_family" ? "Founding" : planType === "standard" ? "Standard" : "Free",
+        plan: planType === "founding_family" ? "Founding"
+            : planType === "standard"        ? "Standard"
+            : "Free",
       };
     });
     stripeFoundingCount = foundingFamilies;
     stripeStandardCount = standardSubs;
   }
+
+  // Override plan → "Refunded" for users with canceled/refunded status in DB
+  // (applies in both Stripe-live and fallback paths)
+  recentSignups = recentSignups.map(signup => {
+    if (signup.plan === "Founding" || signup.plan === "Standard") return signup;
+    const sub_status = signup.subscription_status;
+    const plan_type  = signup.plan_type;
+    if (
+      sub_status === "refunded" || sub_status === "canceled" ||
+      plan_type  === "refunded"
+    ) {
+      return { ...signup, plan: "Refunded" };
+    }
+    return signup;
+  });
+
   const stripeActiveTotal = stripeFoundingCount + stripeStandardCount;
-  const estAnnualRevenue = stripeFoundingCount * 39 + stripeStandardCount * 59;
+  const estAnnualRevenue  = stripeFoundingCount * 39 + stripeStandardCount * 59;
 
   return NextResponse.json({
-    // Growth (founding/standard sourced from Stripe, not DB)
     totalUsers,
     last24hSignups,
     yesterdaySignups,
@@ -231,27 +279,22 @@ export async function GET(req: Request) {
     foundingFamilies: stripeFoundingCount,
     standardSubs:     stripeStandardCount,
     freeUsers,
-    // Kids & Learning
     totalChildren,
     avgChildrenPerFamily,
-    totalLessons:    totalLessons    ?? 0,
-    lessonsToday:    lessonsToday    ?? 0,
-    totalCurricula:  totalCurricula  ?? 0,
-    // Features
+    totalLessons,
+    lessonsToday,
+    totalCurricula,
     vacationBlocks:  vacationBlocks  ?? 0,
     booksLogged:     booksLogged     ?? 0,
     memoriesCreated: memoriesCreated ?? 0,
     coTeachers,
-    // Revenue (Stripe live counts)
     estAnnualRevenue,
     stripeFoundingCount,
     stripeStandardCount,
     stripeActiveTotal,
     cancelledFoundingCount,
     cancelledStandardCount,
-    // Funnel
     funnel,
-    // Recent signups
     recentSignups,
   });
 }

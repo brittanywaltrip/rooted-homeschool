@@ -1,11 +1,17 @@
 "use client";
 
+// Manual SQL fix 2026-03-21: amannda86@yahoo.com + dward67@yahoo.com
+// updated to founding_family via Supabase SQL.
+// garfieldbrittany@gmail.com founding membership was a test/refunded —
+// update plan_type to 'refunded', subscription_status to 'refunded'.
+// Webhook handles all future paying members automatically.
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
-const ADMIN_EMAIL = "garfieldbrittany@gmail.com";
+const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"];
 
 interface AdminSummary {
   // Growth
@@ -45,7 +51,7 @@ interface AdminSummary {
     createdReflection: number;
     usedVacation: number;
   } | null;
-  // Recent signups
+  // All signups
   recentSignups: {
     id: string;
     email: string;
@@ -53,10 +59,50 @@ interface AdminSummary {
     last_name: string | null;
     family_name: string | null;
     plan: string;
+    plan_type: string | null;
+    subscription_status: string | null;
     children_count: number;
     lessons_done: number;
+    curricula_count: number;
     joined: string;
+    last_active: string | null;
   }[];
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatRelativeDate(dateStr: string | null): string {
+  if (!dateStr) return "Never";
+  const date      = new Date(dateStr);
+  const now       = new Date();
+  const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+  const yesterday  = new Date(todayStart); yesterday.setDate(todayStart.getDate() - 1);
+  const sevenAgo   = new Date(todayStart); sevenAgo.setDate(todayStart.getDate() - 7);
+
+  if (date >= todayStart) {
+    const t = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
+    return `Today ${t}`;
+  }
+  if (date >= yesterday) return "Yesterday";
+  if (date >= sevenAgo)  return date.toLocaleDateString("en-US", { weekday: "short" });
+
+  const currentYear = now.getFullYear();
+  const dateYear    = date.getFullYear();
+  const base = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return dateYear === currentYear ? base : `${base} '${String(dateYear).slice(2)}`;
+}
+
+function PlanPill({ plan }: { plan: string }) {
+  const cls =
+    plan === "Founding"  ? "bg-amber-100 text-amber-800" :
+    plan === "Standard"  ? "bg-green-100 text-green-800" :
+    plan === "Refunded"  ? "bg-red-100 text-red-600"     :
+                           "bg-[#f0ede8] text-[#7a6f65] border border-[#e8e2d9]";
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${cls}`}>
+      {plan}
+    </span>
+  );
 }
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
@@ -78,17 +124,20 @@ function SectionHeader({ emoji, title }: { emoji: string; title: string }) {
   );
 }
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function AdminPage() {
   const router = useRouter();
-  const [data, setData] = useState<AdminSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Free">("All");
-  const [refreshing, setRefreshing] = useState(false);
+  const [data,         setData]         = useState<AdminSummary | null>(null);
+  const [error,        setError]        = useState<string | null>(null);
+  const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Free" | "Refunded">("All");
+  const [refreshing,   setRefreshing]   = useState(false);
+  const [emailsCopied, setEmailsCopied] = useState(false);
 
   const loadData = async () => {
     setRefreshing(true);
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session || session.user.email !== ADMIN_EMAIL) {
+    if (!session || !ADMIN_EMAILS.includes(session.user.email ?? "")) {
       router.replace("/dashboard");
       return;
     }
@@ -107,6 +156,21 @@ export default function AdminPage() {
 
   useEffect(() => { loadData(); }, [router]);
 
+  function copyEmails() {
+    if (!data) return;
+    const filtered = filteredSignups();
+    const emails = filtered.map(u => u.email).join(", ");
+    navigator.clipboard.writeText(emails);
+    setEmailsCopied(true);
+    setTimeout(() => setEmailsCopied(false), 2000);
+  }
+
+  function filteredSignups() {
+    if (!data) return [];
+    if (signupFilter === "All") return data.recentSignups;
+    return data.recentSignups.filter(u => u.plan === signupFilter);
+  }
+
   if (error) {
     return (
       <div className="min-h-screen bg-[#3d5c42] flex items-center justify-center">
@@ -123,23 +187,33 @@ export default function AdminPage() {
     );
   }
 
+  const visible = filteredSignups();
+
+  const counts = {
+    All:      data.recentSignups.length,
+    Founding: data.recentSignups.filter(u => u.plan === "Founding").length,
+    Free:     data.recentSignups.filter(u => u.plan === "Free").length,
+    Refunded: data.recentSignups.filter(u => u.plan === "Refunded").length,
+  };
+
   return (
     <div className="min-h-screen bg-[#2d3e30]">
-      {/* Header */}
-      <div className="bg-[#3d5c42] border-b border-[#4e7055] px-6 py-6 flex items-start justify-between gap-4">
+
+      {/* ── Sticky Header ──────────────────────────────────── */}
+      <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4 flex items-center justify-between gap-4">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-[#8cba8e] mb-1">Rooted</p>
-          <h1 className="text-2xl font-bold text-[#fefcf9]" style={{ fontFamily: "Georgia, serif" }}>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-[#8cba8e] mb-0.5">Rooted</p>
+          <h1 className="text-xl font-bold text-[#fefcf9]" style={{ fontFamily: "Georgia, serif" }}>
             Founder Dashboard 🌱
           </h1>
-          <p className="text-sm text-[#a8c5a0] mt-1">
+          <p className="text-xs text-[#a8c5a0]">
             {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
           </p>
         </div>
         <button
           onClick={loadData}
           disabled={refreshing}
-          className="mt-1 flex items-center gap-2 bg-[#4e7055] hover:bg-[#5c7f63] disabled:opacity-50 text-[#fefcf9] text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors border border-[#6a9070] shrink-0"
+          className="flex items-center gap-2 bg-[#4e7055] hover:bg-[#5c7f63] disabled:opacity-50 text-[#fefcf9] text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors border border-[#6a9070] shrink-0"
         >
           <span className={refreshing ? "animate-spin" : ""}>🔄</span>
           {refreshing ? "Refreshing…" : "Refresh"}
@@ -154,9 +228,7 @@ export default function AdminPage() {
             href="/admin/resources"
             className="flex items-center gap-4 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 hover:bg-[#f0f7f1] transition-colors"
           >
-            <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0 text-lg">
-              🔗
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0 text-lg">🔗</div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-[#2d2926]">Manage Resources</p>
               <p className="text-xs text-[#7a6f65]">Edit, add, or hide resource links shown to users</p>
@@ -169,12 +241,13 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="🌱" title="Growth" />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <StatCard label="Total Families" value={data.totalUsers} />
-            <StatCard label="Last 24 Hours" value={data.last24hSignups} />
-            <StatCard label="Yesterday" value={data.yesterdaySignups} />
-            <StatCard label="Paying Subscribers" value={data.stripeActiveTotal} sub={`${data.stripeFoundingCount} founding · ${data.stripeStandardCount} standard · live from Stripe`} />
-            <StatCard label="Founding Members" value={data.foundingFamilies} />
-            <StatCard label="Free Users" value={data.freeUsers} />
+            <StatCard label="Total Families"      value={data.totalUsers} />
+            <StatCard label="Last 24 Hours"        value={data.last24hSignups} />
+            <StatCard label="Yesterday"            value={data.yesterdaySignups} />
+            <StatCard label="Paying Subscribers"   value={data.stripeActiveTotal}
+              sub={`${data.stripeFoundingCount} founding · ${data.stripeStandardCount} standard · live from Stripe`} />
+            <StatCard label="Founding Members"     value={data.foundingFamilies} />
+            <StatCard label="Free Users"           value={data.freeUsers} />
           </div>
         </section>
 
@@ -182,11 +255,11 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="👧" title="Kids & Learning" />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <StatCard label="Total Children" value={data.totalChildren} />
-            <StatCard label="Avg Children/Family" value={data.avgChildrenPerFamily} />
-            <StatCard label="Lessons Logged" value={data.totalLessons.toLocaleString()} />
-            <StatCard label="Lessons Today" value={data.lessonsToday} />
-            <StatCard label="Total Curricula" value={data.totalCurricula} />
+            <StatCard label="Total Children"       value={data.totalChildren} />
+            <StatCard label="Avg Children/Family"  value={data.avgChildrenPerFamily} />
+            <StatCard label="Lessons Logged"       value={data.totalLessons.toLocaleString()} />
+            <StatCard label="Lessons Today"        value={data.lessonsToday} />
+            <StatCard label="Total Curricula"      value={data.totalCurricula} />
           </div>
         </section>
 
@@ -194,10 +267,10 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="🌴" title="Features Used" />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Vacation Blocks" value={data.vacationBlocks} />
-            <StatCard label="Books Logged" value={data.booksLogged} />
-            <StatCard label="Memories Created" value={data.memoriesCreated} />
-            <StatCard label="Co-teachers Invited" value={data.coTeachers} />
+            <StatCard label="Vacation Blocks"      value={data.vacationBlocks} />
+            <StatCard label="Books Logged"         value={data.booksLogged} />
+            <StatCard label="Memories Created"     value={data.memoriesCreated} />
+            <StatCard label="Co-teachers Invited"  value={data.coTeachers} />
           </div>
         </section>
 
@@ -239,144 +312,119 @@ export default function AdminPage() {
           })()}
         </section>
 
-        {/* Section 5 — Recent Signups */}
+        {/* Section 5 — All Users */}
         <section>
           <SectionHeader emoji="📋" title={`All Signups (${data.recentSignups.length})`} />
 
-          {/* Filter tabs */}
-          {(() => {
-            const counts = {
-              All:      data.recentSignups.length,
-              Founding: data.recentSignups.filter(u => u.plan === "Founding").length,
-              Free:     data.recentSignups.filter(u => u.plan === "Free").length,
-            };
-            return (
-              <div className="flex gap-2 mb-4 flex-wrap">
-                {(["All", "Founding", "Free"] as const).map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setSignupFilter(tab)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
-                      signupFilter === tab
-                        ? tab === "Founding"
-                          ? "bg-amber-100 text-amber-800 border-amber-300"
-                          : "bg-[#e8f0e9] text-[#3d5c42] border-[#b8d9bc]"
-                        : "bg-[#fefcf9] text-[#7a6f65] border-[#e8e2d9] hover:border-[#b5aca4]"
-                    }`}
-                  >
-                    {tab} ({counts[tab]})
-                  </button>
-                ))}
-              </div>
-            );
-          })()}
+          {/* Filter tabs + Copy emails */}
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            {(["All", "Founding", "Free", "Refunded"] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setSignupFilter(tab)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                  signupFilter === tab
+                    ? tab === "Founding"
+                      ? "bg-amber-100 text-amber-800 border-amber-300"
+                      : tab === "Refunded"
+                      ? "bg-red-100 text-red-600 border-red-300"
+                      : "bg-[#e8f0e9] text-[#3d5c42] border-[#b8d9bc]"
+                    : "bg-[#fefcf9] text-[#7a6f65] border-[#e8e2d9] hover:border-[#b5aca4]"
+                }`}
+              >
+                {tab} ({counts[tab]})
+              </button>
+            ))}
+
+            <button
+              onClick={copyEmails}
+              className="ml-auto px-3 py-1.5 rounded-full text-xs font-semibold border bg-[#fefcf9] text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors"
+            >
+              {emailsCopied ? "✓ Copied!" : "📋 Copy emails"}
+            </button>
+          </div>
 
           {/* Mobile card list */}
           <div className="block lg:hidden max-h-[70vh] overflow-y-auto space-y-2">
-            {data.recentSignups.filter(u => signupFilter === "All" || u.plan === signupFilter).map((u) => {
-              const primaryName = (u.first_name || u.last_name)
+            {visible.map((u) => {
+              const name = (u.first_name || u.last_name)
                 ? [u.first_name, u.last_name].filter(Boolean).join(" ")
-                : null;
-              const joinedStr = new Date(u.joined).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                : u.family_name ?? null;
               return (
                 <div
                   key={u.id}
                   className={`bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-4 ${
-                    u.plan === "Founding" ? "border-l-4 border-l-amber-400" : u.plan === "Standard" ? "border-l-4 border-l-green-500" : ""
+                    u.plan === "Founding" ? "border-l-4 border-l-amber-400" :
+                    u.plan === "Standard" ? "border-l-4 border-l-green-500" :
+                    u.plan === "Refunded" ? "border-l-4 border-l-red-400"  : ""
                   }`}
                 >
-                  {/* Row 1: name + badge */}
                   <div className="flex items-center justify-between gap-2">
-                    <p className="font-semibold text-[#2d2926] text-sm truncate">
-                      {primaryName ?? u.email}
-                    </p>
-                    <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                      u.plan === "Founding"
-                        ? "bg-amber-100 text-amber-800"
-                        : u.plan === "Standard"
-                        ? "bg-green-100 text-green-800"
-                        : "bg-[#f0ede8] text-[#7a6f65]"
-                    }`}>
-                      {u.plan}
-                    </span>
+                    <p className="font-semibold text-[#2d2926] text-sm truncate">{name ?? u.email}</p>
+                    <PlanPill plan={u.plan} />
                   </div>
-                  {/* Row 2: email (only if we showed name above) */}
-                  {primaryName && (
-                    <p className="text-xs text-[#7a6f65] mt-1 truncate">{u.email}</p>
-                  )}
-                  {/* Row 3: family name · kids · lessons · joined */}
+                  {name && <p className="text-xs text-[#7a6f65] mt-1 truncate">{u.email}</p>}
                   <p className="text-[11px] text-[#b5aca4] mt-1.5 leading-snug">
                     {[
-                      u.family_name,
                       `${u.children_count} kid${u.children_count !== 1 ? "s" : ""}`,
-                      `${u.lessons_done} lesson${u.lessons_done !== 1 ? "s" : ""}`,
-                      joinedStr,
-                    ].filter(Boolean).join(" · ")}
+                      `${u.curricula_count} curricula`,
+                      `${u.lessons_done} lessons`,
+                      `Joined ${formatRelativeDate(u.joined)}`,
+                      u.last_active ? `Active ${formatRelativeDate(u.last_active)}` : "Never active",
+                    ].join(" · ")}
                   </p>
                 </div>
               );
             })}
           </div>
 
-          {/* Desktop table */}
+          {/* Desktop table — column order: NAME | EMAIL | JOINED | LAST ACTIVE | PLAN | KIDS | CURRICULA | LESSONS */}
           <div className="hidden lg:block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
             <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-[#e8e2d9] bg-[#f8f5f0]">
-                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">First Name</th>
-                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Last Name</th>
-                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Family Name</th>
+                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Name</th>
                     <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Email</th>
+                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Joined</th>
+                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Last Active</th>
                     <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Plan</th>
                     <th className="text-right px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Kids</th>
+                    <th className="text-right px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Curricula</th>
                     <th className="text-right px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Lessons</th>
-                    <th className="text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Joined</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#f0ede8]">
-                  {data.recentSignups.filter(u => signupFilter === "All" || u.plan === signupFilter).map((u) => (
-                    <tr
-                      key={u.id}
-                      className={`hover:brightness-95 transition-colors ${
-                        u.plan === "Founding" ? "bg-amber-50" : ""
-                      }`}
-                    >
-                      <td className="px-4 py-3 text-[#2d2926]">
-                        {u.first_name ?? <span className="text-[#c8bfb5] italic">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-[#2d2926]">
-                        {u.last_name ?? <span className="text-[#c8bfb5] italic">—</span>}
-                      </td>
-                      <td className="px-4 py-3 font-medium text-[#2d2926]">
-                        {u.family_name ?? <span className="text-[#c8bfb5] italic">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-[#7a6f65] text-xs">{u.email}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                          u.plan === "Founding"
-                            ? "bg-amber-100 text-amber-800"
-                            : u.plan === "Standard"
-                            ? "bg-green-100 text-green-800"
-                            : "bg-[#f0ede8] text-[#7a6f65] border border-[#e8e2d9]"
-                        }`}>
-                          {u.plan}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-[#2d2926]">{u.children_count}</td>
-                      <td className="px-4 py-3 text-right text-[#2d2926]">{u.lessons_done}</td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65]">
-                        {new Date(u.joined).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      </td>
-                    </tr>
-                  ))}
+                  {visible.map((u) => {
+                    const name = (u.first_name || u.last_name)
+                      ? [u.first_name, u.last_name].filter(Boolean).join(" ")
+                      : u.family_name ?? "—";
+                    return (
+                      <tr
+                        key={u.id}
+                        className={`hover:brightness-95 transition-colors ${
+                          u.plan === "Founding" ? "bg-amber-50" :
+                          u.plan === "Refunded" ? "bg-red-50"   : ""
+                        }`}
+                      >
+                        <td className="px-4 py-3 font-medium text-[#2d2926] max-w-[140px] truncate">{name}</td>
+                        <td className="px-4 py-3 text-[#7a6f65] text-xs max-w-[180px] truncate">{u.email}</td>
+                        <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{formatRelativeDate(u.joined)}</td>
+                        <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{formatRelativeDate(u.last_active)}</td>
+                        <td className="px-4 py-3"><PlanPill plan={u.plan} /></td>
+                        <td className="px-4 py-3 text-right text-[#2d2926]">{u.children_count}</td>
+                        <td className="px-4 py-3 text-right text-[#2d2926]">{u.curricula_count}</td>
+                        <td className="px-4 py-3 text-right text-[#2d2926]">{u.lessons_done}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
         </section>
 
-        {/* Section 5 — Revenue */}
+        {/* Section 6 — Revenue */}
         <section>
           <SectionHeader emoji="💰" title="Revenue" />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
