@@ -137,6 +137,18 @@ function SkipLink({ onClick }: { onClick: () => void }) {
   );
 }
 
+function BackBtn({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="self-start mb-2 text-sm text-[#7a6f65] hover:text-[#2d2926] transition-colors flex items-center gap-1"
+    >
+      ← Back
+    </button>
+  );
+}
+
 // ─── Progress dots ────────────────────────────────────────────────────────────
 
 function ProgressDots({ step }: { step: number }) {
@@ -277,14 +289,16 @@ function StepWelcome({ firstName, onNext }: { firstName: string; onNext: () => v
 // ─── Step 2 — Family Name ─────────────────────────────────────────────────────
 
 function StepFamilyName({
-  value, onChange, onNext,
+  value, onChange, onNext, onBack,
 }: {
   value: string;
   onChange: (s: string) => void;
   onNext: () => void;
+  onBack: () => void;
 }) {
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
+      <BackBtn onClick={onBack} />
       <ProgressDots step={2} />
       <Card>
         <StepHeading
@@ -310,15 +324,17 @@ function StepFamilyName({
 // ─── Step 3 — State ───────────────────────────────────────────────────────────
 
 function StepState({
-  value, onChange, onNext, onSkip,
+  value, onChange, onNext, onSkip, onBack,
 }: {
   value: string;
   onChange: (s: string) => void;
   onNext: () => void;
   onSkip: () => void;
+  onBack: () => void;
 }) {
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
+      <BackBtn onClick={onBack} />
       <ProgressDots step={3} />
       <Card>
         <StepHeading
@@ -414,13 +430,14 @@ function ChildRow({
 }
 
 function StepChildren({
-  children, onChange, onAdd, onRemove, onNext,
+  children, onChange, onAdd, onRemove, onNext, onBack,
 }: {
   children: ChildDraft[];
   onChange: (uid: number, patch: Partial<ChildDraft>) => void;
   onAdd: () => void;
   onRemove: (uid: number) => void;
   onNext: () => void;
+  onBack: () => void;
 }) {
   const [showError, setShowError] = useState(false);
   const hasValid = children.some((c) => c.name.trim().length > 0);
@@ -432,6 +449,7 @@ function StepChildren({
 
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
+      <BackBtn onClick={onBack} />
       <ProgressDots step={4} />
       <Card>
         <StepHeading
@@ -477,13 +495,14 @@ function StepChildren({
 // ─── Step 5 — Curriculum ──────────────────────────────────────────────────────
 
 function StepCurriculum({
-  children, draft, onChange, onBuild, onSkip,
+  children, draft, onChange, onBuild, onSkip, onBack,
 }: {
   children: ChildDraft[];
   draft: CurriculumDraft;
   onChange: (patch: Partial<CurriculumDraft>) => void;
   onBuild: () => void;
   onSkip: () => void;
+  onBack: () => void;
 }) {
   const canBuild = draft.curricName.trim().length > 0 && draft.subjects.length > 0 && draft.totalLessons > 0;
   const validChildren = children.filter((c) => c.name.trim());
@@ -501,6 +520,7 @@ function StepCurriculum({
 
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-start px-5 py-12 overflow-y-auto">
+      <BackBtn onClick={onBack} />
       <ProgressDots step={5} />
       <Card className="mb-8">
         <StepHeading
@@ -628,11 +648,12 @@ function StepCurriculum({
 // ─── Step 6 — Schedule Preview ────────────────────────────────────────────────
 
 function StepSchedulePreview({
-  schedule, childColor, onNext,
+  schedule, childColor, onNext, onBack,
 }: {
   schedule: ScheduleRow[];
   childColor: string;
   onNext: () => void;
+  onBack: () => void;
 }) {
   const preview = schedule.slice(0, 7);
 
@@ -647,6 +668,7 @@ function StepSchedulePreview({
       style={{ background: "linear-gradient(155deg, #faf8f4 0%, #f0f7f0 50%, #e8f2e8 100%)" }}
     >
       <Confetti />
+      <BackBtn onClick={onBack} />
       <ProgressDots step={6} />
 
       <div className="relative z-10 w-full max-w-md mx-auto">
@@ -950,12 +972,14 @@ export default function OnboardingPage() {
     <StepFamilyName
       value={familyDisplayName} onChange={setFamilyDisplayName}
       onNext={() => setStep(3)}
+      onBack={() => setStep(1)}
     />
   );
   if (step === 3) return (
     <StepState
       value={selectedState} onChange={setSelectedState}
       onNext={() => setStep(4)} onSkip={() => setStep(4)}
+      onBack={() => setStep(2)}
     />
   );
   if (step === 4) return (
@@ -965,6 +989,7 @@ export default function OnboardingPage() {
       onAdd={() => setChildren((p) => [...p, mkChild()])}
       onRemove={removeChild}
       onNext={() => setStep(5)}
+      onBack={() => setStep(3)}
     />
   );
   if (step === 5) return (
@@ -974,6 +999,7 @@ export default function OnboardingPage() {
       onChange={(patch) => setCurricDraft((prev) => ({ ...prev, ...patch }))}
       onBuild={handleBuildSchedule}
       onSkip={() => setStep(7)}
+      onBack={() => setStep(4)}
     />
   );
   if (step === 6) {
@@ -983,6 +1009,7 @@ export default function OnboardingPage() {
         schedule={schedule}
         childColor={childObj?.color ?? "#5c7f63"}
         onNext={() => setStep(7)}
+        onBack={() => setStep(5)}
       />
     );
   }
