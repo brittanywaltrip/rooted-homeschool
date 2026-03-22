@@ -736,9 +736,11 @@ function StepCurriculum({
       ? startingLesson - 1
       : 0;
     const buildDraft = { ...draft, lessonsDone };
-    onChange({ lessonsDone });
     const rows = generateSchedule(buildDraft);
-    onBuildChild(curricChildUid, buildDraft, rows);
+    const finishDate = rows[rows.length - 1]?.date ?? "";
+    const finalDraft = { ...buildDraft, finishDate };
+    onChange({ lessonsDone, finishDate });
+    onBuildChild(curricChildUid, finalDraft, rows);
     const newDone   = new Set([...completedChildUids, curricChildUid]);
     const exclude   = new Set([...newDone, ...skippedChildUids]);
     const remaining = validChildren.filter((c) => !exclude.has(c.uid));
@@ -986,7 +988,7 @@ function StepCurriculum({
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-[#2d2926] leading-tight">{c.name}</p>
-                      <p className="text-xs text-[#9e958d] mt-0.5">{c.subject} · {c.lessons} lessons</p>
+                      <p className="text-xs text-[#9e958d] mt-0.5">{c.subject} · ~{c.lessons} lessons</p>
                     </div>
                     {isSelected && <Check size={16} className="text-[#5c7f63] shrink-0" strokeWidth={2.5} />}
                   </button>
@@ -1111,6 +1113,9 @@ function StepCurriculum({
                 ? `Build ${currentChild?.name ?? "their"}'s schedule →`
                 : "Select a curriculum above"}
             />
+            <p className="text-xs text-[#7a6f65] italic text-center mt-1.5">
+              Not sure about the count? Just tap Build — you can adjust lessons and pace in Plan anytime.
+            </p>
 
             {/* Add my own link — hint appears after 15s */}
             <div className="mt-4 text-center">
@@ -1255,6 +1260,9 @@ function StepCurriculum({
                 ? `Build ${currentChild?.name ?? "their"}'s schedule →`
                 : "Fill in the fields above"}
             />
+            <p className="text-xs text-[#7a6f65] italic text-center mt-1.5">
+              Not sure about the count? Just tap Build — you can adjust lessons and pace in Plan anytime.
+            </p>
 
             <SkipFooter />
           </div>
@@ -1532,7 +1540,7 @@ export default function OnboardingPage() {
       const ln = user.user_metadata?.last_name ?? "";
       setFirstName(fn);
       setLastName(ln);
-      setFamilyDisplayName(profile?.display_name ?? (ln ? `The ${ln} Family` : ""));
+      setFamilyDisplayName(profile?.display_name ?? (ln ? `The ${ln.charAt(0).toUpperCase() + ln.slice(1).toLowerCase()} Family` : ""));
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setUserId(user.id);
       setReady(true);
@@ -1666,10 +1674,11 @@ export default function OnboardingPage() {
           child_id:        childId,
           curriculum_name: cs.draft.curricName.trim(),
           subject_label:   cs.draft.subjects[0] ?? null,
-          total_lessons:   cs.draft.totalLessons,
-          current_lesson:  cs.draft.lessonsDone ?? 0,
-          target_date:     cs.draft.finishDate || null,
-          school_days:     schoolDayNames,
+          total_lessons:    cs.draft.totalLessons,
+          current_lesson:   cs.draft.lessonsDone ?? 0,
+          target_date:      cs.draft.finishDate || null,
+          finish_line_date: cs.draft.finishDate || null,
+          school_days:      schoolDayNames,
         })
         .select("id")
         .single();

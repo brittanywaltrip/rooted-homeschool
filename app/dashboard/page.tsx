@@ -89,10 +89,21 @@ function formatDateHero(date: Date) {
 }
 
 function getGreeting() {
-  const h = new Date().getHours();
+  const now = new Date();
+  const h   = now.getHours();
+  const dow = now.getDay(); // 0=Sun, 6=Sat
+  if (dow === 0 || dow === 6) return "Happy weekend";
   if (h < 12) return "Good morning";
   if (h < 17) return "Good afternoon";
   return "Good evening";
+}
+
+function getDaySubtitle(): string | null {
+  const dow = new Date().getDay();
+  if (dow === 1) return "Ready for the week? 🌱";
+  if (dow === 3) return "Halfway there 💪";
+  if (dow === 5) return "Happy Friday! 🎉";
+  return null;
 }
 
 function toTitleCase(name: string) {
@@ -345,6 +356,7 @@ export default function TodayPage() {
   const [showLogModal,           setShowLogModal]           = useState(false);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
+  const [upcomingDay,            setUpcomingDay]            = useState<{ date: string; titles: string[] } | null>(null);
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
@@ -427,6 +439,29 @@ export default function TodayPage() {
       (b: { start_date: string; end_date: string; name: string }) => today >= b.start_date && today <= b.end_date
     );
     setActiveVacation(currentVac ? { name: currentVac.name, end_date: currentVac.end_date } : null);
+
+    // Upcoming lessons — first school day after today with scheduled lessons
+    const nextDates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(); d.setDate(d.getDate() + i + 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    });
+    const { data: upcomingData } = await supabase
+      .from("lessons")
+      .select("title, scheduled_date, date")
+      .eq("user_id", effectiveUserId)
+      .eq("completed", false)
+      .gte("scheduled_date", nextDates[0])
+      .lte("scheduled_date", nextDates[6])
+      .order("scheduled_date");
+    if (upcomingData && upcomingData.length > 0) {
+      const firstDate = (upcomingData as { title: string; scheduled_date: string | null; date: string | null }[])[0].scheduled_date ?? "";
+      const titles = (upcomingData as { title: string; scheduled_date: string | null; date: string | null }[])
+        .filter((l) => l.scheduled_date === firstDate)
+        .map((l) => l.title);
+      setUpcomingDay({ date: firstDate, titles });
+    } else {
+      setUpcomingDay(null);
+    }
 
     setLoading(false);
   }, [today, effectiveUserId]);
@@ -621,6 +656,9 @@ export default function TodayPage() {
   const totalToday     = lessons.length;
   const progressPct    = totalToday > 0 ? Math.round((completedToday / totalToday) * 100) : 0;
   const allDone        = totalToday > 0 && completedToday === totalToday;
+  const isWeekend      = [0, 6].includes(new Date().getDay());
+  const pendingLessons = totalToday > 0 && !allDone;
+  const showUpcoming   = !activeVacation && subjects.length > 0 && !pendingLessons && !!upcomingDay;
 
   if (loading) {
     return (
@@ -639,6 +677,7 @@ export default function TodayPage() {
       <PageHero
         overline={formatDateHero(new Date())}
         title={`${getGreeting()}${familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 🌿`}
+        subtitle={getDaySubtitle() ?? undefined}
       >
         {totalToday > 0 && (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
@@ -907,6 +946,26 @@ export default function TodayPage() {
         </div>
       )}
 
+
+      {/* ── Coming Up ──────────────────────────────────────── */}
+      {showUpcoming && upcomingDay && (
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4] mb-2">
+            Coming Up · {new Date(upcomingDay.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" })}
+          </p>
+          <ul className="space-y-1">
+            {upcomingDay.titles.slice(0, 4).map((t, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#c8ddb8] shrink-0" />
+                <span className="text-sm text-[#5c5248] truncate">{t}</span>
+              </li>
+            ))}
+            {upcomingDay.titles.length > 4 && (
+              <li className="text-xs text-[#b5aca4] pl-3.5">+{upcomingDay.titles.length - 4} more</li>
+            )}
+          </ul>
+        </div>
+      )}
 
       {/* ── Daily Quote ───────────────────────────────────── */}
       <div className="bg-[#f5f2ec] rounded-xl px-4 py-3">
