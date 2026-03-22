@@ -8,44 +8,44 @@ export default function UpgradePage() {
   const router = useRouter()
   const [loadingPlan, setLoadingPlan] = useState<'founding' | 'standard' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [isPro, setIsPro] = useState(false)
+  const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
   const [foundingCount, setFoundingCount] = useState<number | null>(null)
 
   useEffect(() => {
     async function loadUserProfile() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-      const { data } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('is_pro, plan_type')
-        .eq('id', session.user.id)
+        .eq('id', user.id)
         .single()
 
-      if (data) {
-        setIsPro(data.is_pro ?? false)
-        setPlanType(data.plan_type ?? null)
+      if (
+        profile?.is_pro ||
+        profile?.plan_type === 'founding_family' ||
+        profile?.plan_type === 'standard'
+      ) {
+        setIsPaying(true)
+        setPlanType(profile.plan_type ?? null)
       }
     }
 
     async function loadFoundingCount() {
-      const { count } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .eq('plan_type', 'founding_family')
-        .eq('subscription_status', 'active')
-
-      if (count !== null) {
-        setFoundingCount(count)
+      try {
+        const res = await fetch('/api/founding-count')
+        const { count } = await res.json()
+        if (typeof count === 'number') setFoundingCount(count)
+      } catch {
+        // silently skip — not critical
       }
     }
 
     loadUserProfile()
     loadFoundingCount()
   }, [])
-
-  const isPaying = isPro || planType === 'founding_family' || planType === 'standard'
 
   async function handleClick(plan: 'founding' | 'standard') {
     setError(null)
