@@ -11,6 +11,7 @@ export async function GET() {
     .from('profiles')
     .select('*', { count: 'exact', head: true })
     .eq('plan_type', 'founding_family')
+    .eq('subscription_status', 'active')
 
   if (error || count === null) {
     return NextResponse.json({ error: 'unavailable' }, { status: 500 })
