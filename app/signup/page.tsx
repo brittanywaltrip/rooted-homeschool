@@ -24,8 +24,8 @@ export default function SignupPage() {
       password,
       options: {
         data: {
-          first_name: firstName.trim() || null,
-          last_name: lastName.trim() || null,
+          first_name: firstName.trim() ? firstName.trim().charAt(0).toUpperCase() + firstName.trim().slice(1).toLowerCase() : null,
+          last_name:  lastName.trim()  ? lastName.trim().charAt(0).toUpperCase()  + lastName.trim().slice(1).toLowerCase()  : null,
         },
       },
     });
