@@ -1291,7 +1291,7 @@ function StepTodayPreview({
             <button
               type="button"
               onClick={() => window.open("/upgrade", "_blank")}
-              className="w-full py-4 rounded-2xl bg-[#c4956a] hover:bg-[#a87a53] text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98] mb-3"
+              className="w-full py-4 rounded-2xl bg-[#3d5c42] hover:bg-[#2d4a30] text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98] mb-3"
             >
               Join as a Founding Family — $39/yr →
             </button>
