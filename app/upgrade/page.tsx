@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
@@ -8,6 +8,44 @@ export default function UpgradePage() {
   const router = useRouter()
   const [loadingPlan, setLoadingPlan] = useState<'founding' | 'standard' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isPro, setIsPro] = useState(false)
+  const [planType, setPlanType] = useState<string | null>(null)
+  const [foundingCount, setFoundingCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    async function loadUserProfile() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('is_pro, plan_type')
+        .eq('id', session.user.id)
+        .single()
+
+      if (data) {
+        setIsPro(data.is_pro ?? false)
+        setPlanType(data.plan_type ?? null)
+      }
+    }
+
+    async function loadFoundingCount() {
+      const { count } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true })
+        .eq('plan_type', 'founding_family')
+        .eq('subscription_status', 'active')
+
+      if (count !== null) {
+        setFoundingCount(count)
+      }
+    }
+
+    loadUserProfile()
+    loadFoundingCount()
+  }, [])
+
+  const isPaying = isPro || planType === 'founding_family' || planType === 'standard'
 
   async function handleClick(plan: 'founding' | 'standard') {
     setError(null)
@@ -64,9 +102,11 @@ export default function UpgradePage() {
             You&apos;re not just getting an app — you&apos;re supporting a homeschool mom building something
             for all of us. Founding members get the best price, forever.
           </p>
-          <p className="text-sm text-[#5c7f63] font-semibold mt-3">
-            🌱 3 families are already Founding Members — spots are limited to 200
-          </p>
+          {foundingCount !== null && (
+            <p className="text-sm text-[#5c7f63] font-semibold mt-3">
+              🌱 {foundingCount} {foundingCount === 1 ? 'family is' : 'families are'} already Founding Members — spots are limited to 200
+            </p>
+          )}
         </div>
 
         {/* Error banner */}
@@ -84,9 +124,11 @@ export default function UpgradePage() {
             <div className="mb-5">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-base font-bold text-[#2d2926]">Free</span>
-                <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full uppercase tracking-wide">
-                  Current plan
-                </span>
+                {!isPaying && (
+                  <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full uppercase tracking-wide">
+                    Current plan
+                  </span>
+                )}
               </div>
               <div className="flex items-baseline gap-1 my-3">
                 <span className="text-3xl font-bold text-[#2d2926]">$0</span>
@@ -119,7 +161,14 @@ export default function UpgradePage() {
             </div>
 
             <div className="mb-5 mt-1">
-              <p className="text-base font-bold text-[#2d2926] mb-1">Founding Family</p>
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-base font-bold text-[#2d2926]">Founding Family</p>
+                {planType === 'founding_family' && (
+                  <span className="text-[10px] font-semibold bg-[#5c7f63] text-white px-2 py-0.5 rounded-full uppercase tracking-wide">
+                    ✓ Your Plan
+                  </span>
+                )}
+              </div>
               <div className="flex items-baseline gap-1 my-3">
                 <span className="text-3xl font-bold text-[#2d2926]">$39</span>
                 <span className="text-sm text-[#5c7f63] font-semibold">/yr · locked forever</span>
@@ -147,21 +196,37 @@ export default function UpgradePage() {
               ))}
             </ul>
 
-            <button
-              onClick={() => handleClick('founding')}
-              disabled={loadingPlan !== null}
-              className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm"
-            >
-              {loadingPlan === 'founding'
-                ? 'Redirecting to checkout…'
-                : 'Become a Founding Member → $39/yr'}
-            </button>
+            {isPaying ? (
+              <Link
+                href="/dashboard"
+                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm text-center block"
+              >
+                ✓ You&apos;re already a member — Go to app →
+              </Link>
+            ) : (
+              <button
+                onClick={() => handleClick('founding')}
+                disabled={loadingPlan !== null}
+                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm"
+              >
+                {loadingPlan === 'founding'
+                  ? 'Redirecting to checkout…'
+                  : 'Become a Founding Member → $39/yr'}
+              </button>
+            )}
           </div>
 
           {/* Standard */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 flex flex-col">
             <div className="mb-5">
-              <p className="text-base font-bold text-[#2d2926] mb-1">Standard</p>
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-base font-bold text-[#2d2926]">Standard</p>
+                {planType === 'standard' && (
+                  <span className="text-[10px] font-semibold bg-[#5c7f63] text-white px-2 py-0.5 rounded-full uppercase tracking-wide">
+                    ✓ Your Plan
+                  </span>
+                )}
+              </div>
               <div className="flex items-baseline gap-1 my-3">
                 <span className="text-3xl font-bold text-[#2d2926]">$59</span>
                 <span className="text-sm text-[#b5aca4]">/yr</span>
@@ -182,15 +247,24 @@ export default function UpgradePage() {
                 </li>
               ))}
             </ul>
-            <button
-              onClick={() => handleClick('standard')}
-              disabled={loadingPlan !== null}
-              className="w-full bg-[#2d2926] hover:bg-[#1a1714] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm"
-            >
-              {loadingPlan === 'standard'
-                ? 'Redirecting to checkout…'
-                : 'Subscribe — $59/yr →'}
-            </button>
+            {isPaying ? (
+              <Link
+                href="/dashboard"
+                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-3 rounded-xl transition-colors text-sm text-center block"
+              >
+                ✓ You&apos;re already a member — Go to app →
+              </Link>
+            ) : (
+              <button
+                onClick={() => handleClick('standard')}
+                disabled={loadingPlan !== null}
+                className="w-full bg-[#2d2926] hover:bg-[#1a1714] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm"
+              >
+                {loadingPlan === 'standard'
+                  ? 'Redirecting to checkout…'
+                  : 'Subscribe — $59/yr →'}
+              </button>
+            )}
           </div>
 
         </div>
