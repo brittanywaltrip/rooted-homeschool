@@ -1329,7 +1329,7 @@ function StepTodayPreview({
           <h2 className="text-3xl font-bold text-[#2d2926] leading-snug mb-2" style={{ fontFamily: "Georgia, serif" }}>
             {heading}
           </h2>
-          <p className="text-sm text-[#7a6f65]">Your homeschool is ready to grow.</p>
+          <p className="text-sm text-[#7a6f65]">Your first lesson is scheduled. Let&apos;s grow! 🌱</p>
         </div>
 
         <div className="bg-[#fefcf9] rounded-3xl border border-[#e8e2d9] overflow-hidden mb-4 shadow-lg">
@@ -1338,7 +1338,7 @@ function StepTodayPreview({
               {previewDateStr}
             </p>
             <p className="text-base font-semibold text-[#2d2926]">
-              Good morning{displayName ? `, ${displayName}` : ""}! 🌤️
+              Good morning{displayName ? `, ${displayName.replace(/^The\s+/i, "").trim() || displayName}` : ""}! 🌤️
             </p>
           </div>
           {previewItems.length > 0 ? (
