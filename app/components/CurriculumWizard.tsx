@@ -657,7 +657,7 @@ export default function CurriculumWizard({
             </div>
 
             {/* Smart live preview (create mode) */}
-            {step3Valid && remaining > 0 && mode === "create" && (
+            {step3Valid && remaining > 0 && (
               <div className="space-y-2">
                 {finishDate && (
                   <div className="bg-[#f2f9f3] border border-[#c8ddb8] rounded-2xl px-4 py-3 text-center">

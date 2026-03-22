@@ -990,7 +990,7 @@ export default function PlanPage() {
       )}
 
       {/* ── Empty State ──────────────────────────────────────── */}
-      {!loading && !isPartner && totalWeek === 0 && (
+      {!loading && !isPartner && totalWeek === 0 && curricGroups.length === 0 && (
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-7 text-center space-y-4">
           <div className="text-4xl">📅</div>
           <div>
