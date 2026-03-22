@@ -39,6 +39,7 @@ type Child = { id: string; name: string; color: string | null };
 const MEMORY_TYPES = [
   { id: "all",        label: "All",         emoji: "✨" },
   { id: "photo",      label: "Photos",      emoji: "📷" },
+  { id: "field_trip", label: "Field Trips", emoji: "🗺️"  },
   { id: "project",    label: "Projects",    emoji: "📁" },
   { id: "book",       label: "Books",       emoji: "📖" },
   { id: "reflection", label: "Reflections", emoji: "📝" },
@@ -95,7 +96,7 @@ export default function MemoriesPage() {
         .from("app_events")
         .select("id, type, payload, created_at")
         .eq("user_id", effectiveUserId)
-        .in("type", ["memory_photo", "memory_project", "memory_book"])
+        .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"])
         .order("created_at", { ascending: false }),
       supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
       supabase
@@ -432,17 +433,19 @@ export default function MemoriesPage() {
               <div>
                 {activeType === "all" && gridPhotos.length > 0 && (
                   <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-                    Projects &amp; Books
+                    Memories
                   </p>
                 )}
                 <div className="space-y-2.5">
                   {listItems.map((m) => {
-                    const isPhoto   = m.type === "memory_photo";
-                    const isProject = m.type === "memory_project";
-                    const isBook    = m.type === "memory_book";
-                    const emoji = isPhoto ? "📷" : isProject ? "📁" : "📖";
-                    const bg    = isPhoto ? "#f0f4ff" : isProject ? "#f5ede0" : "#e8f0e9";
-                    const label = isPhoto ? "Photo" : isProject ? "Project" : "Book";
+                    const isPhoto     = m.type === "memory_photo";
+                    const isProject   = m.type === "memory_project";
+                    const isBook      = m.type === "memory_book";
+                    const isFieldTrip = m.type === "memory_field_trip";
+                    const isActivity  = m.type === "memory_activity";
+                    const emoji = isPhoto ? "📷" : isProject ? "📁" : isBook ? "📖" : isFieldTrip ? "🗺️" : "🎵";
+                    const bg    = isPhoto ? "#f0f4ff" : isProject ? "#f5ede0" : isBook ? "#e8f0e9" : isFieldTrip ? "#fff8e8" : "#f0e8f5";
+                    const label = isPhoto ? "Photo" : isProject ? "Project" : isBook ? "Book" : isFieldTrip ? "Field Trip" : "Activity";
                     const p = m.payload;
                     return (
                       <div

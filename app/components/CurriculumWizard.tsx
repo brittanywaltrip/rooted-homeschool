@@ -490,7 +490,7 @@ export default function CurriculumWizard({
                     Head to Settings to add your children first, then come back to set up your curriculum.
                   </p>
                 </div>
-                <Link href="/dashboard/settings" onClick={onClose}
+                <Link href="/dashboard/settings?section=children" onClick={onClose}
                   className="inline-block px-5 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors">
                   Go to Settings →
                 </Link>

@@ -392,6 +392,7 @@ export default function TodayPage() {
   const [savingActivityEdit,    setSavingActivityEdit]    = useState(false);
 
   const [showLogModal,           setShowLogModal]           = useState(false);
+  const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
@@ -672,6 +673,9 @@ export default function TodayPage() {
       setTimeout(() => setCelebrating(false), 1600);
       if (childId) setLeafCounts((prev) => ({ ...prev, [childId]: (prev[childId] ?? 0) + 1 }));
       triggerGardenAnimation(childId);
+    } else if (type === "field_trip" || type === "activity") {
+      setSavedMemoryToast(true);
+      setTimeout(() => setSavedMemoryToast(false), 2500);
     }
     loadData();
   }
@@ -1259,6 +1263,15 @@ export default function TodayPage() {
           onClose={() => setShowLogModal(false)}
           onSaved={handleLogSaved}
         />
+      )}
+
+      {/* ── Saved to Memories toast ──────────────────────── */}
+      {savedMemoryToast && (
+        <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[70] pointer-events-none toast-slide-up">
+          <div className="bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">
+            Saved to Memories 🌱
+          </div>
+        </div>
       )}
 
       {/* ── Garden growth toast ───────────────────────────── */}

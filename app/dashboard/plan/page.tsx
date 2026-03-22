@@ -546,8 +546,8 @@ export default function PlanPage() {
 
   // ── Week navigation ───────────────────────────────────────────────────────
 
-  function prevWeek() { setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; }); }
-  function nextWeek() { setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; }); }
+  function prevWeek() { setWeekStart((d) => getMondayOf(new Date(d.getTime() - 7 * 24 * 60 * 60 * 1000))); }
+  function nextWeek() { setWeekStart((d) => getMondayOf(new Date(d.getTime() + 7 * 24 * 60 * 60 * 1000))); }
   function goToToday() { setWeekStart(getMondayOf(new Date())); }
 
   // ── Month navigation ──────────────────────────────────────────────────────
@@ -1155,7 +1155,16 @@ export default function PlanPage() {
           {/* Mobile: 3-day view */}
           <div className="lg:hidden">
             <div className="flex items-center justify-between mb-3">
-              <button onClick={() => setMobileOffset((v) => Math.max(0, v - 1))} disabled={!canMobileLeft}
+              <button
+                onClick={() => {
+                  if (canMobileLeft) {
+                    setMobileOffset((v) => Math.max(0, v - 1));
+                  } else if (!isCurrentWeek) {
+                    prevWeek();
+                    setMobileOffset(4);
+                  }
+                }}
+                disabled={!canMobileLeft && isCurrentWeek}
                 className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-25 transition-all">
                 <ChevronLeft size={18} />
               </button>
