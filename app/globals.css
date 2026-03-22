@@ -179,6 +179,31 @@ input:-webkit-autofill:focus {
   user-select: none;
 }
 
+/* ─── Particle burst (Tier 1 celebration) ────────────────────────────────────── */
+
+@keyframes particle-burst {
+  0%   { transform: translate(0, 0) scale(1);              opacity: 1; }
+  100% { transform: translate(var(--px), var(--py)) scale(0); opacity: 0; }
+}
+.particle-burst {
+  animation: particle-burst 0.45s ease-out forwards;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ─── Child done toast (Tier 2 celebration) ──────────────────────────────────── */
+
+@keyframes child-toast-slide-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes child-toast-slide-out {
+  from { opacity: 1; transform: translateX(-50%) translateY(0); }
+  to   { opacity: 0; transform: translateX(-50%) translateY(16px); }
+}
+.child-toast-in  { animation: child-toast-slide-in  0.28s ease-out forwards; }
+.child-toast-out { animation: child-toast-slide-out 0.28s ease-in  forwards; }
+
 /* ─── Toast notification ─────────────────────────────────────────────────────── */
 
 @keyframes toast-slide-up {

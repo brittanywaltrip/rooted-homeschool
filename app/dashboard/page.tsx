@@ -153,6 +153,8 @@ function FloatingLeaves({ active }: { active: boolean }) {
 
 // ─── Today Lesson Card ────────────────────────────────────────────────────────
 
+type Particle = { id: number; x: number; y: number; color: string; delay: number };
+
 function TodayLessonCard({
   lesson, childObj, onToggle, onEdit, onDelete, isPartner,
 }: {
@@ -165,6 +167,7 @@ function TodayLessonCard({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showLeaf, setShowLeaf] = useState(false);
+  const [particles, setParticles] = useState<Particle[]>([]);
   const prevCompleted = useRef(lesson.completed);
 
   useEffect(() => {
@@ -172,7 +175,24 @@ function TodayLessonCard({
       setShowLeaf(true);
       const t = setTimeout(() => setShowLeaf(false), 1300);
       prevCompleted.current = true;
-      return () => clearTimeout(t);
+
+      // Tier 1: particle burst from checkbox
+      const colors = ['#5c7f63', '#7a9e7e', '#a8d4aa', '#f0d090', '#d4b896'];
+      const newParticles: Particle[] = Array.from({ length: 10 }, (_, i) => {
+        const angle = (i * 36 + Math.random() * 20 - 10) * (Math.PI / 180);
+        const dist  = 60 + Math.random() * 20;
+        return {
+          id:    i,
+          x:     Math.cos(angle) * dist,
+          y:     Math.sin(angle) * dist,
+          color: colors[i % colors.length],
+          delay: Math.round(Math.random() * 40),
+        };
+      });
+      setParticles(newParticles);
+      const pt = setTimeout(() => setParticles([]), 500);
+
+      return () => { clearTimeout(t); clearTimeout(pt); };
     }
     prevCompleted.current = lesson.completed;
   }, [lesson.completed]);
@@ -249,6 +269,24 @@ function TodayLessonCard({
         </span>
       )}
 
+      {/* Tier 1: Particle burst */}
+      {particles.map(p => (
+        <span
+          key={p.id}
+          className="particle-burst absolute rounded-full"
+          style={{
+            width: 7,
+            height: 7,
+            left: 29,
+            top: 25,
+            backgroundColor: p.color,
+            animationDelay: `${p.delay}ms`,
+            '--px': `${p.x}px`,
+            '--py': `${p.y}px`,
+          } as React.CSSProperties}
+        />
+      ))}
+
       {/* 3-dot menu */}
       {!isPartner && (
         <div className="relative shrink-0" data-no-toggle>
@@ -305,6 +343,10 @@ export default function TodayPage() {
   const [leafCounts,      setLeafCounts]      = useState<Record<string, number>>({});
   const [loading,         setLoading]         = useState(true);
   const [celebrating,     setCelebrating]     = useState(false);
+  const [childDoneToast,    setChildDoneToast]    = useState<string | null>(null);
+  const [childDoneToastOut, setChildDoneToastOut] = useState(false);
+  const [allDoneBanner,     setAllDoneBanner]     = useState(false);
+  const childDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [todayMemoryEvents, setTodayMemoryEvents] = useState<TodayEvent[]>([]);
   const [todayBooks,        setTodayBooks]        = useState<BookLog[]>([]);
@@ -400,8 +442,10 @@ export default function TodayPage() {
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
       supabase.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", effectiveUserId),
     ]);
-    setLessons((lessonsData as unknown as Lesson[]) ?? []);
+    const loadedLessons = (lessonsData as unknown as Lesson[]) ?? [];
+    setLessons(loadedLessons);
     setHasAnyLessons((totalLessons ?? 0) > 0);
+    setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
 
     const [{ data: completed }, { data: bookEvents }, { data: memEvents }] = await Promise.all([
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
@@ -487,13 +531,41 @@ export default function TodayPage() {
 
   async function toggleLesson(id: string, current: boolean) {
     const lesson = lessons.find((l) => l.id === id);
-    setLessons((prev) => prev.map((l) => (l.id === id ? { ...l, completed: !current } : l)));
+    const updatedLessons = lessons.map(l => l.id === id ? { ...l, completed: !current } : l);
+    setLessons(updatedLessons);
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
 
     if (!current) {
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 1600);
       triggerGardenAnimation(lesson?.child_id ?? undefined);
+
+      // Tier 2: child done toast at 300ms
+      const childId = lesson?.child_id;
+      if (childId) {
+        const childLessons = updatedLessons.filter(l => l.child_id === childId);
+        const childAllDone = childLessons.length > 0 && childLessons.every(l => l.completed);
+        if (childAllDone) {
+          const childName = children.find(c => c.id === childId)?.name;
+          if (childName) {
+            setTimeout(() => {
+              if (childDoneTimerRef.current) clearTimeout(childDoneTimerRef.current);
+              setChildDoneToastOut(false);
+              setChildDoneToast(childName);
+              childDoneTimerRef.current = setTimeout(() => {
+                setChildDoneToastOut(true);
+                setTimeout(() => { setChildDoneToast(null); setChildDoneToastOut(false); }, 300);
+              }, 2500);
+            }, 300);
+          }
+        }
+      }
+
+      // Tier 3: all done banner at 800ms
+      const allNowDone = updatedLessons.length > 0 && updatedLessons.every(l => l.completed);
+      if (allNowDone) {
+        setTimeout(() => setAllDoneBanner(true), 800);
+      }
 
       if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
         const { data: goalRow } = await supabase
@@ -516,6 +588,9 @@ export default function TodayPage() {
           });
         }
       }
+    } else {
+      // Unchecking — immediately hide the all done banner
+      setAllDoneBanner(false);
     }
     await refreshLeafCounts();
   }
@@ -806,7 +881,7 @@ export default function TodayPage() {
 
       {/* ── Today's Sections ─────────────────────────────── */}
       <div>
-        {allDone && (
+        {allDoneBanner && (
           <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
             <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
             <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
@@ -1230,6 +1305,17 @@ export default function TodayPage() {
       )}
 
       <FloatingLeaves active={celebrating} />
+
+      {/* ── Tier 2: Child done toast ──────────────────────── */}
+      {childDoneToast && (
+        <div
+          className={`fixed bottom-24 left-1/2 z-[70] pointer-events-none ${childDoneToastOut ? 'child-toast-out' : 'child-toast-in'}`}
+        >
+          <div className="bg-[#2d2926] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">
+            🌟 {childDoneToast}&apos;s done for today!
+          </div>
+        </div>
+      )}
 
       </div>
     </>
