@@ -5,7 +5,6 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import LogTodayModal from "@/app/components/LogTodayModal";
-import GardenScene, { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
 import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -27,7 +26,7 @@ type Lesson = {
 type TodayEvent = {
   id: string;
   type: string;
-  payload: { title?: string; date?: string };
+  payload: { title?: string; date?: string; child_id?: string };
 };
 
 type BookLog = {
@@ -36,6 +35,15 @@ type BookLog = {
 };
 
 type Subject = { id: string; name: string; color: string | null };
+
+type ActivityItem = {
+  type: "lesson" | "book" | "memory";
+  id: string;
+  title: string;
+  childId: string;
+  subjectName?: string;
+  memoryType?: string;
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -47,38 +55,32 @@ const QUOTES = [
   "The roots of education are bitter, but the fruit is sweet.",
   "Play is the highest form of research.",
   "It's not that I'm so smart. It's just that I stay with problems longer.",
+  "Every child is an artist. The problem is how to remain an artist once we grow up.",
+  "Wonder is the beginning of wisdom.",
+  "The mind is not a vessel to be filled, but a fire to be kindled.",
+  "Children are not things to be molded, but people to be unfolded.",
+  "To teach is to learn twice.",
+  "Curiosity is the wick in the candle of learning.",
+  "The whole art of teaching is only the art of awakening the natural curiosity of young minds.",
+  "Children learn as they play. Most importantly, in play children learn how to learn.",
+  "It is easier to build strong children than to repair broken adults.",
+  "Tell me and I forget. Teach me and I remember. Involve me and I learn.",
+  "A child who reads will be an adult who thinks.",
+  "The greatest gifts you can give your children are the roots of responsibility and the wings of independence.",
+  "Education is not preparation for life; education is life itself.",
+  "What we want is to see the child in pursuit of knowledge, not knowledge in pursuit of the child.",
+  "The more that you read, the more things you will know.",
+  "Learning is a treasure that will follow its owner everywhere.",
+  "Children need the freedom and time to play. Play is not a luxury. Play is a necessity.",
+  "A book is a gift you can open again and again.",
+  "The joy of learning is as indispensable in life as eating and breathing.",
+  "Nothing in life is to be feared, only to be understood.",
+  "Every student can learn, just not on the same day or in the same way.",
+  "It's not what you teach, it's what you ignite.",
+  "Home is where the learning is.",
 ];
-
-const STAGES = STAGE_INFO.map((s, i) => ({
-  name:  s.name,
-  desc:  s.desc,
-  color: s.color,
-  min:   LEAF_THRESHOLDS[i],
-  max:   LEAF_THRESHOLDS[i + 1] !== undefined ? LEAF_THRESHOLDS[i + 1] - 1 : Infinity,
-}));
-
-const ONBOARD_COLORS = [
-  { label: "Green",  value: "#5c7f63" },
-  { label: "Sage",   value: "#7a9e7e" },
-  { label: "Blue",   value: "#4a7a8a" },
-  { label: "Indigo", value: "#5a5c8a" },
-  { label: "Purple", value: "#7a5c8a" },
-  { label: "Orange", value: "#c4956a" },
-  { label: "Pink",   value: "#c4697a" },
-];
-
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getStageIndex(leaves: number) {
-  return getStageFromLeaves(leaves) - 1;
-}
-
-function formatDate(date: Date) {
-  return date.toLocaleDateString("en-US", {
-    weekday: "long", month: "long", day: "numeric", year: "numeric",
-  });
-}
 
 function formatDateHero(date: Date) {
   const weekday = date.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
@@ -91,6 +93,10 @@ function getGreeting() {
   if (h < 12) return "Good morning";
   if (h < 17) return "Good afternoon";
   return "Good evening";
+}
+
+function toTitleCase(name: string) {
+  return name.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
 }
 
 function getSubjectStyle(subjectName: string | undefined): { bg: string; text: string } {
@@ -138,59 +144,6 @@ function FloatingLeaves({ active }: { active: boolean }) {
   );
 }
 
-// ─── Growth Tree Card ──────────────────────────────────────────────────────────
-
-function GrowthTreeCard({
-  leaves, childName, animating,
-}: { leaves: number; childName: string; animating?: boolean }) {
-  const stageIdx  = getStageIndex(leaves);
-  const stage     = STAGES[stageIdx];
-  const nextStage = STAGES[stageIdx + 1];
-  const progress  = nextStage ? ((leaves - stage.min) / (nextStage.min - stage.min)) * 100 : 100;
-
-  return (
-    <div
-      className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 flex gap-5 items-center relative overflow-hidden transition-all duration-300"
-      style={animating ? { transform: "scale(1.02)", boxShadow: "0 0 20px rgba(92,127,99,0.4)" } : {}}
-    >
-      {/* Floating leaf animation */}
-      {animating && (
-        <span
-          className="absolute left-1/2 -translate-x-1/2 text-2xl pointer-events-none leaf-float-up"
-          style={{ bottom: "20%" }}
-        >
-          🌿
-        </span>
-      )}
-      <div className="w-24 h-24 shrink-0">
-        <GardenScene leafCount={leaves} compact />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium uppercase tracking-widest text-[#5c7f63] mb-0.5">{childName}</p>
-        <h3 className="text-xl font-bold text-[#2d2926] leading-tight">{stage.name}</h3>
-        <p className="text-sm text-[#5c7f63] mb-3">{stage.desc}</p>
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-base">🍃</span>
-          <span
-            className={`text-sm font-semibold text-[#2d2926] transition-all duration-300 ${animating ? "scale-110 text-[#3d5c42]" : ""}`}
-          >
-            {leaves} {leaves === 1 ? "leaf" : "leaves"}
-          </span>
-          {nextStage && (
-            <span className="text-xs text-[#7a6f65]">· {nextStage.min - leaves} to {nextStage.name}</span>
-          )}
-        </div>
-        <div className="w-full h-1.5 bg-white/60 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{ width: `${Math.min(progress, 100)}%`, backgroundColor: stage.color }}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Today Lesson Card ────────────────────────────────────────────────────────
 
 function TodayLessonCard({
@@ -203,8 +156,8 @@ function TodayLessonCard({
   onDelete:  (id: string) => void;
   isPartner: boolean;
 }) {
-  const [menuOpen,  setMenuOpen]  = useState(false);
-  const [showLeaf,  setShowLeaf]  = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showLeaf, setShowLeaf] = useState(false);
   const prevCompleted = useRef(lesson.completed);
 
   useEffect(() => {
@@ -235,7 +188,7 @@ function TodayLessonCard({
       style={{ minHeight: "56px", borderLeftWidth: "4px", borderLeftColor: borderColor }}
       onClick={handleClick}
     >
-      {/* 32px circular checkbox */}
+      {/* Circular checkbox */}
       <div
         className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
           lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5]"
@@ -261,12 +214,23 @@ function TodayLessonCard({
         <p className={`text-sm font-medium leading-snug ${
           lesson.completed ? "line-through text-[#9a948e]" : "text-[#2d2926]"
         }`}>
-          {lesson.title}
+          {lesson.title || (lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "Untitled")}
         </p>
         {lesson.hours != null && lesson.hours > 0 && (
           <p className="text-xs text-[#b5aca4] mt-0.5">{lesson.hours}h</p>
         )}
       </div>
+
+      {/* Child bubble */}
+      {childObj && (
+        <div
+          className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white"
+          style={{ backgroundColor: childObj.color ?? "#5c7f63" }}
+          data-no-toggle
+        >
+          {childObj.name.charAt(0).toUpperCase()}
+        </div>
+      )}
 
       {/* Leaf pop animation */}
       {showLeaf && (
@@ -320,72 +284,48 @@ function TodayLessonCard({
 
 export default function TodayPage() {
   const today = new Date().toISOString().split("T")[0];
-  const quote = QUOTES[new Date().getDay() % QUOTES.length];
+  const start = new Date(new Date().getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((Date.now() - start.getTime()) / 86400000);
+  const quote = QUOTES[dayOfYear % QUOTES.length];
   const { isPartner, effectiveUserId } = usePartner();
 
-  const [familyName,       setFamilyName]       = useState("");
-  const [onboarded,        setOnboarded]        = useState<boolean | null>(null);
-  const [children,         setChildren]         = useState<Child[]>([]);
-  const [lessons,          setLessons]          = useState<Lesson[]>([]);
-  const [hasAnyLessons,    setHasAnyLessons]    = useState(false);
-  const [leafCounts,       setLeafCounts]       = useState<Record<string, number>>({});
-  const [selectedChildId,  setSelectedChildId]  = useState<string>("all");
-  const [reflectionText,   setReflectionText]   = useState("");
-  const [reflectionExists, setReflectionExists] = useState(false);
-  const [saving,           setSaving]           = useState(false);
-  const [savedFlash,       setSavedFlash]       = useState(false);
-  const [loading,          setLoading]          = useState(true);
-  const [celebrating,      setCelebrating]      = useState(false);
+  const [familyName,      setFamilyName]      = useState("");
+  const [onboarded,       setOnboarded]       = useState<boolean | null>(null);
+  const [children,        setChildren]        = useState<Child[]>([]);
+  const [lessons,         setLessons]         = useState<Lesson[]>([]);
+  const [hasAnyLessons,   setHasAnyLessons]   = useState(false);
+  const [leafCounts,      setLeafCounts]      = useState<Record<string, number>>({});
+  const [selectedChildId, setSelectedChildId] = useState<string>("all");
+  const [loading,         setLoading]         = useState(true);
+  const [celebrating,     setCelebrating]     = useState(false);
 
-  // Today's memory events
   const [todayMemoryEvents, setTodayMemoryEvents] = useState<TodayEvent[]>([]);
+  const [todayBooks,        setTodayBooks]        = useState<BookLog[]>([]);
+  const [showBookModal,     setShowBookModal]     = useState(false);
+  const [bookTitle,         setBookTitle]         = useState("");
+  const [bookChild,         setBookChild]         = useState("");
+  const [savingBook,        setSavingBook]        = useState(false);
 
-  // Books
-  const [todayBooks,    setTodayBooks]    = useState<BookLog[]>([]);
-  const [showBookModal, setShowBookModal] = useState(false);
-  const [bookTitle,     setBookTitle]     = useState("");
-  const [bookChild,     setBookChild]     = useState("");
-  const [savingBook,    setSavingBook]    = useState(false);
-
-  // Banner dismiss state — shared by both the setup banner and welcome banner.
-  // Backed by sessionStorage key "setup-banner-dismissed" so it persists across reloads.
   const [bannerDismissed, setBannerDismissed] = useState(false);
-
   useEffect(() => {
-    if (sessionStorage.getItem("setup-banner-dismissed") === "1") {
-      setBannerDismissed(true);
-    }
+    if (sessionStorage.getItem("setup-banner-dismissed") === "1") setBannerDismissed(true);
   }, []);
 
-  // Curriculum nudge — shown when user has children but no subjects/lessons yet
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
-  const [isPro, setIsPro] = useState(false);
+  const [isPro,          setIsPro]          = useState(false);
   useEffect(() => {
-    if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") {
-      setNudgeDismissed(true);
-    }
+    if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") setNudgeDismissed(true);
   }, []);
 
-  // PWA install banner
   const [showPwaBanner, setShowPwaBanner] = useState(false);
   const [showPwaModal,  setShowPwaModal]  = useState(false);
-
   useEffect(() => {
-    const dismissed = localStorage.getItem("pwa-banner-dismissed") === "true";
+    const dismissed  = localStorage.getItem("pwa-banner-dismissed") === "true";
     const standalone = window.matchMedia("(display-mode: standalone)").matches;
     if (!dismissed && !standalone) setShowPwaBanner(true);
   }, []);
 
-  // Add lesson modal
-  const [subjects,        setSubjects]        = useState<Subject[]>([]);
-  const [showLessonModal, setShowLessonModal] = useState(false);
-  const [lessonChildId,   setLessonChildId]   = useState("");
-  const [lessonSubject,   setLessonSubject]   = useState("");
-  const [lessonTitle,     setLessonTitle]     = useState("");
-  const [lessonHours,     setLessonHours]     = useState("");
-  const [savingLesson,    setSavingLesson]    = useState(false);
-
-  // Edit lesson modal
+  const [subjects,     setSubjects]     = useState<Subject[]>([]);
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [editTitle,     setEditTitle]     = useState("");
   const [editSubject,   setEditSubject]   = useState("");
@@ -393,15 +333,15 @@ export default function TodayPage() {
   const [editChildId,   setEditChildId]   = useState("");
   const [savingEdit,    setSavingEdit]    = useState(false);
 
-  // Log Today modal
-  const [showLogModal, setShowLogModal] = useState(false);
+  const [editingActivity,       setEditingActivity]       = useState<ActivityItem | null>(null);
+  const [activityEditTitle,     setActivityEditTitle]     = useState("");
+  const [activityEditChild,     setActivityEditChild]     = useState("");
+  const [activityDeleteConfirm, setActivityDeleteConfirm] = useState(false);
+  const [savingActivityEdit,    setSavingActivityEdit]    = useState(false);
 
-  // Garden growth animation
-  const [gardenAnimatingChildId, setGardenAnimatingChildId] = useState<string | null>(null);
-  const [gardenToast, setGardenToast] = useState<{ name: string; leaves: number } | null>(null);
-
-  // Vacation blocks
-  const [activeVacation, setActiveVacation] = useState<{ name: string; end_date: string } | null>(null);
+  const [showLogModal,           setShowLogModal]           = useState(false);
+  const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
+  const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
@@ -413,17 +353,9 @@ export default function TodayPage() {
       supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_field_trip"]),
     ]);
     const counts: Record<string, number> = {};
-    completed?.forEach((l) => {
-      if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
-    });
-    bookEvents?.forEach((e) => {
-      const cid = e.payload?.child_id;
-      if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
-    });
-    memEvents?.forEach((e) => {
-      const cid = e.payload?.child_id;
-      if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
-    });
+    completed?.forEach((l) => { if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
+    bookEvents?.forEach((e) => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
+    memEvents?.forEach((e)  => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
     setLeafCounts(counts);
   }, [effectiveUserId]);
 
@@ -450,10 +382,7 @@ export default function TodayPage() {
         .select("id, title, completed, child_id, hours, subjects(name, color), curriculum_goal_id, lesson_number, goal_id")
         .eq("user_id", effectiveUserId)
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
-      supabase
-        .from("lessons")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", effectiveUserId),
+      supabase.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", effectiveUserId),
     ]);
     setLessons((lessonsData as unknown as Lesson[]) ?? []);
     setHasAnyLessons((totalLessons ?? 0) > 0);
@@ -463,19 +392,10 @@ export default function TodayPage() {
       supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
       supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_field_trip"]),
     ]);
-
     const counts: Record<string, number> = {};
-    completed?.forEach((l) => {
-      if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
-    });
-    bookEvents?.forEach((e) => {
-      const cid = e.payload?.child_id;
-      if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
-    });
-    memEvents?.forEach((e) => {
-      const cid = e.payload?.child_id;
-      if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
-    });
+    completed?.forEach((l) => { if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
+    bookEvents?.forEach((e) => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
+    memEvents?.forEach((e)  => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
     setLeafCounts(counts);
 
     const { data: todayBooksData } = await supabase
@@ -496,17 +416,8 @@ export default function TodayPage() {
       .eq("user_id", effectiveUserId).order("name");
     setSubjects((subjectsData as Subject[]) ?? []);
 
-    const { data: reflectionData } = await supabase
-      .from("daily_reflections").select("reflection")
-      .eq("user_id", effectiveUserId).eq("date", today).maybeSingle();
-    if (reflectionData) {
-      setReflectionText(reflectionData.reflection ?? "");
-      setReflectionExists(true);
-    }
-
     const { data: vacBlocks } = await supabase
-      .from("vacation_blocks")
-      .select("name, end_date, start_date")
+      .from("vacation_blocks").select("name, end_date, start_date")
       .eq("user_id", effectiveUserId);
     const currentVac = (vacBlocks ?? []).find(
       (b: { start_date: string; end_date: string; name: string }) => today >= b.start_date && today <= b.end_date
@@ -518,16 +429,11 @@ export default function TodayPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-
   // ── Lesson actions ────────────────────────────────────────────────────────
 
   function triggerGardenAnimation(childId?: string) {
-    const cid = childId || null;
-    setGardenAnimatingChildId(cid);
-    setTimeout(() => setGardenAnimatingChildId(null), 1600);
-    // Show toast with updated leaf count
-    const child = children.find((c) => c.id === cid);
-    const newLeaves = (leafCounts[cid ?? ""] ?? 0) + 1;
+    const child = children.find((c) => c.id === childId);
+    const newLeaves = (leafCounts[childId ?? ""] ?? 0) + 1;
     setGardenToast({ name: child?.name ?? "Your garden", leaves: newLeaves });
     setTimeout(() => setGardenToast(null), 2500);
   }
@@ -544,13 +450,10 @@ export default function TodayPage() {
 
       if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
         const { data: goalRow } = await supabase
-          .from("curriculum_goals")
-          .select("current_lesson")
-          .eq("id", lesson.curriculum_goal_id)
-          .single();
+          .from("curriculum_goals").select("current_lesson")
+          .eq("id", lesson.curriculum_goal_id).single();
         if (goalRow && lesson.lesson_number > goalRow.current_lesson) {
-          await supabase
-            .from("curriculum_goals")
+          await supabase.from("curriculum_goals")
             .update({ current_lesson: lesson.lesson_number })
             .eq("id", lesson.curriculum_goal_id);
         }
@@ -567,7 +470,6 @@ export default function TodayPage() {
         }
       }
     }
-
     await refreshLeafCounts();
   }
 
@@ -582,25 +484,19 @@ export default function TodayPage() {
   async function saveEdit() {
     if (!editingLesson || !editTitle.trim()) return;
     setSavingEdit(true);
-
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingEdit(false); return; }
 
     let subjectId: string | null = null;
     if (editSubject.trim()) {
-      const existing = subjects.find(
-        (s) => s.name.toLowerCase() === editSubject.trim().toLowerCase()
-      );
+      const existing = subjects.find((s) => s.name.toLowerCase() === editSubject.trim().toLowerCase());
       if (existing) {
         subjectId = existing.id;
       } else {
         const { data: newSub } = await supabase
           .from("subjects").insert({ user_id: user.id, name: editSubject.trim() })
           .select("id, name, color").single();
-        if (newSub) {
-          setSubjects((prev) => [...prev, newSub as Subject]);
-          subjectId = newSub.id;
-        }
+        if (newSub) { setSubjects((prev) => [...prev, newSub as Subject]); subjectId = newSub.id; }
       }
     }
 
@@ -613,16 +509,14 @@ export default function TodayPage() {
 
     setLessons((prev) => prev.map((l) => {
       if (l.id !== editingLesson.id) return l;
-      const subName = editSubject.trim();
       return {
         ...l,
         title:    editTitle.trim(),
-        subjects: subName ? { name: subName, color: l.subjects?.color ?? null } : null,
+        subjects: editSubject.trim() ? { name: editSubject.trim(), color: l.subjects?.color ?? null } : null,
         hours:    editHours ? parseFloat(editHours) : null,
         child_id: editChildId || l.child_id,
       };
     }));
-
     setSavingEdit(false);
     setEditingLesson(null);
   }
@@ -633,116 +527,88 @@ export default function TodayPage() {
     await refreshLeafCounts();
   }
 
-  // ── Add lesson ────────────────────────────────────────────────────────────
-
   async function saveBook() {
     if (!bookTitle.trim()) return;
     setSavingBook(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingBook(false); return; }
-
     const payload = { title: bookTitle.trim(), child_id: bookChild || undefined, date: today };
     const { data } = await supabase
       .from("app_events").insert({ user_id: user.id, type: "book_read", payload })
       .select("id, payload").single();
-
     if (data) {
       setTodayBooks((prev) => [...prev, data as unknown as BookLog]);
-      if (bookChild) {
-        setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
-      }
+      if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     }
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
   }
-
-  function openLessonModal() {
-    setLessonChildId(children.length === 1 ? children[0].id : "");
-    setLessonSubject(""); setLessonTitle(""); setLessonHours("");
-    setShowLessonModal(true);
-  }
-
-  async function saveLesson() {
-    if (!lessonTitle.trim()) return;
-    setSavingLesson(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSavingLesson(false); return; }
-
-    let subjectId: string | null = null;
-    if (lessonSubject.trim()) {
-      const existing = subjects.find(
-        (s) => s.name.toLowerCase() === lessonSubject.trim().toLowerCase()
-      );
-      if (existing) {
-        subjectId = existing.id;
-      } else {
-        const { data: newSubject } = await supabase
-          .from("subjects").insert({ user_id: user.id, name: lessonSubject.trim() })
-          .select("id, name, color").single();
-        if (newSubject) {
-          setSubjects((prev) => [...prev, newSubject as Subject]);
-          subjectId = newSubject.id;
-        }
-      }
-    }
-
-    const { data: newLesson } = await supabase
-      .from("lessons")
-      .insert({
-        user_id:    user.id,
-        child_id:   lessonChildId || null,
-        subject_id: subjectId,
-        title:      lessonTitle.trim(),
-        hours:      lessonHours ? parseFloat(lessonHours) : null,
-        completed:  true,
-        date:       today,
-      })
-      .select("id, title, completed, child_id, hours, subjects(name, color)")
-      .single();
-
-    if (newLesson) {
-      setLessons((prev) => [...prev, newLesson as unknown as Lesson]);
-      if (lessonChildId) {
-        setLeafCounts((prev) => ({
-          ...prev,
-          [lessonChildId]: (prev[lessonChildId] ?? 0) + 1,
-        }));
-      }
-      setCelebrating(true);
-      setTimeout(() => setCelebrating(false), 1600);
-    }
-
-    setSavingLesson(false);
-    setShowLessonModal(false);
-  }
-
 
   function handleLogSaved(type: string, childId?: string) {
     setShowLogModal(false);
     if (type === "lesson") {
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 1600);
-      if (childId) {
-        setLeafCounts((prev) => ({ ...prev, [childId]: (prev[childId] ?? 0) + 1 }));
-      }
+      if (childId) setLeafCounts((prev) => ({ ...prev, [childId]: (prev[childId] ?? 0) + 1 }));
       triggerGardenAnimation(childId);
     }
     loadData();
   }
 
-  async function saveReflection() {
-    setSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+  // ── Activity edit/delete ──────────────────────────────────────────────────
 
-    await supabase.from("daily_reflections").upsert(
-      { user_id: user.id, date: today, reflection: reflectionText, updated_at: new Date().toISOString() },
-      { onConflict: "user_id,date" }
-    );
+  function openActivityEdit(item: ActivityItem) {
+    setEditingActivity(item);
+    setActivityEditTitle(item.title);
+    setActivityEditChild(item.childId);
+    setActivityDeleteConfirm(false);
+  }
 
-    setSaving(false);
-    setReflectionExists(true);
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 2000);
+  async function saveActivityEdit() {
+    if (!editingActivity || !activityEditTitle.trim()) return;
+    setSavingActivityEdit(true);
+
+    if (editingActivity.type === "lesson") {
+      await supabase.from("lessons").update({
+        title:    activityEditTitle.trim(),
+        child_id: activityEditChild || null,
+      }).eq("id", editingActivity.id);
+      setLessons((prev) => prev.map((l) => l.id !== editingActivity.id ? l : {
+        ...l, title: activityEditTitle.trim(), child_id: activityEditChild || l.child_id,
+      }));
+    } else if (editingActivity.type === "book") {
+      const row = todayBooks.find((b) => b.id === editingActivity.id);
+      if (row) {
+        const newPayload = { ...row.payload, title: activityEditTitle.trim(), child_id: activityEditChild || undefined };
+        await supabase.from("app_events").update({ payload: newPayload }).eq("id", editingActivity.id);
+        setTodayBooks((prev) => prev.map((b) => b.id !== editingActivity.id ? b : { ...b, payload: newPayload }));
+      }
+    } else {
+      const row = todayMemoryEvents.find((e) => e.id === editingActivity.id);
+      if (row) {
+        const newPayload = { ...row.payload, title: activityEditTitle.trim(), child_id: activityEditChild || undefined };
+        await supabase.from("app_events").update({ payload: newPayload }).eq("id", editingActivity.id);
+        setTodayMemoryEvents((prev) => prev.map((e) => e.id !== editingActivity.id ? e : { ...e, payload: newPayload }));
+      }
+    }
+
+    setSavingActivityEdit(false);
+    setEditingActivity(null);
+  }
+
+  async function deleteActivityItem() {
+    if (!editingActivity) return;
+    if (editingActivity.type === "lesson") {
+      await deleteLesson(editingActivity.id);
+    } else {
+      await supabase.from("app_events").delete().eq("id", editingActivity.id);
+      if (editingActivity.type === "book") {
+        setTodayBooks((prev) => prev.filter((b) => b.id !== editingActivity.id));
+      } else {
+        setTodayMemoryEvents((prev) => prev.filter((e) => e.id !== editingActivity.id));
+      }
+    }
+    setEditingActivity(null);
+    setActivityDeleteConfirm(false);
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -750,14 +616,6 @@ export default function TodayPage() {
   const filteredLessons = selectedChildId === "all"
     ? lessons
     : lessons.filter((l) => l.child_id === selectedChildId);
-
-  const treeLeaves = selectedChildId === "all"
-    ? children.reduce((sum, c) => sum + (leafCounts[c.id] ?? 0), 0)
-    : leafCounts[selectedChildId] ?? 0;
-
-  const treeLabel = selectedChildId === "all"
-    ? (familyName || "Your Family")
-    : (children.find((c) => c.id === selectedChildId)?.name ?? "");
 
   const completedToday = filteredLessons.filter((l) => l.completed).length;
   const totalToday     = filteredLessons.length;
@@ -782,7 +640,7 @@ export default function TodayPage() {
         overline={formatDateHero(new Date())}
         title={`${getGreeting()}${familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 🌿`}
       >
-        {totalToday > 0 ? (
+        {totalToday > 0 && (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
             <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.70)" }}>Today&apos;s lessons</span>
             <div className="flex-1 rounded-full overflow-hidden" style={{ height: 3, background: "rgba(255,255,255,0.20)" }}>
@@ -790,38 +648,26 @@ export default function TodayPage() {
             </div>
             <span className="text-[12px] font-semibold text-white">{completedToday} / {totalToday}</span>
           </div>
-        ) : (
-          <div className="flex items-center rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
-            <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.70)" }}>Ready to grow today 🌱</span>
-          </div>
         )}
       </PageHero>
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
 
-      {/* ── Setup Banner (skipped onboarding, no children) ─── */}
+      {/* ── Setup Banner ─────────────────────────────────────── */}
       {onboarded === true && children.length === 0 && !bannerDismissed && (
         <div className="relative flex items-center justify-between gap-4 bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4">
           <p className="text-sm text-[#2d2926] font-medium leading-snug">
             🌱 Finish setting up your homeschool — you haven&apos;t added any children yet.
           </p>
           <div className="flex items-center gap-2 shrink-0">
-            <Link
-              href="/onboarding"
-              className="bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors whitespace-nowrap"
-            >
+            <Link href="/onboarding" className="bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors whitespace-nowrap">
               Add a Child →
             </Link>
             <button
-              onClick={() => {
-                sessionStorage.setItem("setup-banner-dismissed", "1");
-                setBannerDismissed(true);
-              }}
+              onClick={() => { sessionStorage.setItem("setup-banner-dismissed", "1"); setBannerDismissed(true); }}
               aria-label="Dismiss"
               className="w-7 h-7 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#b8d9bc]/50 transition-colors text-lg leading-none"
-            >
-              ×
-            </button>
+            >×</button>
           </div>
         </div>
       )}
@@ -830,15 +676,10 @@ export default function TodayPage() {
       {children.length === 0 && onboarded !== true && !bannerDismissed && (
         <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
           <button
-            onClick={() => {
-              sessionStorage.setItem("setup-banner-dismissed", "1");
-              setBannerDismissed(true);
-            }}
+            onClick={() => { sessionStorage.setItem("setup-banner-dismissed", "1"); setBannerDismissed(true); }}
             aria-label="Dismiss"
             className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#b8d9bc]/50 transition-colors text-lg leading-none"
-          >
-            ×
-          </button>
+          >×</button>
           <h2 className="text-lg font-bold text-[#2d2926] mb-1">Welcome to Rooted! 🌿</h2>
           <p className="text-sm text-[#5c7f63] mb-4">Let&apos;s get your family set up in 3 easy steps</p>
           <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -847,14 +688,8 @@ export default function TodayPage() {
               { step: "2", label: "Add your curriculum",        dest: "Plan",        href: "/dashboard/plan" },
               { step: "3", label: "Check off your first lesson", dest: "Today",      href: "#" },
             ].map(({ step, label, dest, href }) => (
-              <Link
-                key={step}
-                href={href}
-                className="flex-1 flex items-center gap-2.5 bg-white/70 hover:bg-white border border-[#b8d9bc] rounded-xl px-3.5 py-3 transition-colors"
-              >
-                <div className="w-7 h-7 rounded-full bg-[#5c7f63] text-white text-xs font-bold flex items-center justify-center shrink-0">
-                  {step}
-                </div>
+              <Link key={step} href={href} className="flex-1 flex items-center gap-2.5 bg-white/70 hover:bg-white border border-[#b8d9bc] rounded-xl px-3.5 py-3 transition-colors">
+                <div className="w-7 h-7 rounded-full bg-[#5c7f63] text-white text-xs font-bold flex items-center justify-center shrink-0">{step}</div>
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-[#2d2926] leading-tight">{label}</p>
                   <p className="text-[10px] text-[#7a6f65]">→ {dest}</p>
@@ -862,10 +697,7 @@ export default function TodayPage() {
               </Link>
             ))}
           </div>
-          <Link
-            href="/onboarding"
-            className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
-          >
+          <Link href="/onboarding" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm">
             Add your first child →
           </Link>
         </div>
@@ -878,16 +710,14 @@ export default function TodayPage() {
         const backLabel = backDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
         return (
           <div className="rounded-2xl px-4 py-3" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
-            <p className="text-sm font-semibold text-[#7a4a1a]">
-              🌴 {activeVacation.name} — no lessons today! Back on {backLabel}.
-            </p>
+            <p className="text-sm font-semibold text-[#7a4a1a]">🌴 {activeVacation.name} — no lessons today! Back on {backLabel}.</p>
           </div>
         );
       })()}
 
-      {/* ── Upgrade nudge (free users, no subjects) ──────── */}
+      {/* ── Upgrade nudge ────────────────────────────────── */}
       {!isPartner && !isPro && children.length > 0 && subjects.length === 0 && (
-        <div className="bg-gradient-to-br from-[#fef9f0] to-[#fef6e4] border border-[#f0d090] rounded-2xl p-5 mb-4 flex items-start gap-4">
+        <div className="bg-gradient-to-br from-[#fef9f0] to-[#fef6e4] border border-[#f0d090] rounded-2xl p-5 flex items-start gap-4">
           <span className="text-2xl shrink-0">🌱</span>
           <div className="flex-1">
             <p className="text-sm font-bold text-[#2d2926] mb-1">
@@ -896,10 +726,7 @@ export default function TodayPage() {
             <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">
               Memories, insights, transcripts and more — $39/yr locked forever for the first 200 families.
             </p>
-            <a
-              href="/upgrade"
-              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
-            >
+            <a href="/upgrade" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors">
               Claim Founding Price →
             </a>
           </div>
@@ -913,48 +740,25 @@ export default function TodayPage() {
             <span className="text-xl shrink-0 mt-0.5">👋</span>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-[#2d2926] leading-snug">Welcome to Rooted! Set up your curriculum to start seeing lessons here.</p>
-              <Link
-                href="/dashboard/plan"
-                className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-white bg-[#5c7f63] hover:bg-[#3d5c42] px-3 py-1.5 rounded-lg transition-colors"
-              >
+              <Link href="/dashboard/plan" className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-white bg-[#5c7f63] hover:bg-[#3d5c42] px-3 py-1.5 rounded-lg transition-colors">
                 Get started →
               </Link>
             </div>
           </div>
           <button
-            onClick={() => {
-              localStorage.setItem("rooted_setup_nudge_dismissed", "1");
-              setNudgeDismissed(true);
-            }}
+            onClick={() => { localStorage.setItem("rooted_setup_nudge_dismissed", "1"); setNudgeDismissed(true); }}
             aria-label="Dismiss"
             className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors text-lg leading-none mt-0.5"
-          >
-            ×
-          </button>
+          >×</button>
         </div>
       )}
 
       {/* ── Lesson Checklist ─────────────────────────────── */}
       <div>
-        {/* Add Lesson button */}
-        {!isPartner && (
-          <div className="flex justify-end mb-3">
-            <button
-              onClick={openLessonModal}
-              className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors"
-            >
-              + Add Lesson
-            </button>
-          </div>
-        )}
-
-        {/* Celebration banner */}
         {allDone && (
           <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
             <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
-            <p className="text-sm text-[#5c7f63] mt-0.5">
-              You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃
-            </p>
+            <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
           </div>
         )}
 
@@ -968,9 +772,7 @@ export default function TodayPage() {
                   ? "bg-[#5c7f63] text-white border-[#5c7f63]"
                   : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63] hover:text-[#5c7f63]"
               }`}
-            >
-              All
-            </button>
+            >All</button>
             {children.map((child) => (
               <button
                 key={child.id}
@@ -982,7 +784,7 @@ export default function TodayPage() {
                 }`}
                 style={selectedChildId === child.id ? { backgroundColor: child.color ?? "#5c7f63" } : {}}
               >
-                {child.name}
+                {toTitleCase(child.name)}
               </button>
             ))}
           </div>
@@ -991,7 +793,6 @@ export default function TodayPage() {
         {/* Lessons list */}
         {filteredLessons.length > 0 ? (
           <>
-            {/* Multi-child grouped view */}
             {selectedChildId === "all" && children.length > 1 ? (
               <div className="space-y-4">
                 {children.map((child) => {
@@ -1000,15 +801,9 @@ export default function TodayPage() {
                   return (
                     <div key={child.id}>
                       <div className="flex items-center gap-2 mb-2">
-                        <div
-                          className="w-2.5 h-2.5 rounded-full"
-                          style={{ backgroundColor: child.color ?? "#5c7f63" }}
-                        />
-                        <span
-                          className="text-xs font-bold uppercase tracking-widest"
-                          style={{ color: child.color ?? "#5c7f63" }}
-                        >
-                          {child.name}
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
+                        <span className="text-xs font-bold tracking-widest" style={{ color: child.color ?? "#5c7f63" }}>
+                          {toTitleCase(child.name)}
                         </span>
                         <span className="text-[10px] text-[#b5aca4]">
                           {childLessons.filter((l) => l.completed).length}/{childLessons.length}
@@ -1016,21 +811,13 @@ export default function TodayPage() {
                       </div>
                       <div className="space-y-2">
                         {childLessons.map((lesson) => (
-                          <TodayLessonCard
-                            key={lesson.id}
-                            lesson={lesson}
-                            childObj={child}
-                            onToggle={toggleLesson}
-                            onEdit={openEdit}
-                            onDelete={deleteLesson}
-                            isPartner={isPartner}
-                          />
+                          <TodayLessonCard key={lesson.id} lesson={lesson} childObj={child}
+                            onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
                         ))}
                       </div>
                     </div>
                   );
                 })}
-                {/* Unassigned lessons */}
                 {(() => {
                   const childIds = new Set(children.map((c) => c.id));
                   const unassigned = filteredLessons.filter((l) => !l.child_id || !childIds.has(l.child_id));
@@ -1043,15 +830,8 @@ export default function TodayPage() {
                       </div>
                       <div className="space-y-2">
                         {unassigned.map((lesson) => (
-                          <TodayLessonCard
-                            key={lesson.id}
-                            lesson={lesson}
-                            childObj={undefined}
-                            onToggle={toggleLesson}
-                            onEdit={openEdit}
-                            onDelete={deleteLesson}
-                            isPartner={isPartner}
-                          />
+                          <TodayLessonCard key={lesson.id} lesson={lesson} childObj={undefined}
+                            onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
                         ))}
                       </div>
                     </div>
@@ -1059,116 +839,37 @@ export default function TodayPage() {
                 })()}
               </div>
             ) : (
-              /* Flat list (single child or filtered) */
               <div className="space-y-2">
                 {filteredLessons.map((lesson) => (
-                  <TodayLessonCard
-                    key={lesson.id}
-                    lesson={lesson}
+                  <TodayLessonCard key={lesson.id} lesson={lesson}
                     childObj={children.find((c) => c.id === lesson.child_id)}
-                    onToggle={toggleLesson}
-                    onEdit={openEdit}
-                    onDelete={deleteLesson}
-                    isPartner={isPartner}
-                  />
+                    onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
                 ))}
               </div>
             )}
           </>
         ) : subjects.length === 0 ? (
-          /* Empty state — no curriculum set up yet */
           <div className="py-8 flex flex-col items-center text-center">
             <span className="text-[52px] block mb-2">🌿</span>
-            <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
-              Welcome to Rooted 🌱
-            </p>
-            <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
-              Your garden grows with every lesson you log together.
-            </p>
-            <Link
-              href="/dashboard/plan"
-              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
-            >
+            <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>Welcome to Rooted 🌱</p>
+            <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">Your garden grows with every lesson you log together.</p>
+            <Link href="/dashboard/plan" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
               Set Up Curriculum →
             </Link>
           </div>
         ) : (
-          /* Empty state — has subjects but no lessons today */
-          <div className="py-8 flex flex-col items-center text-center">
-            <span className="text-[52px] block mb-2">🌱</span>
-            <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
-              Ready to grow today?
-            </p>
-            <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
-              Log what you learned — every lesson grows your garden.
-            </p>
-            {!isPartner && (
-              <button
-                onClick={() => setShowLogModal(true)}
-                className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
-              >
-                + Log Today
-              </button>
-            )}
-          </div>
+          <p className="text-sm text-[#b5aca4] text-center py-6">No lessons scheduled today</p>
         )}
       </div>
 
-      {/* ── Garden Strip ─────────────────────────────────── */}
-      {children.length > 0 && (
-        <>
-          <hr className="border-[#e8e2d9] my-2" />
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[#9e958d]">
-                {children.length === 1 ? "Your Garden" : "Your Children's Gardens"}
-              </span>
-              <Link href="/dashboard/garden" className="text-[11px] font-semibold text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
-                View →
-              </Link>
-            </div>
-            <Link href="/dashboard/garden" className="block space-y-1.5">
-              {children.map((child) => {
-                const leaves    = leafCounts[child.id] ?? 0;
-                const si        = getStageIndex(leaves);
-                const stage     = STAGES[si];
-                const nextStage = STAGES[si + 1];
-                const pct       = nextStage
-                  ? Math.min(100, Math.max(0, ((leaves - stage.min) / (nextStage.min - stage.min)) * 100))
-                  : 100;
-                return (
-                  <div key={child.id} className="bg-[#e8f2e9] border border-[#d4e8d6] rounded-xl px-3.5 py-2.5 flex items-center gap-2.5">
-                    <span className="text-base">🌱</span>
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-[#3d5c42] min-w-[44px]">
-                      {child.name}
-                    </span>
-                    <span className="text-[13px] font-semibold text-[#2d2926] flex-1">{stage.name}</span>
-                    <div className="flex-1 min-w-0 h-[3px] bg-[#c8dfc9] rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-[#5c7f63] rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <span className="text-[11px] font-semibold text-[#5c7f63]">{leaves} 🌿</span>
-                  </div>
-                );
-              })}
-            </Link>
-          </div>
-        </>
-      )}
-
+      {/* ── Welcome prompt (new users with children but no lessons ever) ─── */}
       {children.length > 0 && !hasAnyLessons && Object.values(leafCounts).reduce((a, b) => a + b, 0) === 0 && (
         <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
           <div className="flex items-start gap-4">
             <span className="text-3xl">🌱</span>
             <div className="flex-1">
-              <h3 className="font-bold text-[#2d2926] mb-1">
-                Welcome to Rooted{familyName ? `, ${familyName}` : ""}! Here&apos;s where to start:
-              </h3>
-              <p className="text-sm text-[#5c7f63] mb-3 leading-relaxed">
-                Your garden is planted and ready to grow. Every lesson you log earns a leaf 🍃
-              </p>
+              <h3 className="font-bold text-[#2d2926] mb-1">Welcome to Rooted{familyName ? `, ${familyName}` : ""}! Here&apos;s where to start:</h3>
+              <p className="text-sm text-[#5c7f63] mb-3 leading-relaxed">Your garden is planted and ready to grow. Every lesson you log earns a leaf 🍃</p>
               <ol className="text-sm text-[#3d5c42] space-y-1.5">
                 <li className="flex items-start gap-2"><span>1️⃣</span><span><strong>Log today&apos;s lessons</strong> — tap a lesson card to check it off and earn your first leaf</span></li>
                 <li className="flex items-start gap-2"><span>2️⃣</span><span><strong>Set a Finish Line goal</strong> — track if you&apos;re on pace to finish your curriculum on time 🎯</span></li>
@@ -1179,108 +880,120 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Reflect Zone ──────────────────────────────────── */}
-      <hr className="border-[#e8e2d9] my-2" />
-      <div>
-        <div className="bg-[#f5f2ec] rounded-xl px-4 py-3 my-1 mb-3">
-          <p className="text-[13px] italic leading-relaxed border-l-2 border-[#e8e2d9] pl-3" style={{ color: "#9e958d" }}>&ldquo;{quote}&rdquo;</p>
-        </div>
-        <div className="flex items-center gap-2 mb-2">
-          <h2 className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "#9e958d" }}>
-            Reflect
-          </h2>
-          {reflectionExists && (
-            <span className="text-xs text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">saved</span>
-          )}
-        </div>
-        <div className="bg-[#fefcf9] border border-[#ddd7ce] ring-1 ring-[#ede8e0] rounded-2xl overflow-hidden focus-within:border-[#5c7f63] focus-within:ring-2 focus-within:ring-[#5c7f63]/20 transition">
-          <textarea
-            value={reflectionText}
-            onChange={(e) => {
-              setReflectionText(e.target.value);
-              const t = e.target;
-              t.style.height = "auto";
-              t.style.height = t.scrollHeight + "px";
-            }}
-            placeholder="How did today's learning go? What went well? What would you do differently?"
-            rows={2}
-            className="w-full px-4 pt-4 pb-2 text-sm text-[#2d2926] placeholder-[#c8bfb5] bg-transparent resize-none focus:outline-none leading-relaxed overflow-hidden"
-          />
-          <div className="flex items-center justify-between px-4 py-2.5 border-t border-[#f0ede8]">
-            <p className="text-xs text-[#c8bfb5]">
-              {reflectionText.length > 0 ? `${reflectionText.length} characters` : "Your thoughts are safe here"}
-            </p>
-            <button
-              onClick={saveReflection}
-              disabled={saving || reflectionText.trim().length === 0}
-              className={`text-sm font-medium px-4 py-1.5 rounded-lg transition-colors ${
-                savedFlash
-                  ? "bg-[#e8f0e9] text-[#3d5c42]"
-                  : "bg-[#5c7f63] hover:bg-[#3d5c42] text-white disabled:opacity-40"
-              }`}
-            >
-              {savedFlash ? "✓ Saved" : saving ? "Saving…" : "Save"}
-            </button>
+      {/* ── Today's Progress ─────────────────────────────── */}
+      {children.length > 0 && (
+        <>
+          <hr className="border-[#e8e2d9] my-2" />
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[#9e958d]">Today&apos;s Progress</span>
+              <Link href="/dashboard/garden" className="text-[11px] font-semibold text-[#5c7f63] hover:text-[#3d5c42] transition-colors">View →</Link>
+            </div>
+            <div className="space-y-2">
+              {children.map((child) => {
+                const childLessons = lessons.filter((l) => l.child_id === child.id);
+                const done  = childLessons.filter((l) => l.completed).length;
+                const total = childLessons.length;
+                return (
+                  <div key={child.id} className="flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-3.5 py-2.5">
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold text-white"
+                      style={{ backgroundColor: child.color ?? "#5c7f63" }}
+                    >
+                      {child.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-sm font-medium text-[#2d2926] flex-1">{toTitleCase(child.name)}</span>
+                    <span className="text-xs text-[#7a6f65]">
+                      {total > 0 ? `${done} of ${total} done` : "No lessons today"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </>
+      )}
+
+      {/* ── Daily Quote ───────────────────────────────────── */}
+      <div className="bg-[#f5f2ec] rounded-xl px-4 py-3">
+        <p className="text-[13px] italic leading-relaxed border-l-2 border-[#e8e2d9] pl-3" style={{ color: "#9e958d" }}>&ldquo;{quote}&rdquo;</p>
       </div>
 
       {/* ── Today's Activity ──────────────────────────────── */}
-      <hr className="border-[#f0ede8]" />
       {(() => {
         const completedLessons = filteredLessons.filter((l) => l.completed);
-        const activityItems: { key: string; emoji: string; title: string; sub?: string }[] = [
+        type ActivityRow = {
+          key: string; emoji: string; title: string;
+          typeLabel: string; sub?: string; childId?: string;
+          editItem: ActivityItem;
+        };
+        const activityRows: ActivityRow[] = [
           ...completedLessons.map((l) => ({
             key: `lesson-${l.id}`,
             emoji: "✅",
-            title: l.title,
+            title: l.title || (l.lesson_number ? `Lesson ${l.lesson_number}` : "Lesson"),
+            typeLabel: "Lesson",
             sub: l.subjects?.name,
+            childId: l.child_id,
+            editItem: { type: "lesson" as const, id: l.id, title: l.title, childId: l.child_id, subjectName: l.subjects?.name },
           })),
           ...todayBooks.map((b) => ({
             key: `book-${b.id}`,
             emoji: "📖",
             title: b.payload.title,
-            sub: b.payload.child_id ? children.find((c) => c.id === b.payload.child_id)?.name : undefined,
+            typeLabel: "Book",
+            sub: undefined,
+            childId: b.payload.child_id,
+            editItem: { type: "book" as const, id: b.id, title: b.payload.title, childId: b.payload.child_id ?? "" },
           })),
           ...todayMemoryEvents.map((e) => ({
             key: `mem-${e.id}`,
             emoji: e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷",
             title: e.payload.title ?? "Memory",
+            typeLabel: e.type === "memory_book" ? "Book" : e.type === "memory_project" ? "Project" : "Photo",
+            sub: undefined,
+            childId: e.payload.child_id,
+            editItem: { type: "memory" as const, id: e.id, title: e.payload.title ?? "Memory", childId: e.payload.child_id ?? "", memoryType: e.type },
           })),
-          ...(reflectionExists ? [{ key: "reflection", emoji: "💭", title: "Daily reflection saved" }] : []),
         ];
-        if (activityItems.length === 0) return null;
+        if (activityRows.length === 0) return null;
         return (
           <div>
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-              Today&apos;s Activity
-            </h2>
+            <h2 className="text-[10px] font-bold uppercase tracking-widest text-[#9e958d] mb-3">Today&apos;s Activity</h2>
             <div className="space-y-2">
-              {activityItems.map((item) => (
-                <div
-                  key={item.key}
-                  className="flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3"
-                >
-                  <span className="text-lg shrink-0">{item.emoji}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#2d2926] truncate">{item.title}</p>
-                    {item.sub && (
-                      <p className="text-xs text-[#7a6f65]">{item.sub}</p>
+              {activityRows.map((item) => {
+                const childObj = children.find((c) => c.id === item.childId);
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => !isPartner && openActivityEdit(item.editItem)}
+                    className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors"
+                  >
+                    <span className="text-lg shrink-0">{item.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#2d2926] truncate">{item.title}</p>
+                      {item.sub && <p className="text-xs text-[#7a6f65]">{item.sub}</p>}
+                    </div>
+                    <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">
+                      {item.typeLabel}
+                    </span>
+                    {childObj && (
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white"
+                        style={{ backgroundColor: childObj.color ?? "#5c7f63" }}
+                      >
+                        {childObj.name.charAt(0).toUpperCase()}
+                      </div>
                     )}
-                  </div>
-                </div>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           </div>
         );
       })()}
 
       <div className="h-4" />
-
-      {/* More hint */}
-      <p className="text-center text-xs text-[#b5aca4]">
-        <Link href="/dashboard/more">📋 Reports · 🖨️ Printables — find them in ··· More</Link>
-      </p>
 
       {/* ── Floating Log Today Button ─────────────────────── */}
       {!isPartner && !showLogModal && (
@@ -1304,19 +1017,14 @@ export default function TodayPage() {
             </div>
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Book title *</label>
-              <input
-                value={bookTitle} onChange={(e) => setBookTitle(e.target.value)}
-                placeholder="e.g. Charlotte's Web" autoFocus
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-              />
+              <input value={bookTitle} onChange={(e) => setBookTitle(e.target.value)} placeholder="e.g. Charlotte's Web" autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
             {children.length > 0 && (
               <div>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who read it?</label>
-                <select
-                  value={bookChild} onChange={(e) => setBookChild(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                >
+                <select value={bookChild} onChange={(e) => setBookChild(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
                   <option value="">Everyone / unassigned</option>
                   {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -1326,66 +1034,9 @@ export default function TodayPage() {
               🍃 This book will add a leaf to {bookChild ? children.find((c) => c.id === bookChild)?.name + "'s" : "the"} garden tree.
             </p>
             <div className="flex gap-2">
-              <button onClick={() => setShowBookModal(false)}
-                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
-                Cancel
-              </button>
-              <button onClick={saveBook} disabled={savingBook || !bookTitle.trim()}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+              <button onClick={() => setShowBookModal(false)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
+              <button onClick={saveBook} disabled={savingBook || !bookTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {savingBook ? "Saving…" : "Log Book 🍃"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Add Lesson modal ──────────────────────────────── */}
-      {showLessonModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold text-[#2d2926]">📚 Add a Lesson</h2>
-              <button onClick={() => setShowLessonModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
-            </div>
-            {children.length > 0 && (
-              <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
-                <select value={lessonChildId} onChange={(e) => setLessonChildId(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
-                  <option value="">All / unassigned</option>
-                  {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-            )}
-            <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Subject</label>
-              <input value={lessonSubject} onChange={(e) => setLessonSubject(e.target.value)}
-                list="subjects-list" placeholder="e.g. Math, Reading, Science"
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-              <datalist id="subjects-list">
-                {subjects.map((s) => <option key={s.id} value={s.name} />)}
-              </datalist>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Lesson title *</label>
-              <input value={lessonTitle} onChange={(e) => setLessonTitle(e.target.value)}
-                placeholder="e.g. Chapter 4 reading" autoFocus
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Hours spent (optional)</label>
-              <input value={lessonHours} onChange={(e) => setLessonHours(e.target.value)}
-                type="number" min="0" max="24" step="0.5" placeholder="e.g. 1.5"
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setShowLessonModal(false)}
-                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
-                Cancel
-              </button>
-              <button onClick={saveLesson} disabled={savingLesson || !lessonTitle.trim()}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
-                {savingLesson ? "Saving…" : "Save Lesson 🍃"}
               </button>
             </div>
           </div>
@@ -1421,26 +1072,70 @@ export default function TodayPage() {
             </div>
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Lesson title *</label>
-              <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
-                placeholder="Lesson title" autoFocus
+              <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Lesson title" autoFocus
                 className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Hours spent (optional)</label>
-              <input value={editHours} onChange={(e) => setEditHours(e.target.value)}
-                type="number" min="0" max="24" step="0.5" placeholder="e.g. 1.5"
+              <input value={editHours} onChange={(e) => setEditHours(e.target.value)} type="number" min="0" max="24" step="0.5" placeholder="e.g. 1.5"
                 className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setEditingLesson(null)}
-                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
-                Cancel
-              </button>
-              <button onClick={saveEdit} disabled={savingEdit || !editTitle.trim()}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+              <button onClick={() => setEditingLesson(null)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
+              <button onClick={saveEdit} disabled={savingEdit || !editTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {savingEdit ? "Saving…" : "Save Changes"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Activity modal ───────────────────────────── */}
+      {editingActivity && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-[#2d2926]">✏️ Edit</h2>
+              <button
+                onClick={() => { setEditingActivity(null); setActivityDeleteConfirm(false); }}
+                className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none"
+              >×</button>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Title *</label>
+              <input value={activityEditTitle} onChange={(e) => setActivityEditTitle(e.target.value)} autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+            </div>
+            {children.length > 0 && (
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                <select value={activityEditChild} onChange={(e) => setActivityEditChild(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
+                  <option value="">Unassigned</option>
+                  {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
+            <button onClick={saveActivityEdit} disabled={savingActivityEdit || !activityEditTitle.trim()}
+              className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+              {savingActivityEdit ? "Saving…" : "Save"}
+            </button>
+            {!activityDeleteConfirm ? (
+              <button onClick={() => setActivityDeleteConfirm(true)}
+                className="w-full py-2.5 rounded-xl border border-red-200 text-sm font-medium text-red-400 hover:bg-red-50 transition-colors">
+                Delete
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-center text-[#2d2926] font-medium">Are you sure?</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setActivityDeleteConfirm(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
+                  <button onClick={deleteActivityItem}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors">Delete</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1471,19 +1166,8 @@ export default function TodayPage() {
         <div className="sm:hidden fixed bottom-20 left-4 right-4 z-50 bg-[#2d2926] text-white rounded-2xl shadow-xl px-4 py-3 flex items-center gap-3">
           <span className="text-xl shrink-0">🌿</span>
           <p className="flex-1 text-sm font-medium leading-tight">Add Rooted to your home screen</p>
-          <button
-            onClick={() => setShowPwaModal(true)}
-            className="shrink-0 text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            How?
-          </button>
-          <button
-            onClick={() => { localStorage.setItem("pwa-banner-dismissed", "true"); setShowPwaBanner(false); }}
-            aria-label="Dismiss"
-            className="shrink-0 text-white/60 hover:text-white text-lg leading-none transition-colors"
-          >
-            ×
-          </button>
+          <button onClick={() => setShowPwaModal(true)} className="shrink-0 text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg transition-colors">How?</button>
+          <button onClick={() => { localStorage.setItem("pwa-banner-dismissed", "true"); setShowPwaBanner(false); }} aria-label="Dismiss" className="shrink-0 text-white/60 hover:text-white text-lg leading-none transition-colors">×</button>
         </div>
       )}
 
@@ -1505,12 +1189,7 @@ export default function TodayPage() {
                 <p className="text-sm text-[#5c5248] leading-relaxed">Chrome → tap the <span className="font-semibold">Menu (⋮)</span> → <span className="font-semibold">Add to Home Screen</span></p>
               </div>
             </div>
-            <button
-              onClick={() => setShowPwaModal(false)}
-              className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors"
-            >
-              Got it!
-            </button>
+            <button onClick={() => setShowPwaModal(false)} className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors">Got it!</button>
           </div>
         </div>
       )}
