@@ -864,10 +864,116 @@ function StepCurriculum({
     );
   };
 
+  // ── Schedule preview body (shared between desktop inline + mobile panel) ──
+
+  const schedulePreviewBody = (
+    <>
+      {/* Editable lesson count */}
+      <div className="mb-3">
+        <label className="block text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-1.5">
+          Lessons
+        </label>
+        <input
+          type="number"
+          min={1}
+          value={draft.totalLessons || ""}
+          onChange={(e) => onChange({ totalLessons: Math.max(1, parseInt(e.target.value) || 0) })}
+          onWheel={(e) => e.currentTarget.blur()}
+          className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+        />
+        <p className="mt-1 text-xs text-[#7a6f65] italic">Lesson count is estimated · adjust if needed</p>
+      </div>
+
+      {/* Where are you starting? */}
+      <div className="mb-3">
+        <label className="block text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-1.5">
+          Where Are You Starting?
+        </label>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => { setAlreadyStarted(false); setStartingLesson(""); }}
+            className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
+            style={{
+              backgroundColor: !alreadyStarted ? "#5c7f63" : "#f8f5f0",
+              color:           !alreadyStarted ? "white" : "#9e958d",
+              borderColor:     !alreadyStarted ? "#5c7f63" : "#e8e2d9",
+            }}
+          >
+            From the beginning
+          </button>
+          <button
+            type="button"
+            onClick={() => setAlreadyStarted(true)}
+            className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
+            style={{
+              backgroundColor: alreadyStarted ? "#5c7f63" : "#f8f5f0",
+              color:           alreadyStarted ? "white" : "#9e958d",
+              borderColor:     alreadyStarted ? "#5c7f63" : "#e8e2d9",
+            }}
+          >
+            Already started
+          </button>
+        </div>
+        {alreadyStarted && (
+          <div className="mt-2">
+            <label className="block text-xs text-[#5c7f63] mb-1">Starting at lesson</label>
+            <input
+              type="number"
+              min={2}
+              value={startingLesson}
+              onChange={(e) => setStartingLesson(e.target.value === "" ? "" : parseInt(e.target.value) || "")}
+              onWheel={(e) => e.currentTarget.blur()}
+              placeholder="e.g. 47"
+              className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+            />
+            {typeof startingLesson === "number" && startingLesson >= 2 && (
+              <p className="mt-1 text-xs text-[#7a6f65] italic">
+                Lessons 1–{startingLesson - 1} will be marked as already done
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Day pills */}
+      <div
+        className="flex gap-1.5 mb-2"
+        onTouchStart={(e) => { touchMoved.current = false; touchStartY.current = e.touches[0].clientY; }}
+        onTouchMove={(e) => { if (Math.abs(e.touches[0].clientY - touchStartY.current) > 5) touchMoved.current = true; }}
+      >
+        {DAY_LABELS.map((d, i) => (
+          <button
+            key={d} type="button"
+            onClick={() => { if (touchMoved.current) return; toggleDay(i); }}
+            className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
+            style={{
+              backgroundColor: draft.schoolDays[i] ? "#5c7f63" : "#f8f5f0",
+              color:           draft.schoolDays[i] ? "white" : "#9e958d",
+              borderColor:     draft.schoolDays[i] ? "#5c7f63" : "#e8e2d9",
+            }}
+          >
+            {d.charAt(0)}
+          </button>
+        ))}
+      </div>
+
+      {(() => {
+        const done = alreadyStarted && typeof startingLesson === "number" && startingLesson >= 2
+          ? startingLesson - 1 : 0;
+        const remaining = Math.max(0, draft.totalLessons - done);
+        const preview = calcFinishPreview(draft.schoolDays, remaining);
+        return preview ? (
+          <p className="text-xs text-[#5c7f63] font-medium">~Finishes {preview}</p>
+        ) : null;
+      })()}
+    </>
+  );
+
   // ── Main render ───────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-start px-5 py-10 overflow-y-auto">
+    <div className={`min-h-screen bg-[#faf8f4] flex flex-col items-center justify-start px-5 py-10 overflow-y-auto${screen === "picker" && !showConfirmation ? " pb-[276px] md:pb-0" : ""}`}>
       <BackBtn onClick={showConfirmation ? () => setShowConfirmation(false) : screen === "manual" ? () => setScreen("picker") : onBack} />
       <ProgressDots step={5} />
 
@@ -1016,7 +1122,7 @@ function StepCurriculum({
         ) : screen === "picker" ? (
 
           /* ── Screen A: Curriculum picker ─────────────────────────────────── */
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl border border-[#f0ede8] p-5 mb-6">
+          <><div className="bg-[#fefcf9] rounded-3xl shadow-xl border border-[#f0ede8] p-5 mb-6">
 
             {/* Copy-from-sibling pills */}
             {siblingCurricula.length > 0 && (
@@ -1052,21 +1158,25 @@ function StepCurriculum({
             </div>
 
             {/* Filter pills */}
-            <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
-              {FILTER_SUBJECTS.map((s) => (
-                <button
-                  key={s} type="button"
-                  onClick={() => setFilterSubject(s)}
-                  className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
-                  style={{
-                    backgroundColor: filterSubject === s ? "#5c7f63" : "#f8f5f0",
-                    color:           filterSubject === s ? "white" : "#5c5248",
-                    borderColor:     filterSubject === s ? "#5c7f63" : "#e8e2d9",
-                  }}
-                >
-                  {s}
-                </button>
-              ))}
+            <div className="relative mb-4">
+              <div className="chips-row flex gap-1.5 pb-1 overflow-x-auto md:flex-wrap md:overflow-visible" style={{ scrollbarWidth: "none" }}>
+                {FILTER_SUBJECTS.map((s) => (
+                  <button
+                    key={s} type="button"
+                    onClick={() => setFilterSubject(s)}
+                    className="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
+                    style={{
+                      backgroundColor: filterSubject === s ? "#5c7f63" : "#f8f5f0",
+                      color:           filterSubject === s ? "white" : "#5c5248",
+                      borderColor:     filterSubject === s ? "#5c7f63" : "#e8e2d9",
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              {/* Right-fade gradient hint for mobile */}
+              <div className="pointer-events-none absolute right-0 top-0 bottom-1 w-10 bg-gradient-to-l from-[#fefcf9] to-transparent md:hidden" />
             </div>
 
             {/* Card list */}
@@ -1101,128 +1211,27 @@ function StepCurriculum({
               })}
             </div>
 
-            {/* Schedule preview — only when card selected */}
-            {selectedCard && (
-              <div className="bg-[#f0f7f0] border border-[#c8ddb8] rounded-2xl p-4 mb-4">
-                <p className="text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-3">Schedule Preview</p>
-
-                {/* Editable lesson count */}
-                <div className="mb-3">
-                  <label className="block text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-1.5">
-                    Lessons
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={draft.totalLessons || ""}
-                    onChange={(e) => onChange({ totalLessons: Math.max(1, parseInt(e.target.value) || 0) })}
-                    onWheel={(e) => e.currentTarget.blur()}
-                    className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-                  />
-                  <p className="mt-1 text-xs text-[#7a6f65] italic">Lesson count is estimated · adjust if needed</p>
+            {/* Desktop: schedule preview + build + hint (inline) */}
+            <div className="hidden md:block">
+              {selectedCard && (
+                <div className="bg-[#f0f7f0] border border-[#c8ddb8] rounded-2xl p-4 mb-4">
+                  <p className="text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-3">Schedule Preview</p>
+                  {schedulePreviewBody}
                 </div>
+              )}
+              <ContinueBtn
+                onClick={handleBuildClick}
+                disabled={!selectedCard || draft.totalLessons <= 0}
+                label={selectedCard
+                  ? `Build ${currentChild?.name ?? "their"}'s schedule →`
+                  : "Select a curriculum above"}
+              />
+              <p className="text-xs text-[#7a6f65] italic text-center mt-1.5">
+                Not sure about the count? Just tap Build — you can adjust lessons and pace in Plan anytime.
+              </p>
+            </div>
 
-                {/* Where are you starting? */}
-                <div className="mb-3">
-                  <label className="block text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-1.5">
-                    Where Are You Starting?
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { setAlreadyStarted(false); setStartingLesson(""); }}
-                      className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
-                      style={{
-                        backgroundColor: !alreadyStarted ? "#5c7f63" : "#f8f5f0",
-                        color:           !alreadyStarted ? "white" : "#9e958d",
-                        borderColor:     !alreadyStarted ? "#5c7f63" : "#e8e2d9",
-                      }}
-                    >
-                      From the beginning
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAlreadyStarted(true)}
-                      className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
-                      style={{
-                        backgroundColor: alreadyStarted ? "#5c7f63" : "#f8f5f0",
-                        color:           alreadyStarted ? "white" : "#9e958d",
-                        borderColor:     alreadyStarted ? "#5c7f63" : "#e8e2d9",
-                      }}
-                    >
-                      Already started
-                    </button>
-                  </div>
-                  {alreadyStarted && (
-                    <div className="mt-2">
-                      <label className="block text-xs text-[#5c7f63] mb-1">Starting at lesson</label>
-                      <input
-                        type="number"
-                        min={2}
-                        value={startingLesson}
-                        onChange={(e) => setStartingLesson(e.target.value === "" ? "" : parseInt(e.target.value) || "")}
-                        onWheel={(e) => e.currentTarget.blur()}
-                        placeholder="e.g. 47"
-                        className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-                      />
-                      {typeof startingLesson === "number" && startingLesson >= 2 && (
-                        <p className="mt-1 text-xs text-[#7a6f65] italic">
-                          Lessons 1–{startingLesson - 1} will be marked as already done
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Day pills */}
-                <div
-                  className="flex gap-1.5 mb-2"
-                  onTouchStart={(e) => { touchMoved.current = false; touchStartY.current = e.touches[0].clientY; }}
-                  onTouchMove={(e) => { if (Math.abs(e.touches[0].clientY - touchStartY.current) > 5) touchMoved.current = true; }}
-                >
-                  {DAY_LABELS.map((d, i) => (
-                    <button
-                      key={d} type="button"
-                      onClick={() => { if (touchMoved.current) return; toggleDay(i); }}
-                      className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
-                      style={{
-                        backgroundColor: draft.schoolDays[i] ? "#5c7f63" : "#f8f5f0",
-                        color:           draft.schoolDays[i] ? "white" : "#9e958d",
-                        borderColor:     draft.schoolDays[i] ? "#5c7f63" : "#e8e2d9",
-                      }}
-                    >
-                      {d.charAt(0)}
-                    </button>
-                  ))}
-                </div>
-
-                {(() => {
-                  const done = alreadyStarted && typeof startingLesson === "number" && startingLesson >= 2
-                    ? startingLesson - 1 : 0;
-                  const remaining = Math.max(0, draft.totalLessons - done);
-                  const preview = calcFinishPreview(draft.schoolDays, remaining);
-                  return preview ? (
-                    <p className="text-xs text-[#5c7f63] font-medium">
-                      ~Finishes {preview}
-                    </p>
-                  ) : null;
-                })()}
-              </div>
-            )}
-
-            {/* Build button */}
-            <ContinueBtn
-              onClick={handleBuildClick}
-              disabled={!selectedCard || draft.totalLessons <= 0}
-              label={selectedCard
-                ? `Build ${currentChild?.name ?? "their"}'s schedule →`
-                : "Select a curriculum above"}
-            />
-            <p className="text-xs text-[#7a6f65] italic text-center mt-1.5">
-              Not sure about the count? Just tap Build — you can adjust lessons and pace in Plan anytime.
-            </p>
-
-            {/* Add my own link — hint appears after 15s */}
+            {/* Add my own link — hint appears after 15s (all screens) */}
             <div className="mt-4 text-center">
               {hintVisible && (
                 <p className="text-xs text-[#9e958d] mb-1">Don&apos;t see yours?</p>
@@ -1238,6 +1247,37 @@ function StepCurriculum({
 
             <SkipFooter />
           </div>
+
+          {/* Mobile: sticky bottom schedule panel */}
+          <div
+            className="fixed bottom-0 left-0 right-0 z-[50] md:hidden transition-transform duration-300 ease-out"
+            style={{ transform: selectedCard ? "translateY(0)" : "translateY(calc(100% - 32px))" }}
+          >
+            <div className="bg-white rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.10)] px-5 pt-3 pb-8">
+              {/* Pull handle */}
+              <div className="flex justify-center mb-2">
+                <div className="w-8 h-1 bg-[#e8e2d9] rounded-full" />
+              </div>
+              {!selectedCard ? (
+                <p className="text-xs text-center text-[#b5aca4] py-1">Select a curriculum above</p>
+              ) : (
+                <>
+                  <p className="text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-3">Schedule Preview</p>
+                  {schedulePreviewBody}
+                  <div className="mt-3">
+                    <ContinueBtn
+                      onClick={handleBuildClick}
+                      disabled={draft.totalLessons <= 0}
+                      label={`Build ${currentChild?.name ?? "their"}'s schedule →`}
+                    />
+                    <p className="text-xs text-[#7a6f65] italic text-center mt-1.5">
+                      Not sure? Just tap Build — adjust pace anytime in Plan.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div></>
 
         ) : (
 
@@ -1709,10 +1749,12 @@ export default function OnboardingPage() {
       }
 
       const fn = user.user_metadata?.first_name ?? "";
-      const ln = user.user_metadata?.last_name ?? "";
+      const rawLn = user.user_metadata?.last_name ?? "";
+      // Capitalize before constructing the family display name
+      const ln = rawLn ? rawLn.charAt(0).toUpperCase() + rawLn.slice(1).toLowerCase() : "";
       setFirstName(fn);
       setLastName(ln);
-      setFamilyDisplayName(profile?.display_name ?? (ln ? `The ${ln.charAt(0).toUpperCase() + ln.slice(1).toLowerCase()} Family` : ""));
+      setFamilyDisplayName(profile?.display_name ?? (ln ? `The ${ln} Family` : ""));
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setUserId(user.id);
       setReady(true);

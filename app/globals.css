@@ -214,6 +214,10 @@ input:-webkit-autofill:focus {
   animation: toast-slide-up 0.25s ease-out forwards;
 }
 
+/* ─── Filter chip scroll row (hide scrollbar cross-browser) ─────────────────── */
+
+.chips-row::-webkit-scrollbar { display: none; }
+
 /* ─── Print styles ───────────────────────────────────────────────────────────── */
 
 @media print {
