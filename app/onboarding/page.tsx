@@ -32,6 +32,7 @@ const GRADE_OPTIONS = [
 ];
 
 const SUBJECT_CHIPS = ["Math", "Reading", "Writing", "Science", "History", "Other"];
+const CORE_CHIPS = SUBJECT_CHIPS.slice(0, -1); // all except "Other"
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -529,8 +530,20 @@ function StepCurriculum({
   const [showPrompt, setShowPrompt] = useState(false);
   const [promptChild, setPromptChild] = useState<ChildDraft | null>(null);
   const [otherSubject, setOtherSubject] = useState("");
+  // otherPillActive tracks whether the Other pill is toggled on, independent of draft.subjects
+  const [otherPillActive, setOtherPillActive] = useState(
+    () => draft.subjects.some((s) => !CORE_CHIPS.includes(s))
+  );
   const touchMoved = useRef(false);
   const touchStartY = useRef(0);
+
+  // Sync Other pill state when the active child changes (tab/row switch)
+  useEffect(() => {
+    const hasOther = draft.subjects.some((s) => !CORE_CHIPS.includes(s));
+    setOtherPillActive(hasOther);
+    setOtherSubject(draft.subjects.find((s) => !CORE_CHIPS.includes(s)) ?? "");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curricChildUid]);
 
   // Layout mode: tabs for 1–3, progress counter for 4+
   const useProgressLayout = validChildren.length >= 4;
@@ -538,8 +551,6 @@ function StepCurriculum({
   const currentChild = validChildren.find((c) => c.uid === curricChildUid) ?? validChildren[0];
   const currentIdx = validChildren.findIndex((c) => c.uid === curricChildUid);
   const isFirstChild = currentIdx === 0;
-
-  const otherSelected = draft.subjects.some((s) => !SUBJECT_CHIPS.slice(0, -1).includes(s));
   const canBuild = draft.curricName.trim().length > 0 && draft.totalLessons > 0;
 
   // Heading: always personalized for 1 child or progress layout; generic for 2–3 tab layout
@@ -554,21 +565,25 @@ function StepCurriculum({
 
   function toggleSubject(s: string) {
     if (s === "Other") {
-      if (otherSelected) {
-        onChange({ subjects: draft.subjects.filter((x) => SUBJECT_CHIPS.slice(0, -1).includes(x)) });
+      if (otherPillActive) {
+        // deselect: remove custom subject, hide input
+        setOtherPillActive(false);
         setOtherSubject("");
+        onChange({ subjects: draft.subjects.filter((x) => CORE_CHIPS.includes(x)) });
       } else {
+        // select: show input (nothing added to subjects until user types)
+        setOtherPillActive(true);
         setOtherSubject("");
       }
     } else {
-      const cur = draft.subjects.filter((x) => SUBJECT_CHIPS.slice(0, -1).includes(x));
+      const cur = draft.subjects.filter((x) => CORE_CHIPS.includes(x));
       onChange({ subjects: cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s] });
     }
   }
 
   function handleOtherInput(val: string) {
     setOtherSubject(val);
-    const coreSelected = draft.subjects.filter((x) => SUBJECT_CHIPS.slice(0, -1).includes(x));
+    const coreSelected = draft.subjects.filter((x) => CORE_CHIPS.includes(x));
     onChange({ subjects: val.trim() ? [...coreSelected, val.trim()] : coreSelected });
   }
 
@@ -789,7 +804,7 @@ function StepCurriculum({
           </label>
           <div className="flex gap-1.5">
             {SUBJECT_CHIPS.map((s) => {
-              const sel = s === "Other" ? otherSelected : draft.subjects.includes(s);
+              const sel = s === "Other" ? otherPillActive : draft.subjects.includes(s);
               return (
                 <button
                   key={s} type="button" onClick={() => toggleSubject(s)}
@@ -805,12 +820,12 @@ function StepCurriculum({
               );
             })}
           </div>
-          {otherSelected && (
+          {otherPillActive && (
             <input
               type="text"
               value={otherSubject}
               onChange={(e) => handleOtherInput(e.target.value)}
-              placeholder="e.g. Bible, Art, Music, Latin..."
+              placeholder="e.g. Bible, Art, Language Arts, Latin..."
               autoFocus
               className="mt-2 w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
             />
