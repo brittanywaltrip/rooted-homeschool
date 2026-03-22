@@ -25,30 +25,39 @@ type Memory = {
   created_at: string;
 };
 
+type Reflection = {
+  id: string;
+  date: string;
+  reflection: string;
+  updated_at: string;
+};
+
 type Child = { id: string; name: string; color: string | null };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const MEMORY_TYPES = [
-  { id: "all",     label: "All",      emoji: "✨" },
-  { id: "photo",   label: "Photos",   emoji: "📷" },
-  { id: "project", label: "Projects", emoji: "📁" },
-  { id: "book",    label: "Books",    emoji: "📖" },
+  { id: "all",        label: "All",         emoji: "✨" },
+  { id: "photo",      label: "Photos",      emoji: "📷" },
+  { id: "project",    label: "Projects",    emoji: "📁" },
+  { id: "book",       label: "Books",       emoji: "📖" },
+  { id: "reflection", label: "Reflections", emoji: "📝" },
 ];
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MemoriesPage() {
   const { isPartner, effectiveUserId } = usePartner();
-  const [memories,    setMemories]    = useState<Memory[]>([]);
-  const [children,    setChildren]    = useState<Child[]>([]);
-  const [activeType,  setActiveType]  = useState("all");
-  const [loading,     setLoading]     = useState(true);
-  const [isPro,       setIsPro]       = useState<boolean | null>(null);
-  const [showModal,   setShowModal]   = useState(false);
-  const [modalType,   setModalType]   = useState<"photo" | "project" | "book">("photo");
+  const [memories,     setMemories]    = useState<Memory[]>([]);
+  const [reflections,  setReflections] = useState<Reflection[]>([]);
+  const [children,     setChildren]    = useState<Child[]>([]);
+  const [activeType,   setActiveType]  = useState("all");
+  const [loading,      setLoading]     = useState(true);
+  const [isPro,        setIsPro]       = useState<boolean | null>(null);
+  const [showModal,    setShowModal]   = useState(false);
+  const [modalType,    setModalType]   = useState<"photo" | "project" | "book">("photo");
   const [showLogModal, setShowLogModal] = useState(false);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightboxUrl,  setLightboxUrl] = useState<string | null>(null);
 
   // Form state
   const [formTitle,   setFormTitle]   = useState("");
@@ -61,6 +70,13 @@ export default function MemoriesPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [saving,      setSaving]      = useState(false);
 
+  // Reflection view/edit state
+  const [viewingReflection,       setViewingReflection]       = useState<Reflection | null>(null);
+  const [editingReflection,       setEditingReflection]       = useState(false);
+  const [reflectionEditText,      setReflectionEditText]      = useState("");
+  const [reflectionDeleteConfirm, setReflectionDeleteConfirm] = useState(false);
+  const [savingReflection,        setSavingReflection]        = useState(false);
+
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Load data ───────────────────────────────────────────────────────────────
@@ -68,7 +84,7 @@ export default function MemoriesPage() {
   const load = useCallback(async () => {
     if (!effectiveUserId) return;
 
-    const [{ data: kids }, { data: events }, { data: profile }] = await Promise.all([
+    const [{ data: kids }, { data: events }, { data: profile }, { data: reflData }] = await Promise.all([
       supabase
         .from("children")
         .select("id, name, color")
@@ -82,11 +98,17 @@ export default function MemoriesPage() {
         .in("type", ["memory_photo", "memory_project", "memory_book"])
         .order("created_at", { ascending: false }),
       supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
+      supabase
+        .from("daily_reflections")
+        .select("id, date, reflection, updated_at")
+        .eq("user_id", effectiveUserId)
+        .order("date", { ascending: false }),
     ]);
 
     setChildren(kids ?? []);
     setMemories((events as unknown as Memory[]) ?? []);
     setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setReflections((reflData as unknown as Reflection[]) ?? []);
     setLoading(false);
   }, [effectiveUserId]);
 
@@ -121,6 +143,43 @@ export default function MemoriesPage() {
     setFormFile(null);
     setPreviewUrl(null);
     setUploadError(null);
+  }
+
+  function openReflection(r: Reflection) {
+    setViewingReflection(r);
+    setEditingReflection(false);
+    setReflectionDeleteConfirm(false);
+  }
+
+  function closeReflection() {
+    setViewingReflection(null);
+    setEditingReflection(false);
+    setReflectionDeleteConfirm(false);
+  }
+
+  async function saveReflectionEdit() {
+    if (!viewingReflection || !reflectionEditText.trim()) return;
+    setSavingReflection(true);
+    const { data } = await supabase
+      .from("daily_reflections")
+      .update({ reflection: reflectionEditText.trim() })
+      .eq("id", viewingReflection.id)
+      .select("id, date, reflection, updated_at")
+      .single();
+    if (data) {
+      const updated = data as Reflection;
+      setReflections((prev) => prev.map((r) => r.id === updated.id ? updated : r));
+      setViewingReflection(updated);
+    }
+    setSavingReflection(false);
+    setEditingReflection(false);
+  }
+
+  async function deleteReflection() {
+    if (!viewingReflection) return;
+    await supabase.from("daily_reflections").delete().eq("id", viewingReflection.id);
+    setReflections((prev) => prev.filter((r) => r.id !== viewingReflection.id));
+    closeReflection();
   }
 
   // ── Save memory ─────────────────────────────────────────────────────────────
@@ -262,139 +321,179 @@ export default function MemoriesPage() {
         ))}
       </div>
 
-      {/* ── Content ─────────────────────────────────────────── */}
-      {loading ? (
-        <div className="text-center py-12">
-          <span className="text-3xl animate-pulse">📷</span>
-        </div>
-      ) : filteredMemories.length === 0 ? (
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-          <span className="text-4xl mb-3">🌸</span>
-          <p className="font-medium text-[#2d2926] mb-1">No memories yet</p>
-          <p className="text-sm text-[#7a6f65] max-w-xs">
-            Start logging photos, projects, and books to build your family&apos;s story.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-6">
+      {/* ── Reflections tab ─────────────────────────────────── */}
+      {activeType === "reflection" && (
+        loading ? (
+          <div className="text-center py-12">
+            <span className="text-3xl animate-pulse">📝</span>
+          </div>
+        ) : reflections.length === 0 ? (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+            <span className="text-4xl mb-3">📝</span>
+            <p className="font-medium text-[#2d2926] mb-1">No reflections yet</p>
+            <p className="text-sm text-[#7a6f65] max-w-xs">
+              No reflections yet. Tap Log Today to write your first one →
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {reflections.map((r) => {
+              const dateLabel = new Date(r.date + "T12:00:00").toLocaleDateString("en-US", {
+                weekday: "short", month: "long", day: "numeric", year: "numeric",
+              });
+              return (
+                <button
+                  key={r.id}
+                  onClick={() => openReflection(r)}
+                  className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-left hover:bg-[#faf8f5] transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <span className="text-xs font-semibold text-[#5c7f63]">{dateLabel}</span>
+                    <span className="text-[#c8bfb5] text-base leading-none shrink-0">›</span>
+                  </div>
+                  <p className="text-sm text-[#2d2926] leading-relaxed line-clamp-2">{r.reflection}</p>
+                </button>
+              );
+            })}
+          </div>
+        )
+      )}
 
-          {/* Photo grid */}
-          {gridPhotos.length > 0 && (
-            <div>
-              {activeType === "all" && (
-                <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-                  Photos
-                </p>
-              )}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {gridPhotos.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => setLightboxUrl(m.payload.photo_url!)}
-                    className="group relative rounded-2xl overflow-hidden aspect-square bg-[#f0ede8] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]"
-                  >
-                    {/* Photo */}
-                    <img
-                      src={m.payload.photo_url}
-                      alt={m.payload.title ?? "Memory photo"}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    {/* Hover overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
-                    {/* Caption on hover */}
-                    <div className="absolute bottom-0 left-0 right-0 p-3 translate-y-1 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-200">
-                      {m.payload.title && (
-                        <p className="text-white text-xs font-semibold leading-snug line-clamp-2">
-                          {m.payload.title}
-                        </p>
-                      )}
-                      {m.payload.child_id && (
-                        <span
-                          className="inline-block mt-1 text-[10px] font-medium px-2 py-0.5 rounded-full text-white"
-                          style={{ backgroundColor: childColor(m.payload.child_id) + "cc" }}
-                        >
-                          {childName(m.payload.child_id)}
-                        </span>
-                      )}
-                    </div>
-                    {/* Date badge */}
-                    {m.payload.date && (
-                      <div className="absolute top-2 right-2 bg-black/40 text-white text-[10px] px-1.5 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                        {new Date(m.payload.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+      {/* ── Memories content (non-reflection tabs) ────────── */}
+      {activeType !== "reflection" && (
+        loading ? (
+          <div className="text-center py-12">
+            <span className="text-3xl animate-pulse">📷</span>
+          </div>
+        ) : filteredMemories.length === 0 ? (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+            <span className="text-4xl mb-3">🌸</span>
+            <p className="font-medium text-[#2d2926] mb-1">No memories yet</p>
+            <p className="text-sm text-[#7a6f65] max-w-xs">
+              Start logging photos, projects, and books to build your family&apos;s story.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
 
-          {/* List items (projects, books, photos without url) */}
-          {listItems.length > 0 && (
-            <div>
-              {activeType === "all" && gridPhotos.length > 0 && (
-                <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-                  Projects &amp; Books
-                </p>
-              )}
-              <div className="space-y-2.5">
-                {listItems.map((m) => {
-                  const isPhoto   = m.type === "memory_photo";
-                  const isProject = m.type === "memory_project";
-                  const isBook    = m.type === "memory_book";
-                  const emoji = isPhoto ? "📷" : isProject ? "📁" : "📖";
-                  const bg    = isPhoto ? "#f0f4ff" : isProject ? "#f5ede0" : "#e8f0e9";
-                  const label = isPhoto ? "Photo" : isProject ? "Project" : "Book";
-                  const p = m.payload;
-                  return (
-                    <div
+            {/* Photo grid */}
+            {gridPhotos.length > 0 && (
+              <div>
+                {activeType === "all" && (
+                  <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
+                    Photos
+                  </p>
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  {gridPhotos.map((m) => (
+                    <button
                       key={m.id}
-                      className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 flex gap-3"
+                      onClick={() => setLightboxUrl(m.payload.photo_url!)}
+                      className="group relative rounded-2xl overflow-hidden aspect-square bg-[#f0ede8] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]"
                     >
-                      <div
-                        className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
-                        style={{ backgroundColor: bg }}
-                      >
-                        {emoji}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="font-medium text-sm text-[#2d2926] truncate">
-                            {p.title ?? "Untitled"}
+                      {/* Photo */}
+                      <img
+                        src={m.payload.photo_url}
+                        alt={m.payload.title ?? "Memory photo"}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      {/* Hover overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+                      {/* Caption on hover */}
+                      <div className="absolute bottom-0 left-0 right-0 p-3 translate-y-1 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-200">
+                        {m.payload.title && (
+                          <p className="text-white text-xs font-semibold leading-snug line-clamp-2">
+                            {m.payload.title}
                           </p>
-                          <span className="text-[10px] text-[#b5aca4] shrink-0">
-                            {p.date
-                              ? new Date(p.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                              : new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                          </span>
-                        </div>
-                        {p.description && (
-                          <p className="text-xs text-[#7a6f65] mt-0.5 line-clamp-2">{p.description}</p>
                         )}
-                        <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                          <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">
-                            {label}
+                        {m.payload.child_id && (
+                          <span
+                            className="inline-block mt-1 text-[10px] font-medium px-2 py-0.5 rounded-full text-white"
+                            style={{ backgroundColor: childColor(m.payload.child_id) + "cc" }}
+                          >
+                            {childName(m.payload.child_id)}
                           </span>
-                          {p.child_id && (
-                            <span
-                              className="text-[10px] px-2 py-0.5 rounded-full text-white"
-                              style={{ backgroundColor: childColor(p.child_id) }}
-                            >
-                              {childName(p.child_id)}
+                        )}
+                      </div>
+                      {/* Date badge */}
+                      {m.payload.date && (
+                        <div className="absolute top-2 right-2 bg-black/40 text-white text-[10px] px-1.5 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                          {new Date(m.payload.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* List items (projects, books, photos without url) */}
+            {listItems.length > 0 && (
+              <div>
+                {activeType === "all" && gridPhotos.length > 0 && (
+                  <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
+                    Projects &amp; Books
+                  </p>
+                )}
+                <div className="space-y-2.5">
+                  {listItems.map((m) => {
+                    const isPhoto   = m.type === "memory_photo";
+                    const isProject = m.type === "memory_project";
+                    const isBook    = m.type === "memory_book";
+                    const emoji = isPhoto ? "📷" : isProject ? "📁" : "📖";
+                    const bg    = isPhoto ? "#f0f4ff" : isProject ? "#f5ede0" : "#e8f0e9";
+                    const label = isPhoto ? "Photo" : isProject ? "Project" : "Book";
+                    const p = m.payload;
+                    return (
+                      <div
+                        key={m.id}
+                        className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 flex gap-3"
+                      >
+                        <div
+                          className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
+                          style={{ backgroundColor: bg }}
+                        >
+                          {emoji}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-medium text-sm text-[#2d2926] truncate">
+                              {p.title ?? "Untitled"}
+                            </p>
+                            <span className="text-[10px] text-[#b5aca4] shrink-0">
+                              {p.date
+                                ? new Date(p.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                                : new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                             </span>
+                          </div>
+                          {p.description && (
+                            <p className="text-xs text-[#7a6f65] mt-0.5 line-clamp-2">{p.description}</p>
                           )}
-                          {p.author && (
-                            <span className="text-[10px] text-[#b5aca4]">by {p.author}</span>
-                          )}
+                          <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                            <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">
+                              {label}
+                            </span>
+                            {p.child_id && (
+                              <span
+                                className="text-[10px] px-2 py-0.5 rounded-full text-white"
+                                style={{ backgroundColor: childColor(p.child_id) }}
+                              >
+                                {childName(p.child_id)}
+                              </span>
+                            )}
+                            {p.author && (
+                              <span className="text-[10px] text-[#b5aca4]">by {p.author}</span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )
       )}
 
       {/* ── Lightbox ────────────────────────────────────────── */}
@@ -416,6 +515,92 @@ export default function MemoriesPage() {
             className="max-w-full max-h-[90vh] rounded-2xl object-contain shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
+        </div>
+      )}
+
+      {/* ── Reflection View Modal ────────────────────────────── */}
+      {viewingReflection && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-[#5c7f63] mb-0.5">
+                  {new Date(viewingReflection.date + "T12:00:00").toLocaleDateString("en-US", {
+                    weekday: "long", month: "long", day: "numeric", year: "numeric",
+                  })}
+                </p>
+                <h2 className="font-bold text-[#2d2926]">📝 Reflection</h2>
+              </div>
+              <button onClick={closeReflection} className="text-[#b5aca4] hover:text-[#7a6f65]">
+                <X size={18} />
+              </button>
+            </div>
+
+            {editingReflection ? (
+              <>
+                <textarea
+                  value={reflectionEditText}
+                  onChange={(e) => setReflectionEditText(e.target.value)}
+                  rows={8}
+                  autoFocus
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none leading-relaxed"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditingReflection(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveReflectionEdit}
+                    disabled={savingReflection || !reflectionEditText.trim()}
+                    className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                  >
+                    {savingReflection ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-[#2d2926] leading-relaxed whitespace-pre-wrap">
+                  {viewingReflection.reflection}
+                </p>
+                <button
+                  onClick={() => { setEditingReflection(true); setReflectionEditText(viewingReflection.reflection); }}
+                  className="w-full py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                >
+                  ✏️ Edit
+                </button>
+                {!reflectionDeleteConfirm ? (
+                  <button
+                    onClick={() => setReflectionDeleteConfirm(true)}
+                    className="w-full py-2.5 rounded-xl border border-red-200 text-sm font-medium text-red-400 hover:bg-red-50 transition-colors"
+                  >
+                    Delete
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm text-center text-[#2d2926] font-medium">Are you sure?</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setReflectionDeleteConfirm(false)}
+                        className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={deleteReflection}
+                        className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
 
