@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePartner } from '@/lib/partner-context'
 import FinishLineCard from './FinishLineCard'
-import FinishLineModal from './FinishLineModal'
+import CurriculumWizard, { type CurriculumWizardEditData } from '@/app/components/CurriculumWizard'
 import Toast from './Toast'
 
 type Child = { id: string; name: string; color: string | null }
@@ -22,12 +22,11 @@ type GoalWithChild = Goal & { child_name: string; child_color: string }
 
 export default function FinishLineSection() {
   const { effectiveUserId } = usePartner()
-  const [goals,        setGoals]        = useState<GoalWithChild[]>([])
-  const [children,     setChildren]     = useState<Child[]>([])
-  const [showAddModal, setShowAddModal] = useState(false)
-  const [editingGoal,  setEditingGoal]  = useState<GoalWithChild | null>(null)
-  const [loading,      setLoading]      = useState(true)
-  const [toast,        setToast]        = useState('')
+  const [goals,            setGoals]            = useState<GoalWithChild[]>([])
+  const [showCreateWizard, setShowCreateWizard] = useState(false)
+  const [editWizardData,   setEditWizardData]   = useState<CurriculumWizardEditData | null>(null)
+  const [loading,          setLoading]          = useState(true)
+  const [toast,            setToast]            = useState('')
 
   async function loadGoals() {
     if (!effectiveUserId) return
@@ -36,18 +35,17 @@ export default function FinishLineSection() {
       supabase.from('children').select('id, name, color').eq('user_id', effectiveUserId).eq('archived', false).order('sort_order'),
     ])
     const kids = childrenData ?? []
-    setChildren(kids)
     const enriched: GoalWithChild[] = (goalsData ?? [])
-      .filter((g) => kids.some((c) => c.id === g.child_id))
-      .map((g) => {
-        const child = kids.find((c) => c.id === g.child_id)!
+      .filter((g: Goal) => kids.some((c: Child) => c.id === g.child_id))
+      .map((g: Goal) => {
+        const child = kids.find((c: Child) => c.id === g.child_id)!
         return { ...g, child_name: child.name, child_color: child.color ?? '#5c7f63' }
       })
     setGoals(enriched)
     setLoading(false)
   }
 
-  useEffect(() => { loadGoals() }, [effectiveUserId])
+  useEffect(() => { loadGoals() }, [effectiveUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return null
 
@@ -55,7 +53,7 @@ export default function FinishLineSection() {
     <div id="finish-line">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">Finish Line 🎯</h2>
-        <button onClick={() => setShowAddModal(true)} className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors">+ Add Goal</button>
+        <button onClick={() => setShowCreateWizard(true)} className="text-xs font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1 rounded-full transition-colors">+ New Curriculum</button>
       </div>
 
       {goals.length === 0 ? (
@@ -63,7 +61,7 @@ export default function FinishLineSection() {
           <span className="text-2xl">🎯</span>
           <div>
             <p className="text-sm font-medium text-[#2d2926]">No curriculum goals yet</p>
-            <p className="text-xs text-[#b5aca4]">Add a goal to see if you&apos;re on track to finish on time.</p>
+            <p className="text-xs text-[#b5aca4]">Add a curriculum to see if you&apos;re on track to finish on time.</p>
           </div>
         </div>
       ) : (
@@ -72,7 +70,16 @@ export default function FinishLineSection() {
             <FinishLineCard
               key={goal.id}
               goal={goal}
-              onEdit={() => setEditingGoal(goal)}
+              onEdit={() => setEditWizardData({
+                goalId: goal.id,
+                childId: goal.child_id,
+                curricName: goal.curriculum_name,
+                subjectLabel: goal.subject_label,
+                totalLessons: goal.total_lessons,
+                currentLesson: goal.current_lesson,
+                targetDate: goal.target_date,
+                schoolDays: goal.school_days ?? [],
+              })}
               onUpdate={loadGoals}
               showToast={setToast}
             />
@@ -80,19 +87,19 @@ export default function FinishLineSection() {
         </div>
       )}
 
-      {showAddModal && (
-        <FinishLineModal
-          children={children}
-          onClose={() => setShowAddModal(false)}
+      {showCreateWizard && (
+        <CurriculumWizard
+          mode="create"
+          onClose={() => setShowCreateWizard(false)}
           onSaved={loadGoals}
           showToast={setToast}
         />
       )}
-      {editingGoal && (
-        <FinishLineModal
-          children={children}
-          goal={editingGoal}
-          onClose={() => setEditingGoal(null)}
+      {editWizardData && (
+        <CurriculumWizard
+          mode="edit"
+          editData={editWizardData}
+          onClose={() => setEditWizardData(null)}
           onSaved={loadGoals}
           showToast={setToast}
         />
