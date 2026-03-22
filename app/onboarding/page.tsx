@@ -814,14 +814,28 @@ function StepCurriculum({
       lessonsDone:  0,
       finishDate:   "",
     });
-    setSelectedCard({
-      name:    cs.draft.curricName,
-      subject: cs.draft.subjects[0] ?? "Other",
-      lessons: cs.draft.totalLessons,
-      days:    [...cs.draft.schoolDays],
-    });
-    setSearch("");
-    setFilterSubject("All");
+
+    const isInLibrary = CURRICULUM_LIBRARY.some((lib) => lib.name === cs.draft.curricName);
+
+    if (isInLibrary) {
+      // Library curriculum — open Screen A with card pre-selected
+      setSelectedCard({
+        name:    cs.draft.curricName,
+        subject: cs.draft.subjects[0] ?? "Other",
+        lessons: cs.draft.totalLessons,
+        days:    [...cs.draft.schoolDays],
+      });
+      setSearch("");
+      setFilterSubject("All");
+      setScreen("picker");
+    } else {
+      // Manually entered curriculum — open Screen B pre-filled
+      setScreen("manual");
+      setSelectedCard(null);
+      const otherSub = cs.draft.subjects.find((s) => !CORE_CHIPS.includes(s)) ?? "";
+      setOtherPillActive(!!otherSub);
+      setOtherSubject(otherSub);
+    }
   }
 
   // ── Shared skip footer ────────────────────────────────────────────────────
@@ -1307,6 +1321,62 @@ function StepCurriculum({
               />
             </div>
 
+            {/* Where are you starting? */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
+                Where Are You Starting?
+              </label>
+              <div
+                className="flex gap-2 mb-2"
+                onTouchStart={(e) => { touchMoved.current = false; touchStartY.current = e.touches[0].clientY; }}
+                onTouchMove={(e) => { if (Math.abs(e.touches[0].clientY - touchStartY.current) > 5) touchMoved.current = true; }}
+              >
+                <button
+                  type="button"
+                  onClick={() => { if (touchMoved.current) return; setAlreadyStarted(false); }}
+                  className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
+                  style={{
+                    backgroundColor: !alreadyStarted ? "#5c7f63" : "#f8f5f0",
+                    color:           !alreadyStarted ? "white" : "#9e958d",
+                    borderColor:     !alreadyStarted ? "#5c7f63" : "#e8e2d9",
+                  }}
+                >
+                  From the beginning
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { if (touchMoved.current) return; setAlreadyStarted(true); }}
+                  className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
+                  style={{
+                    backgroundColor: alreadyStarted ? "#5c7f63" : "#f8f5f0",
+                    color:           alreadyStarted ? "white" : "#9e958d",
+                    borderColor:     alreadyStarted ? "#5c7f63" : "#e8e2d9",
+                  }}
+                >
+                  Already started
+                </button>
+              </div>
+              {alreadyStarted && (
+                <div className="mt-2">
+                  <label className="block text-xs text-[#5c7f63] mb-1">Starting at lesson</label>
+                  <input
+                    type="number"
+                    min={2}
+                    value={startingLesson}
+                    onChange={(e) => setStartingLesson(e.target.value === "" ? "" : parseInt(e.target.value) || "")}
+                    onWheel={(e) => e.currentTarget.blur()}
+                    placeholder="e.g. 47"
+                    className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+                  />
+                  {typeof startingLesson === "number" && startingLesson >= 2 && (
+                    <p className="mt-1 text-xs text-[#7a6f65] italic">
+                      Lessons 1–{startingLesson - 1} will be marked as already done
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* School days */}
             <div className="mb-4">
               <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
@@ -1338,7 +1408,7 @@ function StepCurriculum({
             {draft.curricName.trim() && draft.totalLessons > 0 && draft.schoolDays.some(Boolean) && (
               <div className="mb-4 px-4 py-3 bg-[#f0f7f0] border border-[#c8ddb8] rounded-2xl">
                 <p className="text-xs text-[#5c7f63] font-medium">
-                  ~Finishes {calcFinishPreview(draft.schoolDays, draft.totalLessons)}
+                  ~Finishes {calcFinishPreview(draft.schoolDays, Math.max(0, draft.totalLessons - (alreadyStarted && typeof startingLesson === "number" && startingLesson >= 2 ? startingLesson - 1 : 0)))}
                 </p>
               </div>
             )}
