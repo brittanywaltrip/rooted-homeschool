@@ -290,6 +290,7 @@ export default function TodayPage() {
   const { isPartner, effectiveUserId } = usePartner();
 
   const [familyName,      setFamilyName]      = useState("");
+  const [firstName,       setFirstName]       = useState("");
   const [onboarded,       setOnboarded]       = useState<boolean | null>(null);
   const [children,        setChildren]        = useState<Child[]>([]);
   const [lessons,         setLessons]         = useState<Lesson[]>([]);
@@ -370,6 +371,7 @@ export default function TodayPage() {
       supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
     ]);
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
+    setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
 
@@ -785,9 +787,11 @@ export default function TodayPage() {
             if (subjects.length === 0) return (
               <div className="py-8 flex flex-col items-center text-center">
                 <span className="text-[52px] block mb-2">🌿</span>
-                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>Welcome to Rooted 🌱</p>
-                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">Your garden grows with every lesson you log together.</p>
-                <Link href="/dashboard/plan" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
+                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+                  {firstName ? `Ready to start, ${firstName}?` : "Ready to start?"}
+                </p>
+                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">Set up your curriculum and your first lessons will appear right here.</p>
+                <Link href="/dashboard/plan?openWizard=true" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
                   Set Up Curriculum →
                 </Link>
               </div>

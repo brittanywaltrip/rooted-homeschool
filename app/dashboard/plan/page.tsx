@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -400,6 +401,8 @@ function DayColumn({
 
 export default function PlanPage() {
   const { isPartner, effectiveUserId } = usePartner();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const todayMidnight = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
   const todayStr = toDateStr(todayMidnight);
 
@@ -434,6 +437,13 @@ export default function PlanPage() {
 
   // ── Curriculum management ─────────────────────────────────────────────────
   const [showCreateWizard,  setShowCreateWizard]  = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("openWizard") === "true") {
+      setShowCreateWizard(true);
+      router.replace("/dashboard/plan");
+    }
+  }, [searchParams, router]);
   const [editWizardData,    setEditWizardData]    = useState<CurriculumWizardEditData | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
 

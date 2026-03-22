@@ -9,7 +9,6 @@ export default function SignupPage() {
   const router = useRouter();
   const [firstName,  setFirstName]  = useState("");
   const [lastName,   setLastName]   = useState("");
-  const [familyName, setFamilyName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -25,7 +24,6 @@ export default function SignupPage() {
       password,
       options: {
         data: {
-          family_name: familyName,
           first_name: firstName.trim() || null,
           last_name: lastName.trim() || null,
         },
@@ -120,20 +118,6 @@ export default function SignupPage() {
                   className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
-                Family name
-              </label>
-              <input
-                type="text"
-                value={familyName}
-                onChange={(e) => setFamilyName(e.target.value)}
-                placeholder="e.g. The Smith Family"
-                required
-                className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-              />
             </div>
 
             <div>
