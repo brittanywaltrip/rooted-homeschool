@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 
 type Child   = { id: string; name: string; color: string | null };
 type Subject = { id: string; name: string; color: string | null };
-type Mode = null | "lesson" | "book" | "project" | "photo" | "reflection" | "break";
+type Mode = null | "book" | "field_trip" | "project" | "activity" | "photo" | "reflection";
 
 interface LogTodayModalProps {
   children: Child[];
@@ -22,12 +22,12 @@ interface LogTodayModalProps {
 // ─── Mode definitions ─────────────────────────────────────────────────────────
 
 const MODES: { mode: Mode; emoji: string; label: string }[] = [
-  { mode: "lesson",     emoji: "✅", label: "Lesson"     },
   { mode: "book",       emoji: "📖", label: "Book"       },
+  { mode: "field_trip", emoji: "🗺️",  label: "Field Trip" },
   { mode: "project",    emoji: "🔬", label: "Project"    },
+  { mode: "activity",   emoji: "🎵", label: "Activity"   },
   { mode: "photo",      emoji: "📷", label: "Photo"      },
   { mode: "reflection", emoji: "💭", label: "Reflection" },
-  { mode: "break",      emoji: "🌴", label: "Break"      },
 ];
 
 // ─── Child pill selector ──────────────────────────────────────────────────────
@@ -108,19 +108,22 @@ export default function LogTodayModal({
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState("");
 
-  // Lesson fields
-  const [lessonTitle,   setLessonTitle]   = useState("");
-  const [lessonChild,   setLessonChild]   = useState(children.length === 1 ? children[0].id : "");
-  const [lessonSubject, setLessonSubject] = useState("");
-
   // Book fields
   const [bookTitle,  setBookTitle]  = useState("");
   const [bookChild,  setBookChild]  = useState(children.length === 1 ? children[0].id : "");
+
+  // Field Trip fields
+  const [fieldTripTitle, setFieldTripTitle] = useState("");
+  const [fieldTripChild, setFieldTripChild] = useState(children.length === 1 ? children[0].id : "");
 
   // Project fields
   const [projectTitle, setProjectTitle] = useState("");
   const [projectDesc,  setProjectDesc]  = useState("");
   const [projectChild, setProjectChild] = useState(children.length === 1 ? children[0].id : "");
+
+  // Activity fields
+  const [activityTitle, setActivityTitle] = useState("");
+  const [activityChild, setActivityChild] = useState(children.length === 1 ? children[0].id : "");
 
   // Photo fields
   const [photoTitle, setPhotoTitle] = useState("");
@@ -128,11 +131,6 @@ export default function LogTodayModal({
 
   // Reflection fields
   const [reflectionText, setReflectionText] = useState("");
-
-  // Break fields
-  const [breakStart, setBreakStart] = useState(today);
-  const [breakEnd,   setBreakEnd]   = useState(today);
-  const [breakLabel, setBreakLabel] = useState("");
 
   function selectMode(m: Mode) {
     setMode(m);
@@ -146,24 +144,7 @@ export default function LogTodayModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setError("Not logged in."); setSaving(false); return; }
 
-      if (mode === "lesson") {
-        if (!lessonTitle.trim()) { setError("Please enter a lesson title."); setSaving(false); return; }
-        let subjectId: string | null = null;
-        if (lessonSubject) {
-          const sub = subjects.find((s) => s.name === lessonSubject);
-          subjectId = sub?.id ?? null;
-        }
-        await supabase.from("lessons").insert({
-          user_id: user.id,
-          child_id: lessonChild || null,
-          subject_id: subjectId,
-          title: lessonTitle.trim(),
-          completed: true,
-          date: saveDate,
-        });
-        onSaved("lesson", lessonChild || undefined);
-
-      } else if (mode === "book") {
+      if (mode === "book") {
         if (!bookTitle.trim()) { setError("Please enter a book title."); setSaving(false); return; }
         await supabase.from("app_events").insert({
           user_id: user.id,
@@ -171,6 +152,15 @@ export default function LogTodayModal({
           payload: { title: bookTitle.trim(), date: saveDate, child_id: bookChild || undefined },
         });
         onSaved("book", bookChild || undefined);
+
+      } else if (mode === "field_trip") {
+        if (!fieldTripTitle.trim()) { setError("Please enter a title."); setSaving(false); return; }
+        await supabase.from("app_events").insert({
+          user_id: user.id,
+          type: "memory_field_trip",
+          payload: { title: fieldTripTitle.trim(), date: saveDate, child_id: fieldTripChild || undefined },
+        });
+        onSaved("field_trip", fieldTripChild || undefined);
 
       } else if (mode === "project") {
         if (!projectTitle.trim()) { setError("Please enter a title."); setSaving(false); return; }
@@ -185,6 +175,15 @@ export default function LogTodayModal({
           },
         });
         onSaved("project", projectChild || undefined);
+
+      } else if (mode === "activity") {
+        if (!activityTitle.trim()) { setError("Please enter a title."); setSaving(false); return; }
+        await supabase.from("app_events").insert({
+          user_id: user.id,
+          type: "memory_activity",
+          payload: { title: activityTitle.trim(), date: saveDate, child_id: activityChild || undefined },
+        });
+        onSaved("activity", activityChild || undefined);
 
       } else if (mode === "photo") {
         if (!photoTitle.trim()) { setError("Please enter a title."); setSaving(false); return; }
@@ -202,20 +201,6 @@ export default function LogTodayModal({
           { onConflict: "user_id,date" }
         );
         onSaved("reflection");
-
-      } else if (mode === "break") {
-        if (!breakStart || !breakEnd || breakEnd < breakStart) {
-          setError("Please set valid start and end dates.");
-          setSaving(false);
-          return;
-        }
-        await supabase.from("vacation_blocks").insert({
-          user_id: user.id,
-          name: breakLabel.trim() || "Break",
-          start_date: breakStart,
-          end_date: breakEnd,
-        });
-        onSaved("break");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -225,12 +210,12 @@ export default function LogTodayModal({
   }
 
   const canSave = !saving && (
-    (mode === "lesson"     && lessonTitle.trim().length > 0) ||
-    (mode === "book"       && bookTitle.trim().length > 0) ||
-    (mode === "project"    && projectTitle.trim().length > 0) ||
-    (mode === "photo"      && photoTitle.trim().length > 0) ||
-    (mode === "reflection" && reflectionText.trim().length > 0) ||
-    (mode === "break"      && !!breakStart && !!breakEnd && breakEnd >= breakStart)
+    (mode === "book"        && bookTitle.trim().length > 0) ||
+    (mode === "field_trip"  && fieldTripTitle.trim().length > 0) ||
+    (mode === "project"     && projectTitle.trim().length > 0) ||
+    (mode === "activity"    && activityTitle.trim().length > 0) ||
+    (mode === "photo"       && photoTitle.trim().length > 0) ||
+    (mode === "reflection"  && reflectionText.trim().length > 0)
   );
 
   return (
@@ -305,23 +290,6 @@ export default function LogTodayModal({
 
             {/* ── Step 2: Forms ── */}
 
-            {mode === "lesson" && (
-              <div className="space-y-4 mt-4">
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What did you learn today? *</label>
-                  <input
-                    value={lessonTitle}
-                    onChange={(e) => setLessonTitle(e.target.value)}
-                    placeholder="e.g. Chapter 4 reading, Long division practice"
-                    autoFocus
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                  />
-                </div>
-                <ChildPills children={children} value={lessonChild} onChange={setLessonChild} />
-                <SubjectPills subjects={subjects} value={lessonSubject} onChange={setLessonSubject} />
-              </div>
-            )}
-
             {mode === "book" && (
               <div className="space-y-4 mt-4">
                 <div>
@@ -335,6 +303,22 @@ export default function LogTodayModal({
                   />
                 </div>
                 <ChildPills children={children} value={bookChild} onChange={setBookChild} />
+              </div>
+            )}
+
+            {mode === "field_trip" && (
+              <div className="space-y-4 mt-4">
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Where did you go? *</label>
+                  <input
+                    value={fieldTripTitle}
+                    onChange={(e) => setFieldTripTitle(e.target.value)}
+                    placeholder="e.g. Natural History Museum, Farm visit"
+                    autoFocus
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                  />
+                </div>
+                <ChildPills children={children} value={fieldTripChild} onChange={setFieldTripChild} />
               </div>
             )}
 
@@ -361,6 +345,22 @@ export default function LogTodayModal({
                   />
                 </div>
                 <ChildPills children={children} value={projectChild} onChange={setProjectChild} />
+              </div>
+            )}
+
+            {mode === "activity" && (
+              <div className="space-y-4 mt-4">
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What activity did you do? *</label>
+                  <input
+                    value={activityTitle}
+                    onChange={(e) => setActivityTitle(e.target.value)}
+                    placeholder="e.g. Piano practice, Soccer, Art class"
+                    autoFocus
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                  />
+                </div>
+                <ChildPills children={children} value={activityChild} onChange={setActivityChild} />
               </div>
             )}
 
@@ -392,41 +392,6 @@ export default function LogTodayModal({
                     rows={5}
                     autoFocus
                     className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
-                  />
-                </div>
-              </div>
-            )}
-
-            {mode === "break" && (
-              <div className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Start date</label>
-                    <input
-                      type="date"
-                      value={breakStart}
-                      onChange={(e) => setBreakStart(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">End date</label>
-                    <input
-                      type="date"
-                      value={breakEnd}
-                      onChange={(e) => setBreakEnd(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Label (optional)</label>
-                  <input
-                    value={breakLabel}
-                    onChange={(e) => setBreakLabel(e.target.value)}
-                    placeholder="Spring Break, Sick Day, Family Trip..."
-                    autoFocus
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
                   />
                 </div>
               </div>

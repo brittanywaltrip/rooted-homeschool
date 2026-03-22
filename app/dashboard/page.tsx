@@ -1113,7 +1113,7 @@ export default function TodayPage() {
           aria-label="Log today"
         >
           <span className="text-2xl font-light leading-none">+</span>
-          <span className="text-sm font-semibold">Log Today</span>
+          <span className="text-sm font-semibold">Capture Today</span>
         </button>
       )}
 
