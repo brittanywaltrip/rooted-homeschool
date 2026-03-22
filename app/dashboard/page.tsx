@@ -295,7 +295,6 @@ export default function TodayPage() {
   const [lessons,         setLessons]         = useState<Lesson[]>([]);
   const [hasAnyLessons,   setHasAnyLessons]   = useState(false);
   const [leafCounts,      setLeafCounts]      = useState<Record<string, number>>({});
-  const [selectedChildId, setSelectedChildId] = useState<string>("all");
   const [loading,         setLoading]         = useState(true);
   const [celebrating,     setCelebrating]     = useState(false);
 
@@ -311,10 +310,13 @@ export default function TodayPage() {
     if (sessionStorage.getItem("setup-banner-dismissed") === "1") setBannerDismissed(true);
   }, []);
 
-  const [nudgeDismissed, setNudgeDismissed] = useState(false);
-  const [isPro,          setIsPro]          = useState(false);
+  const [nudgeDismissed,   setNudgeDismissed]   = useState(false);
+  const [isPro,            setIsPro]            = useState(false);
+  const [upgradeDismissed, setUpgradeDismissed] = useState(false);
   useEffect(() => {
     if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") setNudgeDismissed(true);
+    const udDate = localStorage.getItem("rooted_upgrade_dismissed");
+    if (udDate === new Date().toISOString().split("T")[0]) setUpgradeDismissed(true);
   }, []);
 
   const [showPwaBanner, setShowPwaBanner] = useState(false);
@@ -613,12 +615,8 @@ export default function TodayPage() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
-  const filteredLessons = selectedChildId === "all"
-    ? lessons
-    : lessons.filter((l) => l.child_id === selectedChildId);
-
-  const completedToday = filteredLessons.filter((l) => l.completed).length;
-  const totalToday     = filteredLessons.length;
+  const completedToday = lessons.filter((l) => l.completed).length;
+  const totalToday     = lessons.length;
   const progressPct    = totalToday > 0 ? Math.round((completedToday / totalToday) * 100) : 0;
   const allDone        = totalToday > 0 && completedToday === totalToday;
 
@@ -715,11 +713,11 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* ── Upgrade nudge ────────────────────────────────── */}
-      {!isPartner && !isPro && children.length > 0 && subjects.length === 0 && (
-        <div className="bg-gradient-to-br from-[#fef9f0] to-[#fef6e4] border border-[#f0d090] rounded-2xl p-5 flex items-start gap-4">
+      {/* ── Founding Family upgrade banner ───────────────── */}
+      {!isPartner && !isPro && !upgradeDismissed && new Date() < new Date("2026-04-30") && (
+        <div className="relative bg-gradient-to-br from-[#fef9f0] to-[#fef6e4] border border-[#f0d090] rounded-2xl p-5 flex items-start gap-4">
           <span className="text-2xl shrink-0">🌱</span>
-          <div className="flex-1">
+          <div className="flex-1 pr-6">
             <p className="text-sm font-bold text-[#2d2926] mb-1">
               Lock in your Founding Family price — {Math.max(0, Math.ceil((new Date("2026-04-30").getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))} days left
             </p>
@@ -730,6 +728,11 @@ export default function TodayPage() {
               Claim Founding Price →
             </a>
           </div>
+          <button
+            onClick={() => { localStorage.setItem("rooted_upgrade_dismissed", today); setUpgradeDismissed(true); }}
+            aria-label="Dismiss"
+            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0dda8]/50 transition-colors text-lg leading-none"
+          >×</button>
         </div>
       )}
 
@@ -753,7 +756,7 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Lesson Checklist ─────────────────────────────── */}
+      {/* ── Today's Sections ─────────────────────────────── */}
       <div>
         {allDone && (
           <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
@@ -761,105 +764,125 @@ export default function TodayPage() {
             <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
           </div>
         )}
+        {(() => {
+          const childIds = new Set(children.map((c) => c.id));
+          const sectionsWithContent = children.filter((child) =>
+            lessons.some((l) => l.child_id === child.id) ||
+            todayBooks.some((b) => b.payload.child_id === child.id) ||
+            todayMemoryEvents.some((e) => e.payload.child_id === child.id)
+          );
+          const unassignedLessons = lessons.filter((l) => !l.child_id || !childIds.has(l.child_id));
+          const unassignedBooks   = todayBooks.filter((b) => !b.payload.child_id || !childIds.has(b.payload.child_id ?? ""));
+          const unassignedMems    = todayMemoryEvents.filter((e) => !e.payload.child_id || !childIds.has(e.payload.child_id ?? ""));
+          const hasAnyContent     = sectionsWithContent.length > 0 || unassignedLessons.length > 0 || unassignedBooks.length > 0 || unassignedMems.length > 0;
 
-        {/* Child filter tabs */}
-        {children.length > 1 && (
-          <div className="flex gap-2 flex-wrap mb-3">
-            <button
-              onClick={() => setSelectedChildId("all")}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                selectedChildId === "all"
-                  ? "bg-[#5c7f63] text-white border-[#5c7f63]"
-                  : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63] hover:text-[#5c7f63]"
-              }`}
-            >All</button>
-            {children.map((child) => (
-              <button
-                key={child.id}
-                onClick={() => setSelectedChildId(child.id)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                  selectedChildId === child.id
-                    ? "text-white border-transparent"
-                    : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:text-[#2d2926]"
-                }`}
-                style={selectedChildId === child.id ? { backgroundColor: child.color ?? "#5c7f63" } : {}}
-              >
-                {toTitleCase(child.name)}
-              </button>
-            ))}
-          </div>
-        )}
+          if (!hasAnyContent) {
+            if (activeVacation) return (
+              <div className="rounded-2xl px-4 py-3" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
+                <p className="text-sm font-semibold text-[#7a4a1a]">🌴 <strong>{activeVacation.name}</strong> · No lessons today — enjoy your time off!</p>
+              </div>
+            );
+            if (subjects.length === 0) return (
+              <div className="py-8 flex flex-col items-center text-center">
+                <span className="text-[52px] block mb-2">🌿</span>
+                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>Welcome to Rooted 🌱</p>
+                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">Your garden grows with every lesson you log together.</p>
+                <Link href="/dashboard/plan" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
+                  Set Up Curriculum →
+                </Link>
+              </div>
+            );
+            return <p className="text-sm text-[#b5aca4] text-center py-6">No lessons scheduled today</p>;
+          }
 
-        {/* Lessons list */}
-        {filteredLessons.length > 0 ? (
-          <>
-            {selectedChildId === "all" && children.length > 1 ? (
-              <div className="space-y-4">
-                {children.map((child) => {
-                  const childLessons = filteredLessons.filter((l) => l.child_id === child.id);
-                  if (childLessons.length === 0) return null;
-                  return (
-                    <div key={child.id}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
-                        <span className="text-xs font-bold tracking-widest" style={{ color: child.color ?? "#5c7f63" }}>
-                          {toTitleCase(child.name)}
-                        </span>
-                        <span className="text-[10px] text-[#b5aca4]">
-                          {childLessons.filter((l) => l.completed).length}/{childLessons.length}
-                        </span>
+          return (
+            <div className="space-y-5">
+              {sectionsWithContent.map((child) => {
+                const childLessons = lessons.filter((l) => l.child_id === child.id);
+                const childBooks   = todayBooks.filter((b) => b.payload.child_id === child.id);
+                const childMems    = todayMemoryEvents.filter((e) => e.payload.child_id === child.id);
+                const done  = childLessons.filter((l) => l.completed).length;
+                const total = childLessons.length;
+                return (
+                  <div key={child.id}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold text-white"
+                        style={{ backgroundColor: child.color ?? "#5c7f63" }}
+                      >
+                        {child.name.charAt(0).toUpperCase()}
                       </div>
-                      <div className="space-y-2">
-                        {childLessons.map((lesson) => (
-                          <TodayLessonCard key={lesson.id} lesson={lesson} childObj={child}
-                            onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                        ))}
-                      </div>
+                      <span className="text-xs font-bold tracking-widest uppercase" style={{ color: child.color ?? "#5c7f63" }}>
+                        {toTitleCase(child.name)}
+                      </span>
+                      {total > 0 && <span className="text-[10px] text-[#b5aca4]">{done}/{total}</span>}
                     </div>
-                  );
-                })}
-                {(() => {
-                  const childIds = new Set(children.map((c) => c.id));
-                  const unassigned = filteredLessons.filter((l) => !l.child_id || !childIds.has(l.child_id));
-                  if (unassigned.length === 0) return null;
-                  return (
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-2.5 h-2.5 rounded-full bg-[#c8bfb5]" />
-                        <span className="text-xs font-bold uppercase tracking-widest text-[#b5aca4]">Unassigned</span>
-                      </div>
-                      <div className="space-y-2">
-                        {unassigned.map((lesson) => (
-                          <TodayLessonCard key={lesson.id} lesson={lesson} childObj={undefined}
-                            onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                        ))}
-                      </div>
+                    <div className="space-y-2">
+                      {childLessons.map((lesson) => (
+                        <TodayLessonCard key={lesson.id} lesson={lesson} childObj={child}
+                          onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
+                      ))}
+                      {childBooks.map((b) => (
+                        <button key={b.id}
+                          onClick={() => !isPartner && openActivityEdit({ type: "book", id: b.id, title: b.payload.title, childId: b.payload.child_id ?? "" })}
+                          className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
+                          <span className="text-lg shrink-0">📖</span>
+                          <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
+                          <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">Book</span>
+                        </button>
+                      ))}
+                      {childMems.map((e) => (
+                        <button key={e.id}
+                          onClick={() => !isPartner && openActivityEdit({ type: "memory", id: e.id, title: e.payload.title ?? "Memory", childId: e.payload.child_id ?? "", memoryType: e.type })}
+                          className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
+                          <span className="text-lg shrink-0">{e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷"}</span>
+                          <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{e.payload.title ?? "Memory"}</p>
+                          <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">
+                            {e.type === "memory_book" ? "Book" : e.type === "memory_project" ? "Project" : "Photo"}
+                          </span>
+                        </button>
+                      ))}
                     </div>
-                  );
-                })()}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {filteredLessons.map((lesson) => (
-                  <TodayLessonCard key={lesson.id} lesson={lesson}
-                    childObj={children.find((c) => c.id === lesson.child_id)}
-                    onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                ))}
-              </div>
-            )}
-          </>
-        ) : subjects.length === 0 ? (
-          <div className="py-8 flex flex-col items-center text-center">
-            <span className="text-[52px] block mb-2">🌿</span>
-            <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>Welcome to Rooted 🌱</p>
-            <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">Your garden grows with every lesson you log together.</p>
-            <Link href="/dashboard/plan" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
-              Set Up Curriculum →
-            </Link>
-          </div>
-        ) : (
-          <p className="text-sm text-[#b5aca4] text-center py-6">No lessons scheduled today</p>
-        )}
+                  </div>
+                );
+              })}
+              {(unassignedLessons.length > 0 || unassignedBooks.length > 0 || unassignedMems.length > 0) && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold text-white bg-[#c8bfb5]">?</div>
+                    <span className="text-xs font-bold tracking-widest uppercase text-[#9e958d]">Unassigned</span>
+                  </div>
+                  <div className="space-y-2">
+                    {unassignedLessons.map((lesson) => (
+                      <TodayLessonCard key={lesson.id} lesson={lesson} childObj={undefined}
+                        onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
+                    ))}
+                    {unassignedBooks.map((b) => (
+                      <button key={b.id}
+                        onClick={() => !isPartner && openActivityEdit({ type: "book", id: b.id, title: b.payload.title, childId: "" })}
+                        className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
+                        <span className="text-lg shrink-0">📖</span>
+                        <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
+                        <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">Book</span>
+                      </button>
+                    ))}
+                    {unassignedMems.map((e) => (
+                      <button key={e.id}
+                        onClick={() => !isPartner && openActivityEdit({ type: "memory", id: e.id, title: e.payload.title ?? "Memory", childId: "", memoryType: e.type })}
+                        className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
+                        <span className="text-lg shrink-0">{e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷"}</span>
+                        <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{e.payload.title ?? "Memory"}</p>
+                        <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">
+                          {e.type === "memory_book" ? "Book" : e.type === "memory_project" ? "Project" : "Photo"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Welcome prompt (new users with children but no lessons ever) ─── */}
@@ -880,118 +903,12 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Today's Progress ─────────────────────────────── */}
-      {children.length > 0 && (
-        <>
-          <hr className="border-[#e8e2d9] my-2" />
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[#9e958d]">Today&apos;s Progress</span>
-              <Link href="/dashboard/garden" className="text-[11px] font-semibold text-[#5c7f63] hover:text-[#3d5c42] transition-colors">View →</Link>
-            </div>
-            <div className="space-y-2">
-              {children.map((child) => {
-                const childLessons = lessons.filter((l) => l.child_id === child.id);
-                const done  = childLessons.filter((l) => l.completed).length;
-                const total = childLessons.length;
-                return (
-                  <div key={child.id} className="flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-3.5 py-2.5">
-                    <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold text-white"
-                      style={{ backgroundColor: child.color ?? "#5c7f63" }}
-                    >
-                      {child.name.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="text-sm font-medium text-[#2d2926] flex-1">{toTitleCase(child.name)}</span>
-                    <span className="text-xs text-[#7a6f65]">
-                      {total > 0 ? `${done} of ${total} done` : "No lessons today"}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      )}
 
       {/* ── Daily Quote ───────────────────────────────────── */}
       <div className="bg-[#f5f2ec] rounded-xl px-4 py-3">
         <p className="text-[13px] italic leading-relaxed border-l-2 border-[#e8e2d9] pl-3" style={{ color: "#9e958d" }}>&ldquo;{quote}&rdquo;</p>
       </div>
 
-      {/* ── Today's Activity ──────────────────────────────── */}
-      {(() => {
-        const completedLessons = filteredLessons.filter((l) => l.completed);
-        type ActivityRow = {
-          key: string; emoji: string; title: string;
-          typeLabel: string; sub?: string; childId?: string;
-          editItem: ActivityItem;
-        };
-        const activityRows: ActivityRow[] = [
-          ...completedLessons.map((l) => ({
-            key: `lesson-${l.id}`,
-            emoji: "✅",
-            title: l.title || (l.lesson_number ? `Lesson ${l.lesson_number}` : "Lesson"),
-            typeLabel: "Lesson",
-            sub: l.subjects?.name,
-            childId: l.child_id,
-            editItem: { type: "lesson" as const, id: l.id, title: l.title, childId: l.child_id, subjectName: l.subjects?.name },
-          })),
-          ...todayBooks.map((b) => ({
-            key: `book-${b.id}`,
-            emoji: "📖",
-            title: b.payload.title,
-            typeLabel: "Book",
-            sub: undefined,
-            childId: b.payload.child_id,
-            editItem: { type: "book" as const, id: b.id, title: b.payload.title, childId: b.payload.child_id ?? "" },
-          })),
-          ...todayMemoryEvents.map((e) => ({
-            key: `mem-${e.id}`,
-            emoji: e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷",
-            title: e.payload.title ?? "Memory",
-            typeLabel: e.type === "memory_book" ? "Book" : e.type === "memory_project" ? "Project" : "Photo",
-            sub: undefined,
-            childId: e.payload.child_id,
-            editItem: { type: "memory" as const, id: e.id, title: e.payload.title ?? "Memory", childId: e.payload.child_id ?? "", memoryType: e.type },
-          })),
-        ];
-        if (activityRows.length === 0) return null;
-        return (
-          <div>
-            <h2 className="text-[10px] font-bold uppercase tracking-widest text-[#9e958d] mb-3">Today&apos;s Activity</h2>
-            <div className="space-y-2">
-              {activityRows.map((item) => {
-                const childObj = children.find((c) => c.id === item.childId);
-                return (
-                  <button
-                    key={item.key}
-                    onClick={() => !isPartner && openActivityEdit(item.editItem)}
-                    className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors"
-                  >
-                    <span className="text-lg shrink-0">{item.emoji}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#2d2926] truncate">{item.title}</p>
-                      {item.sub && <p className="text-xs text-[#7a6f65]">{item.sub}</p>}
-                    </div>
-                    <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">
-                      {item.typeLabel}
-                    </span>
-                    {childObj && (
-                      <div
-                        className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white"
-                        style={{ backgroundColor: childObj.color ?? "#5c7f63" }}
-                      >
-                        {childObj.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
 
       <div className="h-4" />
 
