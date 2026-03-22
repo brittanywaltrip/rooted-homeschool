@@ -1667,38 +1667,46 @@ export default function OnboardingPage() {
       const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
       const schoolDayNames = dayNames.filter((_, i) => cs.draft.schoolDays[i]);
 
-      const { data: goal } = await supabase
+      const { data: goal, error: goalErr } = await supabase
         .from("curriculum_goals")
         .insert({
           user_id:         userId,
           child_id:        childId,
           curriculum_name: cs.draft.curricName.trim(),
           subject_label:   cs.draft.subjects[0] ?? null,
-          total_lessons:    cs.draft.totalLessons,
-          current_lesson:   cs.draft.lessonsDone ?? 0,
-          target_date:      cs.draft.finishDate || null,
-          finish_line_date: cs.draft.finishDate || null,
-          school_days:      schoolDayNames,
+          total_lessons:   cs.draft.totalLessons,
+          current_lesson:  cs.draft.lessonsDone ?? 0,
+          target_date:     cs.draft.finishDate || null,
+          school_days:     schoolDayNames,
         })
         .select("id")
         .single();
 
-      if (goal) {
-        const rows = cs.schedule.map((row, idx) => ({
-          user_id:            userId,
-          child_id:           childId,
-          subject_id:         subjectId,
-          title:              row.title,
-          date:               row.date,
-          scheduled_date:     row.date,
-          completed:          false,
-          hours:              0,
-          curriculum_goal_id: (goal as { id: string }).id,
-          lesson_number:      (cs.draft.lessonsDone ?? 0) + idx + 1,
-        }));
-        for (let i = 0; i < rows.length; i += 100) {
-          await supabase.from("lessons").insert(rows.slice(i, i + 100));
-        }
+      if (goalErr || !goal) {
+        console.error("[onboarding] curriculum_goals insert failed:", goalErr, {
+          curricName: cs.draft.curricName,
+          lessonsDone: cs.draft.lessonsDone,
+          totalLessons: cs.draft.totalLessons,
+          finishDate: cs.draft.finishDate,
+        });
+        continue;
+      }
+
+      const rows = cs.schedule.map((row, idx) => ({
+        user_id:            userId,
+        child_id:           childId,
+        subject_id:         subjectId,
+        title:              row.title,
+        date:               row.date,
+        scheduled_date:     row.date,
+        completed:          false,
+        hours:              0,
+        curriculum_goal_id: (goal as { id: string }).id,
+        lesson_number:      (cs.draft.lessonsDone ?? 0) + idx + 1,
+      }));
+      for (let i = 0; i < rows.length; i += 100) {
+        const { error: lessonsErr } = await supabase.from("lessons").insert(rows.slice(i, i + 100));
+        if (lessonsErr) console.error("[onboarding] lessons insert failed (batch", i, "):", lessonsErr);
       }
     }
 
