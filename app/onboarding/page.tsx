@@ -1667,6 +1667,7 @@ export default function OnboardingPage() {
   const [saving,  setSaving]  = useState(false);
   const [isPro,   setIsPro]   = useState(false);
   const [noCurriculumNote, setNoCurriculumNote] = useState(false);
+  const [saveError,        setSaveError]        = useState("");
 
   // Auth-sourced
   const [firstName, setFirstName] = useState("");
@@ -1784,8 +1785,18 @@ export default function OnboardingPage() {
 
   const complete = useCallback(async () => {
     setSaving(true);
+    setSaveError("");
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token ?? "";
+
+    // Guard: verify the current auth user matches the user who started onboarding
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (!currentUser || currentUser.id !== userId) {
+      console.error("[onboarding] auth mismatch — expected", userId, "got", currentUser?.id ?? "null");
+      setSaveError("Something went wrong saving your schedule. Please try again.");
+      setSaving(false);
+      return;
+    }
 
     // Insert children
     const validKids = children.filter((c) => c.name.trim().length > 0);
@@ -1970,11 +1981,27 @@ export default function OnboardingPage() {
   );
 
   return (
-    <StepAddToHomeScreen
-      saving={saving}
-      onDone={complete}
-      onSkip={complete}
-      noCurriculumNote={noCurriculumNote}
-    />
+    <>
+      <StepAddToHomeScreen
+        saving={saving}
+        onDone={complete}
+        onSkip={complete}
+        noCurriculumNote={noCurriculumNote}
+      />
+      {saveError && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2.5rem)] max-w-sm">
+          <div className="bg-red-600 text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-lg flex items-center justify-between gap-3">
+            <span>{saveError}</span>
+            <button
+              type="button"
+              onClick={() => setSaveError("")}
+              className="shrink-0 text-white/80 hover:text-white transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
