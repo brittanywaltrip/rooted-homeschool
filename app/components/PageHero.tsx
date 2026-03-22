@@ -8,7 +8,7 @@ interface PageHeroProps {
   subtitle?: string;
   /** Extra JSX rendered inside the hero (e.g. progress strip) */
   children?: React.ReactNode;
-  /** Breakout class to escape container padding, e.g. "-mx-5" or "-mx-4" */
+  /** Additional classes (no longer needed for -mx breakout, but kept for flexibility) */
   className?: string;
 }
 
@@ -21,9 +21,25 @@ export default function PageHero({
 }: PageHeroProps) {
   return (
     <div
-      className={`rounded-b-[24px] px-6 pt-7 pb-8 ${className}`}
+      className={`relative w-full rounded-b-[24px] px-6 pt-7 pb-8 overflow-hidden ${className}`}
       style={{ background: "#3d5c42" }}
     >
+      {/* Decorative background leaves */}
+      <div
+        className="absolute top-2 right-3 text-[100px] leading-none select-none pointer-events-none"
+        style={{ opacity: 0.06 }}
+        aria-hidden
+      >
+        🌿
+      </div>
+      <div
+        className="absolute -bottom-2 left-2 text-[80px] leading-none select-none pointer-events-none"
+        style={{ opacity: 0.05 }}
+        aria-hidden
+      >
+        🌱
+      </div>
+
       <p
         className="text-[11px] font-semibold tracking-widest uppercase mb-1"
         style={{ color: "#8cba8e" }}
@@ -31,7 +47,7 @@ export default function PageHero({
         {overline}
       </p>
       <h1
-        className="text-[26px] font-bold leading-tight"
+        className="text-[22px] sm:text-[26px] font-bold leading-tight"
         style={{ color: "#fefcf9", fontFamily: "Georgia, serif" }}
       >
         {title}

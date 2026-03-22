@@ -287,13 +287,13 @@ export default function GardenPage() {
   }
 
   return (
-    <div className="max-w-3xl px-4 pt-0 pb-7 space-y-6">
+    <>
       <PageHero
         overline="Your Family's"
         title="Garden 🌿"
         subtitle="Every lesson learned grows a leaf."
-        className="-mx-4"
       />
+      <div className="max-w-3xl px-4 pt-5 pb-7 space-y-6">
 
       {/* ── First-visit tip banner ───────────────────────── */}
       {!tipDismissed && totalLeaves === 0 && (
@@ -655,6 +655,7 @@ export default function GardenPage() {
       })()}
 
       <div className="h-4" />
-    </div>
+      </div>
+    </>
   );
 }
