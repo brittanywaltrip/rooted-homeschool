@@ -1694,7 +1694,7 @@ export default function OnboardingPage() {
           completed:          false,
           hours:              0,
           curriculum_goal_id: (goal as { id: string }).id,
-          lesson_number:      idx + 1,
+          lesson_number:      (cs.draft.lessonsDone ?? 0) + idx + 1,
         }));
         for (let i = 0; i < rows.length; i += 100) {
           await supabase.from("lessons").insert(rows.slice(i, i + 100));

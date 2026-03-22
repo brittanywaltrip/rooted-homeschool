@@ -88,22 +88,18 @@ function formatDateHero(date: Date) {
   return `${weekday} · ${rest}`;
 }
 
-function getGreeting() {
-  const now = new Date();
-  const h   = now.getHours();
-  const dow = now.getDay(); // 0=Sun, 6=Sat
-  if (dow === 0 || dow === 6) return "Happy weekend";
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
-
-function getDaySubtitle(): string | null {
-  const dow = new Date().getDay();
-  if (dow === 1) return "Ready for the week? 🌱";
-  if (dow === 3) return "Halfway there 💪";
-  if (dow === 5) return "Happy Friday! 🎉";
-  return null;
+function buildGreeting(familyName: string): string {
+  const now  = new Date();
+  const h    = now.getHours();
+  const dow  = now.getDay(); // 0=Sun … 6=Sat
+  const name = familyName
+    ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}`
+    : "";
+  if (dow === 6) return `Enjoy your Saturday${name}! 🌿`;
+  if (dow === 0) return `Rest up for the week ahead${name}! 🌿`;
+  const base   = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  const suffix = dow === 1 ? " Ready for the week?" : dow === 3 ? " Halfway there" : dow === 5 ? " Happy Friday" : "";
+  return `${base}${name}!${suffix} 🌿`;
 }
 
 function toTitleCase(name: string) {
@@ -356,7 +352,11 @@ export default function TodayPage() {
   const [showLogModal,           setShowLogModal]           = useState(false);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
-  const [upcomingDay,            setUpcomingDay]            = useState<{ date: string; titles: string[] } | null>(null);
+  const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
+  const [upcomingDay,            setUpcomingDay]            = useState<{
+    date: string;
+    lessons: { title: string; childId: string | null; subjectName: string | null }[];
+  } | null>(null);
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
@@ -439,26 +439,34 @@ export default function TodayPage() {
       (b: { start_date: string; end_date: string; name: string }) => today >= b.start_date && today <= b.end_date
     );
     setActiveVacation(currentVac ? { name: currentVac.name, end_date: currentVac.end_date } : null);
+    setAllVacationBlocks((vacBlocks ?? []) as { name: string; start_date: string; end_date: string }[]);
 
     // Upcoming lessons — first school day after today with scheduled lessons
-    const nextDates = Array.from({ length: 7 }, (_, i) => {
+    const nextDates = Array.from({ length: 14 }, (_, i) => {
       const d = new Date(); d.setDate(d.getDate() + i + 1);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     });
     const { data: upcomingData } = await supabase
       .from("lessons")
-      .select("title, scheduled_date, date")
+      .select("title, scheduled_date, child_id, subjects(name)")
       .eq("user_id", effectiveUserId)
       .eq("completed", false)
       .gte("scheduled_date", nextDates[0])
-      .lte("scheduled_date", nextDates[6])
+      .lte("scheduled_date", nextDates[13])
       .order("scheduled_date");
+    type UpRow = { title: string; scheduled_date: string | null; child_id: string | null; subjects: { name: string } | null };
     if (upcomingData && upcomingData.length > 0) {
-      const firstDate = (upcomingData as { title: string; scheduled_date: string | null; date: string | null }[])[0].scheduled_date ?? "";
-      const titles = (upcomingData as { title: string; scheduled_date: string | null; date: string | null }[])
-        .filter((l) => l.scheduled_date === firstDate)
-        .map((l) => l.title);
-      setUpcomingDay({ date: firstDate, titles });
+      const rows = upcomingData as unknown as UpRow[];
+      const firstDate = rows[0].scheduled_date ?? "";
+      const dayRows = rows.filter((l) => l.scheduled_date === firstDate);
+      setUpcomingDay({
+        date: firstDate,
+        lessons: dayRows.map((l) => ({
+          title:       l.title,
+          childId:     l.child_id,
+          subjectName: l.subjects?.name ?? null,
+        })),
+      });
     } else {
       setUpcomingDay(null);
     }
@@ -676,8 +684,7 @@ export default function TodayPage() {
       {/* ── Hero Header ──────────────────────────────────────── */}
       <PageHero
         overline={formatDateHero(new Date())}
-        title={`${getGreeting()}${familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 🌿`}
-        subtitle={getDaySubtitle() ?? undefined}
+        title={buildGreeting(familyName)}
       >
         {totalToday > 0 && (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
@@ -948,24 +955,72 @@ export default function TodayPage() {
 
 
       {/* ── Coming Up ──────────────────────────────────────── */}
-      {showUpcoming && upcomingDay && (
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4] mb-2">
-            Coming Up · {new Date(upcomingDay.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" })}
-          </p>
-          <ul className="space-y-1">
-            {upcomingDay.titles.slice(0, 4).map((t, i) => (
-              <li key={i} className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#c8ddb8] shrink-0" />
-                <span className="text-sm text-[#5c5248] truncate">{t}</span>
-              </li>
-            ))}
-            {upcomingDay.titles.length > 4 && (
-              <li className="text-xs text-[#b5aca4] pl-3.5">+{upcomingDay.titles.length - 4} more</li>
-            )}
-          </ul>
-        </div>
-      )}
+      {showUpcoming && upcomingDay && (() => {
+        const upcomingDate = new Date(upcomingDay.date + "T00:00:00");
+        const dayName      = upcomingDate.toLocaleDateString("en-US", { weekday: "long" });
+        const fullLabel    = upcomingDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+        const msFromNow    = upcomingDate.getTime() - new Date().setHours(0, 0, 0, 0);
+        const daysFromNow  = Math.round(msFromNow / 86400000);
+        const relLabel     = daysFromNow === 1 ? "tomorrow" : `in ${daysFromNow} days`;
+
+        // Check if a vacation block starts on the upcoming day
+        const vacOnDay = allVacationBlocks.find(
+          (b) => upcomingDay.date >= b.start_date && upcomingDay.date <= b.end_date
+        );
+        if (vacOnDay) {
+          return (
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4] mb-2">
+                Coming Up · {dayName.toUpperCase()}
+              </p>
+              <p className="text-sm text-[#7a4a1a]">🌴 {vacOnDay.name} starts {fullLabel}</p>
+            </div>
+          );
+        }
+
+        // Group lessons by child, collect subject names per child
+        const byChild = new Map<string, { childId: string | null; subjects: Set<string> }>();
+        for (const l of upcomingDay.lessons) {
+          const key = l.childId ?? "__unassigned__";
+          if (!byChild.has(key)) byChild.set(key, { childId: l.childId, subjects: new Set() });
+          if (l.subjectName) byChild.get(key)!.subjects.add(l.subjectName);
+        }
+
+        return (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
+            <div className="flex items-center justify-between mb-2.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4]">
+                Coming Up · {dayName.toUpperCase()}
+              </p>
+              <p className="text-[10px] text-[#c8bfb5]">{relLabel}</p>
+            </div>
+            <div className="space-y-2">
+              {Array.from(byChild.values()).map(({ childId, subjects }) => {
+                const child    = children.find((c) => c.id === childId);
+                const subList  = Array.from(subjects).join(", ");
+                return (
+                  <div key={childId ?? "__unassigned__"} className="flex items-center gap-2.5">
+                    {child ? (
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white"
+                        style={{ backgroundColor: child.color ?? "#5c7f63" }}
+                      >
+                        {child.name.charAt(0).toUpperCase()}
+                      </div>
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-[#e8e2d9] flex items-center justify-center shrink-0 text-[10px] font-bold text-[#7a6f65]">?</div>
+                    )}
+                    <span className="text-sm text-[#2d2926] truncate">
+                      {child ? toTitleCase(child.name) : "Unassigned"}
+                      {subList && <span className="text-[#7a6f65]"> · {subList}</span>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Daily Quote ───────────────────────────────────── */}
       <div className="bg-[#f5f2ec] rounded-xl px-4 py-3">

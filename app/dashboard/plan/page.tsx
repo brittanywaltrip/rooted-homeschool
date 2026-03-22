@@ -449,6 +449,7 @@ export default function PlanPage() {
 
   // ── Plan tip banner ───────────────────────────────────────────────────────
   const [tipDismissed, setTipDismissed] = useState(false);
+  const [onboarded,    setOnboarded]    = useState(false);
   useEffect(() => {
     if (localStorage.getItem("rooted_plan_tip_dismissed") === "1") setTipDismissed(true);
   }, []);
@@ -476,7 +477,8 @@ export default function PlanPage() {
     const ws = new Date(weekStart), we = new Date(weekStart);
     we.setDate(we.getDate() + 6);
     const s = toDateStr(ws), e = toDateStr(we);
-    const [{ data: kids }, { data: subs }, { data: goals }, { data: bySched }, { data: byDate }] = await Promise.all([
+    const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }, { data: bySched }, { data: byDate }] = await Promise.all([
+      supabase.from("profiles").select("onboarded").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days").eq("user_id", effectiveUserId).order("created_at"),
@@ -485,6 +487,7 @@ export default function PlanPage() {
       supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
+    setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
     setChildren(kids ?? []);
     setSubjects((subs as Subject[]) ?? []);
     setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
@@ -770,11 +773,11 @@ export default function PlanPage() {
     <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
 
       {/* ── Plan tip banner ──────────────────────────────────── */}
-      {!tipDismissed && !isPartner && curricGroups.length > 0 && (
+      {!tipDismissed && !isPartner && onboarded && curricGroups.length > 0 && (
         <div className="relative flex items-start gap-3 rounded-2xl px-4 py-3.5 pr-10" style={{ background: "#eef4ee", border: "1.5px solid #c8dcc8" }}>
           <span className="text-base shrink-0 mt-0.5">💡</span>
           <p className="text-sm text-[#3d5c42] leading-snug">
-            <strong>Double-check your lesson count</strong> — tap <strong>Edit</strong> on any curriculum to confirm the total and starting lesson. You can adjust pace anytime.
+            <strong>Double-check your lesson count</strong> — tap <strong>Edit</strong> on any curriculum to confirm the number is right for your edition. Already started? Set &ldquo;Lessons Done&rdquo; too.
           </p>
           <button
             onClick={() => { localStorage.setItem("rooted_plan_tip_dismissed", "1"); setTipDismissed(true); }}
