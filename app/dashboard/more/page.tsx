@@ -1,17 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Camera,
-  FileText,
-  Printer,
   HelpCircle,
   Mail,
-  Smartphone,
   ChevronDown,
   ChevronUp,
+  Settings,
+  LogOut,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import PageHero from "@/app/components/PageHero";
 
 // ─── Install instructions card ────────────────────────────────────────────────
@@ -125,12 +125,19 @@ const LATEST_UPDATE_DATE = "2026-03-01";
 const LAST_SEEN_KEY = "rooted_whats_new_last_seen";
 
 export default function MorePage() {
+  const router = useRouter();
   const [hasUnread, setHasUnread] = useState(false);
 
   useEffect(() => {
     const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
     setHasUnread(!lastSeen || lastSeen < LATEST_UPDATE_DATE);
   }, []);
+
+  async function handleSignOut() {
+    sessionStorage.removeItem("rooted_partner");
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
 
   return (
     <>
@@ -185,6 +192,42 @@ export default function MorePage() {
         <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4]">Help</p>
         <div className="space-y-2">
           {HELP_ITEMS.map((item) => <RowCard key={item.label} item={item} />)}
+        </div>
+      </div>
+
+      {/* Account */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4]">Account</p>
+        <div className="space-y-2">
+          <Link
+            href="/dashboard/settings"
+            className="block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden"
+          >
+            <div className="flex items-center gap-4 px-5 py-4 hover:bg-[#faf8f5] transition-colors">
+              <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0">
+                <Settings size={20} className="text-[#7a6f65]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#2d2926]">Settings</p>
+                <p className="text-xs text-[#7a6f65]">Manage your family profile</p>
+              </div>
+              <span className="text-[#c8bfb5] text-lg leading-none">›</span>
+            </div>
+          </Link>
+          <button
+            onClick={handleSignOut}
+            className="w-full block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden text-left"
+          >
+            <div className="flex items-center gap-4 px-5 py-4 hover:bg-[#faf8f5] transition-colors">
+              <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0">
+                <LogOut size={20} className="text-[#7a6f65]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#2d2926]">Sign Out</p>
+                <p className="text-xs text-[#7a6f65]">Log out of your account</p>
+              </div>
+            </div>
+          </button>
         </div>
       </div>
 
