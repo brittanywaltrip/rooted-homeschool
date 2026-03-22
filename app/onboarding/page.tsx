@@ -597,11 +597,14 @@ function StepCurriculum({
   validChildren,
   curricChildUid,
   draft,
+  childSchedules,
   completedChildUids,
   skippedChildUids,
+  confirmedChildUids,
   onChange,
   onChangeChild,
   onBuildChild,
+  onConfirmChild,
   onDoneAll,
   onSkipChild,
   onSkipAll,
@@ -610,18 +613,21 @@ function StepCurriculum({
   validChildren: ChildDraft[];
   curricChildUid: number;
   draft: CurriculumDraft;
+  childSchedules: ChildSchedule[];
   completedChildUids: Set<number>;
   skippedChildUids: Set<number>;
+  confirmedChildUids: Set<number>;
   onChange: (patch: Partial<CurriculumDraft>) => void;
   onChangeChild: (uid: number) => void;
   onBuildChild: (uid: number, draft: CurriculumDraft, rows: ScheduleRow[]) => void;
+  onConfirmChild: (uid: number) => void;
   onDoneAll: (hasAnySchedule: boolean) => void;
   onSkipChild: (uid: number) => void;
   onSkipAll: () => void;
   onBack: () => void;
 }) {
-  const [showPrompt, setShowPrompt] = useState(false);
-  const [promptChild, setPromptChild] = useState<ChildDraft | null>(null);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [lastBuiltName, setLastBuiltName] = useState("");
 
   // Screen A (picker) state
   const [screen, setScreen] = useState<"picker" | "manual">("picker");
@@ -659,6 +665,8 @@ function StepCurriculum({
     setHintVisible(false);
     setAlreadyStarted(false);
     setStartingLesson("");
+    setShowConfirmation(false);
+    setLastBuiltName("");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curricChildUid]);
 
@@ -671,6 +679,15 @@ function StepCurriculum({
   const heading = singleChild || useProgressLayout
     ? `What are you teaching ${currentChild?.name ?? "your child"}?`
     : "Set up your first curriculum";
+
+  // Copy-from-sibling: find the nearest previous child (by index) with built curricula
+  const prevChildWithCurric = validChildren
+    .slice(0, currentIdx)
+    .reverse()
+    .find((c) => childSchedules.some((cs) => cs.childUid === c.uid)) ?? null;
+  const siblingCurricula = prevChildWithCurric
+    ? childSchedules.filter((cs) => cs.childUid === prevChildWithCurric.uid)
+    : [];
 
   // Library filtering
   const filteredLib = CURRICULUM_LIBRARY.filter((c) => {
@@ -741,106 +758,103 @@ function StepCurriculum({
     const finalDraft = { ...buildDraft, finishDate };
     onChange({ lessonsDone, finishDate });
     onBuildChild(curricChildUid, finalDraft, rows);
-    const newDone   = new Set([...completedChildUids, curricChildUid]);
-    const exclude   = new Set([...newDone, ...skippedChildUids]);
-    const remaining = validChildren.filter((c) => !exclude.has(c.uid));
+    setLastBuiltName(finalDraft.curricName.trim());
+    setShowConfirmation(true);
+  }
+
+  function handleAddAnother() {
+    setShowConfirmation(false);
+    setSelectedCard(null);
+    setSearch("");
+    setFilterSubject("All");
+    setHintVisible(false);
+    setAlreadyStarted(false);
+    setStartingLesson("");
+    setScreen("picker");
+    onChange({
+      curricName: "", subjects: [], totalLessons: 0, lessonsDone: 0,
+      schoolDays: [true, true, true, true, true, false, false],
+      finishDate: "",
+    });
+  }
+
+  function handleConfirmDone() {
+    onConfirmChild(curricChildUid);
+    const newConfirmed = new Set([...confirmedChildUids, curricChildUid]);
+    const exclude      = new Set([...newConfirmed, ...skippedChildUids]);
+    const remaining    = validChildren.filter((c) => !exclude.has(c.uid));
     if (remaining.length > 0) {
-      setPromptChild(remaining[0]);
-      setShowPrompt(true);
+      onChangeChild(remaining[0].uid);
+      setShowConfirmation(false);
     } else {
       onDoneAll(true);
-    }
-  }
-
-  function handleSetupPromptChild() {
-    if (!promptChild) return;
-    onChangeChild(promptChild.uid);
-    setShowPrompt(false);
-  }
-
-  function handleSkipPrompt() {
-    if (!promptChild) return;
-    onSkipChild(promptChild.uid);
-    const newSkipped = new Set([...skippedChildUids, promptChild.uid]);
-    const exclude    = new Set([...completedChildUids, curricChildUid, ...newSkipped]);
-    const remaining  = validChildren.filter((c) => !exclude.has(c.uid));
-    if (remaining.length > 0) {
-      setPromptChild(remaining[0]);
-    } else {
-      setShowPrompt(false);
-      onDoneAll(completedChildUids.size > 0);
     }
   }
 
   function handleSkipCurrentChild() {
     onSkipChild(curricChildUid);
     const newSkipped = new Set([...skippedChildUids, curricChildUid]);
-    const exclude    = new Set([...completedChildUids, ...newSkipped]);
+    const exclude    = new Set([...confirmedChildUids, ...newSkipped]);
     const remaining  = validChildren.filter((c) => !exclude.has(c.uid));
     if (remaining.length > 0) {
-      setPromptChild(remaining[0]);
-      setShowPrompt(true);
+      onChangeChild(remaining[0].uid);
     } else {
       onDoneAll(completedChildUids.size > 0);
     }
   }
 
-  // ── Prompt card ────────────────────────────────────────────────────────────
-
-  if (showPrompt && promptChild) {
-    return (
-      <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
-        <ProgressDots step={5} />
-        <Card>
-          <div className="text-center mb-8">
-            <div
-              className="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold mx-auto mb-4"
-              style={{ backgroundColor: promptChild.color }}
-            >
-              {promptChild.name.charAt(0).toUpperCase()}
-            </div>
-            <h2
-              className="text-2xl font-bold text-[#2d2926] mb-3 leading-snug"
-              style={{ fontFamily: "Georgia, serif" }}
-            >
-              Want to set up {promptChild.name}&apos;s curriculum too?
-            </h2>
-            <p className="text-sm text-[#7a6f65]">You can always do this later in Settings.</p>
-          </div>
-          <ContinueBtn
-            label={`Set up ${promptChild.name}'s curriculum →`}
-            onClick={handleSetupPromptChild}
-          />
-          <SkipLink label="Skip for now →" onClick={handleSkipPrompt} />
-        </Card>
-      </div>
-    );
+  function handleCopyFromSibling(cs: ChildSchedule) {
+    setAlreadyStarted(false);
+    setStartingLesson("");
+    onChange({
+      curricName:   cs.draft.curricName,
+      totalLessons: cs.draft.totalLessons,
+      subjects:     cs.draft.subjects,
+      schoolDays:   [...cs.draft.schoolDays],
+      lessonsDone:  0,
+      finishDate:   "",
+    });
+    setSelectedCard({
+      name:    cs.draft.curricName,
+      subject: cs.draft.subjects[0] ?? "Other",
+      lessons: cs.draft.totalLessons,
+      days:    [...cs.draft.schoolDays],
+    });
+    setSearch("");
+    setFilterSubject("All");
   }
 
   // ── Shared skip footer ────────────────────────────────────────────────────
 
-  const SkipFooter = () => isFirstChild ? (
-    <div className="mt-4 text-center">
-      <p className="text-xs text-[#9e958d] leading-relaxed mb-2">
-        Set up at least one curriculum so Rooted can build your schedule.
-      </p>
-      <button
-        type="button"
-        onClick={onSkipAll}
-        className="text-xs text-[#c8bfb5] hover:text-[#9e958d] transition-colors py-1"
-      >
-        Skip all curriculum setup →
-      </button>
-    </div>
-  ) : (
-    <SkipLink label="Skip for now →" onClick={handleSkipCurrentChild} />
-  );
+  const hasBuiltForCurrentChild = childSchedules.some((cs) => cs.childUid === curricChildUid);
+
+  const SkipFooter = () => {
+    if (hasBuiltForCurrentChild) {
+      return <SkipLink label={`Done with ${currentChild?.name} →`} onClick={handleConfirmDone} />;
+    }
+    return isFirstChild ? (
+      <div className="mt-4 text-center">
+        <p className="text-xs text-[#9e958d] leading-relaxed mb-2">
+          Set up at least one curriculum so Rooted can build your schedule.
+        </p>
+        <button
+          type="button"
+          onClick={onSkipAll}
+          className="text-xs text-[#c8bfb5] hover:text-[#9e958d] transition-colors py-1"
+        >
+          Skip all curriculum setup →
+        </button>
+      </div>
+    ) : (
+      <SkipLink label="Skip for now →" onClick={handleSkipCurrentChild} />
+    );
+  };
 
   // ── Main render ───────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-start px-5 py-10 overflow-y-auto">
-      <BackBtn onClick={screen === "manual" ? () => setScreen("picker") : onBack} />
+      <BackBtn onClick={showConfirmation ? () => setShowConfirmation(false) : screen === "manual" ? () => setScreen("picker") : onBack} />
       <ProgressDots step={5} />
 
       <div className="w-full max-w-md mx-auto">
@@ -860,8 +874,9 @@ function StepCurriculum({
         {!singleChild && !useProgressLayout && (
           <div className="flex gap-2 mb-4 flex-wrap">
             {validChildren.map((c) => {
-              const isActive = c.uid === curricChildUid;
-              const isDone   = completedChildUids.has(c.uid);
+              const isActive   = c.uid === curricChildUid;
+              const isDone     = completedChildUids.has(c.uid);
+              const curricCount = childSchedules.filter((cs) => cs.childUid === c.uid).length;
               return (
                 <button
                   key={c.uid} type="button" onClick={() => onChangeChild(c.uid)}
@@ -874,6 +889,18 @@ function StepCurriculum({
                 >
                   {isDone && <Check size={10} strokeWidth={3} />}
                   {c.name}
+                  {curricCount > 1 && (
+                    <span
+                      className="inline-flex items-center justify-center rounded-full text-[9px] font-bold leading-none"
+                      style={{
+                        width: 14, height: 14,
+                        backgroundColor: isActive ? "rgba(255,255,255,0.3)" : c.color,
+                        color: "white",
+                      }}
+                    >
+                      {curricCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -897,13 +924,14 @@ function StepCurriculum({
             </div>
             <div className="space-y-0.5 bg-[#f8f5f0] rounded-2xl p-3 border border-[#ede8de]">
               {validChildren.map((c) => {
-                const isDone    = completedChildUids.has(c.uid);
-                const isSkipped = skippedChildUids.has(c.uid);
-                const isCurrent = c.uid === curricChildUid;
+                const isDone      = completedChildUids.has(c.uid);
+                const isSkipped   = skippedChildUids.has(c.uid);
+                const isCurrent   = c.uid === curricChildUid;
+                const curricCount = childSchedules.filter((cs) => cs.childUid === c.uid).length;
                 const displayName = c.name.length > 8 ? c.name.slice(0, 7) + "…" : c.name;
                 const fillPct   = isDone || isSkipped ? "100%" : isCurrent ? "33%" : "0%";
                 const fillColor = isDone ? "#3d5c42" : isSkipped ? "#c8bfb5" : "#3d5c42";
-                const icon      = isDone ? "✓" : isSkipped ? "–" : isCurrent ? "···" : "—";
+                const icon      = isDone && curricCount > 1 ? `✓${curricCount}` : isDone ? "✓" : isSkipped ? "–" : isCurrent ? "···" : "—";
                 const iconColor = isDone ? "#3d5c42" : isSkipped ? "#c8bfb5" : isCurrent ? "#5c7f63" : "#e0d8d0";
                 return (
                   <button
@@ -927,10 +955,73 @@ function StepCurriculum({
           </div>
         )}
 
-        {screen === "picker" ? (
+        {showConfirmation ? (
+
+          /* ── Confirmation panel ───────────────────────────────────────────── */
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl border border-[#f0ede8] p-5 sm:p-8 mb-6">
+            {/* Success header */}
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-9 h-9 rounded-full bg-[#f0f7f0] border border-[#c8ddb8] flex items-center justify-center shrink-0">
+                <Check size={16} className="text-[#5c7f63]" strokeWidth={2.5} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[#2d2926]">{lastBuiltName} added</p>
+                <p className="text-xs text-[#7a6f65]">{currentChild?.name}&apos;s schedule is ready 🌱</p>
+              </div>
+            </div>
+
+            {/* List of curricula added for this child */}
+            <div className="space-y-1.5 mb-5">
+              {childSchedules
+                .filter((cs) => cs.childUid === curricChildUid)
+                .map((cs, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#f8f5f0] text-xs">
+                    <Check size={10} className="text-[#5c7f63] shrink-0" strokeWidth={3} />
+                    <span className="text-[#2d2926] font-medium">{cs.draft.curricName}</span>
+                    <span className="text-[#c8bfb5]">·</span>
+                    <span className="text-[#7a6f65]">{cs.schedule.length} lessons</span>
+                  </div>
+                ))}
+            </div>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={handleAddAnother}
+                className="w-full py-3 rounded-2xl border border-[#5c7f63] text-[#5c7f63] font-semibold text-sm transition-all hover:bg-[#f0f7f0] active:scale-[0.98]"
+              >
+                + Add another subject for {currentChild?.name}
+              </button>
+              <ContinueBtn
+                label={`Done with ${currentChild?.name} →`}
+                onClick={handleConfirmDone}
+              />
+            </div>
+          </div>
+
+        ) : screen === "picker" ? (
 
           /* ── Screen A: Curriculum picker ─────────────────────────────────── */
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl border border-[#f0ede8] p-5 mb-6">
+
+            {/* Copy-from-sibling pills */}
+            {siblingCurricula.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs text-[#9e958d] mb-1.5">Copy from {prevChildWithCurric?.name}:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {siblingCurricula.map((cs, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => handleCopyFromSibling(cs)}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold border border-[#e8e2d9] bg-white text-[#5c5248] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-all"
+                    >
+                      {cs.draft.curricName}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Search */}
             <div className="relative mb-3">
@@ -1343,8 +1434,8 @@ function StepTodayPreview({
           </div>
           {previewItems.length > 0 ? (
             <div className="divide-y divide-[#f0ede8]">
-              {previewItems.map(({ child, lesson }) => (
-                <div key={child!.uid} className="flex items-center gap-3 px-5 py-3">
+              {previewItems.map(({ child, lesson }, idx) => (
+                <div key={idx} className="flex items-center gap-3 px-5 py-3">
                   <div
                     className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
                     style={{ backgroundColor: child!.color }}
@@ -1366,19 +1457,25 @@ function StepTodayPreview({
 
         {childSchedules.length > 0 && (
           <div className="space-y-1 mb-5">
-            {childSchedules.map((cs) => {
-              const child = children.find((c) => c.uid === cs.childUid);
-              if (!child) return null;
-              const subStr = cs.draft.subjects.join(", ");
-              return (
-                <p key={cs.childUid} className="text-xs text-[#7a6f65] text-center">
-                  <span className="font-semibold" style={{ color: child.color }}>{child.name}</span>
-                  {": "}
-                  {cs.schedule.length} lessons scheduled
-                  {subStr ? ` · ${subStr}` : ""}
-                </p>
-              );
-            })}
+            {children
+              .map((child) => ({
+                child,
+                schedules: childSchedules.filter((cs) => cs.childUid === child.uid),
+              }))
+              .filter(({ schedules }) => schedules.length > 0)
+              .map(({ child, schedules }) => {
+                const totalLessons = schedules.reduce((sum, cs) => sum + cs.schedule.length, 0);
+                const subjects = [...new Set(schedules.flatMap((cs) => cs.draft.subjects))];
+                const subStr = subjects.join(", ");
+                return (
+                  <p key={child.uid} className="text-xs text-[#7a6f65] text-center">
+                    <span className="font-semibold" style={{ color: child.color }}>{child.name}</span>
+                    {": "}
+                    {totalLessons} lessons scheduled
+                    {subStr ? ` · ${subStr}` : ""}
+                  </p>
+                );
+              })}
           </div>
         )}
 
@@ -1513,6 +1610,7 @@ export default function OnboardingPage() {
   const [curricDraft,         setCurricDraft]         = useState<CurriculumDraft>(freshDraft(0));
   const [curricDraftsByChild, setCurricDraftsByChild] = useState<Record<number, CurriculumDraft>>({});
   const [skippedChildUids,    setSkippedChildUids]    = useState<Set<number>>(new Set());
+  const [confirmedChildUids,  setConfirmedChildUids]  = useState<Set<number>>(new Set());
 
   const completedChildUids = useMemo(
     () => new Set(childSchedules.map((cs) => cs.childUid)),
@@ -1576,10 +1674,7 @@ export default function OnboardingPage() {
   function handleChangeChild(uid: number) {
     const snapshot = curricDraft;
     setCurricDraftsByChild((prev) => ({ ...prev, [curricChildUid]: snapshot }));
-    // Check saved draft, then check completed child's built draft, then fresh
-    const saved = curricDraftsByChild[uid]
-      ?? childSchedules.find((cs) => cs.childUid === uid)?.draft
-      ?? freshDraft(uid);
+    const saved = curricDraftsByChild[uid] ?? freshDraft(uid);
     setCurricDraft(saved);
     setCurricChildUid(uid);
   }
@@ -1587,10 +1682,11 @@ export default function OnboardingPage() {
   // ── Build & store one child's schedule ───────────────────────────────────
 
   function handleBuildChild(uid: number, draft: CurriculumDraft, rows: ScheduleRow[]) {
-    setChildSchedules((prev) => {
-      const filtered = prev.filter((cs) => cs.childUid !== uid);
-      return [...filtered, { childUid: uid, draft, schedule: rows }];
-    });
+    setChildSchedules((prev) => [...prev, { childUid: uid, draft, schedule: rows }]);
+  }
+
+  function handleConfirmChild(uid: number) {
+    setConfirmedChildUids((prev) => new Set([...prev, uid]));
   }
 
   // ── Mark a child as skipped ───────────────────────────────────────────────
@@ -1773,11 +1869,14 @@ export default function OnboardingPage() {
         validChildren={validKids}
         curricChildUid={curricChildUid}
         draft={curricDraft}
+        childSchedules={childSchedules}
         completedChildUids={completedChildUids}
         skippedChildUids={skippedChildUids}
+        confirmedChildUids={confirmedChildUids}
         onChange={(patch) => setCurricDraft((prev) => ({ ...prev, ...patch }))}
         onChangeChild={handleChangeChild}
         onBuildChild={handleBuildChild}
+        onConfirmChild={handleConfirmChild}
         onDoneAll={handleDoneAll}
         onSkipChild={handleSkipChild}
         onSkipAll={() => { setNoCurriculumNote(true); setStep(7); }}
