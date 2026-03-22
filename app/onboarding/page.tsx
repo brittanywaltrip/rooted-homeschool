@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -59,9 +59,21 @@ type CurriculumDraft = {
 
 type ScheduleRow = { date: string; title: string };
 
+type ChildSchedule = {
+  childUid: number;
+  draft: CurriculumDraft;
+  schedule: ScheduleRow[];
+};
+
 let seq = 0;
 const mkChild = (index = 0): ChildDraft => ({
   uid: ++seq, name: "", color: CHILD_COLORS[index % CHILD_COLORS.length], grade: "",
+});
+
+const freshDraft = (childUid: number): CurriculumDraft => ({
+  curricName: "", subjects: [], totalLessons: 0,
+  schoolDays: [true, true, true, true, true, false, false],
+  finishDate: "", childUid,
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -86,6 +98,17 @@ function generateSchedule(draft: CurriculumDraft): ScheduleRow[] {
     safety++;
   }
   return rows;
+}
+
+function getNextSchoolDay(schoolDays: boolean[]): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  let safety = 0;
+  do {
+    d.setDate(d.getDate() + 1);
+    safety++;
+  } while (!schoolDays[(d.getDay() + 6) % 7] && safety < 14);
+  return d;
 }
 
 // ─── Shared layout ────────────────────────────────────────────────────────────
@@ -125,14 +148,14 @@ function ContinueBtn({ label = "Continue →", onClick, disabled = false }: { la
   );
 }
 
-function SkipLink({ onClick }: { onClick: () => void }) {
+function SkipLink({ label = "Skip for now →", onClick }: { label?: string; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className="block w-full text-center text-sm text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-3 py-1"
     >
-      Skip for now →
+      {label}
     </button>
   );
 }
@@ -223,7 +246,6 @@ function StepWelcome({ firstName, onNext }: { firstName: string; onNext: () => v
       className="min-h-screen flex flex-col items-center justify-center px-6 relative overflow-hidden"
       style={{ background: "linear-gradient(155deg, #1a3d24 0%, #2a5533 45%, #3d7a50 80%, #4d8f63 100%)" }}
     >
-      {/* Dot texture overlay */}
       <div className="absolute inset-0 opacity-[0.07]"
         style={{ backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
 
@@ -238,7 +260,6 @@ function StepWelcome({ firstName, onNext }: { firstName: string; onNext: () => v
           @keyframes popBud { from { opacity:0; transform:scale(0); } to { opacity:1; transform:scale(1); } }
         `}</style>
 
-        {/* Animated plant SVG */}
         <svg width="110" height="130" viewBox="0 0 110 130" className="mb-8" aria-hidden>
           <ellipse cx="55" cy="118" rx="30" ry="8" fill="#1a3d24" opacity="0.4" />
           <path d="M55 115 Q55 80 55 40"
@@ -375,7 +396,6 @@ function ChildRow({
   return (
     <div className="bg-[#f8f5f0] rounded-2xl p-4 space-y-3 border border-[#ede8de]">
       <div className="flex items-center gap-3">
-        {/* Color initial bubble preview */}
         <div
           className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 text-white text-sm font-bold"
           style={{ backgroundColor: child.color }}
@@ -383,7 +403,6 @@ function ChildRow({
           {child.name ? child.name.charAt(0).toUpperCase() : "?"}
         </div>
 
-        {/* Name */}
         <input
           type="text"
           value={child.name}
@@ -401,7 +420,6 @@ function ChildRow({
         )}
       </div>
 
-      {/* Grade + Color row */}
       <div className="flex items-center gap-3 pl-14">
         <select
           value={child.grade}
@@ -499,17 +517,39 @@ function StepChildren({
 // ─── Step 5 — Curriculum ──────────────────────────────────────────────────────
 
 function StepCurriculum({
-  children, draft, onChange, onBuild, onSkip, onBack,
+  validChildren,
+  curricChildUid,
+  draft,
+  completedChildUids,
+  onChange,
+  onChangeChild,
+  onBuildChild,
+  onDoneAll,
+  onSkipAll,
+  onBack,
 }: {
-  children: ChildDraft[];
+  validChildren: ChildDraft[];
+  curricChildUid: number;
   draft: CurriculumDraft;
+  completedChildUids: Set<number>;
   onChange: (patch: Partial<CurriculumDraft>) => void;
-  onBuild: () => void;
-  onSkip: () => void;
+  onChangeChild: (uid: number) => void;
+  onBuildChild: (uid: number, draft: CurriculumDraft, rows: ScheduleRow[]) => void;
+  onDoneAll: () => void;
+  onSkipAll: () => void;
   onBack: () => void;
 }) {
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [promptChild, setPromptChild] = useState<ChildDraft | null>(null);
+  const touchMoved = useRef(false);
+  const touchStartY = useRef(0);
+
   const canBuild = draft.curricName.trim().length > 0 && draft.subjects.length > 0 && draft.totalLessons > 0;
-  const validChildren = children.filter((c) => c.name.trim());
+  const singleChild = validChildren.length === 1;
+  const currentChild = validChildren.find((c) => c.uid === curricChildUid) ?? validChildren[0];
+  const heading = singleChild
+    ? `What are you teaching ${currentChild?.name ?? "your child"}?`
+    : "Set up your first curriculum";
 
   function toggleSubject(s: string) {
     const cur = draft.subjects;
@@ -522,6 +562,72 @@ function StepCurriculum({
     onChange({ schoolDays: days });
   }
 
+  function handleBuildClick() {
+    const rows = generateSchedule(draft);
+    onBuildChild(curricChildUid, draft, rows);
+    const newlyDone = new Set([...completedChildUids, curricChildUid]);
+    const remaining = validChildren.filter((c) => !newlyDone.has(c.uid));
+    if (remaining.length > 0) {
+      setPromptChild(remaining[0]);
+      setShowPrompt(true);
+    } else {
+      onDoneAll();
+    }
+  }
+
+  function handleSetupPromptChild() {
+    if (!promptChild) return;
+    onChangeChild(promptChild.uid);
+    setShowPrompt(false);
+  }
+
+  function handleSkipPrompt() {
+    if (!promptChild) return;
+    const skippedUid = promptChild.uid;
+    const alreadyDone = new Set([...completedChildUids, curricChildUid, skippedUid]);
+    const remaining = validChildren.filter((c) => !alreadyDone.has(c.uid));
+    if (remaining.length > 0) {
+      setPromptChild(remaining[0]);
+    } else {
+      setShowPrompt(false);
+      onDoneAll();
+    }
+  }
+
+  // ── Prompt: ask about next child ──────────────────────────────────────────
+
+  if (showPrompt && promptChild) {
+    return (
+      <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
+        <ProgressDots step={5} />
+        <Card>
+          <div className="text-center mb-8">
+            <div
+              className="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold mx-auto mb-4"
+              style={{ backgroundColor: promptChild.color }}
+            >
+              {promptChild.name.charAt(0).toUpperCase()}
+            </div>
+            <h2
+              className="text-2xl font-bold text-[#2d2926] mb-3 leading-snug"
+              style={{ fontFamily: "Georgia, serif" }}
+            >
+              Want to set up {promptChild.name}&apos;s curriculum too?
+            </h2>
+            <p className="text-sm text-[#7a6f65]">You can always do this later in Settings.</p>
+          </div>
+          <ContinueBtn
+            label={`Set up ${promptChild.name}'s curriculum →`}
+            onClick={handleSetupPromptChild}
+          />
+          <SkipLink label="Skip for now →" onClick={handleSkipPrompt} />
+        </Card>
+      </div>
+    );
+  }
+
+  // ── Curriculum form ───────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-start px-5 py-12 overflow-y-auto">
       <BackBtn onClick={onBack} />
@@ -529,24 +635,33 @@ function StepCurriculum({
       <Card className="mb-8">
         <StepHeading
           eyebrow="Step 5 of 7"
-          title="Set up your first curriculum"
+          title={heading}
           sub="We'll build your lesson schedule automatically."
         />
 
-        {/* Which child (if multiple) */}
-        {validChildren.length > 1 && (
-          <div className="mb-4">
-            <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">For which child?</label>
-            <select
-              value={draft.childUid}
-              onChange={(e) => onChange({ childUid: Number(e.target.value) })}
-              className="w-full px-4 py-3 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] transition appearance-none"
-              style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237a6f65' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 16px center" }}
-            >
-              {validChildren.map((c) => (
-                <option key={c.uid} value={c.uid}>{c.name}</option>
-              ))}
-            </select>
+        {/* Child tab pills (multiple children only) */}
+        {!singleChild && (
+          <div className="flex gap-2 mb-5 flex-wrap">
+            {validChildren.map((c) => {
+              const isActive = c.uid === curricChildUid;
+              const isDone = completedChildUids.has(c.uid);
+              return (
+                <button
+                  key={c.uid}
+                  type="button"
+                  onClick={() => onChangeChild(c.uid)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
+                  style={{
+                    backgroundColor: isActive ? c.color : "#f8f5f0",
+                    color: isActive ? "white" : "#5c5248",
+                    borderColor: isActive ? c.color : "#e8e2d9",
+                  }}
+                >
+                  {isDone && <Check size={10} strokeWidth={3} />}
+                  {c.name}
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -599,13 +714,26 @@ function StepCurriculum({
           />
         </div>
 
-        {/* School days */}
+        {/* School days — touch scroll fix */}
         <div className="mb-4">
           <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">School Days</label>
-          <div className="flex gap-2">
+          <div
+            className="flex gap-2"
+            onTouchStart={(e) => {
+              touchMoved.current = false;
+              touchStartY.current = e.touches[0].clientY;
+            }}
+            onTouchMove={(e) => {
+              if (Math.abs(e.touches[0].clientY - touchStartY.current) > 5) {
+                touchMoved.current = true;
+              }
+            }}
+          >
             {DAY_LABELS.map((d, i) => (
               <button
-                key={d} type="button" onClick={() => toggleDay(i)}
+                key={d}
+                type="button"
+                onClick={() => { if (touchMoved.current) return; toggleDay(i); }}
                 className="flex-1 py-2.5 rounded-xl text-xs font-semibold border transition-all"
                 style={{
                   backgroundColor: draft.schoolDays[i] ? "#5c7f63" : "#f8f5f0",
@@ -619,7 +747,7 @@ function StepCurriculum({
           </div>
         </div>
 
-        {/* Finish date (optional) */}
+        {/* Target finish date */}
         <div className="mb-6">
           <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
             Target Finish Date <span className="font-normal normal-case text-[#b5aca4]">(optional)</span>
@@ -633,13 +761,13 @@ function StepCurriculum({
         </div>
 
         <ContinueBtn
-          onClick={onBuild}
+          onClick={handleBuildClick}
           disabled={!canBuild}
           label={canBuild ? "Build my schedule →" : "Fill in the fields above"}
         />
         <button
           type="button"
-          onClick={onSkip}
+          onClick={onSkipAll}
           className="block w-full text-center text-sm text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-3 py-1"
         >
           I&apos;ll set this up later →
@@ -649,22 +777,49 @@ function StepCurriculum({
   );
 }
 
-// ─── Step 6 — Schedule Preview ────────────────────────────────────────────────
+// ─── Step 6 — Today Preview ────────────────────────────────────────────────────
 
-function StepSchedulePreview({
-  schedule, childColor, onNext, onBack,
+function StepTodayPreview({
+  childSchedules,
+  children,
+  displayName,
+  isPro,
+  onNext,
+  onBack,
 }: {
-  schedule: ScheduleRow[];
-  childColor: string;
+  childSchedules: ChildSchedule[];
+  children: ChildDraft[];
+  displayName: string;
+  isPro: boolean;
   onNext: () => void;
   onBack: () => void;
 }) {
-  const preview = schedule.slice(0, 7);
+  const showUpgrade = !isPro && new Date() < new Date("2026-04-30");
 
-  function fmtDate(d: string) {
-    const dt = new Date(d + "T00:00:00");
-    return dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-  }
+  // Heading depends on day of week
+  const todayDow = new Date().getDay(); // 0=Sun,1=Mon,...,5=Fri,6=Sat
+  const isFriOrWeekend = todayDow === 5 || todayDow === 6 || todayDow === 0;
+  const heading = isFriOrWeekend
+    ? "Here's what Monday looks like 🌿"
+    : "Here's what tomorrow looks like 🌿";
+
+  // Next school day for preview date
+  const firstSchedule = childSchedules[0];
+  const nextDay = firstSchedule
+    ? getNextSchoolDay(firstSchedule.draft.schoolDays)
+    : getNextSchoolDay([true, true, true, true, true, false, false]);
+  const previewDateStr = nextDay
+    .toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+    .toUpperCase();
+
+  // Per-child first lesson
+  const previewItems = childSchedules
+    .map((cs) => ({
+      child: children.find((c) => c.uid === cs.childUid),
+      lesson: cs.schedule[0],
+      draft: cs.draft,
+    }))
+    .filter((item) => item.child && item.lesson);
 
   return (
     <div
@@ -679,45 +834,92 @@ function StepSchedulePreview({
         <div className="text-center mb-6">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#7a9e7e] mb-2">Step 6 of 7</p>
           <h2 className="text-3xl font-bold text-[#2d2926] leading-snug mb-2" style={{ fontFamily: "Georgia, serif" }}>
-            Your first week is ready! 🌱
+            {heading}
           </h2>
-          <p className="text-sm text-[#7a6f65]">Here&apos;s what the first few lessons look like.</p>
+          <p className="text-sm text-[#7a6f65]">Your homeschool is ready to grow.</p>
         </div>
 
-        <div className="bg-[#fefcf9] rounded-3xl border border-[#e8e2d9] overflow-hidden mb-6 shadow-lg">
-          {preview.map((row, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-3 px-5 py-3.5 border-b border-[#f0ede8] last:border-0"
-            >
-              <div
-                className="w-2 rounded-full shrink-0 self-stretch"
-                style={{ backgroundColor: childColor, minHeight: "20px" }}
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[#2d2926] truncate">{row.title}</p>
-                <p className="text-xs text-[#9e958d]">{fmtDate(row.date)}</p>
-              </div>
-              <div
-                className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 border-2"
-                style={{ borderColor: "#c8bfb5" }}
-              />
+        {/* Mini Today preview card */}
+        <div className="bg-[#fefcf9] rounded-3xl border border-[#e8e2d9] overflow-hidden mb-4 shadow-lg">
+          <div className="px-5 pt-4 pb-3 border-b border-[#f0ede8]">
+            <p className="text-[10px] font-semibold tracking-[0.18em] text-[#b5aca4] uppercase mb-1">
+              {previewDateStr}
+            </p>
+            <p className="text-base font-semibold text-[#2d2926]">
+              Good morning{displayName ? `, ${displayName}` : ""}! 🌤️
+            </p>
+          </div>
+
+          {previewItems.length > 0 ? (
+            <div className="divide-y divide-[#f0ede8]">
+              {previewItems.map(({ child, lesson }) => (
+                <div key={child!.uid} className="flex items-center gap-3 px-5 py-3">
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                    style={{ backgroundColor: child!.color }}
+                  >
+                    {child!.name.charAt(0).toUpperCase()}
+                  </div>
+                  <p className="flex-1 text-sm text-[#2d2926] truncate">{lesson!.title}</p>
+                  <div className="w-5 h-5 rounded-full border-2 border-[#c8bfb5] shrink-0" />
+                </div>
+              ))}
             </div>
-          ))}
-          {schedule.length > 7 && (
-            <div className="px-5 py-3 text-xs text-[#b5aca4] text-center">
-              +{schedule.length - 7} more lessons scheduled
-            </div>
+          ) : (
+            <div className="px-5 py-4 text-sm text-[#9e958d]">Your lessons will appear here each day.</div>
           )}
+
+          <div className="px-5 py-3 border-t border-[#f0ede8]">
+            <p className="text-xs text-[#b5aca4]">🌱 Your garden grows with every lesson.</p>
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onNext}
-          className="w-full py-4 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98]"
-        >
-          Looks great! Let&apos;s go →
-        </button>
+        {/* Summary lines per child */}
+        {childSchedules.length > 0 && (
+          <div className="space-y-1 mb-5">
+            {childSchedules.map((cs) => {
+              const child = children.find((c) => c.uid === cs.childUid);
+              if (!child) return null;
+              const subStr = cs.draft.subjects.join(", ");
+              return (
+                <p key={cs.childUid} className="text-xs text-[#7a6f65] text-center">
+                  <span className="font-semibold" style={{ color: child.color }}>{child.name}</span>
+                  {": "}
+                  {cs.schedule.length} lessons scheduled
+                  {subStr ? ` · ${subStr}` : ""}
+                </p>
+              );
+            })}
+          </div>
+        )}
+
+        {/* CTA */}
+        {showUpgrade ? (
+          <>
+            <button
+              type="button"
+              onClick={() => window.open("/upgrade", "_blank")}
+              className="w-full py-4 rounded-2xl bg-[#c4956a] hover:bg-[#a87a53] text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98] mb-3"
+            >
+              Join as a Founding Family — $39/yr →
+            </button>
+            <button
+              type="button"
+              onClick={onNext}
+              className="block w-full text-center text-sm text-[#b5aca4] hover:text-[#7a6f65] transition-colors py-1"
+            >
+              Continue with Free →
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={onNext}
+            className="w-full py-4 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98]"
+          >
+            Looks great! Let&apos;s go →
+          </button>
+        )}
       </div>
     </div>
   );
@@ -725,7 +927,13 @@ function StepSchedulePreview({
 
 // ─── Step 7 — Add to Home Screen ──────────────────────────────────────────────
 
-function StepAddToHomeScreen({ saving, onDone }: { saving: boolean; onDone: () => void }) {
+function StepAddToHomeScreen({
+  saving, onDone, onSkip,
+}: {
+  saving: boolean;
+  onDone: () => void;
+  onSkip: () => void;
+}) {
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
       <ProgressDots step={7} />
@@ -733,7 +941,7 @@ function StepAddToHomeScreen({ saving, onDone }: { saving: boolean; onDone: () =
         <StepHeading
           eyebrow="One last thing 🌿"
           title="Add Rooted to your home screen"
-          sub="This way you'll never forget to log your day. It takes 10 seconds and feels like a real app."
+          sub="Add Rooted to your home screen for quick daily access."
         />
 
         <div className="grid grid-cols-2 gap-3 mb-8">
@@ -772,6 +980,14 @@ function StepAddToHomeScreen({ saving, onDone }: { saving: boolean; onDone: () =
             </span>
           ) : "Done — let's grow! →"}
         </button>
+        <button
+          type="button"
+          onClick={onSkip}
+          disabled={saving}
+          className="block w-full text-center text-sm text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-3 py-1 disabled:opacity-40"
+        >
+          Maybe later
+        </button>
       </Card>
     </div>
   );
@@ -785,6 +1001,7 @@ export default function OnboardingPage() {
   const [step,    setStep]    = useState(1);
   const [userId,  setUserId]  = useState("");
   const [saving,  setSaving]  = useState(false);
+  const [isPro,   setIsPro]   = useState(false);
 
   // Auth-sourced
   const [firstName, setFirstName] = useState("");
@@ -795,16 +1012,16 @@ export default function OnboardingPage() {
   const [selectedState,     setSelectedState]     = useState("");
   const [children,          setChildren]          = useState<ChildDraft[]>([mkChild()]);
 
-  // Curriculum
-  const [curricDraft, setCurricDraft] = useState<CurriculumDraft>({
-    curricName:   "",
-    subjects:     [],
-    totalLessons: 0,
-    schoolDays:   [true, true, true, true, true, false, false],
-    finishDate:   "",
-    childUid:     1,
-  });
-  const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
+  // Curriculum — multi-child
+  const [childSchedules,      setChildSchedules]      = useState<ChildSchedule[]>([]);
+  const [curricChildUid,      setCurricChildUid]      = useState(0);
+  const [curricDraft,         setCurricDraft]         = useState<CurriculumDraft>(freshDraft(0));
+  const [curricDraftsByChild, setCurricDraftsByChild] = useState<Record<number, CurriculumDraft>>({});
+
+  const completedChildUids = useMemo(
+    () => new Set(childSchedules.map((cs) => cs.childUid)),
+    [childSchedules],
+  );
 
   // ── Auth + onboarded check ────────────────────────────────────────────────
 
@@ -814,7 +1031,7 @@ export default function OnboardingPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, onboarded")
+        .select("display_name, onboarded, is_pro")
         .eq("id", user.id)
         .maybeSingle();
 
@@ -828,6 +1045,7 @@ export default function OnboardingPage() {
       setFirstName(fn);
       setLastName(ln);
       setFamilyDisplayName(profile?.display_name ?? (ln ? `The ${ln} Family` : ""));
+      setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setUserId(user.id);
       setReady(true);
     });
@@ -843,15 +1061,38 @@ export default function OnboardingPage() {
     setChildren((prev) => prev.filter((c) => c.uid !== uid));
   }, []);
 
-  // ── Build schedule (Step 5 → 6) ──────────────────────────────────────────
+  // ── Step 4 → 5 ───────────────────────────────────────────────────────────
 
-  function handleBuildSchedule() {
-    const rows = generateSchedule(curricDraft);
-    setSchedule(rows);
-    setStep(6);
+  function goToStep5() {
+    const validKids = children.filter((c) => c.name.trim());
+    if (validKids.length === 0) return;
+    const firstChild = validKids[0];
+    setCurricChildUid(firstChild.uid);
+    setCurricDraft(freshDraft(firstChild.uid));
+    setStep(5);
   }
 
-  // ── Complete onboarding (Step 7 "Done") ──────────────────────────────────
+  // ── Child tab switch ──────────────────────────────────────────────────────
+
+  function handleChangeChild(uid: number) {
+    // Save current draft before switching
+    const snapshot = curricDraft;
+    setCurricDraftsByChild((prev) => ({ ...prev, [curricChildUid]: snapshot }));
+    const saved = curricDraftsByChild[uid];
+    setCurricDraft(saved ?? freshDraft(uid));
+    setCurricChildUid(uid);
+  }
+
+  // ── Build & store one child's schedule ───────────────────────────────────
+
+  function handleBuildChild(uid: number, draft: CurriculumDraft, rows: ScheduleRow[]) {
+    setChildSchedules((prev) => {
+      const filtered = prev.filter((cs) => cs.childUid !== uid);
+      return [...filtered, { childUid: uid, draft, schedule: rows }];
+    });
+  }
+
+  // ── Complete onboarding ───────────────────────────────────────────────────
 
   const complete = useCallback(async () => {
     setSaving(true);
@@ -877,15 +1118,15 @@ export default function OnboardingPage() {
       if (inserted) insertedChildren.push({ uid: child.uid, id: (inserted as { id: string }).id });
     }
 
-    // If curriculum was generated, save goals + lessons
-    if (schedule.length > 0 && curricDraft.curricName.trim()) {
-      const targetChild = insertedChildren.find((c) => c.uid === curricDraft.childUid) ?? insertedChildren[0];
+    // Save curriculum goals + lessons for each child
+    for (const cs of childSchedules) {
+      if (cs.schedule.length === 0 || !cs.draft.curricName.trim()) continue;
+      const targetChild = insertedChildren.find((c) => c.uid === cs.childUid) ?? insertedChildren[0];
       const childId = targetChild?.id ?? null;
 
-      // Get or create subject
       let subjectId: string | null = null;
-      if (curricDraft.subjects.length > 0) {
-        const subjectName = curricDraft.subjects[0];
+      if (cs.draft.subjects.length > 0) {
+        const subjectName = cs.draft.subjects[0];
         const { data: existingSub } = await supabase
           .from("subjects")
           .select("id")
@@ -904,28 +1145,26 @@ export default function OnboardingPage() {
         }
       }
 
-      // School day name strings
-      const dayNames = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-      const schoolDayNames = dayNames.filter((_, i) => curricDraft.schoolDays[i]);
+      const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      const schoolDayNames = dayNames.filter((_, i) => cs.draft.schoolDays[i]);
 
-      // Create curriculum goal
       const { data: goal } = await supabase
         .from("curriculum_goals")
         .insert({
           user_id:         userId,
           child_id:        childId,
-          curriculum_name: curricDraft.curricName.trim(),
-          subject_label:   curricDraft.subjects[0] ?? null,
-          total_lessons:   curricDraft.totalLessons,
+          curriculum_name: cs.draft.curricName.trim(),
+          subject_label:   cs.draft.subjects[0] ?? null,
+          total_lessons:   cs.draft.totalLessons,
           current_lesson:  0,
-          target_date:     curricDraft.finishDate || null,
+          target_date:     cs.draft.finishDate || null,
           school_days:     schoolDayNames,
         })
         .select("id")
         .single();
 
       if (goal) {
-        const rows = schedule.map((row, idx) => ({
+        const rows = cs.schedule.map((row, idx) => ({
           user_id:            userId,
           child_id:           childId,
           subject_id:         subjectId,
@@ -956,11 +1195,10 @@ export default function OnboardingPage() {
 
     router.push("/dashboard");
     setSaving(false);
-  }, [children, userId, schedule, curricDraft, familyDisplayName, selectedState, router]);
+  }, [children, userId, childSchedules, familyDisplayName, selectedState, router]);
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  // Suppress unused variable warning for lastName (used for familyDisplayName pre-fill only)
   void lastName;
 
   if (!ready) {
@@ -972,6 +1210,7 @@ export default function OnboardingPage() {
   }
 
   if (step === 1) return <StepWelcome firstName={firstName} onNext={() => setStep(2)} />;
+
   if (step === 2) return (
     <StepFamilyName
       value={familyDisplayName} onChange={setFamilyDisplayName}
@@ -979,6 +1218,7 @@ export default function OnboardingPage() {
       onBack={() => setStep(1)}
     />
   );
+
   if (step === 3) return (
     <StepState
       value={selectedState} onChange={setSelectedState}
@@ -986,36 +1226,52 @@ export default function OnboardingPage() {
       onBack={() => setStep(2)}
     />
   );
+
   if (step === 4) return (
     <StepChildren
       children={children}
       onChange={updateChild}
       onAdd={() => setChildren((p) => [...p, mkChild(p.length)])}
       onRemove={removeChild}
-      onNext={() => setStep(5)}
+      onNext={goToStep5}
       onBack={() => setStep(3)}
     />
   );
-  if (step === 5) return (
-    <StepCurriculum
-      children={children}
-      draft={curricDraft}
-      onChange={(patch) => setCurricDraft((prev) => ({ ...prev, ...patch }))}
-      onBuild={handleBuildSchedule}
-      onSkip={() => setStep(7)}
-      onBack={() => setStep(4)}
-    />
-  );
-  if (step === 6) {
-    const childObj = children.find((c) => c.uid === curricDraft.childUid) ?? children[0];
+
+  if (step === 5) {
+    const validKids = children.filter((c) => c.name.trim());
     return (
-      <StepSchedulePreview
-        schedule={schedule}
-        childColor={childObj?.color ?? "#5c7f63"}
-        onNext={() => setStep(7)}
-        onBack={() => setStep(5)}
+      <StepCurriculum
+        validChildren={validKids}
+        curricChildUid={curricChildUid}
+        draft={curricDraft}
+        completedChildUids={completedChildUids}
+        onChange={(patch) => setCurricDraft((prev) => ({ ...prev, ...patch }))}
+        onChangeChild={handleChangeChild}
+        onBuildChild={handleBuildChild}
+        onDoneAll={() => setStep(6)}
+        onSkipAll={() => setStep(7)}
+        onBack={() => setStep(4)}
       />
     );
   }
-  return <StepAddToHomeScreen saving={saving} onDone={complete} />;
+
+  if (step === 6) return (
+    <StepTodayPreview
+      childSchedules={childSchedules}
+      children={children}
+      displayName={familyDisplayName || firstName}
+      isPro={isPro}
+      onNext={() => setStep(7)}
+      onBack={() => setStep(5)}
+    />
+  );
+
+  return (
+    <StepAddToHomeScreen
+      saving={saving}
+      onDone={complete}
+      onSkip={complete}
+    />
+  );
 }
