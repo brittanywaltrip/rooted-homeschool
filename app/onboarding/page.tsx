@@ -520,7 +520,8 @@ const FILTER_SUBJECTS = ["All","Math","Reading","Language Arts","Science","Histo
 const CURRICULUM_LIBRARY: LibraryCurric[] = [
   // ── Math ──────────────────────────────────────────────────────────────────
   { name: "Saxon Math",                             subject: "Math",          lessons: 120, days: MF   },
-  { name: "Math-U-See",                             subject: "Math",          lessons:  36, days: MF   },
+  { name: "Math-U-See",                             subject: "Math",          lessons: 120, days: MF   },
+  { name: "The Good and the Beautiful Math",        subject: "Math",          lessons: 120, days: MF   },
   { name: "Singapore Math",                         subject: "Math",          lessons:  90, days: MF   },
   { name: "RightStart Mathematics",                 subject: "Math",          lessons: 120, days: MTTF },
   { name: "Teaching Textbooks",                     subject: "Math",          lessons: 120, days: MF   },
@@ -533,7 +534,7 @@ const CURRICULUM_LIBRARY: LibraryCurric[] = [
   { name: "Shiller Math",                           subject: "Math",          lessons:  80, days: MF   },
   // ── Reading ───────────────────────────────────────────────────────────────
   { name: "All About Reading",                      subject: "Reading",       lessons:  60, days: MTTF },
-  { name: "The Good and the Beautiful Reading",     subject: "Reading",       lessons:  90, days: MF   },
+  { name: "The Good and the Beautiful Reading",     subject: "Reading",       lessons: 120, days: MF   },
   { name: "Explode the Code",                       subject: "Reading",       lessons:  80, days: MF   },
   { name: "Teach Your Child to Read in 100 Easy Lessons", subject: "Reading", lessons: 100, days: MF  },
   { name: "Bob Books",                              subject: "Reading",       lessons:  60, days: MTTF },
@@ -544,7 +545,7 @@ const CURRICULUM_LIBRARY: LibraryCurric[] = [
   { name: "Reading Eggs",                           subject: "Reading",       lessons: 100, days: MF   },
   // ── Language Arts ─────────────────────────────────────────────────────────
   { name: "All About Spelling",                     subject: "Language Arts", lessons:  48, days: MTTF },
-  { name: "The Good and the Beautiful Language Arts", subject: "Language Arts", lessons: 36, days: MF  },
+  { name: "The Good and the Beautiful Language Arts", subject: "Language Arts", lessons: 120, days: MF },
   { name: "First Language Lessons",                 subject: "Language Arts", lessons: 100, days: MF   },
   { name: "Easy Grammar",                           subject: "Language Arts", lessons: 140, days: MF   },
   { name: "IEW",                                    subject: "Language Arts", lessons:  30, days: MWF  },
@@ -562,28 +563,28 @@ const CURRICULUM_LIBRARY: LibraryCurric[] = [
   { name: "Mystery Science",                        subject: "Science",       lessons:  40, days: MF   },
   { name: "God's Design for Science",               subject: "Science",       lessons:  96, days: MF   },
   { name: "Noeo Science",                           subject: "Science",       lessons:  36, days: MF   },
-  { name: "The Good and the Beautiful Science",     subject: "Science",       lessons:  36, days: MF   },
+  { name: "The Good and the Beautiful Science",     subject: "Science",       lessons: 120, days: MF   },
   { name: "Building Foundations of Scientific Understanding", subject: "Science", lessons: 100, days: MF },
   { name: "Supercharged Science",                   subject: "Science",       lessons:  50, days: MF   },
   { name: "Nancy Larson Science",                   subject: "Science",       lessons:  60, days: MF   },
   // ── History ───────────────────────────────────────────────────────────────
   { name: "Story of the World",                     subject: "History",       lessons:  42, days: MF   },
   { name: "Sonlight History",                       subject: "History",       lessons:  36, days: MF   },
-  { name: "Mystery of History",                     subject: "History",       lessons:  48, days: MF   },
+  { name: "Mystery of History",                     subject: "History",       lessons:  84, days: MF   },
   { name: "Beautiful Feet Books",                   subject: "History",       lessons:  30, days: MF   },
-  { name: "The Good and the Beautiful History",     subject: "History",       lessons:  36, days: MF   },
-  { name: "Tapestry of Grace",                      subject: "History",       lessons:  34, days: MF   },
-  { name: "Veritas Press History",                  subject: "History",       lessons:  36, days: MF   },
+  { name: "The Good and the Beautiful History",     subject: "History",       lessons: 120, days: MF   },
+  { name: "Tapestry of Grace",                      subject: "History",       lessons: 180, days: MF   },
+  { name: "Veritas Press History",                  subject: "History",       lessons: 160, days: MF   },
   { name: "Trail Guide to Learning",                subject: "History",       lessons:  36, days: MF   },
   { name: "A History of US",                        subject: "History",       lessons:  50, days: MF   },
-  { name: "Notgrass History",                       subject: "History",       lessons:  36, days: MF   },
+  { name: "Notgrass History",                       subject: "History",       lessons:  90, days: MF   },
   // ── Bible ─────────────────────────────────────────────────────────────────
   { name: "Grapevine Studies",                      subject: "Bible",         lessons:  30, days: MF   },
   { name: "Apologia Who Is God?",                   subject: "Bible",         lessons:  30, days: MF   },
-  { name: "The Good and the Beautiful Bible",       subject: "Bible",         lessons:  36, days: MF   },
+  { name: "The Good and the Beautiful Bible",       subject: "Bible",         lessons: 120, days: MF   },
   { name: "Bible Study Guide for All Ages",         subject: "Bible",         lessons: 160, days: MF   },
   { name: "Positive Action Bible",                  subject: "Bible",         lessons:  36, days: MF   },
-  { name: "Veritas Press Bible",                    subject: "Bible",         lessons:  36, days: MF   },
+  { name: "Veritas Press Bible",                    subject: "Bible",         lessons: 160, days: MF   },
   { name: "Heart of Wisdom",                        subject: "Bible",         lessons:  36, days: MF   },
   { name: "Abeka Bible",                            subject: "Bible",         lessons: 170, days: MF   },
   { name: "Memoria Press Bible",                    subject: "Bible",         lessons:  30, days: MWF  },
@@ -986,7 +987,24 @@ function StepCurriculum({
             {/* Schedule preview — only when card selected */}
             {selectedCard && (
               <div className="bg-[#f0f7f0] border border-[#c8ddb8] rounded-2xl p-4 mb-4">
-                <p className="text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-2">Schedule Preview</p>
+                <p className="text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-3">Schedule Preview</p>
+
+                {/* Editable lesson count */}
+                <div className="mb-3">
+                  <label className="block text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-1.5">
+                    Lessons
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={draft.totalLessons || ""}
+                    onChange={(e) => onChange({ totalLessons: Math.max(1, parseInt(e.target.value) || 0) })}
+                    onWheel={(e) => e.currentTarget.blur()}
+                    className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+                  />
+                </div>
+
+                {/* Day pills */}
                 <div
                   className="flex gap-1.5 mb-2"
                   onTouchStart={(e) => { touchMoved.current = false; touchStartY.current = e.touches[0].clientY; }}
@@ -1007,18 +1025,20 @@ function StepCurriculum({
                     </button>
                   ))}
                 </div>
+
                 {calcFinishPreview(draft.schoolDays, draft.totalLessons) && (
-                  <p className="text-xs text-[#5c7f63] font-medium">
+                  <p className="text-xs text-[#5c7f63] font-medium mb-1">
                     ~Finishes {calcFinishPreview(draft.schoolDays, draft.totalLessons)}
                   </p>
                 )}
+                <p className="text-xs text-[#7a6f65] italic">Lesson count is estimated · adjust if needed</p>
               </div>
             )}
 
             {/* Build button */}
             <ContinueBtn
               onClick={handleBuildClick}
-              disabled={!selectedCard}
+              disabled={!selectedCard || draft.totalLessons <= 0}
               label={selectedCard
                 ? `Build ${currentChild?.name ?? "their"}'s schedule →`
                 : "Select a curriculum above"}
