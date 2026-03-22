@@ -778,7 +778,7 @@ export default function PlanPage() {
               This week
             </button>
           )}
-          <button onClick={prevWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+          <button onClick={prevWeek} disabled={isCurrentWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
             <ChevronLeft size={16} />
           </button>
           <span className="text-sm font-semibold text-[#2d2926] whitespace-nowrap px-1">{formatWeekRange(weekStart)}</span>
@@ -1140,8 +1140,16 @@ export default function PlanPage() {
                 {" – "}
                 {mobileDays[2]?.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </span>
-              <button onClick={() => setMobileOffset((v) => Math.min(4, v + 1))} disabled={!canMobileRight}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-25 transition-all">
+              <button
+                onClick={() => {
+                  if (mobileOffset < 4) {
+                    setMobileOffset((v) => v + 1);
+                  } else {
+                    nextWeek();
+                    setMobileOffset(0);
+                  }
+                }}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-all">
                 <ChevronRight size={18} />
               </button>
             </div>
