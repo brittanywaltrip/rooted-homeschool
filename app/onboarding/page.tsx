@@ -49,6 +49,7 @@ type CurriculumDraft = {
   curricName: string;
   subjects: string[];
   totalLessons: number;
+  lessonsDone: number;  // lessons already completed before starting (0 = from beginning)
   schoolDays: boolean[]; // Mon–Sun
   finishDate: string;
   childUid: number;
@@ -68,7 +69,7 @@ const mkChild = (index = 0): ChildDraft => ({
 });
 
 const freshDraft = (childUid: number): CurriculumDraft => ({
-  curricName: "", subjects: [], totalLessons: 0,
+  curricName: "", subjects: [], totalLessons: 0, lessonsDone: 0,
   schoolDays: [true, true, true, true, true, false, false],
   finishDate: "", childUid,
 });
@@ -83,7 +84,7 @@ function generateSchedule(draft: CurriculumDraft): ScheduleRow[] {
   const rows: ScheduleRow[] = [];
   const cursor = new Date();
   cursor.setHours(0, 0, 0, 0);
-  let lessonNum = 1;
+  let lessonNum = (draft.lessonsDone ?? 0) + 1;
   let safety = 0;
   while (lessonNum <= draft.totalLessons && safety < 3650) {
     const dayIdx = (cursor.getDay() + 6) % 7;
@@ -628,6 +629,8 @@ function StepCurriculum({
   const [filterSubject, setFilterSubject] = useState("All");
   const [selectedCard, setSelectedCard] = useState<LibraryCurric | null>(null);
   const [hintVisible, setHintVisible] = useState(false);
+  const [alreadyStarted, setAlreadyStarted] = useState(false);
+  const [startingLesson, setStartingLesson] = useState<number | "">("");
 
   // Screen B (manual) state
   const [otherSubject, setOtherSubject] = useState("");
@@ -654,6 +657,8 @@ function StepCurriculum({
     setSearch("");
     setFilterSubject("All");
     setHintVisible(false);
+    setAlreadyStarted(false);
+    setStartingLesson("");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curricChildUid]);
 
@@ -727,8 +732,13 @@ function StepCurriculum({
   // ── Chaining logic ────────────────────────────────────────────────────────
 
   function handleBuildClick() {
-    const rows = generateSchedule(draft);
-    onBuildChild(curricChildUid, draft, rows);
+    const lessonsDone = alreadyStarted && typeof startingLesson === "number" && startingLesson >= 2
+      ? startingLesson - 1
+      : 0;
+    const buildDraft = { ...draft, lessonsDone };
+    onChange({ lessonsDone });
+    const rows = generateSchedule(buildDraft);
+    onBuildChild(curricChildUid, buildDraft, rows);
     const newDone   = new Set([...completedChildUids, curricChildUid]);
     const exclude   = new Set([...newDone, ...skippedChildUids]);
     const remaining = validChildren.filter((c) => !exclude.has(c.uid));
@@ -1002,6 +1012,59 @@ function StepCurriculum({
                     onWheel={(e) => e.currentTarget.blur()}
                     className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
                   />
+                  <p className="mt-1 text-xs text-[#7a6f65] italic">Lesson count is estimated · adjust if needed</p>
+                </div>
+
+                {/* Where are you starting? */}
+                <div className="mb-3">
+                  <label className="block text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-1.5">
+                    Where Are You Starting?
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setAlreadyStarted(false); setStartingLesson(""); }}
+                      className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
+                      style={{
+                        backgroundColor: !alreadyStarted ? "#5c7f63" : "#f8f5f0",
+                        color:           !alreadyStarted ? "white" : "#9e958d",
+                        borderColor:     !alreadyStarted ? "#5c7f63" : "#e8e2d9",
+                      }}
+                    >
+                      From the beginning
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAlreadyStarted(true)}
+                      className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
+                      style={{
+                        backgroundColor: alreadyStarted ? "#5c7f63" : "#f8f5f0",
+                        color:           alreadyStarted ? "white" : "#9e958d",
+                        borderColor:     alreadyStarted ? "#5c7f63" : "#e8e2d9",
+                      }}
+                    >
+                      Already started
+                    </button>
+                  </div>
+                  {alreadyStarted && (
+                    <div className="mt-2">
+                      <label className="block text-xs text-[#5c7f63] mb-1">Starting at lesson</label>
+                      <input
+                        type="number"
+                        min={2}
+                        value={startingLesson}
+                        onChange={(e) => setStartingLesson(e.target.value === "" ? "" : parseInt(e.target.value) || "")}
+                        onWheel={(e) => e.currentTarget.blur()}
+                        placeholder="e.g. 47"
+                        className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+                      />
+                      {typeof startingLesson === "number" && startingLesson >= 2 && (
+                        <p className="mt-1 text-xs text-[#7a6f65] italic">
+                          Lessons 1–{startingLesson - 1} will be marked as already done
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Day pills */}
@@ -1026,12 +1089,17 @@ function StepCurriculum({
                   ))}
                 </div>
 
-                {calcFinishPreview(draft.schoolDays, draft.totalLessons) && (
-                  <p className="text-xs text-[#5c7f63] font-medium mb-1">
-                    ~Finishes {calcFinishPreview(draft.schoolDays, draft.totalLessons)}
-                  </p>
-                )}
-                <p className="text-xs text-[#7a6f65] italic">Lesson count is estimated · adjust if needed</p>
+                {(() => {
+                  const done = alreadyStarted && typeof startingLesson === "number" && startingLesson >= 2
+                    ? startingLesson - 1 : 0;
+                  const remaining = Math.max(0, draft.totalLessons - done);
+                  const preview = calcFinishPreview(draft.schoolDays, remaining);
+                  return preview ? (
+                    <p className="text-xs text-[#5c7f63] font-medium">
+                      ~Finishes {preview}
+                    </p>
+                  ) : null;
+                })()}
               </div>
             )}
 
@@ -1599,7 +1667,7 @@ export default function OnboardingPage() {
           curriculum_name: cs.draft.curricName.trim(),
           subject_label:   cs.draft.subjects[0] ?? null,
           total_lessons:   cs.draft.totalLessons,
-          current_lesson:  0,
+          current_lesson:  cs.draft.lessonsDone ?? 0,
           target_date:     cs.draft.finishDate || null,
           school_days:     schoolDayNames,
         })
