@@ -60,8 +60,8 @@ type CurriculumDraft = {
 type ScheduleRow = { date: string; title: string };
 
 let seq = 0;
-const mkChild = (): ChildDraft => ({
-  uid: ++seq, name: "", color: CHILD_COLORS[0], grade: "",
+const mkChild = (index = 0): ChildDraft => ({
+  uid: ++seq, name: "", color: CHILD_COLORS[index % CHILD_COLORS.length], grade: "",
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -990,7 +990,7 @@ export default function OnboardingPage() {
     <StepChildren
       children={children}
       onChange={updateChild}
-      onAdd={() => setChildren((p) => [...p, mkChild()])}
+      onAdd={() => setChildren((p) => [...p, mkChild(p.length)])}
       onRemove={removeChild}
       onNext={() => setStep(5)}
       onBack={() => setStep(3)}
