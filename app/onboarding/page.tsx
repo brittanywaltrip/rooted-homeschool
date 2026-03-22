@@ -31,11 +31,7 @@ const GRADE_OPTIONS = [
   "9th Grade", "10th Grade", "11th Grade", "12th Grade",
 ];
 
-const SUBJECT_CHIPS = [
-  "Math", "Reading", "Writing", "Language Arts", "Spelling", "Phonics",
-  "Science", "History", "Geography", "Art", "Music", "Bible",
-  "Physical Education", "Foreign Language", "Logic",
-];
+const SUBJECT_CHIPS = ["Math", "Reading", "Writing", "Science", "History", "Other"];
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -541,10 +537,12 @@ function StepCurriculum({
 }) {
   const [showPrompt, setShowPrompt] = useState(false);
   const [promptChild, setPromptChild] = useState<ChildDraft | null>(null);
+  const [otherSubject, setOtherSubject] = useState("");
   const touchMoved = useRef(false);
   const touchStartY = useRef(0);
 
-  const canBuild = draft.curricName.trim().length > 0 && draft.subjects.length > 0 && draft.totalLessons > 0;
+  const otherSelected = draft.subjects.some((s) => !SUBJECT_CHIPS.slice(0, -1).includes(s));
+  const canBuild = draft.curricName.trim().length > 0 && draft.totalLessons > 0;
   const singleChild = validChildren.length === 1;
   const currentChild = validChildren.find((c) => c.uid === curricChildUid) ?? validChildren[0];
   const heading = singleChild
@@ -552,8 +550,26 @@ function StepCurriculum({
     : "Set up your first curriculum";
 
   function toggleSubject(s: string) {
-    const cur = draft.subjects;
-    onChange({ subjects: cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s] });
+    if (s === "Other") {
+      if (otherSelected) {
+        // deselect Other — remove any non-core subjects
+        onChange({ subjects: draft.subjects.filter((x) => SUBJECT_CHIPS.slice(0, -1).includes(x)) });
+        setOtherSubject("");
+      } else {
+        // select Other — clear otherSubject text for fresh entry
+        setOtherSubject("");
+        // subjects stay as-is; "Other" pill highlights via otherSelected
+      }
+    } else {
+      const cur = draft.subjects.filter((x) => SUBJECT_CHIPS.slice(0, -1).includes(x));
+      onChange({ subjects: cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s] });
+    }
+  }
+
+  function handleOtherInput(val: string) {
+    setOtherSubject(val);
+    const coreSelected = draft.subjects.filter((x) => SUBJECT_CHIPS.slice(0, -1).includes(x));
+    onChange({ subjects: val.trim() ? [...coreSelected, val.trim()] : coreSelected });
   }
 
   function toggleDay(i: number) {
@@ -679,14 +695,16 @@ function StepCurriculum({
 
         {/* Subjects */}
         <div className="mb-4">
-          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">Subject(s)</label>
-          <div className="flex flex-wrap gap-2">
+          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
+            Subject(s) <span className="font-normal normal-case text-[#b5aca4]">(optional)</span>
+          </label>
+          <div className="flex gap-1.5">
             {SUBJECT_CHIPS.map((s) => {
-              const sel = draft.subjects.includes(s);
+              const sel = s === "Other" ? otherSelected : draft.subjects.includes(s);
               return (
                 <button
                   key={s} type="button" onClick={() => toggleSubject(s)}
-                  className="px-3 py-1.5 rounded-full text-xs font-medium border transition-all"
+                  className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
                   style={{
                     backgroundColor: sel ? "#5c7f63" : "#f8f5f0",
                     color: sel ? "white" : "#5c5248",
@@ -698,6 +716,16 @@ function StepCurriculum({
               );
             })}
           </div>
+          {otherSelected && (
+            <input
+              type="text"
+              value={otherSubject}
+              onChange={(e) => handleOtherInput(e.target.value)}
+              placeholder="e.g. Bible, Art, Music, Latin..."
+              autoFocus
+              className="mt-2 w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+            />
+          )}
         </div>
 
         {/* Total lessons */}
