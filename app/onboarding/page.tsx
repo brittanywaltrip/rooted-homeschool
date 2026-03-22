@@ -476,7 +476,7 @@ function StepChildren({
           </p>
         )}
 
-        {children.length < 8 && (
+        {children.length < 8 ? (
           <button
             type="button"
             onClick={onAdd}
@@ -484,6 +484,10 @@ function StepChildren({
           >
             <Plus size={15} /> Add another child
           </button>
+        ) : (
+          <p className="text-xs text-[#b5aca4] text-center mb-6">
+            You&apos;ve added 8 children — add more in Settings after setup.
+          </p>
         )}
 
         <ContinueBtn onClick={handleNext} />
