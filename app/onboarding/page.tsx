@@ -325,8 +325,10 @@ function StepFamilyName({
             type="text"
             value={value}
             onChange={(e) => onChange(e.target.value)}
+            onBlur={(e) => onChange(e.target.value.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "))}
             placeholder="e.g. The Smith Family"
             autoFocus
+            style={{ textTransform: "capitalize" }}
             className="w-full px-4 py-3.5 rounded-2xl border border-[#e8e2d9] bg-white text-[#2d2926] text-sm focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
           />
         </div>
@@ -398,8 +400,10 @@ function ChildRow({
           type="text"
           value={child.name}
           onChange={(e) => onChange({ name: e.target.value })}
+          onBlur={(e) => onChange({ name: e.target.value.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ") })}
           placeholder="Child's name"
           autoFocus={child.uid === 1}
+          style={{ textTransform: "capitalize" }}
           className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
         />
         {showRemove && (
@@ -792,7 +796,9 @@ function StepCurriculum({
             type="text"
             value={draft.curricName}
             onChange={(e) => onChange({ curricName: e.target.value })}
+            onBlur={(e) => onChange({ curricName: e.target.value.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") })}
             placeholder="e.g. Math with Saxon, All About Reading…"
+            style={{ textTransform: "capitalize" }}
             className="w-full px-4 py-3 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
           />
         </div>
