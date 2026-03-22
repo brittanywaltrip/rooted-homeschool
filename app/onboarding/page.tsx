@@ -85,7 +85,7 @@ function generateSchedule(draft: CurriculumDraft): ScheduleRow[] {
   let lessonNum = 1;
   let safety = 0;
   while (lessonNum <= draft.totalLessons && safety < 3650) {
-    const dayIdx = (cursor.getDay() + 6) % 7; // Mon=0, Sun=6
+    const dayIdx = (cursor.getDay() + 6) % 7;
     if (draft.schoolDays[dayIdx]) {
       rows.push({ date: toDateStr(cursor), title: `${draft.curricName.trim()} — Lesson ${lessonNum}` });
       lessonNum++;
@@ -318,10 +318,7 @@ function StepFamilyName({
       <BackBtn onClick={onBack} />
       <ProgressDots step={2} />
       <Card>
-        <StepHeading
-          eyebrow="Step 2 of 7"
-          title="What should we call your family?"
-        />
+        <StepHeading eyebrow="Step 2 of 7" title="What should we call your family?" />
         <div className="mb-6">
           <input
             type="text"
@@ -367,9 +364,7 @@ function StepState({
             style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237a6f65' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 16px center" }}
           >
             <option value="">Select your state…</option>
-            {US_STATES.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
+            {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <ContinueBtn onClick={onNext} disabled={!value} label={value ? "Continue →" : "Select a state to continue"} />
@@ -398,7 +393,6 @@ function ChildRow({
         >
           {child.name ? child.name.charAt(0).toUpperCase() : "?"}
         </div>
-
         <input
           type="text"
           value={child.name}
@@ -407,7 +401,6 @@ function ChildRow({
           autoFocus={child.uid === 1}
           className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
         />
-
         {showRemove && (
           <button type="button" onClick={onRemove}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-[#c8bfb5] hover:text-red-400 hover:bg-red-50 transition-colors">
@@ -415,7 +408,6 @@ function ChildRow({
           </button>
         )}
       </div>
-
       <div className="flex items-center gap-3 pl-14">
         <select
           value={child.grade}
@@ -426,7 +418,6 @@ function ChildRow({
           <option value="">Grade</option>
           {GRADE_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
-
         <div className="flex items-center gap-1.5 shrink-0">
           {CHILD_COLORS.map((c) => (
             <button
@@ -471,7 +462,6 @@ function StepChildren({
           title="Who are you homeschooling?"
           sub="Add your children to get started. You can always add more in Settings."
         />
-
         <div className="space-y-3 mb-4">
           {children.map((child) => (
             <ChildRow
@@ -483,13 +473,11 @@ function StepChildren({
             />
           ))}
         </div>
-
         {showError && !hasValid && (
           <p className="text-sm text-red-500 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3">
             Please add at least one child to continue.
           </p>
         )}
-
         {children.length < 8 ? (
           <button
             type="button"
@@ -503,7 +491,6 @@ function StepChildren({
             You&apos;ve added 8 children — add more in Settings after setup.
           </p>
         )}
-
         <ContinueBtn onClick={handleNext} />
       </Card>
     </div>
@@ -517,10 +504,12 @@ function StepCurriculum({
   curricChildUid,
   draft,
   completedChildUids,
+  skippedChildUids,
   onChange,
   onChangeChild,
   onBuildChild,
   onDoneAll,
+  onSkipChild,
   onSkipAll,
   onBack,
 }: {
@@ -528,10 +517,12 @@ function StepCurriculum({
   curricChildUid: number;
   draft: CurriculumDraft;
   completedChildUids: Set<number>;
+  skippedChildUids: Set<number>;
   onChange: (patch: Partial<CurriculumDraft>) => void;
   onChangeChild: (uid: number) => void;
   onBuildChild: (uid: number, draft: CurriculumDraft, rows: ScheduleRow[]) => void;
-  onDoneAll: () => void;
+  onDoneAll: (hasAnySchedule: boolean) => void;
+  onSkipChild: (uid: number) => void;
   onSkipAll: () => void;
   onBack: () => void;
 }) {
@@ -541,24 +532,33 @@ function StepCurriculum({
   const touchMoved = useRef(false);
   const touchStartY = useRef(0);
 
-  const otherSelected = draft.subjects.some((s) => !SUBJECT_CHIPS.slice(0, -1).includes(s));
-  const canBuild = draft.curricName.trim().length > 0 && draft.totalLessons > 0;
+  // Layout mode: tabs for 1–3, progress counter for 4+
+  const useProgressLayout = validChildren.length >= 4;
   const singleChild = validChildren.length === 1;
   const currentChild = validChildren.find((c) => c.uid === curricChildUid) ?? validChildren[0];
-  const heading = singleChild
+  const currentIdx = validChildren.findIndex((c) => c.uid === curricChildUid);
+  const isFirstChild = currentIdx === 0;
+
+  const otherSelected = draft.subjects.some((s) => !SUBJECT_CHIPS.slice(0, -1).includes(s));
+  const canBuild = draft.curricName.trim().length > 0 && draft.totalLessons > 0;
+
+  // Heading: always personalized for 1 child or progress layout; generic for 2–3 tab layout
+  const heading = singleChild || useProgressLayout
     ? `What are you teaching ${currentChild?.name ?? "your child"}?`
     : "Set up your first curriculum";
+  const subtitle = useProgressLayout
+    ? "We'll build their schedule automatically."
+    : "We'll build your lesson schedule automatically.";
+
+  // ── Subject helpers ──────────────────────────────────────────────────────
 
   function toggleSubject(s: string) {
     if (s === "Other") {
       if (otherSelected) {
-        // deselect Other — remove any non-core subjects
         onChange({ subjects: draft.subjects.filter((x) => SUBJECT_CHIPS.slice(0, -1).includes(x)) });
         setOtherSubject("");
       } else {
-        // select Other — clear otherSubject text for fresh entry
         setOtherSubject("");
-        // subjects stay as-is; "Other" pill highlights via otherSelected
       }
     } else {
       const cur = draft.subjects.filter((x) => SUBJECT_CHIPS.slice(0, -1).includes(x));
@@ -578,16 +578,19 @@ function StepCurriculum({
     onChange({ schoolDays: days });
   }
 
+  // ── Chaining logic ───────────────────────────────────────────────────────
+
   function handleBuildClick() {
     const rows = generateSchedule(draft);
     onBuildChild(curricChildUid, draft, rows);
-    const newlyDone = new Set([...completedChildUids, curricChildUid]);
-    const remaining = validChildren.filter((c) => !newlyDone.has(c.uid));
+    const newDone = new Set([...completedChildUids, curricChildUid]);
+    const exclude = new Set([...newDone, ...skippedChildUids]);
+    const remaining = validChildren.filter((c) => !exclude.has(c.uid));
     if (remaining.length > 0) {
       setPromptChild(remaining[0]);
       setShowPrompt(true);
     } else {
-      onDoneAll();
+      onDoneAll(true);
     }
   }
 
@@ -599,18 +602,33 @@ function StepCurriculum({
 
   function handleSkipPrompt() {
     if (!promptChild) return;
-    const skippedUid = promptChild.uid;
-    const alreadyDone = new Set([...completedChildUids, curricChildUid, skippedUid]);
-    const remaining = validChildren.filter((c) => !alreadyDone.has(c.uid));
+    onSkipChild(promptChild.uid);
+    const newSkipped = new Set([...skippedChildUids, promptChild.uid]);
+    const exclude = new Set([...completedChildUids, curricChildUid, ...newSkipped]);
+    const remaining = validChildren.filter((c) => !exclude.has(c.uid));
     if (remaining.length > 0) {
       setPromptChild(remaining[0]);
     } else {
       setShowPrompt(false);
-      onDoneAll();
+      onDoneAll(completedChildUids.size > 0);
     }
   }
 
-  // ── Prompt: ask about next child ──────────────────────────────────────────
+  // Called from "Skip for now →" in the form (subsequent children only)
+  function handleSkipCurrentChild() {
+    onSkipChild(curricChildUid);
+    const newSkipped = new Set([...skippedChildUids, curricChildUid]);
+    const exclude = new Set([...completedChildUids, ...newSkipped]);
+    const remaining = validChildren.filter((c) => !exclude.has(c.uid));
+    if (remaining.length > 0) {
+      setPromptChild(remaining[0]);
+      setShowPrompt(true);
+    } else {
+      onDoneAll(completedChildUids.size > 0);
+    }
+  }
+
+  // ── Prompt card ───────────────────────────────────────────────────────────
 
   if (showPrompt && promptChild) {
     return (
@@ -649,14 +667,10 @@ function StepCurriculum({
       <BackBtn onClick={onBack} />
       <ProgressDots step={5} />
       <Card className="mb-8">
-        <StepHeading
-          eyebrow="Step 5 of 7"
-          title={heading}
-          sub="We'll build your lesson schedule automatically."
-        />
+        <StepHeading eyebrow="Step 5 of 7" title={heading} sub={subtitle} />
 
-        {/* Child tab pills (multiple children only) */}
-        {!singleChild && (
+        {/* ── Tab layout: 2–3 children ───────────────────────────────────── */}
+        {!singleChild && !useProgressLayout && (
           <div className="flex gap-2 mb-5 flex-wrap">
             {validChildren.map((c) => {
               const isActive = c.uid === curricChildUid;
@@ -681,9 +695,84 @@ function StepCurriculum({
           </div>
         )}
 
+        {/* ── Progress counter layout: 4+ children ──────────────────────── */}
+        {useProgressLayout && (
+          <div className="mb-5">
+            {/* Row 1: current child bubble + name (left), N of N (right) */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                  style={{ backgroundColor: currentChild?.color ?? "#5c7f63" }}
+                >
+                  {(currentChild?.name ?? "?").charAt(0).toUpperCase()}
+                </div>
+                <span className="text-sm font-semibold text-[#2d2926]">
+                  {currentChild?.name ?? "—"}
+                </span>
+              </div>
+              <span className="text-xs text-[#b5aca4]">
+                {currentIdx + 1} of {validChildren.length} children
+              </span>
+            </div>
+
+            {/* Row 2: progress list */}
+            <div className="space-y-0.5 bg-[#f8f5f0] rounded-2xl p-3 border border-[#ede8de]">
+              {validChildren.map((c) => {
+                const isDone = completedChildUids.has(c.uid);
+                const isSkipped = skippedChildUids.has(c.uid);
+                const isCurrent = c.uid === curricChildUid;
+                const displayName = c.name.length > 8 ? c.name.slice(0, 7) + "…" : c.name;
+                const fillPct = isDone || isSkipped ? "100%" : isCurrent ? "33%" : "0%";
+                const fillColor = isDone ? "#3d5c42" : isSkipped ? "#c8bfb5" : "#3d5c42";
+                const icon = isDone ? "✓" : isSkipped ? "–" : isCurrent ? "···" : "—";
+                const iconColor = isDone ? "#3d5c42" : isSkipped ? "#c8bfb5" : isCurrent ? "#5c7f63" : "#e0d8d0";
+
+                return (
+                  <button
+                    key={c.uid}
+                    type="button"
+                    onClick={() => onChangeChild(c.uid)}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl transition-colors text-left"
+                    style={{ backgroundColor: isCurrent ? "#e8f0e9" : "transparent" }}
+                  >
+                    <span
+                      className="text-xs shrink-0 truncate"
+                      style={{
+                        width: "5rem",
+                        fontWeight: isCurrent ? 600 : 400,
+                        color: isCurrent ? "#2d2926" : "#7a6f65",
+                      }}
+                    >
+                      {displayName}
+                    </span>
+                    <div
+                      className="flex-1 relative rounded-full overflow-hidden"
+                      style={{ height: 3, backgroundColor: "#e8e2d9" }}
+                    >
+                      <div
+                        className="absolute left-0 top-0 h-full rounded-full"
+                        style={{ width: fillPct, backgroundColor: fillColor }}
+                      />
+                    </div>
+                    <span
+                      className="text-xs shrink-0 font-mono"
+                      style={{ color: iconColor, width: "1.25rem", textAlign: "center" }}
+                    >
+                      {icon}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Curriculum name */}
         <div className="mb-4">
-          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">Curriculum Name</label>
+          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
+            Curriculum Name
+          </label>
           <input
             type="text"
             value={draft.curricName}
@@ -728,15 +817,18 @@ function StepCurriculum({
           )}
         </div>
 
-        {/* Total lessons */}
+        {/* Total lessons — scroll wheel fix */}
         <div className="mb-4">
-          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">Total Lessons</label>
+          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
+            Total Lessons
+          </label>
           <input
             type="number"
             min={1}
             max={500}
             value={draft.totalLessons || ""}
             onChange={(e) => onChange({ totalLessons: Math.max(1, parseInt(e.target.value) || 0) })}
+            onWheel={(e) => e.currentTarget.blur()}
             placeholder="e.g. 36"
             className="w-full px-4 py-3 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
           />
@@ -744,7 +836,9 @@ function StepCurriculum({
 
         {/* School days — touch scroll fix */}
         <div className="mb-4">
-          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">School Days</label>
+          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
+            School Days
+          </label>
           <div
             className="flex gap-2"
             onTouchStart={(e) => {
@@ -788,18 +882,32 @@ function StepCurriculum({
           />
         </div>
 
+        {/* Build button — personalized */}
         <ContinueBtn
           onClick={handleBuildClick}
           disabled={!canBuild}
-          label={canBuild ? "Build my schedule →" : "Fill in the fields above"}
+          label={canBuild
+            ? `Build ${currentChild?.name ?? "their"}'s schedule →`
+            : "Fill in the fields above"}
         />
-        <button
-          type="button"
-          onClick={onSkipAll}
-          className="block w-full text-center text-sm text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-3 py-1"
-        >
-          I&apos;ll set this up later →
-        </button>
+
+        {/* Skip section — curriculum nudge for first child, easy skip for subsequent */}
+        {isFirstChild ? (
+          <div className="mt-4 text-center">
+            <p className="text-xs text-[#9e958d] leading-relaxed mb-2">
+              Set up at least one curriculum so Rooted can build your schedule. It only takes 30 seconds.
+            </p>
+            <button
+              type="button"
+              onClick={onSkipAll}
+              className="text-xs text-[#c8bfb5] hover:text-[#9e958d] transition-colors py-1"
+            >
+              Skip all curriculum setup →
+            </button>
+          </div>
+        ) : (
+          <SkipLink label="Skip for now →" onClick={handleSkipCurrentChild} />
+        )}
       </Card>
     </div>
   );
@@ -824,14 +932,12 @@ function StepTodayPreview({
 }) {
   const showUpgrade = !isPro && new Date() < new Date("2026-04-30");
 
-  // Heading depends on day of week
-  const todayDow = new Date().getDay(); // 0=Sun,1=Mon,...,5=Fri,6=Sat
+  const todayDow = new Date().getDay();
   const isFriOrWeekend = todayDow === 5 || todayDow === 6 || todayDow === 0;
   const heading = isFriOrWeekend
     ? "Here's what Monday looks like 🌿"
     : "Here's what tomorrow looks like 🌿";
 
-  // Next school day for preview date
   const firstSchedule = childSchedules[0];
   const nextDay = firstSchedule
     ? getNextSchoolDay(firstSchedule.draft.schoolDays)
@@ -840,7 +946,6 @@ function StepTodayPreview({
     .toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
     .toUpperCase();
 
-  // Per-child first lesson
   const previewItems = childSchedules
     .map((cs) => ({
       child: children.find((c) => c.uid === cs.childUid),
@@ -867,7 +972,6 @@ function StepTodayPreview({
           <p className="text-sm text-[#7a6f65]">Your homeschool is ready to grow.</p>
         </div>
 
-        {/* Mini Today preview card */}
         <div className="bg-[#fefcf9] rounded-3xl border border-[#e8e2d9] overflow-hidden mb-4 shadow-lg">
           <div className="px-5 pt-4 pb-3 border-b border-[#f0ede8]">
             <p className="text-[10px] font-semibold tracking-[0.18em] text-[#b5aca4] uppercase mb-1">
@@ -877,7 +981,6 @@ function StepTodayPreview({
               Good morning{displayName ? `, ${displayName}` : ""}! 🌤️
             </p>
           </div>
-
           {previewItems.length > 0 ? (
             <div className="divide-y divide-[#f0ede8]">
               {previewItems.map(({ child, lesson }) => (
@@ -896,13 +999,11 @@ function StepTodayPreview({
           ) : (
             <div className="px-5 py-4 text-sm text-[#9e958d]">Your lessons will appear here each day.</div>
           )}
-
           <div className="px-5 py-3 border-t border-[#f0ede8]">
             <p className="text-xs text-[#b5aca4]">🌱 Your garden grows with every lesson.</p>
           </div>
         </div>
 
-        {/* Summary lines per child */}
         {childSchedules.length > 0 && (
           <div className="space-y-1 mb-5">
             {childSchedules.map((cs) => {
@@ -921,7 +1022,6 @@ function StepTodayPreview({
           </div>
         )}
 
-        {/* CTA */}
         {showUpgrade ? (
           <>
             <button
@@ -956,22 +1056,29 @@ function StepTodayPreview({
 // ─── Step 7 — Add to Home Screen ──────────────────────────────────────────────
 
 function StepAddToHomeScreen({
-  saving, onDone, onSkip,
+  saving, onDone, onSkip, noCurriculumNote = false,
 }: {
   saving: boolean;
   onDone: () => void;
   onSkip: () => void;
+  noCurriculumNote?: boolean;
 }) {
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
       <ProgressDots step={7} />
       <Card>
+        {noCurriculumNote && (
+          <div className="bg-[#f0f7f0] border border-[#c8ddb8] rounded-2xl px-4 py-3 mb-6 text-center">
+            <p className="text-sm text-[#5c7f63]">
+              No worries — you can set up your curriculum any time in Plan. 🌱
+            </p>
+          </div>
+        )}
         <StepHeading
           eyebrow="One last thing 🌿"
           title="Add Rooted to your home screen"
           sub="Add Rooted to your home screen for quick daily access."
         />
-
         <div className="grid grid-cols-2 gap-3 mb-8">
           <div className="bg-[#f8f5f0] rounded-2xl p-4 border border-[#ede8de]">
             <p className="text-lg mb-2">🍎</p>
@@ -994,7 +1101,6 @@ function StepAddToHomeScreen({
             </ol>
           </div>
         </div>
-
         <button
           type="button"
           onClick={onDone}
@@ -1030,6 +1136,7 @@ export default function OnboardingPage() {
   const [userId,  setUserId]  = useState("");
   const [saving,  setSaving]  = useState(false);
   const [isPro,   setIsPro]   = useState(false);
+  const [noCurriculumNote, setNoCurriculumNote] = useState(false);
 
   // Auth-sourced
   const [firstName, setFirstName] = useState("");
@@ -1045,6 +1152,7 @@ export default function OnboardingPage() {
   const [curricChildUid,      setCurricChildUid]      = useState(0);
   const [curricDraft,         setCurricDraft]         = useState<CurriculumDraft>(freshDraft(0));
   const [curricDraftsByChild, setCurricDraftsByChild] = useState<Record<number, CurriculumDraft>>({});
+  const [skippedChildUids,    setSkippedChildUids]    = useState<Set<number>>(new Set());
 
   const completedChildUids = useMemo(
     () => new Set(childSchedules.map((cs) => cs.childUid)),
@@ -1089,25 +1197,30 @@ export default function OnboardingPage() {
     setChildren((prev) => prev.filter((c) => c.uid !== uid));
   }, []);
 
-  // ── Step 4 → 5 ───────────────────────────────────────────────────────────
+  // ── Step 4 → 5: initialize only on first entry ────────────────────────────
 
   function goToStep5() {
     const validKids = children.filter((c) => c.name.trim());
     if (validKids.length === 0) return;
-    const firstChild = validKids[0];
-    setCurricChildUid(firstChild.uid);
-    setCurricDraft(freshDraft(firstChild.uid));
+    // Only reset draft on first entry (curricChildUid === 0 means never been to step 5)
+    if (curricChildUid === 0) {
+      const firstChild = validKids[0];
+      setCurricChildUid(firstChild.uid);
+      setCurricDraft(freshDraft(firstChild.uid));
+    }
     setStep(5);
   }
 
-  // ── Child tab switch ──────────────────────────────────────────────────────
+  // ── Child tab/row switch — preserve & restore drafts ─────────────────────
 
   function handleChangeChild(uid: number) {
-    // Save current draft before switching
     const snapshot = curricDraft;
     setCurricDraftsByChild((prev) => ({ ...prev, [curricChildUid]: snapshot }));
-    const saved = curricDraftsByChild[uid];
-    setCurricDraft(saved ?? freshDraft(uid));
+    // Check saved draft, then check completed child's built draft, then fresh
+    const saved = curricDraftsByChild[uid]
+      ?? childSchedules.find((cs) => cs.childUid === uid)?.draft
+      ?? freshDraft(uid);
+    setCurricDraft(saved);
     setCurricChildUid(uid);
   }
 
@@ -1118,6 +1231,24 @@ export default function OnboardingPage() {
       const filtered = prev.filter((cs) => cs.childUid !== uid);
       return [...filtered, { childUid: uid, draft, schedule: rows }];
     });
+  }
+
+  // ── Mark a child as skipped ───────────────────────────────────────────────
+
+  function handleSkipChild(uid: number) {
+    setSkippedChildUids((prev) => new Set([...prev, uid]));
+  }
+
+  // ── Step 6 gating: skip if no schedules were built ────────────────────────
+
+  function handleDoneAll(hasAnySchedule: boolean) {
+    // Also check existing childSchedules in case React batched the update
+    if (hasAnySchedule || childSchedules.length > 0) {
+      setStep(6);
+    } else {
+      setNoCurriculumNote(true);
+      setStep(7);
+    }
   }
 
   // ── Complete onboarding ───────────────────────────────────────────────────
@@ -1274,11 +1405,13 @@ export default function OnboardingPage() {
         curricChildUid={curricChildUid}
         draft={curricDraft}
         completedChildUids={completedChildUids}
+        skippedChildUids={skippedChildUids}
         onChange={(patch) => setCurricDraft((prev) => ({ ...prev, ...patch }))}
         onChangeChild={handleChangeChild}
         onBuildChild={handleBuildChild}
-        onDoneAll={() => setStep(6)}
-        onSkipAll={() => setStep(7)}
+        onDoneAll={handleDoneAll}
+        onSkipChild={handleSkipChild}
+        onSkipAll={() => { setNoCurriculumNote(true); setStep(7); }}
         onBack={() => setStep(4)}
       />
     );
@@ -1300,6 +1433,7 @@ export default function OnboardingPage() {
       saving={saving}
       onDone={complete}
       onSkip={complete}
+      noCurriculumNote={noCurriculumNote}
     />
   );
 }
