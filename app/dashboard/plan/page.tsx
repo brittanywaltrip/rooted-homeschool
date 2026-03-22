@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { ChevronLeft, ChevronRight, Plus, X, BookOpen, Trash2, CalendarDays } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -327,15 +327,14 @@ function LessonCard({
 
 function DayColumn({
   day, lessons, children, isToday, isPast, isWeekend,
-  onAdd, onToggle, onEdit, onDelete, hideAdd, isPartner, onDropLesson,
+  onToggle, onEdit, onDelete, isPartner, onDropLesson,
 }: {
   day: Date; lessons: Lesson[]; children: Child[];
   isToday: boolean; isPast: boolean; isWeekend: boolean;
-  onAdd: (day: Date) => void;
   onToggle: (id: string, current: boolean) => void;
   onEdit: (lesson: Lesson) => void;
   onDelete: (id: string) => void;
-  hideAdd?: boolean; isPartner: boolean;
+  isPartner: boolean;
   onDropLesson?: (lessonId: string, fromDate: string) => void;
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -391,16 +390,6 @@ function DayColumn({
         ))}
       </div>
 
-      {!hideAdd && (
-        <div className="px-1.5 pb-2">
-          <button onClick={() => onAdd(day)}
-            className={`w-full flex items-center justify-center gap-1 py-1.5 rounded-xl text-[11px] font-semibold transition-colors ${
-              isToday ? "text-[#5c7f63] hover:bg-[#d4ead4]" : "text-[#c8bfb5] hover:text-[#5c7f63] hover:bg-[#f0ede8]"
-            }`}>
-            <Plus size={11} strokeWidth={2.5} />Add
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -434,16 +423,6 @@ export default function PlanPage() {
 
   // ── Drag & drop ────────────────────────────────────────────────────────────
   const [dragToast, setDragToast] = useState<string | null>(null);
-
-  // ── Quick-add modal ───────────────────────────────────────────────────────
-  const [showModal,   setShowModal]   = useState(false);
-  const [modalDate,   setModalDate]   = useState(new Date());
-  const [formChild,   setFormChild]   = useState("");
-  const [formSubject, setFormSubject] = useState("");
-  const [formTitle,   setFormTitle]   = useState("");
-  const [formHours,   setFormHours]   = useState("");
-  const [formGoalId,  setFormGoalId]  = useState("");
-  const [saving,      setSaving]      = useState(false);
 
   // ── Edit modal ────────────────────────────────────────────────────────────
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
@@ -564,38 +543,6 @@ export default function PlanPage() {
     setLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     setMonthLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
-  }
-
-  // ── Quick-add ─────────────────────────────────────────────────────────────
-
-  function openAddModal(day: Date, preSubject?: string) {
-    setModalDate(day);
-    setFormChild(children.length === 1 ? children[0].id : "");
-    setFormSubject(preSubject ?? "");
-    setFormTitle(""); setFormHours(""); setFormGoalId("");
-    setShowModal(true);
-  }
-
-  async function saveLesson() {
-    if (!formTitle.trim()) return;
-    setSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSaving(false); return; }
-    let subjectId: string | null = null;
-    if (formSubject.trim()) {
-      const existing = subjects.find((s) => s.name.toLowerCase() === formSubject.trim().toLowerCase());
-      if (existing) { subjectId = existing.id; }
-      else {
-        const { data: ns } = await supabase.from("subjects").insert({ user_id: user.id, name: formSubject.trim() }).select("id, name, color").single();
-        if (ns) { setSubjects((p) => [...p, ns as Subject]); subjectId = ns.id; }
-      }
-    }
-    const dateStr = toDateStr(modalDate);
-    const { data: nl } = await supabase.from("lessons")
-      .insert({ user_id: user.id, child_id: formChild || null, subject_id: subjectId, title: formTitle.trim(), hours: formHours ? parseFloat(formHours) : null, completed: false, date: dateStr, scheduled_date: dateStr, goal_id: formGoalId || null })
-      .select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)").single();
-    if (nl) setLessons((p) => [...p, nl as unknown as Lesson]);
-    setSaving(false); setShowModal(false);
   }
 
   // ── Edit lesson ───────────────────────────────────────────────────────────
@@ -749,8 +696,6 @@ export default function PlanPage() {
 
   // Children who have lessons this week (for legend)
   const childrenWithLessons = children.filter((c) => lessons.some((l) => l.child_id === c.id));
-
-  const modalDateLabel = modalDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   // Month lesson map (shared by calendar grid + DayDetailPanel)
   const monthLessonMap: Record<string, Lesson[]> = {};
@@ -930,7 +875,7 @@ export default function PlanPage() {
       )}
 
       {/* ── Curriculum empty state ───────────────────────────── */}
-      {!isPartner && curricGroups.length === 0 && (
+      {!loading && !isPartner && curricGroups.length === 0 && (
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-8 flex flex-col items-center text-center">
           <span className="text-4xl mb-4">🌱</span>
           <h2 className="text-xl font-semibold text-[#3d5c42] mb-2">Your plan is ready to grow!</h2>
@@ -989,27 +934,6 @@ export default function PlanPage() {
         </div>
       )}
 
-      {/* ── Empty State ──────────────────────────────────────── */}
-      {!loading && !isPartner && totalWeek === 0 && curricGroups.length === 0 && (
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-7 text-center space-y-4">
-          <div className="text-4xl">📅</div>
-          <div>
-            <h2 className="font-bold text-[#2d2926] text-lg mb-1" style={{ fontFamily: "Georgia, serif" }}>Plan your first week</h2>
-            <p className="text-sm text-[#7a6f65] leading-relaxed max-w-xs mx-auto">
-              Set up a full curriculum schedule automatically, or add lessons one at a time.
-            </p>
-          </div>
-          <button onClick={() => setShowCreateWizard(true)}
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors shadow-sm">
-            <BookOpen size={15} strokeWidth={2} />Set Up Curriculum 📚
-          </button>
-          <p className="text-xs text-[#b5aca4]">
-            or use{" "}
-            <button onClick={() => openAddModal(todayMidnight)} className="underline hover:text-[#7a6f65] transition-colors">+ Add</button>
-            {" "}on any day to add a single lesson
-          </p>
-        </div>
-      )}
 
       {/* ── Week / Month toggle ──────────────────────────────── */}
       <div className="flex items-center gap-1 bg-[#f0ede8] rounded-full p-1 w-fit">
@@ -1186,9 +1110,8 @@ export default function PlanPage() {
                 return (
                   <DayColumn key={key} day={day} lessons={lessonsByDay[key] ?? []} children={children}
                     isToday={key === todayStr} isPast={day < todayMidnight} isWeekend={day.getDay() === 0 || day.getDay() === 6}
-                    onAdd={isPartner ? () => {} : openAddModal}
                     onToggle={isPartner ? () => {} : toggleLesson}
-                    onEdit={openEdit} onDelete={deleteLesson} hideAdd={isPartner} isPartner={isPartner}
+                    onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
                     onDropLesson={isPartner ? undefined : (lessonId, fromDate) => moveLesson(lessonId, fromDate, key)} />
                 );
               })}
@@ -1218,9 +1141,8 @@ export default function PlanPage() {
                 return (
                   <DayColumn key={key} day={day} lessons={lessonsByDay[key] ?? []} children={children}
                     isToday={key === todayStr} isPast={day < todayMidnight} isWeekend={day.getDay() === 0 || day.getDay() === 6}
-                    onAdd={isPartner ? () => {} : openAddModal}
                     onToggle={isPartner ? () => {} : toggleLesson}
-                    onEdit={openEdit} onDelete={deleteLesson} hideAdd={isPartner} isPartner={isPartner}
+                    onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
                     onDropLesson={isPartner ? undefined : (lessonId, fromDate) => moveLesson(lessonId, fromDate, key)} />
                 );
               })}
@@ -1241,73 +1163,6 @@ export default function PlanPage() {
           )}
         </>
       ) : null}
-
-      {/* ══════════════════════════════════════════════════════
-          QUICK-ADD LESSON MODAL
-      ══════════════════════════════════════════════════════ */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="font-bold text-[#2d2926]">📋 Add a Lesson</h2>
-                <p className="text-xs text-[#7a6f65] mt-0.5">{modalDateLabel}</p>
-              </div>
-              <button onClick={() => setShowModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] mt-0.5"><X size={18} /></button>
-            </div>
-            {children.length > 0 && (
-              <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
-                <select value={formChild} onChange={(e) => setFormChild(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
-                  <option value="">All / unassigned</option>
-                  {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-            )}
-            <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Subject</label>
-              <input value={formSubject} onChange={(e) => setFormSubject(e.target.value)}
-                list="plan-subjects" placeholder="e.g. Math, Reading, Science"
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-              <datalist id="plan-subjects">{subjects.map((s) => <option key={s.id} value={s.name} />)}</datalist>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Lesson title *</label>
-              <input value={formTitle} onChange={(e) => setFormTitle(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !saving && saveLesson()}
-                placeholder="e.g. Chapter 5 — Fractions" autoFocus
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Estimated hours (optional)</label>
-              <input value={formHours} onChange={(e) => setFormHours(e.target.value)}
-                type="number" min="0" max="24" step="0.5" placeholder="e.g. 1.5"
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-            </div>
-            {curriculumGoals.length > 0 && (
-              <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Link to goal (optional)</label>
-                <select value={formGoalId} onChange={(e) => setFormGoalId(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
-                  <option value="">None</option>
-                  {curriculumGoals.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.curriculum_name}{g.subject_label ? ` (${g.subject_label})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className="flex gap-2 pt-1">
-              <button onClick={() => setShowModal(false)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
-              <button onClick={saveLesson} disabled={saving || !formTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
-                {saving ? "Saving…" : "Add to Plan 📋"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ══════════════════════════════════════════════════════
           EDIT LESSON MODAL
