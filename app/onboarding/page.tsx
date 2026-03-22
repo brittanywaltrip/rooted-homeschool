@@ -1847,6 +1847,11 @@ export default function OnboardingPage() {
       const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
       const schoolDayNames = dayNames.filter((_, i) => cs.draft.schoolDays[i]);
 
+      // total_lessons must be the FULL curriculum count (e.g. 120), not remaining (e.g. 106).
+      // Derive it from the built schedule — lessonsDone + schedule.length always equals the
+      // original totalLessons regardless of any stale draft state at build time.
+      const totalLessons = (cs.draft.lessonsDone ?? 0) + cs.schedule.length;
+
       const { data: goal, error: goalErr } = await supabase
         .from("curriculum_goals")
         .insert({
@@ -1854,7 +1859,7 @@ export default function OnboardingPage() {
           child_id:        childId,
           curriculum_name: cs.draft.curricName.trim(),
           subject_label:   cs.draft.subjects[0] ?? null,
-          total_lessons:   cs.draft.totalLessons,
+          total_lessons:   totalLessons,
           current_lesson:  cs.draft.lessonsDone ?? 0,
           target_date:     cs.draft.finishDate || null,
           school_days:     schoolDayNames,
