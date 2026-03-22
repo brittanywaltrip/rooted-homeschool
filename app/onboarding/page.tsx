@@ -406,10 +406,10 @@ function ChildRow({
         <select
           value={child.grade}
           onChange={(e) => onChange({ grade: e.target.value })}
-          className="flex-1 px-3 py-2 rounded-xl border border-[#e8e2d9] bg-white text-xs text-[#2d2926] focus:outline-none focus:border-[#5c7f63] transition appearance-none"
+          className="flex-1 px-3 pr-8 py-2 rounded-xl border border-[#e8e2d9] bg-white text-xs text-[#2d2926] focus:outline-none focus:border-[#5c7f63] transition appearance-none"
           style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237a6f65' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 10px center" }}
         >
-          <option value="">Grade (optional)</option>
+          <option value="">Grade</option>
           {GRADE_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
 
