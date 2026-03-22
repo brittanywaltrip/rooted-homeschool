@@ -58,6 +58,11 @@ export async function POST(req: NextRequest) {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session
     const userId = session.metadata?.userId
+    console.log('[webhook] checkout.session.completed fired',
+      'sessionId:', session.id,
+      'userId:', session.metadata?.userId ?? 'MISSING',
+      'email:', session.customer_details?.email ?? 'none'
+    )
     if (userId) {
       // Determine plan from line items
       const lineItems = await stripe.checkout.sessions.listLineItems(session.id)
@@ -108,6 +113,54 @@ export async function POST(req: NextRequest) {
           body,
           'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
         ).catch((err) => console.error("Resend sendEmail error:", err))
+      }
+    }
+
+    if (!userId) {
+      const customerEmail = session.customer_details?.email
+      console.log('[webhook] no userId in metadata, trying email fallback for:', customerEmail)
+      if (customerEmail) {
+        const { data: { users } } = await supabase.auth.admin.listUsers()
+        const matchedUser = users?.find(u => u.email === customerEmail)
+        if (matchedUser) {
+          const lineItems = await stripe.checkout.sessions.listLineItems(session.id)
+          const priceId = lineItems.data[0]?.price?.id
+          const plan = planType(priceId)
+          await supabase.from('profiles').update({
+            is_pro: true,
+            subscription_status: 'active',
+            plan_type: plan,
+            stripe_customer_id: session.customer as string,
+          }).eq('id', matchedUser.id)
+          console.log('[webhook] fallback succeeded: updated', customerEmail, 'to', plan)
+
+          // Still send the welcome email using fallback path
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('display_name, first_name')
+            .eq('id', matchedUser.id)
+            .maybeSingle()
+          const firstName = profile?.first_name ?? 'friend'
+          const isFounding = plan === 'founding_family'
+          await sendEmail(
+            customerEmail,
+            isFounding
+              ? `Welcome to the Rooted family, ${firstName}! 🌱`
+              : `Welcome to Rooted, ${firstName}! 🌱`,
+            isFounding
+              ? `Hi ${firstName},\n\nI just wanted to personally thank you for becoming a Founding Member of Rooted.\n\nYou're one of the first families to believe in what we're building here — and that genuinely means the world to me.\n\nAs a Founding Member, you've locked in your $39/yr rate forever.\n\nFeel free to reply to this email anytime — I personally read every response.\n\nThank you for being here. 🌱\n\n— Brittany Waltrip\nFounder, Rooted Homeschool\nhello@rootedhomeschoolapp.com`
+              : `Hi ${firstName},\n\nThank you so much for subscribing to Rooted — welcome to the family! 🌱\n\nFeel free to reply anytime. I personally read every response.\n\nThank you for being here. 🌱\n\n— Brittany Waltrip\nFounder, Rooted Homeschool\nhello@rootedhomeschoolapp.com`,
+            'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
+          ).catch(err => console.error('[webhook] fallback email error:', err))
+        } else {
+          console.error('[webhook] PAYMENT MISSED — no user found for email:', customerEmail, 'sessionId:', session.id)
+          // Alert Brittany so she can fix manually
+          await sendEmail(
+            'garfieldbrittany@gmail.com',
+            '⚠️ Payment received but no matching user found',
+            `A payment was received but could not be matched to a user.\n\nEmail: ${customerEmail}\nSession: ${session.id}\n\nPlease manually update this account in Supabase.`
+          ).catch(() => {})
+        }
       }
     }
   }
