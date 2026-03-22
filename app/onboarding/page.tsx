@@ -31,7 +31,7 @@ const GRADE_OPTIONS = [
   "9th Grade", "10th Grade", "11th Grade", "12th Grade",
 ];
 
-const SUBJECT_CHIPS = ["Math", "Reading", "Writing", "Science", "History", "Other"];
+const SUBJECT_CHIPS = ["Math", "Reading", "Language Arts", "Science", "History", "Art", "Other"];
 const CORE_CHIPS = SUBJECT_CHIPS.slice(0, -1); // all except "Other"
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -502,6 +502,93 @@ function StepChildren({
   );
 }
 
+// ─── Curriculum Library ───────────────────────────────────────────────────────
+
+type LibraryCurric = {
+  name: string;
+  subject: string; // must match one of FILTER_SUBJECTS (except "All")
+  lessons: number;
+  days: boolean[]; // Mon–Sun
+};
+
+const MF   : boolean[] = [true,true,true,true,true,false,false];   // Mon–Fri
+const MWF  : boolean[] = [true,false,true,false,true,false,false]; // Mon/Wed/Fri
+const MTTF : boolean[] = [true,true,true,true,false,false,false];  // Mon–Thu
+
+const FILTER_SUBJECTS = ["All","Math","Reading","Language Arts","Science","History","Bible"];
+
+const CURRICULUM_LIBRARY: LibraryCurric[] = [
+  // ── Math ──────────────────────────────────────────────────────────────────
+  { name: "Saxon Math",                             subject: "Math",          lessons: 120, days: MF   },
+  { name: "Math-U-See",                             subject: "Math",          lessons:  36, days: MF   },
+  { name: "Singapore Math",                         subject: "Math",          lessons:  90, days: MF   },
+  { name: "RightStart Mathematics",                 subject: "Math",          lessons: 120, days: MTTF },
+  { name: "Teaching Textbooks",                     subject: "Math",          lessons: 120, days: MF   },
+  { name: "Beast Academy",                          subject: "Math",          lessons:  80, days: MF   },
+  { name: "Horizons Math",                          subject: "Math",          lessons: 160, days: MF   },
+  { name: "Abeka Math",                             subject: "Math",          lessons: 170, days: MF   },
+  { name: "Life of Fred",                           subject: "Math",          lessons:  60, days: MWF  },
+  { name: "CTCMath",                                subject: "Math",          lessons: 100, days: MF   },
+  { name: "Math Mammoth",                           subject: "Math",          lessons: 100, days: MF   },
+  { name: "Shiller Math",                           subject: "Math",          lessons:  80, days: MF   },
+  // ── Reading ───────────────────────────────────────────────────────────────
+  { name: "All About Reading",                      subject: "Reading",       lessons:  60, days: MTTF },
+  { name: "The Good and the Beautiful Reading",     subject: "Reading",       lessons:  90, days: MF   },
+  { name: "Explode the Code",                       subject: "Reading",       lessons:  80, days: MF   },
+  { name: "Teach Your Child to Read in 100 Easy Lessons", subject: "Reading", lessons: 100, days: MF  },
+  { name: "Bob Books",                              subject: "Reading",       lessons:  60, days: MTTF },
+  { name: "Sonlight Reading",                       subject: "Reading",       lessons:  36, days: MF   },
+  { name: "Progressive Phonics",                    subject: "Reading",       lessons:  60, days: MF   },
+  { name: "Pathway Readers",                        subject: "Reading",       lessons: 160, days: MF   },
+  { name: "Logic of English Foundations",           subject: "Reading",       lessons:  40, days: MF   },
+  { name: "Reading Eggs",                           subject: "Reading",       lessons: 100, days: MF   },
+  // ── Language Arts ─────────────────────────────────────────────────────────
+  { name: "All About Spelling",                     subject: "Language Arts", lessons:  48, days: MTTF },
+  { name: "The Good and the Beautiful Language Arts", subject: "Language Arts", lessons: 36, days: MF  },
+  { name: "First Language Lessons",                 subject: "Language Arts", lessons: 100, days: MF   },
+  { name: "Easy Grammar",                           subject: "Language Arts", lessons: 140, days: MF   },
+  { name: "IEW",                                    subject: "Language Arts", lessons:  30, days: MWF  },
+  { name: "Writing With Ease",                      subject: "Language Arts", lessons:  36, days: MF   },
+  { name: "Rod and Staff English",                  subject: "Language Arts", lessons: 170, days: MF   },
+  { name: "Writing & Rhetoric",                     subject: "Language Arts", lessons:  30, days: MWF  },
+  { name: "Brave Writer",                           subject: "Language Arts", lessons:  36, days: MF   },
+  { name: "Classical Writing",                      subject: "Language Arts", lessons:  30, days: MWF  },
+  { name: "Spelling You See",                       subject: "Language Arts", lessons:  36, days: MF   },
+  { name: "Sequential Spelling",                    subject: "Language Arts", lessons: 180, days: MF   },
+  // ── Science ───────────────────────────────────────────────────────────────
+  { name: "Apologia Science",                       subject: "Science",       lessons:  96, days: MF   },
+  { name: "Elemental Science",                      subject: "Science",       lessons:  36, days: MF   },
+  { name: "Real Science Odyssey",                   subject: "Science",       lessons:  36, days: MF   },
+  { name: "Mystery Science",                        subject: "Science",       lessons:  40, days: MF   },
+  { name: "God's Design for Science",               subject: "Science",       lessons:  96, days: MF   },
+  { name: "Noeo Science",                           subject: "Science",       lessons:  36, days: MF   },
+  { name: "The Good and the Beautiful Science",     subject: "Science",       lessons:  36, days: MF   },
+  { name: "Building Foundations of Scientific Understanding", subject: "Science", lessons: 100, days: MF },
+  { name: "Supercharged Science",                   subject: "Science",       lessons:  50, days: MF   },
+  { name: "Nancy Larson Science",                   subject: "Science",       lessons:  60, days: MF   },
+  // ── History ───────────────────────────────────────────────────────────────
+  { name: "Story of the World",                     subject: "History",       lessons:  42, days: MF   },
+  { name: "Sonlight History",                       subject: "History",       lessons:  36, days: MF   },
+  { name: "Mystery of History",                     subject: "History",       lessons:  48, days: MF   },
+  { name: "Beautiful Feet Books",                   subject: "History",       lessons:  30, days: MF   },
+  { name: "The Good and the Beautiful History",     subject: "History",       lessons:  36, days: MF   },
+  { name: "Tapestry of Grace",                      subject: "History",       lessons:  34, days: MF   },
+  { name: "Veritas Press History",                  subject: "History",       lessons:  36, days: MF   },
+  { name: "Trail Guide to Learning",                subject: "History",       lessons:  36, days: MF   },
+  { name: "A History of US",                        subject: "History",       lessons:  50, days: MF   },
+  { name: "Notgrass History",                       subject: "History",       lessons:  36, days: MF   },
+  // ── Bible ─────────────────────────────────────────────────────────────────
+  { name: "Grapevine Studies",                      subject: "Bible",         lessons:  30, days: MF   },
+  { name: "Apologia Who Is God?",                   subject: "Bible",         lessons:  30, days: MF   },
+  { name: "The Good and the Beautiful Bible",       subject: "Bible",         lessons:  36, days: MF   },
+  { name: "Bible Study Guide for All Ages",         subject: "Bible",         lessons: 160, days: MF   },
+  { name: "Positive Action Bible",                  subject: "Bible",         lessons:  36, days: MF   },
+  { name: "Veritas Press Bible",                    subject: "Bible",         lessons:  36, days: MF   },
+  { name: "Heart of Wisdom",                        subject: "Bible",         lessons:  36, days: MF   },
+  { name: "Abeka Bible",                            subject: "Bible",         lessons: 170, days: MF   },
+  { name: "Memoria Press Bible",                    subject: "Bible",         lessons:  30, days: MWF  },
+];
+
 // ─── Step 5 — Curriculum ──────────────────────────────────────────────────────
 
 function StepCurriculum({
@@ -533,49 +620,94 @@ function StepCurriculum({
 }) {
   const [showPrompt, setShowPrompt] = useState(false);
   const [promptChild, setPromptChild] = useState<ChildDraft | null>(null);
+
+  // Screen A (picker) state
+  const [screen, setScreen] = useState<"picker" | "manual">("picker");
+  const [search, setSearch] = useState("");
+  const [filterSubject, setFilterSubject] = useState("All");
+  const [selectedCard, setSelectedCard] = useState<LibraryCurric | null>(null);
+  const [hintVisible, setHintVisible] = useState(false);
+
+  // Screen B (manual) state
   const [otherSubject, setOtherSubject] = useState("");
-  // otherPillActive tracks whether the Other pill is toggled on, independent of draft.subjects
   const [otherPillActive, setOtherPillActive] = useState(
     () => draft.subjects.some((s) => !CORE_CHIPS.includes(s))
   );
   const touchMoved = useRef(false);
   const touchStartY = useRef(0);
 
-  // Sync Other pill state when the active child changes (tab/row switch)
+  // 15s hint timer — only ticks on Screen A, resets when returning to picker
+  useEffect(() => {
+    if (screen !== "picker") return;
+    const t = setTimeout(() => setHintVisible(true), 15000);
+    return () => clearTimeout(t);
+  }, [screen]);
+
+  // Sync state when active child changes
   useEffect(() => {
     const hasOther = draft.subjects.some((s) => !CORE_CHIPS.includes(s));
     setOtherPillActive(hasOther);
     setOtherSubject(draft.subjects.find((s) => !CORE_CHIPS.includes(s)) ?? "");
+    setScreen("picker");
+    setSelectedCard(null);
+    setSearch("");
+    setFilterSubject("All");
+    setHintVisible(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curricChildUid]);
 
-  // Layout mode: tabs for 1–3, progress counter for 4+
   const useProgressLayout = validChildren.length >= 4;
-  const singleChild = validChildren.length === 1;
-  const currentChild = validChildren.find((c) => c.uid === curricChildUid) ?? validChildren[0];
-  const currentIdx = validChildren.findIndex((c) => c.uid === curricChildUid);
-  const isFirstChild = currentIdx === 0;
-  const canBuild = draft.curricName.trim().length > 0 && draft.totalLessons > 0;
+  const singleChild      = validChildren.length === 1;
+  const currentChild     = validChildren.find((c) => c.uid === curricChildUid) ?? validChildren[0];
+  const currentIdx       = validChildren.findIndex((c) => c.uid === curricChildUid);
+  const isFirstChild     = currentIdx === 0;
 
-  // Heading: always personalized for 1 child or progress layout; generic for 2–3 tab layout
   const heading = singleChild || useProgressLayout
     ? `What are you teaching ${currentChild?.name ?? "your child"}?`
     : "Set up your first curriculum";
-  const subtitle = useProgressLayout
-    ? "We'll build their schedule automatically."
-    : "We'll build your lesson schedule automatically.";
 
-  // ── Subject helpers ──────────────────────────────────────────────────────
+  // Library filtering
+  const filteredLib = CURRICULUM_LIBRARY.filter((c) => {
+    const matchFilter = filterSubject === "All" || c.subject === filterSubject;
+    const matchSearch = !search.trim() || c.name.toLowerCase().includes(search.toLowerCase().trim());
+    return matchFilter && matchSearch;
+  });
 
+  // Estimated finish date from days + lessons
+  function calcFinishPreview(schoolDays: boolean[], lessons: number): string {
+    if (lessons <= 0 || !schoolDays.some(Boolean)) return "";
+    const daysPerWeek = schoolDays.filter(Boolean).length;
+    const weeksNeeded = Math.ceil(lessons / daysPerWeek);
+    const finish = new Date();
+    finish.setDate(finish.getDate() + weeksNeeded * 7);
+    return finish.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  }
+
+  // Select a library card → populate draft
+  function handleSelectCard(card: LibraryCurric) {
+    setSelectedCard(card);
+    onChange({
+      curricName:   card.name,
+      totalLessons: card.lessons,
+      subjects:     [card.subject],
+      schoolDays:   [...card.days],
+    });
+  }
+
+  function toggleDay(i: number) {
+    const days = [...draft.schoolDays];
+    days[i] = !days[i];
+    onChange({ schoolDays: days });
+  }
+
+  // Subject helpers (Screen B)
   function toggleSubject(s: string) {
     if (s === "Other") {
       if (otherPillActive) {
-        // deselect: remove custom subject, hide input
         setOtherPillActive(false);
         setOtherSubject("");
         onChange({ subjects: draft.subjects.filter((x) => CORE_CHIPS.includes(x)) });
       } else {
-        // select: show input (nothing added to subjects until user types)
         setOtherPillActive(true);
         setOtherSubject("");
       }
@@ -591,19 +723,13 @@ function StepCurriculum({
     onChange({ subjects: val.trim() ? [...coreSelected, val.trim()] : coreSelected });
   }
 
-  function toggleDay(i: number) {
-    const days = [...draft.schoolDays];
-    days[i] = !days[i];
-    onChange({ schoolDays: days });
-  }
-
-  // ── Chaining logic ───────────────────────────────────────────────────────
+  // ── Chaining logic ────────────────────────────────────────────────────────
 
   function handleBuildClick() {
     const rows = generateSchedule(draft);
     onBuildChild(curricChildUid, draft, rows);
-    const newDone = new Set([...completedChildUids, curricChildUid]);
-    const exclude = new Set([...newDone, ...skippedChildUids]);
+    const newDone   = new Set([...completedChildUids, curricChildUid]);
+    const exclude   = new Set([...newDone, ...skippedChildUids]);
     const remaining = validChildren.filter((c) => !exclude.has(c.uid));
     if (remaining.length > 0) {
       setPromptChild(remaining[0]);
@@ -623,8 +749,8 @@ function StepCurriculum({
     if (!promptChild) return;
     onSkipChild(promptChild.uid);
     const newSkipped = new Set([...skippedChildUids, promptChild.uid]);
-    const exclude = new Set([...completedChildUids, curricChildUid, ...newSkipped]);
-    const remaining = validChildren.filter((c) => !exclude.has(c.uid));
+    const exclude    = new Set([...completedChildUids, curricChildUid, ...newSkipped]);
+    const remaining  = validChildren.filter((c) => !exclude.has(c.uid));
     if (remaining.length > 0) {
       setPromptChild(remaining[0]);
     } else {
@@ -633,12 +759,11 @@ function StepCurriculum({
     }
   }
 
-  // Called from "Skip for now →" in the form (subsequent children only)
   function handleSkipCurrentChild() {
     onSkipChild(curricChildUid);
     const newSkipped = new Set([...skippedChildUids, curricChildUid]);
-    const exclude = new Set([...completedChildUids, ...newSkipped]);
-    const remaining = validChildren.filter((c) => !exclude.has(c.uid));
+    const exclude    = new Set([...completedChildUids, ...newSkipped]);
+    const remaining  = validChildren.filter((c) => !exclude.has(c.uid));
     if (remaining.length > 0) {
       setPromptChild(remaining[0]);
       setShowPrompt(true);
@@ -647,7 +772,7 @@ function StepCurriculum({
     }
   }
 
-  // ── Prompt card ───────────────────────────────────────────────────────────
+  // ── Prompt card ────────────────────────────────────────────────────────────
 
   if (showPrompt && promptChild) {
     return (
@@ -679,31 +804,59 @@ function StepCurriculum({
     );
   }
 
-  // ── Curriculum form ───────────────────────────────────────────────────────
+  // ── Shared skip footer ────────────────────────────────────────────────────
+
+  const SkipFooter = () => isFirstChild ? (
+    <div className="mt-4 text-center">
+      <p className="text-xs text-[#9e958d] leading-relaxed mb-2">
+        Set up at least one curriculum so Rooted can build your schedule.
+      </p>
+      <button
+        type="button"
+        onClick={onSkipAll}
+        className="text-xs text-[#c8bfb5] hover:text-[#9e958d] transition-colors py-1"
+      >
+        Skip all curriculum setup →
+      </button>
+    </div>
+  ) : (
+    <SkipLink label="Skip for now →" onClick={handleSkipCurrentChild} />
+  );
+
+  // ── Main render ───────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-start px-5 py-12 overflow-y-auto">
-      <BackBtn onClick={onBack} />
+    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-start px-5 py-10 overflow-y-auto">
+      <BackBtn onClick={screen === "manual" ? () => setScreen("picker") : onBack} />
       <ProgressDots step={5} />
-      <Card className="mb-8">
-        <StepHeading eyebrow="Step 5 of 7" title={heading} sub={subtitle} />
 
-        {/* ── Tab layout: 2–3 children ───────────────────────────────────── */}
+      <div className="w-full max-w-md mx-auto">
+
+        {/* Heading */}
+        <div className="text-center mb-5">
+          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#7a9e7e] mb-2">Step 5 of 7</p>
+          <h2
+            className="text-2xl sm:text-3xl font-bold text-[#2d2926] leading-snug"
+            style={{ fontFamily: "Georgia, serif" }}
+          >
+            {heading}
+          </h2>
+        </div>
+
+        {/* Tab selector: 2–3 children */}
         {!singleChild && !useProgressLayout && (
-          <div className="flex gap-2 mb-5 flex-wrap">
+          <div className="flex gap-2 mb-4 flex-wrap">
             {validChildren.map((c) => {
               const isActive = c.uid === curricChildUid;
-              const isDone = completedChildUids.has(c.uid);
+              const isDone   = completedChildUids.has(c.uid);
               return (
                 <button
-                  key={c.uid}
-                  type="button"
-                  onClick={() => onChangeChild(c.uid)}
+                  key={c.uid} type="button" onClick={() => onChangeChild(c.uid)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
                   style={{
                     backgroundColor: isActive ? c.color : "#f8f5f0",
-                    color: isActive ? "white" : "#5c5248",
-                    borderColor: isActive ? c.color : "#e8e2d9",
+                    color:           isActive ? "white" : "#5c5248",
+                    borderColor:     isActive ? c.color : "#e8e2d9",
                   }}
                 >
                   {isDone && <Check size={10} strokeWidth={3} />}
@@ -714,10 +867,9 @@ function StepCurriculum({
           </div>
         )}
 
-        {/* ── Progress counter layout: 4+ children ──────────────────────── */}
+        {/* Progress layout: 4+ children */}
         {useProgressLayout && (
-          <div className="mb-5">
-            {/* Row 1: current child bubble + name (left), N of N (right) */}
+          <div className="mb-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <div
@@ -726,58 +878,33 @@ function StepCurriculum({
                 >
                   {(currentChild?.name ?? "?").charAt(0).toUpperCase()}
                 </div>
-                <span className="text-sm font-semibold text-[#2d2926]">
-                  {currentChild?.name ?? "—"}
-                </span>
+                <span className="text-sm font-semibold text-[#2d2926]">{currentChild?.name ?? "—"}</span>
               </div>
-              <span className="text-xs text-[#b5aca4]">
-                {currentIdx + 1} of {validChildren.length} children
-              </span>
+              <span className="text-xs text-[#b5aca4]">{currentIdx + 1} of {validChildren.length} children</span>
             </div>
-
-            {/* Row 2: progress list */}
             <div className="space-y-0.5 bg-[#f8f5f0] rounded-2xl p-3 border border-[#ede8de]">
               {validChildren.map((c) => {
-                const isDone = completedChildUids.has(c.uid);
+                const isDone    = completedChildUids.has(c.uid);
                 const isSkipped = skippedChildUids.has(c.uid);
                 const isCurrent = c.uid === curricChildUid;
                 const displayName = c.name.length > 8 ? c.name.slice(0, 7) + "…" : c.name;
-                const fillPct = isDone || isSkipped ? "100%" : isCurrent ? "33%" : "0%";
+                const fillPct   = isDone || isSkipped ? "100%" : isCurrent ? "33%" : "0%";
                 const fillColor = isDone ? "#3d5c42" : isSkipped ? "#c8bfb5" : "#3d5c42";
-                const icon = isDone ? "✓" : isSkipped ? "–" : isCurrent ? "···" : "—";
+                const icon      = isDone ? "✓" : isSkipped ? "–" : isCurrent ? "···" : "—";
                 const iconColor = isDone ? "#3d5c42" : isSkipped ? "#c8bfb5" : isCurrent ? "#5c7f63" : "#e0d8d0";
-
                 return (
                   <button
-                    key={c.uid}
-                    type="button"
-                    onClick={() => onChangeChild(c.uid)}
+                    key={c.uid} type="button" onClick={() => onChangeChild(c.uid)}
                     className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl transition-colors text-left"
                     style={{ backgroundColor: isCurrent ? "#e8f0e9" : "transparent" }}
                   >
-                    <span
-                      className="text-xs shrink-0 truncate"
-                      style={{
-                        width: "5rem",
-                        fontWeight: isCurrent ? 600 : 400,
-                        color: isCurrent ? "#2d2926" : "#7a6f65",
-                      }}
-                    >
+                    <span className="text-xs shrink-0 truncate" style={{ width: "5rem", fontWeight: isCurrent ? 600 : 400, color: isCurrent ? "#2d2926" : "#7a6f65" }}>
                       {displayName}
                     </span>
-                    <div
-                      className="flex-1 relative rounded-full overflow-hidden"
-                      style={{ height: 3, backgroundColor: "#e8e2d9" }}
-                    >
-                      <div
-                        className="absolute left-0 top-0 h-full rounded-full"
-                        style={{ width: fillPct, backgroundColor: fillColor }}
-                      />
+                    <div className="flex-1 relative rounded-full overflow-hidden" style={{ height: 3, backgroundColor: "#e8e2d9" }}>
+                      <div className="absolute left-0 top-0 h-full rounded-full" style={{ width: fillPct, backgroundColor: fillColor }} />
                     </div>
-                    <span
-                      className="text-xs shrink-0 font-mono"
-                      style={{ color: iconColor, width: "1.25rem", textAlign: "center" }}
-                    >
+                    <span className="text-xs shrink-0 font-mono" style={{ color: iconColor, width: "1.25rem", textAlign: "center" }}>
                       {icon}
                     </span>
                   </button>
@@ -787,149 +914,265 @@ function StepCurriculum({
           </div>
         )}
 
-        {/* Curriculum name */}
-        <div className="mb-4">
-          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
-            Curriculum Name
-          </label>
-          <input
-            type="text"
-            value={draft.curricName}
-            onChange={(e) => onChange({ curricName: e.target.value })}
-            onBlur={(e) => onChange({ curricName: e.target.value.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") })}
-            placeholder="e.g. Math with Saxon, All About Reading…"
-            style={{ textTransform: "capitalize" }}
-            className="w-full px-4 py-3 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-          />
-        </div>
+        {screen === "picker" ? (
 
-        {/* Subjects */}
-        <div className="mb-4">
-          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
-            Subject(s) <span className="font-normal normal-case text-[#b5aca4]">(optional)</span>
-          </label>
-          <div className="flex gap-1.5">
-            {SUBJECT_CHIPS.map((s) => {
-              const sel = s === "Other" ? otherPillActive : draft.subjects.includes(s);
-              return (
+          /* ── Screen A: Curriculum picker ─────────────────────────────────── */
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl border border-[#f0ede8] p-5 mb-6">
+
+            {/* Search */}
+            <div className="relative mb-3">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search curricula…"
+                className="w-full pl-9 pr-4 py-2.5 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+              />
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c8bfb5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+            </div>
+
+            {/* Filter pills */}
+            <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
+              {FILTER_SUBJECTS.map((s) => (
                 <button
-                  key={s} type="button" onClick={() => toggleSubject(s)}
-                  className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
+                  key={s} type="button"
+                  onClick={() => setFilterSubject(s)}
+                  className="shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
                   style={{
-                    backgroundColor: sel ? "#5c7f63" : "#f8f5f0",
-                    color: sel ? "white" : "#5c5248",
-                    borderColor: sel ? "#5c7f63" : "#e8e2d9",
+                    backgroundColor: filterSubject === s ? "#5c7f63" : "#f8f5f0",
+                    color:           filterSubject === s ? "white" : "#5c5248",
+                    borderColor:     filterSubject === s ? "#5c7f63" : "#e8e2d9",
                   }}
                 >
                   {s}
                 </button>
-              );
-            })}
-          </div>
-          {otherPillActive && (
-            <input
-              type="text"
-              value={otherSubject}
-              onChange={(e) => handleOtherInput(e.target.value)}
-              placeholder="e.g. Bible, Art, Language Arts, Latin..."
-              autoFocus
-              className="mt-2 w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+              ))}
+            </div>
+
+            {/* Card list */}
+            <div className="space-y-1.5 max-h-56 overflow-y-auto mb-4 pr-0.5">
+              {filteredLib.length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-sm text-[#9e958d] mb-2">No curricula found.</p>
+                  <button type="button" onClick={() => setScreen("manual")}
+                    className="text-sm text-[#5c7f63] font-medium hover:underline">
+                    Add yours manually →
+                  </button>
+                </div>
+              ) : filteredLib.map((c) => {
+                const isSelected = selectedCard?.name === c.name && selectedCard?.subject === c.subject;
+                return (
+                  <button
+                    key={`${c.subject}-${c.name}`} type="button"
+                    onClick={() => handleSelectCard(c)}
+                    className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl border text-left transition-all"
+                    style={{
+                      backgroundColor: isSelected ? "#f0f7f0" : "#fefcf9",
+                      borderColor:     isSelected ? "#5c7f63" : "#e8e2d9",
+                    }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[#2d2926] leading-tight">{c.name}</p>
+                      <p className="text-xs text-[#9e958d] mt-0.5">{c.subject} · {c.lessons} lessons</p>
+                    </div>
+                    {isSelected && <Check size={16} className="text-[#5c7f63] shrink-0" strokeWidth={2.5} />}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Schedule preview — only when card selected */}
+            {selectedCard && (
+              <div className="bg-[#f0f7f0] border border-[#c8ddb8] rounded-2xl p-4 mb-4">
+                <p className="text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-2">Schedule Preview</p>
+                <div
+                  className="flex gap-1.5 mb-2"
+                  onTouchStart={(e) => { touchMoved.current = false; touchStartY.current = e.touches[0].clientY; }}
+                  onTouchMove={(e) => { if (Math.abs(e.touches[0].clientY - touchStartY.current) > 5) touchMoved.current = true; }}
+                >
+                  {DAY_LABELS.map((d, i) => (
+                    <button
+                      key={d} type="button"
+                      onClick={() => { if (touchMoved.current) return; toggleDay(i); }}
+                      className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
+                      style={{
+                        backgroundColor: draft.schoolDays[i] ? "#5c7f63" : "#f8f5f0",
+                        color:           draft.schoolDays[i] ? "white" : "#9e958d",
+                        borderColor:     draft.schoolDays[i] ? "#5c7f63" : "#e8e2d9",
+                      }}
+                    >
+                      {d.charAt(0)}
+                    </button>
+                  ))}
+                </div>
+                {calcFinishPreview(draft.schoolDays, draft.totalLessons) && (
+                  <p className="text-xs text-[#5c7f63] font-medium">
+                    ~Finishes {calcFinishPreview(draft.schoolDays, draft.totalLessons)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Build button */}
+            <ContinueBtn
+              onClick={handleBuildClick}
+              disabled={!selectedCard}
+              label={selectedCard
+                ? `Build ${currentChild?.name ?? "their"}'s schedule →`
+                : "Select a curriculum above"}
             />
-          )}
-        </div>
 
-        {/* Total lessons — scroll wheel fix */}
-        <div className="mb-4">
-          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
-            Total Lessons
-          </label>
-          <input
-            type="number"
-            min={1}
-            max={500}
-            value={draft.totalLessons || ""}
-            onChange={(e) => onChange({ totalLessons: Math.max(1, parseInt(e.target.value) || 0) })}
-            onWheel={(e) => e.currentTarget.blur()}
-            placeholder="e.g. 36"
-            className="w-full px-4 py-3 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-          />
-        </div>
-
-        {/* School days — touch scroll fix */}
-        <div className="mb-4">
-          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
-            School Days
-          </label>
-          <div
-            className="flex gap-2"
-            onTouchStart={(e) => {
-              touchMoved.current = false;
-              touchStartY.current = e.touches[0].clientY;
-            }}
-            onTouchMove={(e) => {
-              if (Math.abs(e.touches[0].clientY - touchStartY.current) > 5) {
-                touchMoved.current = true;
-              }
-            }}
-          >
-            {DAY_LABELS.map((d, i) => (
+            {/* Add my own link — hint appears after 15s */}
+            <div className="mt-4 text-center">
+              {hintVisible && (
+                <p className="text-xs text-[#9e958d] mb-1">Don&apos;t see yours?</p>
+              )}
               <button
-                key={d}
                 type="button"
-                onClick={() => { if (touchMoved.current) return; toggleDay(i); }}
-                className="flex-1 py-2.5 rounded-xl text-xs font-semibold border transition-all"
-                style={{
-                  backgroundColor: draft.schoolDays[i] ? "#5c7f63" : "#f8f5f0",
-                  color: draft.schoolDays[i] ? "white" : "#9e958d",
-                  borderColor: draft.schoolDays[i] ? "#5c7f63" : "#e8e2d9",
-                }}
+                onClick={() => setScreen("manual")}
+                className="text-xs text-[#b5aca4] hover:text-[#5c7f63] transition-colors font-medium"
               >
-                {d.charAt(0)}
+                Add my own curriculum →
               </button>
-            ))}
+            </div>
+
+            <SkipFooter />
           </div>
-        </div>
 
-        {/* Target finish date */}
-        <div className="mb-6">
-          <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
-            Target Finish Date <span className="font-normal normal-case text-[#b5aca4]">(optional)</span>
-          </label>
-          <input
-            type="date"
-            value={draft.finishDate}
-            onChange={(e) => onChange({ finishDate: e.target.value })}
-            className="w-full px-4 py-3 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-          />
-        </div>
+        ) : (
 
-        {/* Build button — personalized */}
-        <ContinueBtn
-          onClick={handleBuildClick}
-          disabled={!canBuild}
-          label={canBuild
-            ? `Build ${currentChild?.name ?? "their"}'s schedule →`
-            : "Fill in the fields above"}
-        />
+          /* ── Screen B: Manual entry ───────────────────────────────────────── */
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl border border-[#f0ede8] p-5 sm:p-8 mb-6">
 
-        {/* Skip section — curriculum nudge for first child, easy skip for subsequent */}
-        {isFirstChild ? (
-          <div className="mt-4 text-center">
-            <p className="text-xs text-[#9e958d] leading-relaxed mb-2">
-              Set up at least one curriculum so Rooted can build your schedule. It only takes 30 seconds.
-            </p>
             <button
               type="button"
-              onClick={onSkipAll}
-              className="text-xs text-[#c8bfb5] hover:text-[#9e958d] transition-colors py-1"
+              onClick={() => setScreen("picker")}
+              className="flex items-center gap-1.5 text-sm text-[#5c7f63] font-medium hover:underline mb-5"
             >
-              Skip all curriculum setup →
+              ← Back to library
             </button>
+
+            {/* Curriculum name */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
+                Curriculum Name
+              </label>
+              <input
+                type="text"
+                value={draft.curricName}
+                onChange={(e) => onChange({ curricName: e.target.value })}
+                onBlur={(e) => onChange({ curricName: e.target.value.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") })}
+                placeholder="e.g. Math with Saxon, All About Reading…"
+                autoFocus
+                style={{ textTransform: "capitalize" }}
+                className="w-full px-4 py-3 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+              />
+            </div>
+
+            {/* Subjects */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
+                Subject(s) <span className="font-normal normal-case text-[#b5aca4]">(optional)</span>
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {SUBJECT_CHIPS.map((s) => {
+                  const sel = s === "Other" ? otherPillActive : draft.subjects.includes(s);
+                  return (
+                    <button
+                      key={s} type="button" onClick={() => toggleSubject(s)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
+                      style={{
+                        backgroundColor: sel ? "#5c7f63" : "#f8f5f0",
+                        color:           sel ? "white" : "#5c5248",
+                        borderColor:     sel ? "#5c7f63" : "#e8e2d9",
+                      }}
+                    >
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+              {otherPillActive && (
+                <input
+                  type="text"
+                  value={otherSubject}
+                  onChange={(e) => handleOtherInput(e.target.value)}
+                  placeholder="e.g. Bible, Latin, Music…"
+                  autoFocus
+                  className="mt-2 w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+                />
+              )}
+            </div>
+
+            {/* Total lessons */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
+                Total Lessons
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={draft.totalLessons || ""}
+                onChange={(e) => onChange({ totalLessons: Math.max(1, parseInt(e.target.value) || 0) })}
+                onWheel={(e) => e.currentTarget.blur()}
+                placeholder="e.g. 36"
+                className="w-full px-4 py-3 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+              />
+            </div>
+
+            {/* School days */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
+                School Days
+              </label>
+              <div
+                className="flex gap-2"
+                onTouchStart={(e) => { touchMoved.current = false; touchStartY.current = e.touches[0].clientY; }}
+                onTouchMove={(e) => { if (Math.abs(e.touches[0].clientY - touchStartY.current) > 5) touchMoved.current = true; }}
+              >
+                {DAY_LABELS.map((d, i) => (
+                  <button
+                    key={d} type="button"
+                    onClick={() => { if (touchMoved.current) return; toggleDay(i); }}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-semibold border transition-all"
+                    style={{
+                      backgroundColor: draft.schoolDays[i] ? "#5c7f63" : "#f8f5f0",
+                      color:           draft.schoolDays[i] ? "white" : "#9e958d",
+                      borderColor:     draft.schoolDays[i] ? "#5c7f63" : "#e8e2d9",
+                    }}
+                  >
+                    {d.charAt(0)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Smart preview line */}
+            {draft.curricName.trim() && draft.totalLessons > 0 && draft.schoolDays.some(Boolean) && (
+              <div className="mb-4 px-4 py-3 bg-[#f0f7f0] border border-[#c8ddb8] rounded-2xl">
+                <p className="text-xs text-[#5c7f63] font-medium">
+                  ~Finishes {calcFinishPreview(draft.schoolDays, draft.totalLessons)}
+                </p>
+              </div>
+            )}
+
+            {/* Build button */}
+            <ContinueBtn
+              onClick={handleBuildClick}
+              disabled={!draft.curricName.trim() || draft.totalLessons <= 0}
+              label={draft.curricName.trim() && draft.totalLessons > 0
+                ? `Build ${currentChild?.name ?? "their"}'s schedule →`
+                : "Fill in the fields above"}
+            />
+
+            <SkipFooter />
           </div>
-        ) : (
-          <SkipLink label="Skip for now →" onClick={handleSkipCurrentChild} />
+
         )}
-      </Card>
+      </div>
     </div>
   );
 }
