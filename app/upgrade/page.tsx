@@ -181,17 +181,21 @@ export default function UpgradePage() {
 
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                'Unlimited children',
-                'Memories & photo log',
-                'Insights & learning streaks',
-                'Progress reports & transcripts',
-                'AI-written family updates',
-                'Co-teacher access',
-                'Priority support from Brittany',
-                'Founding price locked forever 🎁',
-              ].map(f => (
-                <li key={f} className="flex items-center gap-2 text-sm text-[#2d5c38] font-medium">
-                  <span className="text-[#5c7f63] shrink-0">✓</span>{f}
+                { label: 'Unlimited children' },
+                { label: 'Memories & photo log' },
+                { label: 'Insights & learning streaks' },
+                { label: 'Progress reports & transcripts' },
+                { label: 'AI-written family updates' },
+                { label: 'Shareable family updates', sub: 'Share your homeschool story with family' },
+                { label: 'Priority support from Brittany' },
+                { label: 'Founding price locked forever 🎁' },
+              ].map(({ label, sub }) => (
+                <li key={label} className="flex items-start gap-2 text-sm text-[#2d5c38] font-medium">
+                  <span className="text-[#5c7f63] shrink-0 mt-0.5">✓</span>
+                  <span>
+                    {label}
+                    {sub && <span className="block text-xs text-[#5c7f63]/70 font-normal">{sub}</span>}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -235,15 +239,19 @@ export default function UpgradePage() {
             </div>
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                'Unlimited children',
-                'Memories & photo log',
-                'Insights & learning streaks',
-                'Progress reports & transcripts',
-                'AI-written family updates',
-                'Co-teacher access',
-              ].map(f => (
-                <li key={f} className="flex items-center gap-2 text-sm text-[#7a6f65]">
-                  <span className="text-[#5c7f63] shrink-0">✓</span>{f}
+                { label: 'Unlimited children' },
+                { label: 'Memories & photo log' },
+                { label: 'Insights & learning streaks' },
+                { label: 'Progress reports & transcripts' },
+                { label: 'AI-written family updates' },
+                { label: 'Shareable family updates', sub: 'Share your homeschool story with family' },
+              ].map(({ label, sub }) => (
+                <li key={label} className="flex items-start gap-2 text-sm text-[#7a6f65]">
+                  <span className="text-[#5c7f63] shrink-0 mt-0.5">✓</span>
+                  <span>
+                    {label}
+                    {sub && <span className="block text-xs text-[#b5aca4] font-normal">{sub}</span>}
+                  </span>
                 </li>
               ))}
             </ul>

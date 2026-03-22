@@ -1484,16 +1484,19 @@ function StepTodayPreview({
             <button
               type="button"
               onClick={() => window.open("/upgrade", "_blank")}
-              className="w-full py-4 rounded-2xl bg-[#3d5c42] hover:bg-[#2d4a30] text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98] mb-3"
+              className="w-full py-4 rounded-2xl bg-[#3d5c42] hover:bg-[#2d4a30] text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98]"
             >
               Join as a Founding Family — $39/yr →
             </button>
+            <p className="text-xs text-[#5c7f63] text-center mt-1">
+              Locks in Memories, Reports, AI Year in Review &amp; more — forever
+            </p>
             <button
               type="button"
               onClick={onNext}
-              className="block w-full text-center text-sm text-[#b5aca4] hover:text-[#7a6f65] transition-colors py-1"
+              className="block w-full text-center text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors py-1 mt-2"
             >
-              Continue with Free →
+              Continue with Free — upgrade anytime before April 30
             </button>
           </>
         ) : (
