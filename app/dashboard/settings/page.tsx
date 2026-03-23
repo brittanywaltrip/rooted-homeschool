@@ -157,6 +157,10 @@ export default function SettingsPage() {
   const [deletingAccount,  setDeletingAccount]  = useState(false);
   const [deleteError,      setDeleteError]      = useState("");
 
+  // Affiliate / Ambassador
+  const [affiliateData, setAffiliateData] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string } | null>(null);
+  const [affiliateStats, setAffiliateStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
+
   // School year transition
   const [showYearModal,    setShowYearModal]    = useState(false);
   const [yearTransitioning, setYearTransitioning] = useState(false);
@@ -201,9 +205,26 @@ export default function SettingsPage() {
 
     setChildren(kids ?? []);
     setLoadingChildren(false);
+
+    // Load affiliate data if exists
+    const { data: affData } = await supabase
+      .from("affiliates")
+      .select("code, stripe_coupon_id, is_active, created_at")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (affData) setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string });
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (affiliateData?.stripe_coupon_id) {
+      fetch(`/api/stripe/affiliate-stats?coupon_id=${affiliateData.stripe_coupon_id}`)
+        .then(r => r.json())
+        .then(setAffiliateStats)
+        .catch(() => {});
+    }
+  }, [affiliateData]);
 
   // ── First / Last name ─────────────────────────────────────────────────────
 
@@ -1383,6 +1404,81 @@ export default function SettingsPage() {
           <span className="text-[#7a6f65]">→</span>
         </Link>
       </div>
+
+      {/* ── Ambassador Partnership ────────────────────────────────────── */}
+      {affiliateData?.is_active && (
+        <div className="mt-6">
+          <p className="text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-3 px-1">
+            🤝 Your Ambassador Partnership
+          </p>
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+
+            {/* Code + copy */}
+            <div className="px-5 py-4 border-b border-[#e8e2d9]">
+              <p className="text-xs text-[#7a6f65] mb-1">Your discount code</p>
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-bold text-[#4338ca] tracking-widest font-mono">
+                  {affiliateData.code}
+                </span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(affiliateData.code)}
+                  className="text-xs font-semibold text-[#4338ca] bg-[#eef0ff] px-3 py-1.5 rounded-lg active:scale-95 transition-transform"
+                >
+                  Copy
+                </button>
+              </div>
+              <p className="text-xs text-[#7a6f65] mt-1.5">
+                15% off for anyone who uses this at checkout
+              </p>
+            </div>
+
+            {/* Referral link */}
+            <div className="px-5 py-4 border-b border-[#e8e2d9]">
+              <p className="text-xs text-[#7a6f65] mb-1">Your referral link</p>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-[#2d2926] font-mono truncate">
+                  rootedhomeschoolapp.com/upgrade?ref={affiliateData.code}
+                </span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(
+                    `https://rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`
+                  )}
+                  className="text-xs font-semibold text-[#4338ca] bg-[#eef0ff] px-3 py-1.5 rounded-lg shrink-0 active:scale-95 transition-transform"
+                >
+                  Copy
+                </button>
+              </div>
+              <p className="text-xs text-[#7a6f65] mt-1.5">
+                Share this link — discount applies automatically, no code needed
+              </p>
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-3 divide-x divide-[#e8e2d9]">
+              <div className="px-4 py-4 text-center">
+                <p className="text-2xl font-bold text-[#2d2926]">{affiliateStats?.totalRedemptions ?? '—'}</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Families reached</p>
+              </div>
+              <div className="px-4 py-4 text-center">
+                <p className="text-2xl font-bold text-[#3d5c42]">{affiliateStats?.payingCount ?? '—'}</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
+              </div>
+              <div className="px-4 py-4 text-center">
+                <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats?.revenueDriven ?? '—'}</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Revenue driven</p>
+              </div>
+            </div>
+
+            {/* Status */}
+            <div className="px-5 py-3 bg-[#f8f7f4] border-t border-[#e8e2d9]">
+              <p className="text-xs text-[#7a6f65]">
+                ✅ Active Partner · Since {new Date(affiliateData.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              </p>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* ── Help & More ──────────────────────────────────────────────── */}
       <div className="mt-6 mb-8">

@@ -31,8 +31,8 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { plan } = body
-  console.log('[checkout] plan:', plan, '| userId:', user.id)
+  const { plan, ref } = body
+  console.log('[checkout] plan:', plan, '| userId:', user.id, '| ref:', ref ?? 'none')
 
   const priceId = PRICE_IDS[plan]
   if (!priceId) {
@@ -42,9 +42,24 @@ export async function POST(req: NextRequest) {
   console.log('[checkout] priceId:', priceId)
 
   try {
+    // If ref code provided, look up the Stripe promotion code to pre-apply
+    let discounts: { promotion_code: string }[] | undefined = undefined
+    if (ref) {
+      try {
+        const promoCodes = await stripe.promotionCodes.list({ code: (ref as string).toUpperCase(), active: true, limit: 1 })
+        if (promoCodes.data.length > 0) {
+          discounts = [{ promotion_code: promoCodes.data[0].id }]
+        }
+      } catch (e) {
+        console.log('[checkout] promo code lookup failed, continuing without discount', e)
+      }
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
+      allow_promotion_codes: !discounts,
+      ...(discounts ? { discounts } : {}),
       success_url: 'https://www.rootedhomeschoolapp.com/dashboard/welcome',
       cancel_url: 'https://www.rootedhomeschoolapp.com/upgrade',
       customer_email: user.email,

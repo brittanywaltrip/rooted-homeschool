@@ -208,6 +208,7 @@ export default function GardenPage() {
   const [vacationBlocks, setVacationBlocks] = useState<VacationBlock[]>([]);
   const [familyName, setFamilyName]     = useState("");
   const [profile, setProfile]           = useState<{ plan_type?: string; subscription_status?: string } | null>(null);
+  const [isAffiliate, setIsAffiliate]   = useState(false);
 
   const todayStr = toDateStr(new Date());
   const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
@@ -238,6 +239,13 @@ export default function GardenPage() {
       const profileData = profile as { display_name?: string; plan_type?: string; subscription_status?: string } | null;
       setFamilyName(profileData?.display_name ?? "");
       setProfile(profileData);
+
+      const { data: affiliateData } = await supabase
+        .from("affiliates")
+        .select("code, is_active")
+        .eq("user_id", effectiveUserId)
+        .maybeSingle();
+      setIsAffiliate(!!affiliateData?.is_active);
 
       const counts: Record<string, number> = {};
       completed?.forEach((l) => {
@@ -561,6 +569,30 @@ export default function GardenPage() {
                 </div>
                 <span className="text-[10px] font-semibold text-[#b8823a] text-center leading-tight">
                   Founding<br />Member
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Rooted Partner badge — only for affiliates */}
+        {isAffiliate && (
+          <div className="mb-3">
+            <p className="text-xs text-[#4338ca] font-medium mb-2">🤝 Rooted Partner</p>
+            <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col items-center gap-1.5">
+                <div
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl shadow-sm"
+                  style={{
+                    background: 'linear-gradient(135deg, #4338ca 0%, #818cf8 50%, #4338ca 100%)',
+                    boxShadow: '0 4px 12px rgba(67,56,202,0.3)'
+                  }}
+                  title="Rooted Partner"
+                >
+                  🤝
+                </div>
+                <span className="text-[10px] font-semibold text-[#4338ca] text-center leading-tight">
+                  Rooted<br />Partner
                 </span>
               </div>
             </div>
