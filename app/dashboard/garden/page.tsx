@@ -9,7 +9,7 @@ import PageHero from "@/app/components/PageHero";
 
 function treeEmoji(leaves: number): string {
   const s = getStageFromLeaves(leaves);
-  const map: Record<number, string> = { 1:"🌱", 2:"🌿", 3:"🪴", 4:"🌳", 5:"🌲", 6:"🌸", 7:"🍃", 8:"🌳", 9:"🍂", 10:"🌳" };
+  const map: Record<number, string> = { 1:"🟤", 2:"🌱", 3:"🌿", 4:"🪴", 5:"🌳", 6:"🌲", 7:"🌳", 8:"🌸", 9:"🌳", 10:"🌳" };
   return map[s] ?? "🌱";
 }
 
@@ -209,6 +209,7 @@ export default function GardenPage() {
   const [familyName, setFamilyName]     = useState("");
   const [profile, setProfile]           = useState<{ plan_type?: string; subscription_status?: string } | null>(null);
   const [isAffiliate, setIsAffiliate]   = useState(false);
+  const [badgeCelebration, setBadgeCelebration] = useState<string | null>(null);
 
   const todayStr = toDateStr(new Date());
   const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
@@ -257,6 +258,24 @@ export default function GardenPage() {
       });
 
       setLeafCounts(counts);
+
+      // Check for new badge celebrations
+      const totalLeaves = Object.values(counts).reduce((s, n) => s + n, 0);
+      const seenBadgesKey = `garden_badges_seen_${effectiveUserId}`;
+      const seenBadges = new Set(JSON.parse(localStorage.getItem(seenBadgesKey) ?? "[]") as string[]);
+      const newBadge = BADGES.find(b => b.check(totalLeaves) && !seenBadges.has(b.id));
+      if (newBadge) {
+        // Mark all currently earned badges as seen
+        const allEarned = BADGES.filter(b => b.check(totalLeaves)).map(b => b.id);
+        localStorage.setItem(seenBadgesKey, JSON.stringify(allEarned));
+        setBadgeCelebration(newBadge.label);
+        setTimeout(() => setBadgeCelebration(null), 3000);
+      } else if (seenBadges.size === 0 && totalLeaves > 0) {
+        // First visit with leaves — seed the seen badges so we don't celebrate old ones
+        const allEarned = BADGES.filter(b => b.check(totalLeaves)).map(b => b.id);
+        localStorage.setItem(seenBadgesKey, JSON.stringify(allEarned));
+      }
+
       setLoading(false);
     }
     load();
@@ -737,6 +756,37 @@ export default function GardenPage() {
 
       <div className="h-4" />
       </div>
+
+      {/* Badge celebration overlay */}
+      {badgeCelebration && (
+        <div className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center">
+          {/* Particles */}
+          {Array.from({ length: 12 }).map((_, i) => (
+            <span
+              key={i}
+              className="absolute text-xl"
+              style={{
+                left: `${30 + Math.random() * 40}%`,
+                top: `${30 + Math.random() * 30}%`,
+                animation: `badge-burst 1.5s ease-out forwards`,
+                animationDelay: `${i * 0.08}s`,
+                opacity: 0,
+              }}
+            >
+              {["⭐", "🌟", "✨", "🎉", "🏅"][i % 5]}
+            </span>
+          ))}
+          {/* Badge name */}
+          <div
+            className="bg-white/95 border border-[#e8e2d9] rounded-2xl px-6 py-4 text-center shadow-xl"
+            style={{ animation: "badge-pop 2s ease-out forwards" }}
+          >
+            <p className="text-2xl mb-1">🏅</p>
+            <p className="text-sm font-bold text-[#2d2926]">New badge earned!</p>
+            <p className="text-xs text-[#5c7f63] mt-0.5">{badgeCelebration}</p>
+          </div>
+        </div>
+      )}
     </>
   );
 }

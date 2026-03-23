@@ -2,19 +2,19 @@
 
 // ─── Stage constants ────────────────────────────────────────────────────────────
 
-export const LEAF_THRESHOLDS = [0, 5, 10, 20, 35, 50, 70, 90, 110, 135];
+export const LEAF_THRESHOLDS = [0, 1, 3, 6, 11, 21, 41, 70, 100, 135];
 
 export const STAGE_INFO = [
-  { name: "Seed",       desc: "Just beginning",       color: "#c4956a" },
-  { name: "Seedling",   desc: "First leaves unfurl",  color: "#8ab85a" },
-  { name: "Sprout",     desc: "Growing roots",        color: "#7ab85a" },
-  { name: "Sapling",    desc: "Taking shape",         color: "#6aaa4a" },
-  { name: "Young Tree", desc: "Reaching skyward",     color: "#5a9a3a" },
-  { name: "Blooming",   desc: "In full bloom",        color: "#5c7f63" },
-  { name: "Fruiting",   desc: "Bearing fruit",        color: "#4a8a2a" },
-  { name: "Harvest",    desc: "Ripe with knowledge",  color: "#3a7a1a" },
-  { name: "Autumn",     desc: "Seasons of wisdom",    color: "#c47a2a" },
-  { name: "Thriving",   desc: "Fully flourishing",    color: "#2d5c38" },
+  { name: "Seed",       desc: "Just planted",          color: "#c4956a" },
+  { name: "Sprouting",  desc: "A tiny shoot appears",  color: "#8ab85a" },
+  { name: "Seedling",   desc: "First leaves unfurl",   color: "#7ab85a" },
+  { name: "Young Plant",desc: "Getting taller",        color: "#6aaa4a" },
+  { name: "Growing",    desc: "Taking shape",          color: "#5a9a3a" },
+  { name: "Thriving",   desc: "Full and lush",         color: "#5c7f63" },
+  { name: "Full Tree",  desc: "Strong and tall",       color: "#4a8a2a" },
+  { name: "Blooming",   desc: "In full bloom",         color: "#3a7a1a" },
+  { name: "Fruiting",   desc: "Bearing fruit",         color: "#c47a2a" },
+  { name: "Majestic",   desc: "Fully flourishing",     color: "#2d5c38" },
 ];
 
 export function getStageFromLeaves(leafCount: number): number {
@@ -122,17 +122,17 @@ type TreeConfig = { emoji: string; size: number; overlay?: string };
 
 function getTreeConfig(stage: number): TreeConfig {
   switch (stage) {
-    case 1:  return { emoji: "🌱", size: 72 };
-    case 2:  return { emoji: "🌿", size: 80 };
-    case 3:  return { emoji: "🪴", size: 88 };
-    case 4:  return { emoji: "🌳", size: 96 };
-    case 5:  return { emoji: "🌲", size: 104 };
-    case 6:  return { emoji: "🌸", size: 104 };
-    case 7:  return { emoji: "🍃", size: 108 };
-    case 8:  return { emoji: "🌳", size: 108, overlay: "🍎" };
-    case 9:  return { emoji: "🍂", size: 104 };
-    case 10: return { emoji: "🌳", size: 112, overlay: "✨" };
-    default: return { emoji: "🌱", size: 72 };
+    case 1:  return { emoji: "🟤", size: 48 };   // bare soil/seed
+    case 2:  return { emoji: "🌱", size: 60 };   // tiny sprout
+    case 3:  return { emoji: "🌿", size: 72 };   // seedling
+    case 4:  return { emoji: "🪴", size: 84 };   // young plant
+    case 5:  return { emoji: "🌳", size: 96 };   // growing
+    case 6:  return { emoji: "🌲", size: 104 };  // thriving
+    case 7:  return { emoji: "🌳", size: 108 };  // full tree
+    case 8:  return { emoji: "🌸", size: 108 };  // blooming
+    case 9:  return { emoji: "🌳", size: 108, overlay: "🍎" };  // fruiting
+    case 10: return { emoji: "🌳", size: 112, overlay: "✨" };  // majestic
+    default: return { emoji: "🟤", size: 48 };
   }
 }
 
