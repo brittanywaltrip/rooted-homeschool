@@ -353,13 +353,15 @@ export default function AdminResourcesPage() {
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
         {/* Header */}
         <div>
-          <Link
-            href="/dashboard/settings"
-            className="inline-flex items-center gap-1.5 text-xs text-[#7a6f65] hover:text-[#3d5c42] mb-4 transition-colors"
-          >
-            <ArrowLeft size={13} />
-            Back to Settings
-          </Link>
+          <div className="flex items-center gap-4 mb-4">
+            <Link
+              href="/admin"
+              className="inline-flex items-center gap-1.5 text-xs text-[#7a6f65] hover:text-[#3d5c42] transition-colors"
+            >
+              <ArrowLeft size={13} />
+              Back to admin
+            </Link>
+          </div>
           <h1 className="text-2xl font-bold text-[#2d2926]">Resources Admin ⚙️</h1>
           <p className="text-sm text-[#7a6f65] mt-1">
             Manage all resource links shown to users. Changes go live immediately.

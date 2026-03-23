@@ -296,7 +296,9 @@ export default function AdminPage() {
       {/* ── Sticky Header ──────────────────────────────────── */}
       <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4 flex items-center justify-between gap-4">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-[#8cba8e] mb-0.5">Rooted</p>
+          <Link href="/dashboard" className="text-xs text-[#a8c5a0] hover:text-[#fefcf9] transition-colors">
+            ← Back to app
+          </Link>
           <h1 className="text-xl font-bold text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>
             Founder Dashboard 🌱
           </h1>
