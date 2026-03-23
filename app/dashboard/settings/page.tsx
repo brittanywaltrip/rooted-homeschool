@@ -687,180 +687,139 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {/* ── Family Name ─────────────────────────────────────── */}
-      {activeTab === "family" && <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-[#2d2926]">Your Family</h2>
-          <span className="h-px flex-1 bg-[#e8e2d9]" />
+      {/* ── Our Family ────────────────────────────────────────── */}
+      {activeTab === "family" && <section className="space-y-5">
+
+        {/* Photo hero */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 flex flex-col items-center text-center">
+          <p className="text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">Your family photo</p>
+          <button
+            type="button"
+            onClick={() => photoFileRef.current?.click()}
+            disabled={photoUploading}
+            className="relative group focus:outline-none mb-2"
+            aria-label="Change family photo"
+          >
+            {familyPhotoUrl ? (
+              <img
+                src={familyPhotoUrl}
+                alt="Family photo"
+                className="w-[120px] h-[120px] rounded-full object-cover border-3 border-[#e8e2d9] group-hover:border-[#5c7f63] transition-colors"
+              />
+            ) : (
+              <div className="w-[120px] h-[120px] rounded-full bg-[#e8f0e9] border-2 border-dashed border-[#c8ddb8] group-hover:border-[#5c7f63] flex items-center justify-center transition-colors">
+                <Camera size={32} className="text-[#7aaa78]" />
+              </div>
+            )}
+            {/* Camera overlay */}
+            <div className="absolute bottom-1 right-1 w-8 h-8 rounded-full bg-[#5c7f63] border-2 border-white flex items-center justify-center shadow-sm">
+              <Camera size={14} className="text-white" />
+            </div>
+            {photoUploading && (
+              <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center">
+                <span className="text-white text-xs font-bold animate-pulse">Uploading…</span>
+              </div>
+            )}
+          </button>
+          <p className="text-[11px] text-[#b5aca4]">Tap to change · Shown on your shareable family updates</p>
+          <input
+            ref={photoFileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) uploadFamilyPhoto(file);
+            }}
+          />
+          {photoError && (
+            <p className="mt-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+              {photoError}
+            </p>
+          )}
         </div>
 
+        {/* Name fields */}
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
-          {/* Email (read-only) */}
-          <div>
-            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-              Email address
-            </label>
-            <p className="text-sm text-[#b5aca4] px-3 py-2.5 bg-[#f8f5f0] rounded-xl border border-[#f0ede8]">
-              {userEmail || "—"}
-            </p>
-          </div>
 
-          {/* First name */}
-          <div>
-            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">First name</label>
-            {editingFirst ? (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveFirstName(); if (e.key === "Escape") setEditingFirst(false); }}
-                  autoFocus
-                  placeholder="Jane"
-                  className="flex-1 px-3 py-2.5 rounded-xl border border-[#5c7f63] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]/15 transition"
-                />
-                <button
-                  onClick={saveFirstName}
-                  disabled={savingFirst}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
-                    savedFirst ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
-                  }`}
-                >
-                  {savedFirst ? "✓ Saved" : savingFirst ? "Saving…" : "Save"}
-                </button>
-                <button onClick={() => setEditingFirst(false)} className="px-3 py-2.5 rounded-xl border border-[#e8e2d9] text-[#b5aca4] hover:text-[#7a6f65] text-sm transition-colors">
-                  <X size={14} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] group">
-                <span className="flex-1 text-sm text-[#2d2926]">
-                  {firstName || <span className="text-[#c8bfb5]">Not set — click ✏️ to add</span>}
-                </span>
-                <button onClick={() => setEditingFirst(true)} className="shrink-0 p-1 rounded-lg text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors" aria-label="Edit first name">
-                  <Pencil size={13} />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Last name */}
-          <div>
-            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Last name</label>
-            {editingLast ? (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveLastName(); if (e.key === "Escape") setEditingLast(false); }}
-                  autoFocus
-                  placeholder="Smith"
-                  className="flex-1 px-3 py-2.5 rounded-xl border border-[#5c7f63] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]/15 transition"
-                />
-                <button
-                  onClick={saveLastName}
-                  disabled={savingLast}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
-                    savedLast ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
-                  }`}
-                >
-                  {savedLast ? "✓ Saved" : savingLast ? "Saving…" : "Save"}
-                </button>
-                <button onClick={() => setEditingLast(false)} className="px-3 py-2.5 rounded-xl border border-[#e8e2d9] text-[#b5aca4] hover:text-[#7a6f65] text-sm transition-colors">
-                  <X size={14} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] group">
-                <span className="flex-1 text-sm text-[#2d2926]">
-                  {lastName || <span className="text-[#c8bfb5]">Not set — click ✏️ to add</span>}
-                </span>
-                <button onClick={() => setEditingLast(true)} className="shrink-0 p-1 rounded-lg text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors" aria-label="Edit last name">
-                  <Pencil size={13} />
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Family photo */}
-          <div>
-            <label className="text-xs font-medium text-[#7a6f65] block mb-2">
-              Family photo
-              <span className="text-[#b5aca4] font-normal ml-1">(shown on your shareable updates)</span>
-            </label>
-            <div className="flex items-center gap-4">
-              {/* Clickable photo circle */}
-              <button
-                type="button"
-                onClick={() => photoFileRef.current?.click()}
-                disabled={photoUploading}
-                className="relative shrink-0 group focus:outline-none"
-                aria-label="Change family photo"
-              >
-                {familyPhotoUrl ? (
-                  <img
-                    src={familyPhotoUrl}
-                    alt="Family photo"
-                    className="w-16 h-16 rounded-full object-cover border-2 border-[#e8e2d9] group-hover:border-[#5c7f63] transition-colors"
+          {/* First + Last name — side by side on desktop */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* First name */}
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">First name</label>
+              {editingFirst ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveFirstName(); if (e.key === "Escape") setEditingFirst(false); }}
+                    autoFocus
+                    placeholder="Jane"
+                    className="flex-1 px-3 py-2.5 rounded-xl border border-[#5c7f63] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]/15 transition"
                   />
-                ) : (
-                  <div className="w-16 h-16 rounded-full bg-[#e8f0e9] border-2 border-dashed border-[#c8ddb8] group-hover:border-[#5c7f63] flex items-center justify-center transition-colors">
-                    <Camera size={22} className="text-[#7aaa78]" />
-                  </div>
-                )}
-                {/* Camera hover overlay */}
-                <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center pointer-events-none">
-                  <Camera size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <button
+                    onClick={saveFirstName}
+                    disabled={savingFirst}
+                    className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
+                      savedFirst ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                    }`}
+                  >
+                    {savedFirst ? "✓" : savingFirst ? "…" : "Save"}
+                  </button>
                 </div>
-                {photoUploading && (
-                  <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center">
-                    <span className="text-white text-[10px] font-bold">…</span>
-                  </div>
-                )}
-              </button>
-
-              <div className="flex-1 space-y-1.5">
-                <button
-                  type="button"
-                  onClick={() => photoFileRef.current?.click()}
-                  disabled={photoUploading}
-                  className="px-4 py-2 rounded-xl bg-[#f0ede8] hover:bg-[#e8e2d9] disabled:opacity-50 text-sm font-medium text-[#2d2926] transition-colors"
-                >
-                  {photoUploading ? "Uploading…" : familyPhotoUrl ? "Change Photo" : "Upload Photo"}
+              ) : (
+                <button onClick={() => setEditingFirst(true)} className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] hover:border-[#c8bfb5] transition-colors text-left">
+                  <span className="flex-1 text-sm text-[#2d2926]">
+                    {firstName || <span className="text-[#c8bfb5]">Add first name</span>}
+                  </span>
+                  <Pencil size={13} className="text-[#b5aca4] shrink-0" />
                 </button>
-                <p className="text-[11px] text-[#b5aca4]">Click photo or button · JPG or PNG</p>
-              </div>
+              )}
             </div>
 
-            <input
-              ref={photoFileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                // Reset immediately so the same file can be re-selected on the next click
-                e.target.value = "";
-                if (file) uploadFamilyPhoto(file);
-              }}
-            />
-
-            {photoError && (
-              <p className="mt-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-                {photoError}
-              </p>
-            )}
+            {/* Last name */}
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Last name</label>
+              {editingLast ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveLastName(); if (e.key === "Escape") setEditingLast(false); }}
+                    autoFocus
+                    placeholder="Smith"
+                    className="flex-1 px-3 py-2.5 rounded-xl border border-[#5c7f63] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+                  />
+                  <button
+                    onClick={saveLastName}
+                    disabled={savingLast}
+                    className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
+                      savedLast ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                    }`}
+                  >
+                    {savedLast ? "✓" : savingLast ? "…" : "Save"}
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setEditingLast(true)} className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] hover:border-[#c8bfb5] transition-colors text-left">
+                  <span className="flex-1 text-sm text-[#2d2926]">
+                    {lastName || <span className="text-[#c8bfb5]">Add last name</span>}
+                  </span>
+                  <Pencil size={13} className="text-[#b5aca4] shrink-0" />
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* Divider */}
+          <div className="h-px bg-[#e8e2d9]" />
 
           {/* Family name */}
           <div>
-            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-              Family name
-              <span className="text-[#b5aca4] font-normal ml-1">
-                (shown in your dashboard greeting)
-              </span>
-            </label>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Family name</label>
             {editingName ? (
               <div className="flex gap-2">
                 <input
@@ -875,43 +834,38 @@ export default function SettingsPage() {
                 <button
                   onClick={saveFamilyName}
                   disabled={savingFamily || !familyName.trim()}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
-                    savedFamily
-                      ? "bg-[#e8f0e9] text-[#3d5c42]"
-                      : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                  className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
+                    savedFamily ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
                   }`}
                 >
-                  {savedFamily ? "✓ Saved" : savingFamily ? "Saving…" : "Save"}
-                </button>
-                <button
-                  onClick={() => setEditingName(false)}
-                  className="px-3 py-2.5 rounded-xl border border-[#e8e2d9] text-[#b5aca4] hover:text-[#7a6f65] text-sm transition-colors"
-                >
-                  <X size={14} />
+                  {savedFamily ? "✓" : savingFamily ? "…" : "Save"}
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] group">
+              <button onClick={() => setEditingName(true)} className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] hover:border-[#c8bfb5] transition-colors text-left">
                 <span className="flex-1 text-sm text-[#2d2926]">
-                  {familyName || <span className="text-[#c8bfb5]">Not set — click ✏️ to add</span>}
+                  {familyName || <span className="text-[#c8bfb5]">Add family name</span>}
                 </span>
-                <button
-                  onClick={() => setEditingName(true)}
-                  className="shrink-0 p-1 rounded-lg text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors"
-                  aria-label="Edit family name"
-                >
-                  <Pencil size={13} />
-                </button>
-              </div>
+                <Pencil size={13} className="text-[#b5aca4] shrink-0" />
+              </button>
             )}
+            <p className="text-[11px] text-[#b5aca4] mt-1.5 px-1">This is how your family appears in the app greeting</p>
           </div>
 
-          {/* Homeschool state */}
+          {/* Divider */}
+          <div className="h-px bg-[#e8e2d9]" />
+
+          {/* Email (read-only) */}
           <div>
-            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-              Your state
-              <span className="text-[#b5aca4] font-normal ml-1">(for personalized resources)</span>
-            </label>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Email address</label>
+            <p className="text-sm text-[#b5aca4] px-3 py-2.5 bg-[#f8f5f0] rounded-xl border border-[#f0ede8]">
+              {userEmail || "—"}
+            </p>
+          </div>
+
+          {/* State */}
+          <div>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Your state</label>
             <div className="flex gap-2">
               <select
                 value={homeschoolState}
@@ -934,15 +888,14 @@ export default function SettingsPage() {
               <button
                 onClick={saveHomeschoolState}
                 disabled={savingState}
-                className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
-                  savedState
-                    ? "bg-[#e8f0e9] text-[#3d5c42]"
-                    : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
+                  savedState ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
                 }`}
               >
-                {savedState ? "✓ Saved" : savingState ? "Saving…" : "Save"}
+                {savedState ? "✓" : savingState ? "…" : "Save"}
               </button>
             </div>
+            <p className="text-[11px] text-[#b5aca4] mt-1.5 px-1">Used to personalize your Resources tab</p>
           </div>
         </div>
       </section>}
