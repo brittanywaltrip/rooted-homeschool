@@ -106,10 +106,10 @@ const FRESH_DROPS_POOL: FreshDrop[] = [
 
 const EASY_WINS: EasyWin[] = [
   { emoji: "🎨", title: "Salt Tray Writing",          desc: "Pour salt in a tray, practice spelling words or letters with a finger.",                  time: "5 min",    grade: "K–2",      url: "https://www.growinghandsonkids.com/salt-tray-writing-activity.html" },
-  { emoji: "🔭", title: "Shadow Tracing",             desc: "Trace your shadow at different times of day. Watch it move and discuss why.",              time: "10 min",   grade: "All Ages", url: "https://spaceplace.nasa.gov/educators/" },
+  { emoji: "🔭", title: "Shadow Tracing",             desc: "Trace your shadow at different times of day. Watch it move and discuss why.",              time: "10 min",   grade: "All Ages", url: "https://spaceplace.nasa.gov/shadow/en/" },
   { emoji: "📚", title: "Audiobook Hour",             desc: "Put on a great audiobook and do a puzzle together. Zero prep, total engagement.",          time: "0 min prep", grade: "All Ages", url: "https://librivox.org" },
   { emoji: "🌿", title: "Nature Alphabet Hunt",       desc: "Go outside and find something in nature for each letter of the alphabet.",                 time: "15 min",   grade: "K–5",      url: "https://www.kidsactivitiesblog.com/nature-scavenger-hunt/" },
-  { emoji: "🍳", title: "Kitchen Math",               desc: "Double a recipe together. Real fractions, real reward, and everyone eats the results.",   time: "20 min",   grade: "3–8",      url: "https://www.khanacademy.org/math/cc-third-grade-math/fractions-3rd" },
+  { emoji: "🍳", title: "Kitchen Math",               desc: "Double a recipe together. Real fractions, real reward, and everyone eats the results.",   time: "20 min",   grade: "3–8",      url: "https://www.khanacademy.org/math/early-math" },
   { emoji: "🎭", title: "History Podcast",            desc: "Put on a 'Stuff You Missed in History Class' episode during lunch or craft time.",         time: "0 min prep", grade: "All Ages", url: "https://www.missedinhistory.com" },
 ];
 
