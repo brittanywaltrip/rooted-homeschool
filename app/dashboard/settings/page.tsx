@@ -1656,6 +1656,17 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* ── Sign Out ──────────────────────────────────────────────────── */}
+      <button
+        onClick={async () => {
+          await supabase.auth.signOut();
+          window.location.href = "/login";
+        }}
+        className="w-full text-center text-sm text-red-500 font-semibold py-4 mt-2"
+      >
+        Sign Out
+      </button>
+
       {/* ── New School Year Modal ────────────────────────────── */}
       {showYearModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
