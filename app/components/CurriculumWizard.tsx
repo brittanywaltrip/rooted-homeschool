@@ -157,6 +157,9 @@ export default function CurriculumWizard({
 
   const [lessonsPerDay, setLessonsPerDay] = useState("1");
   const [targetDate, setTargetDate] = useState(editData?.targetDate ?? "");
+
+  // Track curricula saved so far for the current child (for "Added so far" pills)
+  const [savedForThisChild, setSavedForThisChild] = useState<Array<{ name: string; lessons: string }>>([]);
   const [generating, setGenerating] = useState(false);
   const [done, setDone] = useState(false);
   const [genCount, setGenCount] = useState(0);
@@ -450,6 +453,9 @@ export default function CurriculumWizard({
 
   function resetForAnotherCurriculum() {
     const savedChildId = childId;
+    // Track what was just saved for the "Added so far" pills
+    const subjectLabel = subject === "Other" ? customSubject : subject;
+    setSavedForThisChild(prev => [...prev, { name: curricName || subjectLabel || "Curriculum", lessons: totalLessons }]);
     setCurricName(""); setSubject(""); setCustomSubject("");
     setTotalLessons(""); setStartLesson("1");
     setSchoolDays([true, true, true, true, true, false, false]);
@@ -498,7 +504,7 @@ export default function CurriculumWizard({
             ) : (
               <div className="space-y-2">
                 {children.map((child) => (
-                  <button key={child.id} onClick={() => setChildId(child.id)}
+                  <button key={child.id} onClick={() => { setChildId(child.id); setSavedForThisChild([]); }}
                     className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
                       childId === child.id ? "border-[#5c7f63] bg-[#f2f9f3] shadow-sm" : "border-[#e8e2d9] bg-white hover:border-[#c8ddb8]"
                     }`}>
@@ -547,9 +553,29 @@ export default function CurriculumWizard({
               </div>
             )}
 
-            {mode === "create" && (
+            {mode === "create" && savedForThisChild.length === 0 && (
               <div className="bg-[#f8f7f4] border border-[#e8e2d9] rounded-xl px-3 py-2.5 text-xs text-[#7a6f65] leading-relaxed">
                 💡 Run this wizard multiple times to add multiple curricula for the same child — e.g. Math + Language Arts separately.
+              </div>
+            )}
+
+            {savedForThisChild.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
+                  Added so far
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {savedForThisChild.map((item, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-1.5 bg-[#eef5ee] border border-[#b8d9bc] rounded-full px-3 py-1.5"
+                    >
+                      <span className="text-[#3d5c42] text-xs">✓</span>
+                      <span className="text-xs font-semibold text-[#2d2926]">{item.name}</span>
+                      <span className="text-[10px] text-[#7a6f65]">· {item.lessons} lessons</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
