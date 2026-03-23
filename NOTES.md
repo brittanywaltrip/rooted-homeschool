@@ -1,210 +1,262 @@
-# Rooted Homeschool — Project Notes
+# Rooted Homeschool — Product Bible & Session Handoff
+> Last updated: March 23, 2026
+> This file is the source of truth for the app vision, decisions, architecture, and what comes next.
+> Read this before every Claude Code session. Reference it when starting a new Claude conversation.
+
+---
+
+## The One-Sentence Vision
+
+Rooted replaces three things homeschool moms currently need separate tools for:
+1. **Facebook groups** → Resources tab (curriculum picks, deals, field trips, state info)
+2. **A planner/spreadsheet** → Today + Plan (auto-schedule, check off lessons)
+3. **A scrapbook/journal** → Memories (timeline, AI monthly family update)
+
+---
 
 ## Tech Stack
 
-- **Framework**: Next.js 16 (App Router, `"use client"` components)
-- **Language**: TypeScript 5 (strict mode)
-- **Styling**: Tailwind CSS v4 with `@theme inline` custom color tokens in `globals.css`
-- **Database & Auth**: Supabase (`@supabase/supabase-js`) — singleton client at `lib/supabase.ts`
-- **Icons**: `lucide-react`
-- **Fonts**: Geist Sans / Geist Mono (via `next/font`)
-- **Deployment**: Vercel (assumed)
-
-### Color Palette
-| Token | Hex | Use |
-|---|---|---|
-| `--color-green-primary` | `#5c7f63` | Primary actions, active states |
-| `--color-green-light` | `#7a9e7e` | Secondary green |
-| `--color-green-pale` | `#e8f0e9` | Backgrounds, badges |
-| `--color-brown` | `#8b6f47` | Tree trunks, accents |
-| `--color-warm-bg` | `#f8f7f4` | Page background |
-| `--color-warm-card` | `#fefcf9` | Card backgrounds |
-| `--color-text` | `#2d2926` | Primary text |
-| `--color-text-muted` | `#7a6f65` | Secondary text |
+- **Framework**: Next.js (App Router, "use client" where needed)
+- **Styling**: Tailwind v4 (inline @theme, no tailwind.config.ts)
+- **Database**: Supabase (Postgres + RLS + Auth)
+- **Hosting**: Vercel (auto-deploys on push to any branch)
+- **Email**: Resend + ImprovMX forwarding to hello@rootedhomeschoolapp.com
+- **Payments**: Stripe (Apple Pay + Google Pay enabled)
+- **Fonts**: Lora (serif, for ALL headings via font-serif class) + Geist (sans, for body)
+- **GitHub**: brittanywaltrip/rooted-homeschool
+- **Supabase project**: gvkbegvvmhcrmxdorctk
+- **Live URL**: rootedhomeschoolapp.com
+- **Staging URL**: rooted-homeschool-git-staging-brittanywaltrips-projects.vercel.app
+- **Safety net branch**: staging-backup-mar22 (DO NOT DELETE)
 
 ---
 
-## Database Tables (Supabase)
+## Design System (non-negotiable)
 
-- **`profiles`** — `id, display_name` — family name per user
-- **`children`** — `id, user_id, name, color, sort_order, archived, name_key`
-- **`subjects`** — `id, user_id, name, color`
-- **`lessons`** — `id, user_id, child_id, subject_id, title, hours, completed, date, scheduled_date`
-- **`daily_reflections`** — `id, user_id, date, reflection, updated_at`
-- **`app_events`** — `id, user_id, type, payload (jsonb)` — used for: `book_read`, `memory_photo`, `memory_project`, `memory_book`
+| Token | Value | Used for |
+|-------|-------|---------|
+| Dark green | #3d5c42 | Primary brand, hero backgrounds, buttons |
+| Medium green | #5c7f63 | Secondary buttons, accents, progress bars |
+| Warm off-white | #f8f7f4 | Page backgrounds |
+| Warm white | #fefcf9 | Cards |
+| Warm border | #e8e2d9 | All card borders |
+| Near-black | #2d2926 | Primary text |
+| Muted | #7a6f65 | Secondary text, labels |
 
-### Leaf Count Logic
-Leaves = completed lessons (`lessons.completed = true`) + `app_events` where `type = 'book_read'`
-
-### Growth Stages
-| Stage | Leaves |
-|---|---|
-| Seed | 0–9 |
-| Sprout | 10–24 |
-| Sapling | 25–49 |
-| Growing | 50–99 |
-| Thriving | 100+ |
+- **Headings**: always font-serif (Lora), bold — NEVER Geist for headings
+- **Body/buttons/labels**: Geist sans-serif
+- **Border radius**: rounded-xl (12px) for inputs/buttons, rounded-2xl (16px) for cards
+- **App Store feel**: clean, flat, purposeful — no gradients, no decorative shadows
 
 ---
 
-## App Structure
+## Navigation (final — do not change without updating this file)
 
-### Navigation
-- **Desktop**: Fixed left sidebar (252px), brand logo, family name, 5 nav items + Settings gear + Sign Out
-- **Mobile**: Sticky top bar with hamburger, slides in drawer nav
-- **Auth guard** in `app/dashboard/layout.tsx` — redirects to `/login` if no session
+**5 bottom nav tabs (mobile) / sidebar (desktop):**
+1. ☀️ Today → /dashboard
+2. 📅 Plan → /dashboard/plan
+3. 🌱 Garden → /dashboard/garden
+4. 📖 Memories → /dashboard/memories
+5. 🔍 Resources → /dashboard/resources
 
-### Pages
-
-#### `/` — Landing Page
-- Hero section: "Stay Rooted. Teach with Intention."
-- 3 feature cards
-- Links to `/signup` and `/login`
-
-#### `/login` and `/signup`
-- Supabase `signInWithPassword` / `signUp`
-- `signUp` stores `family_name` in `user_metadata`
-- Both redirect to `/dashboard` on success
+**Settings**: accessed via family avatar circle (initials) in top-right of every page header.
+Taps to /dashboard/settings. NOT a nav tab.
 
 ---
 
-## The 5 App Sections
+## The Core Loop (how the app works end-to-end)
 
-### 1. Today (`/dashboard`)
-**What it does:**
-- Greeting with family name and today's date
-- Daily motivational quote (rotates by day of week)
-- Child filter tabs (All + each child as a colored pill)
-- Growth Tree Card — SVG tree illustration at the correct stage, leaf count, progress bar to next stage
-- Today's Lessons list — toggle complete/incomplete with optimistic UI update
-- **Add Lesson button** — opens a modal with child selector, subject field (autocomplete from existing subjects, creates new if not found), lesson title, optional hours; inserts lesson as `completed=true`, updates leaf count and growth tree immediately, triggers leaf celebration animation
-- Books Read Today — shows books logged via `app_events`; "Log a Book" modal adds to `app_events` and bumps leaf count
-- Daily Reflection — textarea with upsert to `daily_reflections`, shows "saved" badge
-
-### 2. Garden (`/dashboard/garden`)
-**What it does:**
-- Animated garden scene: sky gradient, sun with spinning rays, drifting clouds, rolling green hill, decorative flowers, butterflies
-- Per-child tree tabs — each child has their own animated swaying tree at their growth stage
-- Stage info card with progress bar and leaf count badge
-- Badges grid — earned vs. locked milestone badges (First Leaf, Sprout, Sapling, etc.)
-
-### 3. Resources (`/dashboard/resources`)
-**What it does:**
-- 5 static tabs of curated homeschool content:
-  - **Discounts** — 8 homeschool vendor discounts
-  - **Virtual Field Trips** — 9 free online field trip links
-  - **Free Printables** — 8 printable resource links
-  - **Science Projects** — 8 hands-on projects with difficulty, time, and materials
-  - **State Requirements** — 20 states with regulation level badges and searchable filter
-
-### 4. Memories (`/dashboard/memories`)
-**What it does:**
-- Log memories (photo, project, book) to `app_events` table
-- Modal form: title, description, date, child selector
-- Filter tabs by memory type
-- "AI Summary" and "Export PDF" shown as coming soon placeholders
-
-### 5. Reports (`/dashboard/reports`)
-**What it does:**
-- Config panel: child selector, date range, preset buttons (This Week, This Month, Last 3 Months)
-- Fetches real data: lessons, subjects, attendance, books from Supabase
-- Print report shows: summary stats, subject breakdown table, books list, attendance dates
-- **Print/Save PDF** via `window.print()` — sidebar/nav hidden via `@media print` in `globals.css`
-
-### Settings (`/dashboard/settings`)
-**What it does:**
-- Family name field — reads from `profiles`, upserts on save
-- Add child form — name input + 7-color picker with checkmark on selected, preview avatar, inserts with `sort_order`
-- Children list — inline edit (name + color), soft-delete with confirmation dialog (`archived: true`)
+1. Mom signs up → onboarding collects: family name, state, children, curriculum per child, school days, start/end dates
+2. App auto-schedules lessons across school days
+3. Every school day: Today shows that day's lessons → mom taps to check off → leaf earned → Garden grows
+4. Mom taps "+ Log something" to record field trips, books, projects, reflections (with child picker + date picker so she can backdate)
+5. Garden shows visual progress: trees grow, subject progress bars, Girl Scout-style milestone badges
+6. Memories captures everything logged → AI generates monthly family update to share with grandparents
+7. Resources tab replaces Facebook groups: curriculum picks, deals, field trips, state info
 
 ---
 
-## What Is Working
+## Page-by-Page Purpose
 
-- [x] Full auth flow (signup, login, session guard, sign out)
-- [x] Family name stored and displayed across the app
-- [x] Children management (add, edit, soft-delete with archive)
-- [x] Lessons — toggle complete/incomplete, optimistic UI
-- [x] Add Lesson modal — find-or-create subject, insert lesson, live leaf count update
-- [x] Leaf/growth system — calculated from completed lessons + book_read events
-- [x] Growth tree SVG — 5 stages, progress bar, stage label
-- [x] Animated garden scene — per-child trees at correct stage with sway animation
-- [x] Badges grid (earned/locked)
-- [x] Book logging — adds to app_events, bumps leaf count
-- [x] Memories logging — photo/project/book types, child filter
-- [x] Reports — real Supabase data, configurable date range, print-to-PDF
-- [x] Resources — static curated content across 5 tabs
-- [x] Settings page — fully functional
-- [x] Celebration animation — leaves float upward after adding a lesson
-- [x] Print styles — sidebar/nav hidden for clean PDF output
-- [x] Mobile responsive — hamburger drawer nav
+### Today (/dashboard)
+- **School day**: lesson list per child, tap to check off, progress bar showing X/Y lessons, "+ Log something" FAB
+- **Non-school day**: "No school today" badge, "Coming up [next day]" preview in hero, "Capture the weekend" card below
+- **All done state**: hero darkens, celebration, daily recap of lessons + anything logged
+- **Vacation**: ocean-blue hero with vacation name + palm tree, lesson list hidden, return date shown
+- DO NOT show progress bar or lesson list on non-school days or vacation days
 
----
+### Plan (/dashboard/plan)
+- Calendar view (week + month toggle) with dots on school days
+- School days = from profile.school_days array (M/T/W/Th/F by default)
+- Breaks = amber on calendar, lessons pause and resume
+- Vacations = blue on calendar, named trip, triggers palm tree in Garden + banner on Today
+- Pace cards per curriculum: "Emma · Good+Beautiful Math · On pace · Finishes Sep 4"
+- "+ Add break" and "+ Add vacation" buttons
+- Finish date auto-recalculates when breaks/vacations added
 
-## What Still Needs to Be Built
+### Garden (/dashboard/garden)
+- Visual reward — trees grow with lessons. This is EMOTIONAL, not a data page.
+- DO NOT turn this into a dashboard or spreadsheet
+- Sections (in order): garden scene → stat cards → subject progress bars → milestone badges → export buttons
+- Subject progress: pulled from growth page query (merged in)
+- Milestone badges: pulled from journey page query (merged in), displayed as horizontal scrollable row
+- Vacation mode: palm trees flank kids' plants, blue/teal hero, vacation name shown
+- Export buttons at bottom: "Export progress PDF" → /dashboard/reports, "Year in Review" → /dashboard/year-in-review
 
-### High Priority
-- [ ] **Lesson scheduling** — ability to plan lessons for future dates (Plan page `/dashboard/plan`)
-- [ ] **Lesson editing/deleting** — no way to edit or remove a lesson after it's added
-- [ ] **Attendance tracking** — currently referenced in Reports but no UI to log attendance
-- [ ] **Notifications** — shown as "Off" in More page, not yet implemented
-- [ ] **Help & Feedback** — link shown in More page, not yet active
+### Memories (/dashboard/memories)
+- AI Family Update card at TOP (always visible, links to /dashboard/family-update)
+- Below: chronological timeline of everything logged (field trips, books, projects, photos, reflections)
+- "+ Log something" button accessible from this page too
+- Family Update = AI-written monthly summary, shareable with grandparents via text/email
 
-### Medium Priority
-- [ ] **AI Summary in Memories** — generate a narrative summary of the month's memories (placeholder exists)
-- [ ] **PDF Export in Memories** — export memory log as a PDF (placeholder exists)
-- [ ] **Progress page** (`/dashboard/progress`) — detailed progress tracking per child per subject over time
-- [ ] **Insights page** (`/dashboard/insights`) — data visualizations: time spent per subject, streaks, trends
-- [ ] **Real photo upload** — Memories currently only logs text; no image upload
+### Resources (/dashboard/resources)
+- This REPLACES Facebook groups. It is a primary feature, not secondary.
+- Sections: search bar → filter chips (All/Curriculum/Books/Field Trips/Activities) → curated weekly picks → educator deals → "Know your state" section
+- "Know your state" = factual state info + HSLDA link + state education dept link
+- Disclaimer always shown: "Rooted provides this as helpful information only. For legal questions about homeschooling in your state, consult HSLDA or a local homeschool association."
+- NO compliance language anywhere — we are informational, not legal advisors
 
-### Lower Priority
-- [ ] **Push notifications** — daily reminders, streak alerts
-- [ ] **Onboarding flow** — guide new users to add family name and first child
-- [ ] **Dark mode** — color tokens are already in CSS variables, just needs a dark theme
-- [ ] **Multi-user / co-parent access** — currently one account per family
-- [ ] **Curriculum import** — CSV or structured import for lesson plans
-
----
-
-## Next Steps (Priority Order)
-
-1. **Build the Plan page** — schedule lessons for future dates; this feeds the Today page's lesson list
-2. **Add edit/delete to lessons** — a swipe action or long-press menu on each lesson row
-3. **Wire up attendance logging** — simple daily attendance toggle that feeds into Reports
-4. **Flesh out Progress page** — charts or tables showing subject hours over time per child
-5. **Add photo upload to Memories** — use Supabase Storage for image uploads
-6. **Build Insights page** — weekly/monthly stats, streak counter, top subjects
-7. **AI Summary for Memories** — call Claude API to generate a narrative from the month's memory events
-8. **Onboarding** — detect new users (no children + no lessons) and show a welcome/setup flow
+### Settings (/dashboard/settings — accessed via avatar, NOT nav tab)
+Sections in order:
+1. Your family (photo, family name, parent name, email, state — all editable)
+2. Your children (name + grade per child, editable, + Add child)
+3. Curriculum (each child's curriculum shown, Edit button per child)
+4. Account (subscription status, co-teacher field marked "Coming soon", Start New School Year)
+5. Kid view (link to /child — "Show the garden to your child")
+6. Help & More (What's New, FAQ, Contact Us, Install App)
 
 ---
 
-## Environment Variables
+## What Is Hidden (code intact, unreachable from UI)
+
+These pages exist but have NO nav links pointing to them. Do not delete:
+- /dashboard/challenges — tabled, revisit at 3 months
+- /dashboard/insights — tabled, revisit at 3 months
+- /dashboard/growth — merged into Garden
+- /dashboard/journey — merged into Garden
+- /dashboard/progress — replaced by pace cards in Plan
+- /dashboard/graduation — future feature (needs 1+ years of data to be meaningful)
+- /dashboard/welcome — onboarding artifact
+- /dashboard/more — absorbed into Settings
+
+---
+
+## Database Schema (key tables)
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=https://gvkbegvvmhcrmxdorctk.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key in .env.local>
-```
+profiles: id, first_name, last_name, display_name, family_photo_url,
+          state, subscription_status, is_pro, onboarded,
+          school_days[] (e.g. ['monday','tuesday','wednesday','thursday','friday']),
+          school_year_start (date), school_year_end (date),
+          partner_email
 
-`.env.local` is gitignored. Never commit credentials.
+children: id, user_id, name, grade, color
+
+curricula/subjects: per child, lesson counts, curriculum name
+
+lessons: scheduled per child per day based on school_days
+
+app_events: field trips, books, projects, activities, photos
+
+daily_reflections: reflection logs, is_private flag
+
+vacations: id, user_id, name, start_date, end_date
+
+badges/milestones: tracked in journey page, displayed in Garden
+```
 
 ---
 
-## Pricing Strategy
+## Pricing
 
-### Tiers
-- **Free**: Today, Plan, Garden, Resources, 1 child, no photo storage
-- **Family** ($8/mo or $69/yr): Everything + unlimited children + photo memories + Reports
-- **Legacy** ($12/mo or $99/yr): Everything + AI Year in Review + Graduation Slideshow + PDF keepsakes
+| Plan | Price | Stripe ID |
+|------|-------|-----------|
+| Free | $0 | — |
+| Founding Family | $39/yr | price_1TCVWDLP14EaoUlTNwZFGS8A |
+| Standard | $59/yr | price_1TCVWgLP14EaoUlT25totKGW |
+| Monthly | $6.99/mo | — |
 
-### Infrastructure Costs (at scale)
-- Claude API: ~$0.003 per AI generation (negligible per user)
-- Supabase Free: up to ~500 users
-- Supabase Pro ($25/mo): 100GB storage, needed at ~500+ users
-- Target: profitable at 500 paying subscribers (~$4,500/mo revenue, <$100/mo costs)
+Founding Family deadline: April 30, 2026. First 200 families only.
 
-### Premium Features to Build (Legacy tier)
-- [ ] Graduation Slideshow — pulls all years of photos, milestones, stats into animated keepsake
-- [ ] AI Year in Review — Claude-written narrative of the family's homeschool year
-- [ ] PDF Keepsake export — printable graduation memory book
-- [ ] Multi-year progress charts — subject trends across years
+---
+
+## What's NOT Allowed (decisions made, do not reverse without discussion)
+
+- ❌ No compliance language anywhere ("state requirements", "legally required", "for compliance")
+- ❌ No nav tab for Settings (avatar only)
+- ❌ No More tab in nav (absorbed into Settings)
+- ❌ No Reports tab in nav (export buttons live in Garden)
+- ❌ No progress bars or lesson lists on non-school days
+- ❌ No rebuilding pages from scratch without explicit instruction
+- ❌ Do not change Supabase queries without explicit instruction
+- ❌ Do not merge staging to main without a full audit pass
+
+---
+
+## What Comes Next (prioritized backlog)
+
+### Immediate (next session after v2 ships)
+1. Full end-to-end audit: create new test account, walk every page, screenshot everything
+2. Fix any issues found in audit
+3. Performance check: verify no duplicate Supabase queries in Garden (growth data merged)
+4. Merge staging → main once audit passes
+
+### Next wave (after merge)
+5. Homepage feature grid: swap Reports card → Resources, remove Insights & Streaks card, remove compliance copy
+6. Tour page: audit for any remaining compliance language
+7. Onboarding school schedule step (Parts 4+9 Claude Code skipped — needs onboarding rewrite)
+8. Today page non-school-day state (needs school_days from onboarding to be populated first)
+9. Vacation state on Today hero + Garden (Claude Code flagged as needing deeper integration)
+10. "Log something" bottom sheet: add child picker pills, improve date UX
+
+### Future features (do not build yet)
+11. Milestone badge celebrations: animate when earned (burst effect like leaf)
+12. Monthly AI family update: make it beautiful, shareable as a card image
+13. Vacation feature refinement: palm trees in Garden scene SVG
+14. Transcript builder: credit hours, GPA, college-ready PDF (high school moms)
+15. Graduation slideshow: needs 1+ years of data — launch in Year 2
+16. Kid Mode: polish and re-surface properly
+17. Co-teacher: full shared access system
+18. Challenges: user-set learning goals (revisit at 3 months)
+19. Insights/streaks: week-over-week analytics (revisit at 3 months with retention data)
+20. Garden redesign Wave 2: plant stages (seedling → full bloom → fruit tree)
+
+---
+
+## How to Start a New Claude Session
+
+Paste this at the start of every new conversation:
+
+---
+I'm building Rooted Homeschool (rootedhomeschoolapp.com) — a Next.js/TypeScript/Tailwind v4/Supabase app.
+GitHub: brittanywaltrip/rooted-homeschool | Active branch: staging | Safety net: staging-backup-mar22
+Read the full product context in NOTES.md on the staging branch before doing anything.
+The app vision, all architecture decisions, what's built, what's hidden, and what comes next are all documented there.
+Today I need help with: [describe what you need]
+---
+
+The NOTES.md file IS the handoff. It lives in the repo so it can never be separated from the code.
+
+---
+
+## How to Work With Claude Code
+
+Claude Code is a separate AI that writes and commits code directly. It reads files from the repo.
+When writing a Claude Code prompt:
+- Always specify the branch (staging)
+- Always say "do not touch main"
+- Always say "run npm run build and fix all TypeScript errors before committing"
+- Break work into numbered parts so it can be checked systematically
+- Specify exactly what NOT to change (data logic, Supabase queries)
+- End with a checklist of what to verify
+
+Claude Code does NOT have context from your conversation. It only has what's in the files and what you tell it in the prompt. The NOTES.md is how you give it context without repeating yourself every time.
+
+---
+
+## Stats (as of March 23, 2026)
+- 119 total families
+- 6 Founding Members paying ($234 est. annual revenue)
+- MRR: ~$20/mo
+- Funnel: 94 signed up → 24 set up subjects (26%) → 11 logged a lesson (12%)
+- 75 families added kids but never set up subjects (re-engagement cron running)
