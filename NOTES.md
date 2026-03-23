@@ -1,16 +1,23 @@
-—→→→———→→→→→→→→→→···—→→→→→→→→→→——————————————→→→—————→→→→→→→——————→→→→→→—→———→→→—→——→→————→→—————————————# Rooted Homeschool — Product Bible & Session Handoff
-> Last updated: March 23, 2026
+# Rooted Homeschool — Product Bible & Session Handoff
+
+> Last updated: March 23, 2026 (v2 launch + affiliate system + Phase 1 & 2 shipped)
 > This file is the source of truth for the app vision, decisions, architecture, and what comes next.
-> Read this before every Claude Code session. Reference it when starting a new Claude conversation.
+> Read this before every Claude Code session.
+
+---
+
+## The North Star
+
+A mom opens Rooted every morning because it makes her feel calm, prepared, and proud — not overwhelmed. She checks off lessons with one tap, logs a memory of the volcano they built, and gets a gentle "you did it" at the end of the day. At the end of the month the app writes her family's story and she sends it to grandma. Every decision should serve this.
 
 ---
 
 ## The One-Sentence Vision
 
-Rooted replaces three things homeschool moms currently need separate tools for:
-1. **Facebook groups** → Resources tab (curriculum picks, deals, field trips, state info)
-2. **A planner/spreadsheet** → Today + Plan (auto-schedule, check off lessons)
-3. **A scrapbook/journal** → Memories (timeline, AI monthly family update)
+Rooted replaces three things homeschool moms currently need separately:
+1. **Facebook groups** → Resources tab
+2. **A planner/spreadsheet** → Today + Plan
+3. **A scrapbook/journal** → Memories
 
 ---
 
@@ -22,7 +29,7 @@ Rooted replaces three things homeschool moms currently need separate tools for:
 - **Hosting**: Vercel (auto-deploys on push to any branch)
 - **Email**: Resend + ImprovMX forwarding to hello@rootedhomeschoolapp.com
 - **Payments**: Stripe (Apple Pay + Google Pay enabled)
-- **Fonts**: Lora (serif, for ALL headings via font-serif class) + Geist (sans, for body)
+- **Fonts**: Lora (serif, ALL headings via font-serif) + Geist (sans, body)
 - **GitHub**: brittanywaltrip/rooted-homeschool
 - **Supabase project**: gvkbegvvmhcrmxdorctk
 - **Live URL**: rootedhomeschoolapp.com
@@ -43,127 +50,110 @@ Rooted replaces three things homeschool moms currently need separate tools for:
 | Near-black | #2d2926 | Primary text |
 | Muted | #7a6f65 | Secondary text, labels |
 
-- **Headings**: always font-serif (Lora), bold — NEVER Geist for headings
-- **Body/buttons/labels**: Geist sans-serif
-- **Border radius**: rounded-xl (12px) for inputs/buttons, rounded-2xl (16px) for cards
+- **Headings**: font-serif (Lora), bold — NEVER Geist for headings
+- **Border radius**: rounded-xl (12px) inputs/buttons, rounded-2xl (16px) cards
 - **App Store feel**: clean, flat, purposeful — no gradients, no decorative shadows
 
 ---
 
-## Navigation (final — do not change without updating this file)
+## Navigation (final)
 
 **5 bottom nav tabs (mobile) / sidebar (desktop):**
-1. ☀️ Today → /dashboard
-2. 📅 Plan → /dashboard/plan
-3. 🌱 Garden → /dashboard/garden
-4. 📖 Memories → /dashboard/memories
-5. 🔍 Resources → /dashboard/resources
+1. Today → /dashboard
+2. Plan → /dashboard/plan
+3. Garden → /dashboard/garden
+4. Memories → /dashboard/memories
+5. Resources → /dashboard/resources
 
-**Settings**: accessed via family avatar circle (initials) in top-right of every page header.
-Taps to /dashboard/settings. NOT a nav tab.
+**Settings**: avatar top-right → /dashboard/settings. NOT a nav tab.
+**Sign Out**: bottom of Settings page, below Help & More. Visible all screen sizes.
 
 ---
 
-## The Core Loop (how the app works end-to-end)
+## Key Distinction — Two Separate Actions on Today
 
-1. Mom signs up → onboarding collects: family name, state, children, curriculum per child, school days, start/end dates
-2. App auto-schedules lessons across school days
-3. Every school day: Today shows that day's lessons → mom taps to check off → leaf earned → Garden grows
-4. Mom taps "+ Log something" to record field trips, books, projects, reflections (with child picker + date picker so she can backdate)
-5. Garden shows visual progress: trees grow, subject progress bars, Girl Scout-style milestone badges
-6. Memories captures everything logged → AI generates monthly family update to share with grandparents
-7. Resources tab replaces Facebook groups: curriculum picks, deals, field trips, state info
+- **Checking off a lesson** = tapping the checkbox on a preset curriculum lesson. One tap, instant green, leaf animation. This is the daily tracker habit.
+- **"+ Log something"** = opening the memory scrapbook to record a field trip, book, project, photo, reflection. Completely separate intent. Do NOT conflate these.
 
 ---
 
 ## Page-by-Page Purpose
 
 ### Today (/dashboard)
-- **School day**: lesson list per child, tap to check off, progress bar showing X/Y lessons, "+ Log something" FAB
-- **Non-school day**: "No school today" badge, "Coming up [next day]" preview in hero, "Capture the weekend" card below
-- **All done state**: hero darkens, celebration, daily recap of lessons + anything logged
-- **Vacation**: ocean-blue hero with vacation name + palm tree, lesson list hidden, return date shown
-- DO NOT show progress bar or lesson list on non-school days or vacation days
+- **School day**: lesson list per child, tap to check off, progress bar, week strip dots, streak counter, contextual greeting, "+ Log something" FAB
+- **Non-school day**: "No school today" hero, "Coming up [next school day]" preview
+- **All done**: celebratory greeting, "Capture a memory from today?" prompt, tomorrow preview. Friday: week recap.
+- **Vacation**: ocean-blue hero, vacation name, palm tree, return date. Lesson list hidden.
+- Priority order: vacation > non-school-day > school day
+- Contextual greetings rotate by day of week, time of day, streak, all-done state
 
 ### Plan (/dashboard/plan)
 - Calendar view (week + month toggle) with dots on school days
-- School days = from profile.school_days array (M/T/W/Th/F by default)
-- Breaks = amber on calendar, lessons pause and resume
-- Vacations = blue on calendar, named trip, triggers palm tree in Garden + banner on Today
-- Pace cards per curriculum: "Emma · Good+Beautiful Math · On pace · Finishes Sep 4"
+- school_days pulled from profile (set during onboarding)
+- Pace cards per curriculum with finish dates
 - "+ Add break" and "+ Add vacation" buttons
-- Finish date auto-recalculates when breaks/vacations added
 
 ### Garden (/dashboard/garden)
-- Visual reward — trees grow with lessons. This is EMOTIONAL, not a data page.
-- DO NOT turn this into a dashboard or spreadsheet
-- Sections (in order): garden scene → stat cards → subject progress bars → milestone badges → export buttons
-- Subject progress: pulled from growth page query (merged in)
-- Milestone badges: pulled from journey page query (merged in), displayed as horizontal scrollable row
-- Vacation mode: palm trees flank kids' plants, blue/teal hero, vacation name shown
-- Export buttons at bottom: "Export progress PDF" → /dashboard/reports, "Year in Review" → /dashboard/year-in-review
+- EMOTIONAL page — trees grow with lessons. NOT a data dashboard.
+- Sections: garden scene → stat cards → subject progress bars → milestone badges → export buttons
+- NOTE: Currently skews young/female. Future: alternate themes for older kids/boys (adventure map, space, etc.)
 
 ### Memories (/dashboard/memories)
-- AI Family Update card at TOP (always visible, links to /dashboard/family-update)
-- Below: chronological timeline of everything logged (field trips, books, projects, photos, reflections)
-- "+ Log something" button accessible from this page too
-- Family Update = AI-written monthly summary, shareable with grandparents via text/email
+- **This is the killer feature.** Daily logging → monthly AI update → share with grandparents = the moment that makes moms cry and share the app.
+- AI Family Update card at TOP
+- Chronological timeline below
+- Once/month: surface the update on Today's hero ("Your March update is ready ✨") — don't bury it here
 
 ### Resources (/dashboard/resources)
-- This REPLACES Facebook groups. It is a primary feature, not secondary.
-- Sections: search bar → filter chips (All/Curriculum/Books/Field Trips/Activities) → curated weekly picks → educator deals → "Know your state" section
-- "Know your state" = factual state info + HSLDA link + state education dept link
-- Disclaimer always shown: "Rooted provides this as helpful information only. For legal questions about homeschooling in your state, consult HSLDA or a local homeschool association."
-- NO compliance language anywhere — we are informational, not legal advisors
+- Replaces Facebook groups. Primary feature.
+- Know your state + curated weekly picks + educator deals
+- NO compliance language — informational only
 
-### Settings (/dashboard/settings — accessed via avatar, NOT nav tab)
-Sections in order:
-1. Your family (photo, family name, parent name, email, state — all editable)
-2. Your children (name + grade per child, editable, + Add child)
-3. Curriculum (each child's curriculum shown, Edit button per child)
-4. Account (subscription status, co-teacher field marked "Coming soon", Start New School Year)
-5. Kid view (link to /child — "Show the garden to your child")
-6. Help & More (What's New, FAQ, Contact Us, Install App)
+### Settings (/dashboard/settings)
+Tabs: Our Family · Our Kids · Account · Partners (admin only)
+- Our Family: photo (upload working), name, email, state. Shows "Saved ✓" inline after save. Calls refreshProfile() after every save so Today updates immediately.
+- Partners tab (admin): table of affiliates — code (tap to copy), link (tap to copy), clicks, families, revenue, status
+- Affiliates see own stats in Account tab
+- TODO: Settings Our Family tab needs a full restyle (backlogged)
+
+### Admin (/admin)
+- Accessible from Settings → Account → "Founder Dashboard"
+- Has ← Back to app link
+- /admin/resources has ← Back to admin link
+- Session refresh on load prevents 403 from expired tokens
 
 ---
 
-## What Is Hidden (code intact, unreachable from UI)
+## What Is Hidden (do not delete)
 
-These pages exist but have NO nav links pointing to them. Do not delete:
-- /dashboard/challenges — tabled, revisit at 3 months
-- /dashboard/insights — tabled, revisit at 3 months
+- /dashboard/challenges — revisit at 3 months
+- /dashboard/insights — revisit at 3 months
 - /dashboard/growth — merged into Garden
 - /dashboard/journey — merged into Garden
-- /dashboard/progress — replaced by pace cards in Plan
-- /dashboard/graduation — future feature (needs 1+ years of data to be meaningful)
+- /dashboard/progress — replaced by pace cards
+- /dashboard/graduation — needs 1+ yr of data
 - /dashboard/welcome — onboarding artifact
 - /dashboard/more — absorbed into Settings
 
 ---
 
-## Database Schema (key tables)
-
+## Database Schema
 ```
-profiles: id, first_name, last_name, display_name, family_photo_url,
-          state, subscription_status, is_pro, onboarded,
-          school_days[] (e.g. ['monday','tuesday','wednesday','thursday','friday']),
-          school_year_start (date), school_year_end (date),
-          partner_email
+profiles: id, first_name, last_name, display_name, family_photo_url, state,
+          subscription_status, is_pro, onboarded, plan_type,
+          school_days[], school_year_start, school_year_end, partner_email
 
 children: id, user_id, name, grade, color
-
-curricula/subjects: per child, lesson counts, curriculum name
-
 lessons: scheduled per child per day based on school_days
-
 app_events: field trips, books, projects, activities, photos
-
-daily_reflections: reflection logs, is_private flag
-
+daily_reflections: is_private flag
 vacations: id, user_id, name, start_date, end_date
-
-badges/milestones: tracked in journey page, displayed in Garden
+affiliates: id, user_id, name, code, stripe_coupon_id, paypal_email, is_active, clicks, created_at
 ```
+
+### Affiliates RLS:
+- `auth.uid() = user_id` — affiliates see own row
+- `auth.jwt() ->> 'email' IN ('garfieldbrittany@gmail.com', 'christopherwaltrip@gmail.com')` — admins see all
 
 ---
 
@@ -174,248 +164,174 @@ badges/milestones: tracked in journey page, displayed in Garden
 | Free | $0 | — |
 | Founding Family | $39/yr | price_1TCVWDLP14EaoUlTNwZFGS8A |
 | Standard | $59/yr | price_1TCVWgLP14EaoUlT25totKGW |
-| Monthly | $6.99/mo | — |
 
-Founding Family deadline: April 30, 2026. First 200 families only.
+Founding Family ends April 30, 2026. First 200 families only.
 
 ---
 
-## ⚠️ CRITICAL: Auth Architecture — Do Not Break This
+## Affiliate / Partner Program
 
-Rooted uses **localStorage-based auth** via `createClient` from `@supabase/supabase-js` (in `lib/supabase.ts`).
-This is a **client-side only** session — stored in the browser, NOT in cookies.
+- Referral link: rootedhomeschoolapp.com/upgrade?ref=CODE
+- Auto-applies 15% discount via Stripe promotion code at checkout
+- 20% commission, paid 1st of month via PayPal Business
+- All partners get Founding Family comped (SQL, no Stripe sub)
+- Click tracking: /api/affiliate/track-click?code=CODE on upgrade page load
+- Do NOT create a new plan_type for affiliates — use affiliates table
 
-### The Rule: middleware.ts must NEVER verify auth sessions
+### Admin emails: garfieldbrittany@gmail.com, christopherwaltrip@gmail.com
 
-The middleware CANNOT read Supabase sessions because:
-- `createServerClient` (used in middleware) reads from **cookies**
-- `createClient` (used in the app) stores sessions in **localStorage**
-- These are different storage locations — middleware will NEVER find the session
+### Current Partners
 
-**What happens if you add auth checks to middleware.ts:**
-User logs in → app calls router.push('/dashboard') → middleware intercepts → calls getUser() → finds nothing in cookies → redirects to /login → user stuck on "Logging in..." forever. ALL users locked out.
+| Name | Code | Coupon | PayPal | Joined |
+|------|------|--------|--------|--------|
+| Amber Cody | AMBER | H9P6S2Cu | acody93@aol.com | Mar 23, 2026 |
 
-### What middleware.ts is allowed to do (only this):
+### New Partner SOP (~5 min)
+Full doc: Rooted-Partner-SOP.docx on desktop
+
+1. Stripe: create coupon (15% forever) → add promo code (FIRSTNAME ALL CAPS)
+2. Supabase SQL:
+```sql
+SELECT id FROM profiles WHERE email = 'their@email.com';
+INSERT INTO affiliates (user_id, name, code, stripe_coupon_id, paypal_email, is_active)
+VALUES ('id', 'Name', 'CODE', 'coupon-id', 'paypal@email.com', true);
+UPDATE profiles SET plan_type='founding_family', is_pro=true, subscription_status='active'
+WHERE email = 'their@email.com';
+```
+3. Send welcome email (template in SOP doc)
+4. Add row to Current Partners table above
+
+---
+
+## CRITICAL: Auth Architecture
+
+Rooted uses **localStorage-based auth** via `createClient`. Sessions stored in browser, NOT cookies.
+
+### NEVER add auth checks to middleware.ts
+Middleware reads cookies → finds nothing → redirects to /login → all users locked out.
 ```ts
-// Stripe webhook routes bypass only. Nothing else.
 export function middleware(request: NextRequest) {
-  if (pathname.startsWith('/api/stripe/webhook') || ...) return NextResponse.next()
-  return NextResponse.next() // pass everything through — do NOT add auth checks here
+  // Stripe webhook bypass only. Nothing else. No auth checks ever.
+  return NextResponse.next()
 }
 ```
 
-### How route protection actually works:
-- Auth is checked INSIDE each dashboard layout/page via `supabase.auth.getUser()` client-side
-- If no session → the component itself redirects to /login
-- DO NOT add server-side auth checks in middleware — it will break login for all users
+### Admin pages use refreshSession() pattern (applied Mar 23):
+```ts
+supabase.auth.onAuthStateChange(async (event, session) => {
+  if (event === 'INITIAL_SESSION') {
+    const { data: refreshed } = await supabase.auth.refreshSession()
+    const token = refreshed.session?.access_token ?? session.access_token
+    await fetchData(token)
+  }
+})
+```
 
-### If you ever see "stuck on Logging in...":
-1. Check middleware.ts immediately — remove any auth/session/getUser logic
-2. Matcher should only include the 4 Stripe/cron routes
-3. Never use `createServerClient` from `@supabase/ssr` in middleware
-
----
-
-## What's NOT Allowed (decisions made, do not reverse without discussion)
-
-- ❌ No compliance language anywhere ("state requirements", "legally required", "for compliance")
-- ❌ No nav tab for Settings (avatar only)
-- ❌ No More tab in nav (absorbed into Settings)
-- ❌ No Reports tab in nav (export buttons live in Garden)
-- ❌ No progress bars or lesson lists on non-school days
-- ❌ No rebuilding pages from scratch without explicit instruction
-- ❌ Do not change Supabase queries without explicit instruction
-- ❌ Do not merge staging to main without a full audit pass
+### If stuck on "Logging in...": check middleware.ts immediately.
 
 ---
 
-## What Comes Next (prioritized backlog)
+## What's NOT Allowed
 
-### Immediate (next session after v2 ships)
-1. Full end-to-end audit: create new test account, walk every page, screenshot everything
-2. Fix any issues found in audit
-3. Performance check: verify no duplicate Supabase queries in Garden (growth data merged)
-4. Merge staging → main once audit passes
+- No compliance language anywhere
+- No nav tab for Settings
+- No More tab in nav
+- No Reports tab in nav
+- No progress bars/lesson lists on non-school days
+- No rebuilding pages from scratch without explicit instruction
+- No new plan_type for affiliates — use affiliates table
 
-### Next wave (after merge)
-5. Homepage feature grid: swap Reports card → Resources, remove Insights & Streaks card, remove compliance copy
-6. Tour page: audit for any remaining compliance language
-7. Onboarding school schedule step (Parts 4+9 Claude Code skipped — needs onboarding rewrite)
-8. Today page non-school-day state (needs school_days from onboarding to be populated first)
-9. Vacation state on Today hero + Garden (Claude Code flagged as needing deeper integration)
-10. "Log something" bottom sheet: add child picker pills, improve date UX
+---
 
-### Future features (do not build yet)
-11. Milestone badge celebrations: animate when earned (burst effect like leaf)
-12. Monthly AI family update: make it beautiful, shareable as a card image
-13. Vacation feature refinement: palm trees in Garden scene SVG
-14. Transcript builder: credit hours, GPA, college-ready PDF (high school moms)
-15. Graduation slideshow: needs 1+ years of data — launch in Year 2
-16. Kid Mode: polish and re-surface properly
-17. Co-teacher: full shared access system
-18. Challenges: user-set learning goals (revisit at 3 months)
-19. Insights/streaks: week-over-week analytics (revisit at 3 months with retention data)
-20. Garden redesign Wave 2: plant stages (seedling → full bloom → fruit tree)
+## MASTER BACKLOG (as of March 23, 2026)
+
+Goal: 10/10 core experience before growth features.
+
+### SHIPPED ✅
+- Phase 1: school_days wired to Today, vacation state, auto-capitalize onboarding
+- Phase 2: contextual greetings, week strip (M T W T F dots), streak counter
+- Settings: photo upload fixed, name change refreshes Today instantly, "Saved ✓" feedback
+- Admin: back navigation, session refresh fix, old /admin/dashboard removed
+- Affiliates: click tracking, Partners table, RLS fixed, Amber onboarded
+
+### PHASE 3 — Connect Today → Memories (next up)
+1. After all-done state: show "Capture a memory from today?" prompt — one tap, date pre-filled
+2. Surface AI family update on Today hero once/month ("Your March update is ready ✨")
+3. Memories logging streak ("You've captured something 4 days this week")
+4. Monthly update as a beautiful shareable card image
+
+### PHASE 4 — Garden emotional payoff
+5. Faster early growth — meaningful visual change within first 3-5 lessons (currently looks like sticks too long)
+6. Milestone badge celebrations — burst/confetti animation when earned
+7. Alternate Garden themes for older kids/boys — adventure map, space, building (backlogged, not urgent)
+
+### PHASE 5 — Polish that drives word of mouth
+8. Settings Our Family tab restyle — cleaner layout, better photo section, feels premium
+9. Weekly recap as shareable card — Friday all-done generates image: "The [Family] school week 🌱 · 10 lessons · 1 book"
+10. Garden screenshot mode — clean shareable image of family garden scene
+11. Vacation palm trees in Garden SVG scene
+
+### PHASE 6 — Partner + affiliate tools
+12. Partner Toolkit in Settings — QR code generator, pre-written captions, content ideas
+13. "Share Rooted" for regular users — personal referral link, QR, copy button (no reward yet)
+14. $5 credit reward system — wait until 500+ families
+
+### PHASE 7 — Future (do not build yet)
+15. Transcript builder (high school moms)
+16. Co-teacher full access system
+17. Kid Mode polish
+18. Graduation slideshow (needs 1+ yr data)
+19. Garden Wave 2: seedling → sprout → tree → fruit tree
+20. Gather: community platform for co-ops (post-Rooted, 500+ families)
+
+---
+
+## Pending Business Tasks
+- PayPal Business setup (Finicity failing — try manual or call 1-888-221-1161)
+- Update Stripe to Mercury bank account
+- ImprovMX DNS propagation → update emails in FAQ/Privacy/Terms
+
+---
+
+## Workflow: Staging → Main
+
+ALL new development goes to **staging** branch first.
+Test on: rooted-homeschool-git-staging-brittanywaltrips-projects.vercel.app
+When verified → open PR staging → main → merge.
+
+**Never push directly to main for feature work.**
 
 ---
 
 ## How to Start a New Claude Session
-
-Paste this at the start of every new conversation:
-
----
-I'm building Rooted Homeschool (rootedhomeschoolapp.com) — a Next.js/TypeScript/Tailwind v4/Supabase app.
-GitHub: brittanywaltrip/rooted-homeschool | Active branch: staging | Safety net: staging-backup-mar22
-Read the full product context in NOTES.md on the staging branch before doing anything.
-The app vision, all architecture decisions, what's built, what's hidden, and what comes next are all documented there.
+```
+I'm building Rooted Homeschool (rootedhomeschoolapp.com) — a Next.js/TypeScript/Tailwind v4/Supabase/Vercel app.
+GitHub: brittanywaltrip/rooted-homeschool | Active branch: staging | Safety net: staging-backup-mar22 (DO NOT DELETE).
+Read NOTES.md on main before doing anything.
 Today I need help with: [describe what you need]
----
-
-The NOTES.md file IS the handoff. It lives in the repo so it can never be separated from the code.
-
----
+```
 
 ## How to Work With Claude Code
-
-Claude Code is a separate AI that writes and commits code directly. It reads files from the repo.
-When writing a Claude Code prompt:
-- Always specify the branch (staging)
-- Always say "do not touch main"
+- Always say "Read NOTES.md before making any changes"
+- Always say "Active branch: staging. Do NOT touch main."
 - Always say "run npm run build and fix all TypeScript errors before committing"
-- Break work into numbered parts so it can be checked systematically
-- Specify exactly what NOT to change (data logic, Supabase queries)
-- End with a checklist of what to verify
-
-Claude Code does NOT have context from your conversation. It only has what's in the files and what you tell it in the prompt. The NOTES.md is how you give it context without repeating yourself every time.
+- End with a commit message
 
 ---
 
-## Stats (as of March 23, 2026)
-- 119 total families
-- 6 Founding Members paying ($234 est. annual revenue)
-- MRR: ~$20/mo
-- Funnel: 94 signed up → 24 set up subjects (26%) → 11 logged a lesson (12%)
-- 75 families added kids but never set up subjects (re-engagement cron running)
+## Stats (March 23, 2026 — v2 launch day)
 
+- **233 real families** | **6 paying** @ $39/yr = $234 ARR (~$20 MRR) | **1 comped partner**
+- Today: 15 signups | Yesterday: 46 | Funnel: 26% set up subjects, 12% logged a lesson
+- 417 total children | avg 1.7/family | 48 curricula set up
 
----
+### Paying customers (6)
+1. Amanda Deardorff — Mar 18
+2. Amber Hudson Slaughter — Mar 20
+3. Donna Ward — Mar 20
+4. Lacie Hawkins — Mar 21
+5. Christopher Waltrip — Mar 21
+6. Joselyn Minchey — Mar 21
 
-## SHIPPED — March 23, 2026
-
-**Rooted v2 is live at rootedhomeschoolapp.com.**
-PR #1 merged staging → main. 48 commits, 32 files.
-
-What shipped:
-- 5-tab nav (Today, Plan, Garden, Memories, Resources)
-- Settings via avatar top-right — not a nav tab
-- More tab removed, absorbed into Settings
-- Child filter pills on Today + Plan (for multi-kid families)
-- "+ Log something" bottom sheet with child picker + date picker
-- All-done celebration state on Today
-- Weekend preview of next school day
-- Garden badges (First Leaf, Sprouting, etc.) + stats + export buttons
-- Memories AI update card at top
-- Resources "DISCOVER" heading + "Know your state" + HSLDA disclaimer
-- Settings: Kid view link, Help & More, name sync from signup
-- Onboarding "Added so far" pill strip in CurriculumWizard
-- Signup: first + last name now required, both saved to profiles
-- Compliance language removed everywhere
-- NOTES.md product bible committed
-
----
-
-## TOMORROW — Action List (do in this order)
-
-### Step 1 — Spot check live production (5 min)
-Open rootedhomeschoolapp.com and verify:
-- [ ] Today page loads, 5-tab nav shows
-- [ ] Garden loads with badges
-- [ ] Resources loads with "DISCOVER" heading
-- [ ] Settings opens from avatar
-- [ ] Signup: try submitting without first name — should block
-
-### Step 2 — Fix avatar initial (carry-over from tonight)
-The layout uses displayName.charAt(0) which shows "T" for "The X Family."
-Fix in app/dashboard/layout.tsx: use profile.first_name.charAt(0) instead.
-Also show family_photo_url if uploaded.
-
-### Step 3 — Founding Member badge in Garden
-In app/dashboard/garden/page.tsx, check profile.subscription_status.
-If 'founding' or 'founding_family', show a special gold badge:
-- Badge name: "Founding Family" 
-- Description: "One of the first 200 families to join Rooted"
-- Gold/amber color, distinct from green leaf badges
-- Never unlocks for anyone else — ever
-
-### Step 4 — Plan badge in sidebar
-In app/dashboard/layout.tsx, below the family name in the sidebar brand section,
-show a small pill: "Free" | "Founding ✨" | "Standard" | "Monthly"
-based on profile.subscription_status or profile.is_pro.
-On the Account tab in Settings, show "🌟 Founding Family — price locked forever"
-instead of just "Free Plan" for founding members.
-
-### Step 5 — Email change field in Settings
-In app/dashboard/settings/page.tsx Account tab, add an "Update email" field.
-When submitted, call supabase.auth.updateUser({ email: newEmail }).
-Supabase sends a confirmation email to the new address before switching.
-Show a message: "Check your new email to confirm the change."
-This is a Supabase built-in flow — one function call.
-
-### Step 6 — Onboarding school schedule step (Claude Code skipped this)
-Add a new step between StepCurriculum and StepTodayPreview:
-"How does your school week look?"
-- Which days: M T W Th F toggle buttons (all selected by default)
-- When do you start: date picker (default today)
-- When do you finish: date picker (default June 1 current year)
-Save to profiles: school_days[], school_year_start, school_year_end
-Migration already written — run it if not already applied:
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS school_days text[] DEFAULT ARRAY['monday','tuesday','wednesday','thursday','friday'];
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS school_year_start date;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS school_year_end date;
-
-### Step 7 — Today non-school-day state (depends on Step 6)
-In app/dashboard/page.tsx:
-const dayName = new Date().toLocaleDateString('en-US',{weekday:'long'}).toLowerCase();
-const schoolDays = profile?.school_days ?? ['monday','tuesday','wednesday','thursday','friday'];
-const isSchoolDay = schoolDays.includes(dayName);
-When !isSchoolDay: hide progress bar, show "No school today" badge,
-show "Coming up [next school day]" preview card in hero,
-show "Capture the weekend" quick-tap card below hero.
-
-### Step 8 — Vacation wiring into Today + Garden (Claude Code flagged as needing deeper work)
-In app/dashboard/page.tsx, fetch vacations table.
-If today falls between any vacation's start_date and end_date:
-- isVacation = true, vacationName = vacation.name
-- Hero changes to ocean blue (#1a4a5c) with vacation name + palm tree
-- Hide progress bar and lesson list
-- Show "Lessons resume [returnDate]" card
-In app/dashboard/garden/page.tsx, same vacation check:
-- Change hero to #1a4a5c with vacation name
-- Add green banner: "🌴 On vacation · [name] · back [date]"  
-- Add palm tree emoji inside the garden scene when isVacation
-
-### Step 9 — Homepage feature grid update (post-ship polish)
-In app/page.tsx, the feature grid shows Reports as a card.
-Swap it: replace Reports card with Resources card.
-Copy: "Deals, field trips, curriculum picks, and state info — curated for you."
-Remove "Insights & Streaks" card entirely.
-
----
-
-## How to start tomorrow's Claude conversation
-
-Paste this exactly:
-
----
-I'm building Rooted Homeschool (rootedhomeschoolapp.com).
-GitHub: brittanywaltrip/rooted-homeschool
-Active branch for new work: staging
-Production (live): main — v2 shipped March 23 2026
-Safety net: staging-backup-mar22 (do not delete)
-Stack: Next.js / TypeScript / Tailwind v4 / Supabase / Vercel
-
-Read NOTES.md on staging before doing anything — it has the full product vision, architecture decisions, design system, database schema, and the prioritized action list for today.
-
-Today I need to work through the "TOMORROW — Action List" in NOTES.md in order.
-Start with Step 1 (spot check production), then proceed through each step.
----
+### Comped: Amber Cody (AMBER) — Mar 23
+### Refunded/deleted: garfieldbrittany@gmail.com — Mar 23
