@@ -936,7 +936,7 @@ export default function TourPage() {
               Ready to start your free account?
             </h2>
             <p className="text-[#7a6f65] max-w-lg mx-auto leading-relaxed">
-              Rooted is free to start — no credit card, no time limit. Upgrade to Pro when you&apos;re ready for AI features, unlimited children, and curriculum pacing.
+              Rooted is free to start — no credit card, no time limit. Upgrade to Pro when you&apos;re ready for unlimited photos, full memory history, AI features, and curriculum pacing.
             </p>
           </div>
 
@@ -973,6 +973,11 @@ export default function TourPage() {
             <div className="flex items-center gap-2">
               <span className="font-bold text-[#2d2926]">Standard</span>
               <span>$59/yr</span>
+            </div>
+            <div className="hidden sm:block text-[#e8e2d9]">·</div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-[#2d2926]">Monthly</span>
+              <span>$6.99/mo</span>
             </div>
           </div>
 

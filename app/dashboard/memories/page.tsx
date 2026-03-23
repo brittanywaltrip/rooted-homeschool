@@ -311,7 +311,7 @@ export default function MemoriesPage() {
 
       {/* AI Year in Review — live feature */}
       <Link
-        href="/dashboard/year-in-review"
+        href={isPro ? "/dashboard/year-in-review" : "/dashboard/pricing"}
         className="block bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 hover:from-[#ddeade] hover:to-[#c5e0c8] transition-colors group"
       >
         <div className="flex items-start gap-3">
@@ -325,7 +325,11 @@ export default function MemoriesPage() {
               print a beautiful keepsake to share with grandparents.
             </p>
             <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-[#5c7f63] bg-white/70 px-2.5 py-1 rounded-full group-hover:bg-white transition-colors">
-              Open Year in Review <ArrowRight size={10} />
+              {isPro ? (
+                <>Open Year in Review <ArrowRight size={10} /></>
+              ) : (
+                "🔒 Pro Feature"
+              )}
             </span>
           </div>
           <Download size={16} className="text-[#5c7f63] shrink-0 mt-0.5" />

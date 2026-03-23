@@ -852,7 +852,7 @@ export default function Home() {
         </div>
 
         {/* Plan cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-12 mt-8 items-start">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-12 mt-8 items-start">
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
@@ -870,8 +870,10 @@ export default function Home() {
               {[
                 "Unlimited children",
                 "Daily lesson tracking",
-                "Basic progress view",
-                "Garden & memories",
+                "Garden & growth tree",
+                "50 photos",
+                "Memories — last 30 days",
+                "1 AI Year in Review / year",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -911,10 +913,13 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
-                "All 6 app sections",
+                "Unlimited photos",
+                "Full memory history — all time",
+                "Unlimited AI Year in Review",
                 "Printable compliance reports",
-                "Streaks & insights",
-                "Memories & photo log",
+                "Finish Line curriculum pacing",
+                "AI Family Update",
+                "AI Graduation Letter",
                 "Priority support",
                 "Lifetime founding price 🎁",
               ].map((f) => (
@@ -948,11 +953,13 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
-                "All 6 app sections",
+                "Unlimited photos",
+                "Full memory history — all time",
+                "Unlimited AI Year in Review",
                 "Printable compliance reports",
-                "Streaks & insights",
-                "Memories & photo log",
-                "Standard support",
+                "Finish Line curriculum pacing",
+                "AI Family Update",
+                "AI Graduation Letter",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -965,6 +972,44 @@ export default function Home() {
               className="block w-full border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold py-3 rounded-xl transition-colors text-sm"
             >
               Start Free Trial
+            </Link>
+          </div>
+
+          {/* Monthly */}
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Monthly</p>
+            <div className="flex items-end justify-center gap-1 mb-1">
+              <span
+                className="text-4xl font-bold text-[#2d2926]"
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                $6.99
+              </span>
+              <span className="text-sm text-[#b5aca4] mb-1">/mo</span>
+            </div>
+            <p className="text-xs text-[#b5aca4] mb-6">Pay as you go · ≈ $83.88/year</p>
+            <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
+              {[
+                "Unlimited children",
+                "Unlimited photos",
+                "Full memory history — all time",
+                "Unlimited AI Year in Review",
+                "Printable compliance reports",
+                "Finish Line curriculum pacing",
+                "AI Family Update",
+                "AI Graduation Letter",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
+                  <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <Link
+              href="/signup"
+              className="block w-full border border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8] font-medium py-3 rounded-xl transition-colors text-sm"
+            >
+              Start Monthly →
             </Link>
           </div>
         </div>
@@ -984,11 +1029,15 @@ export default function Home() {
               {[
                 { feature: "Children",               free: "Unlimited", founding: "Unlimited",  standard: "Unlimited" },
                 { feature: "Lesson tracking",        free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Garden & growth tree",   free: "Basic", founding: "Full",       standard: "Full"      },
-                { feature: "Memories log",           free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Curated resources",      free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Streaks & insights",     free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Garden & growth tree",   free: "✓",     founding: "✓",          standard: "✓"         },
+                { feature: "Photo memories & book log", free: "50 photos · 30 days", founding: "✓ Unlimited", standard: "✓ Unlimited" },
+                { feature: "Full memory history",    free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "AI Year in Review",      free: "1 / year", founding: "✓ Unlimited", standard: "✓ Unlimited" },
+                { feature: "Memories log",           free: "30 days", founding: "✓ All time",  standard: "✓ All time" },
                 { feature: "Compliance reports",     free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Finish Line pacing",     free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "AI Family Update",       free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "AI Graduation Letter",   free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Partner/co-parent view", free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
                 { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },
