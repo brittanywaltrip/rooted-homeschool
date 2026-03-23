@@ -194,6 +194,21 @@ export async function GET(req: Request) {
     funnel = null;
   }
 
+  // Affiliates — for separating comped vs paying
+  const { data: affiliateRows } = await supabaseAdmin
+    .from("affiliates")
+    .select("user_id, is_active");
+  const affiliateUserIds = new Set(affiliateRows?.map(a => a.user_id) ?? []);
+  const activeAffiliateCount = affiliateRows?.filter(a => a.is_active).length ?? 0;
+
+  // Build set of affiliate emails for cross-referencing with Stripe
+  const affiliateEmails = new Set(
+    allUsers
+      .filter(u => affiliateUserIds.has(u.id))
+      .map(u => u.email?.toLowerCase())
+      .filter(Boolean) as string[]
+  );
+
   // Revenue — live from Stripe; also sets plan on signups
   let stripeFoundingCount    = 0;
   let stripeStandardCount    = 0;
@@ -268,8 +283,21 @@ export async function GET(req: Request) {
     return signup;
   });
 
+  // Split paying vs comped: exclude affiliate emails from paying counts
+  const payingFoundingCount = stripeFoundingCount - [...affiliateEmails].filter(e => {
+    const plan = recentSignups.find(s => s.email.toLowerCase() === e)?.plan;
+    return plan === "Founding";
+  }).length;
   const stripeActiveTotal = stripeFoundingCount + stripeStandardCount;
-  const estAnnualRevenue  = stripeFoundingCount * 39 + stripeStandardCount * 59;
+  const estAnnualRevenue  = Math.max(0, payingFoundingCount) * 39 + stripeStandardCount * 59;
+
+  // Tag affiliate users as "Partner" plan
+  recentSignups = recentSignups.map(signup => {
+    if (affiliateUserIds.has(signup.id)) {
+      return { ...signup, plan: "Partner" };
+    }
+    return signup;
+  });
 
   return NextResponse.json({
     totalUsers,
@@ -279,6 +307,9 @@ export async function GET(req: Request) {
     foundingFamilies: stripeFoundingCount,
     standardSubs:     stripeStandardCount,
     freeUsers,
+    payingFoundingCount: Math.max(0, payingFoundingCount),
+    activeAffiliateCount,
+    affiliateUserIds: [...affiliateUserIds],
     totalChildren,
     avgChildrenPerFamily,
     totalLessons,

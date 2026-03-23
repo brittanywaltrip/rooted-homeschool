@@ -55,6 +55,9 @@ interface AdminSummary {
   stripeActiveTotal: number;
   cancelledFoundingCount: number;
   cancelledStandardCount: number;
+  payingFoundingCount: number;
+  activeAffiliateCount: number;
+  affiliateUserIds: string[];
   // Funnel
   funnel: {
     totalSignups: number;
@@ -112,6 +115,7 @@ function PlanPill({ plan }: { plan: string }) {
     plan === "Founding"  ? "bg-amber-100 text-amber-800" :
     plan === "Standard"  ? "bg-green-100 text-green-800" :
     plan === "Refunded"  ? "bg-red-100 text-red-600"     :
+    plan === "Partner"   ? "bg-indigo-100 text-indigo-800" :
                            "bg-[#f0ede8] text-[#7a6f65] border border-[#e8e2d9]";
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${cls}`}>
@@ -145,7 +149,7 @@ export default function AdminPage() {
   const router = useRouter();
   const [data,         setData]         = useState<AdminSummary | null>(null);
   const [error,        setError]        = useState<string | null>(null);
-  const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Standard" | "Monthly" | "Free" | "Refunded">("All");
+  const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Standard" | "Monthly" | "Free" | "Refunded" | "Partner">("All");
   const [refreshing,   setRefreshing]   = useState(false);
   const [emailsCopied, setEmailsCopied] = useState(false);
   const [hideTestUsers, setHideTestUsers] = useState(true);
@@ -280,6 +284,7 @@ export default function AdminPage() {
     Monthly:  realUsers.filter(u => u.plan === "Monthly").length,
     Free:     realUsers.filter(u => u.plan === "Free").length,
     Refunded: realUsers.filter(u => u.plan === "Refunded").length,
+    Partner:  realUsers.filter(u => u.plan === "Partner").length,
   };
 
   return (
@@ -333,9 +338,10 @@ export default function AdminPage() {
             <StatCard label="Real Families" value={data.totalUsers - testCount} sub={`${testCount} test accounts hidden`} />
             <StatCard label="Last 24 Hours"        value={data.last24hSignups} />
             <StatCard label="Yesterday"            value={data.yesterdaySignups} />
-            <StatCard label="Paying Subscribers"   value={data.stripeActiveTotal}
-              sub={`${data.stripeFoundingCount} founding · ${data.stripeStandardCount} standard · live from Stripe`} />
-            <StatCard label="Founding Members"     value={data.foundingFamilies} />
+            <StatCard label="Paying Customers"     value={data.payingFoundingCount + data.stripeStandardCount}
+              sub={`${data.payingFoundingCount} founding · ${data.stripeStandardCount} standard · live from Stripe`} />
+            <StatCard label="Rooted Partners"      value={data.activeAffiliateCount}
+              sub="Comped affiliates" />
             <StatCard label="Free Users"           value={data.freeUsers} />
           </div>
         </section>
@@ -428,7 +434,7 @@ export default function AdminPage() {
 
           {/* Filter tabs + Copy emails */}
           <div className="flex items-center gap-2 mb-4 flex-wrap">
-            {(["All", "Founding", "Standard", "Monthly", "Free", "Refunded"] as const).map(tab => (
+            {(["All", "Founding", "Standard", "Monthly", "Partner", "Free", "Refunded"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setSignupFilter(tab)}
@@ -438,6 +444,8 @@ export default function AdminPage() {
                       ? "bg-amber-100 text-amber-800 border-amber-300"
                       : tab === "Standard" || tab === "Monthly"
                       ? "bg-blue-100 text-blue-800 border-blue-300"
+                      : tab === "Partner"
+                      ? "bg-indigo-100 text-indigo-800 border-indigo-300"
                       : tab === "Refunded"
                       ? "bg-red-100 text-red-600 border-red-300"
                       : "bg-[#e8f0e9] text-[#3d5c42] border-[#b8d9bc]"
@@ -609,8 +617,8 @@ export default function AdminPage() {
             </div>
             <StatCard
               label="Founding Members Paying"
-              value={data.stripeFoundingCount}
-              sub={`$${(data.stripeFoundingCount * 39).toLocaleString()} · $39/yr each`}
+              value={data.payingFoundingCount}
+              sub={`$${(data.payingFoundingCount * 39).toLocaleString()} · $39/yr each`}
             />
             <StatCard
               label="Standard Paying"
