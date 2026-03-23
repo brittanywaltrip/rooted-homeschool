@@ -333,7 +333,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
   return (
     <PartnerContext.Provider value={partnerCtx}>
-      <UpgradeBanner />
       <div className="min-h-screen bg-[#f8f7f4] flex">
         {/* Desktop sidebar */}
         <aside className="hidden md:flex flex-col w-52 bg-[#fefcf9] border-r border-[#e8e2d9] fixed top-0 left-0 h-full z-40">
@@ -359,7 +358,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
         {/* Main */}
         <main className="flex-1 md:ml-52 flex flex-col min-h-screen">
-          {/* Mobile top bar — brand only; primary nav is in bottom bar */}
+          <UpgradeBanner />
+        {/* Mobile top bar — brand only; primary nav is in bottom bar */}
           <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9] sticky top-0 z-30">
             <div className="flex items-center gap-2">
               <span className="text-base">🌿</span>
