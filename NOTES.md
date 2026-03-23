@@ -296,3 +296,126 @@ Claude Code does NOT have context from your conversation. It only has what's in 
 - MRR: ~$20/mo
 - Funnel: 94 signed up → 24 set up subjects (26%) → 11 logged a lesson (12%)
 - 75 families added kids but never set up subjects (re-engagement cron running)
+
+
+---
+
+## SHIPPED — March 23, 2026
+
+**Rooted v2 is live at rootedhomeschoolapp.com.**
+PR #1 merged staging → main. 48 commits, 32 files.
+
+What shipped:
+- 5-tab nav (Today, Plan, Garden, Memories, Resources)
+- Settings via avatar top-right — not a nav tab
+- More tab removed, absorbed into Settings
+- Child filter pills on Today + Plan (for multi-kid families)
+- "+ Log something" bottom sheet with child picker + date picker
+- All-done celebration state on Today
+- Weekend preview of next school day
+- Garden badges (First Leaf, Sprouting, etc.) + stats + export buttons
+- Memories AI update card at top
+- Resources "DISCOVER" heading + "Know your state" + HSLDA disclaimer
+- Settings: Kid view link, Help & More, name sync from signup
+- Onboarding "Added so far" pill strip in CurriculumWizard
+- Signup: first + last name now required, both saved to profiles
+- Compliance language removed everywhere
+- NOTES.md product bible committed
+
+---
+
+## TOMORROW — Action List (do in this order)
+
+### Step 1 — Spot check live production (5 min)
+Open rootedhomeschoolapp.com and verify:
+- [ ] Today page loads, 5-tab nav shows
+- [ ] Garden loads with badges
+- [ ] Resources loads with "DISCOVER" heading
+- [ ] Settings opens from avatar
+- [ ] Signup: try submitting without first name — should block
+
+### Step 2 — Fix avatar initial (carry-over from tonight)
+The layout uses displayName.charAt(0) which shows "T" for "The X Family."
+Fix in app/dashboard/layout.tsx: use profile.first_name.charAt(0) instead.
+Also show family_photo_url if uploaded.
+
+### Step 3 — Founding Member badge in Garden
+In app/dashboard/garden/page.tsx, check profile.subscription_status.
+If 'founding' or 'founding_family', show a special gold badge:
+- Badge name: "Founding Family" 
+- Description: "One of the first 200 families to join Rooted"
+- Gold/amber color, distinct from green leaf badges
+- Never unlocks for anyone else — ever
+
+### Step 4 — Plan badge in sidebar
+In app/dashboard/layout.tsx, below the family name in the sidebar brand section,
+show a small pill: "Free" | "Founding ✨" | "Standard" | "Monthly"
+based on profile.subscription_status or profile.is_pro.
+On the Account tab in Settings, show "🌟 Founding Family — price locked forever"
+instead of just "Free Plan" for founding members.
+
+### Step 5 — Email change field in Settings
+In app/dashboard/settings/page.tsx Account tab, add an "Update email" field.
+When submitted, call supabase.auth.updateUser({ email: newEmail }).
+Supabase sends a confirmation email to the new address before switching.
+Show a message: "Check your new email to confirm the change."
+This is a Supabase built-in flow — one function call.
+
+### Step 6 — Onboarding school schedule step (Claude Code skipped this)
+Add a new step between StepCurriculum and StepTodayPreview:
+"How does your school week look?"
+- Which days: M T W Th F toggle buttons (all selected by default)
+- When do you start: date picker (default today)
+- When do you finish: date picker (default June 1 current year)
+Save to profiles: school_days[], school_year_start, school_year_end
+Migration already written — run it if not already applied:
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS school_days text[] DEFAULT ARRAY['monday','tuesday','wednesday','thursday','friday'];
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS school_year_start date;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS school_year_end date;
+
+### Step 7 — Today non-school-day state (depends on Step 6)
+In app/dashboard/page.tsx:
+const dayName = new Date().toLocaleDateString('en-US',{weekday:'long'}).toLowerCase();
+const schoolDays = profile?.school_days ?? ['monday','tuesday','wednesday','thursday','friday'];
+const isSchoolDay = schoolDays.includes(dayName);
+When !isSchoolDay: hide progress bar, show "No school today" badge,
+show "Coming up [next school day]" preview card in hero,
+show "Capture the weekend" quick-tap card below hero.
+
+### Step 8 — Vacation wiring into Today + Garden (Claude Code flagged as needing deeper work)
+In app/dashboard/page.tsx, fetch vacations table.
+If today falls between any vacation's start_date and end_date:
+- isVacation = true, vacationName = vacation.name
+- Hero changes to ocean blue (#1a4a5c) with vacation name + palm tree
+- Hide progress bar and lesson list
+- Show "Lessons resume [returnDate]" card
+In app/dashboard/garden/page.tsx, same vacation check:
+- Change hero to #1a4a5c with vacation name
+- Add green banner: "🌴 On vacation · [name] · back [date]"  
+- Add palm tree emoji inside the garden scene when isVacation
+
+### Step 9 — Homepage feature grid update (post-ship polish)
+In app/page.tsx, the feature grid shows Reports as a card.
+Swap it: replace Reports card with Resources card.
+Copy: "Deals, field trips, curriculum picks, and state info — curated for you."
+Remove "Insights & Streaks" card entirely.
+
+---
+
+## How to start tomorrow's Claude conversation
+
+Paste this exactly:
+
+---
+I'm building Rooted Homeschool (rootedhomeschoolapp.com).
+GitHub: brittanywaltrip/rooted-homeschool
+Active branch for new work: staging
+Production (live): main — v2 shipped March 23 2026
+Safety net: staging-backup-mar22 (do not delete)
+Stack: Next.js / TypeScript / Tailwind v4 / Supabase / Vercel
+
+Read NOTES.md on staging before doing anything — it has the full product vision, architecture decisions, design system, database schema, and the prioritized action list for today.
+
+Today I need to work through the "TOMORROW — Action List" in NOTES.md in order.
+Start with Step 1 (spot check production), then proceed through each step.
+---

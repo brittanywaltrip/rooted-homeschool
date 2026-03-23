@@ -396,6 +396,7 @@ export default function TodayPage() {
   const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
+  const [isSchoolDay,            setIsSchoolDay]            = useState(true);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
@@ -422,7 +423,7 @@ export default function TodayPage() {
     if (!effectiveUserId) return;
 
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded, school_days").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
     ]);
@@ -430,6 +431,13 @@ export default function TodayPage() {
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
+
+    // Check if today is a school day
+    const schoolDays: string[] = (profile as { school_days?: string[] } | null)?.school_days ?? [];
+    if (schoolDays.length > 0) {
+      const todayDayName = new Date().toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+      setIsSchoolDay(schoolDays.includes(todayDayName));
+    }
 
     const { data: childrenData } = await supabase
       .from("children").select("id, name, color")
@@ -744,9 +752,8 @@ export default function TodayPage() {
   const totalToday     = lessons.length;
   const progressPct    = totalToday > 0 ? Math.round((completedToday / totalToday) * 100) : 0;
   const allDone        = totalToday > 0 && completedToday === totalToday;
-  const isWeekend      = [0, 6].includes(new Date().getDay());
   const pendingLessons = totalToday > 0 && !allDone;
-  const showUpcoming   = !activeVacation && subjects.length > 0 && !pendingLessons && !!upcomingDay;
+  const showUpcoming   = !activeVacation && isSchoolDay && subjects.length > 0 && !pendingLessons && !!upcomingDay;
 
   if (loading) {
     return (
@@ -766,7 +773,7 @@ export default function TodayPage() {
         overline={formatDateHero(new Date())}
         title={buildGreeting(familyName)}
       >
-        {totalToday > 0 && (
+        {totalToday > 0 && isSchoolDay && !activeVacation && (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
             <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.70)" }}>Today&apos;s lessons</span>
             <div className="flex-1 rounded-full overflow-hidden" style={{ height: 3, background: "rgba(255,255,255,0.20)" }}>
@@ -912,9 +919,39 @@ export default function TodayPage() {
           const hasAnyContent     = sectionsWithContent.length > 0 || unassignedLessons.length > 0 || unassignedBooks.length > 0 || unassignedMems.length > 0;
 
           if (!hasAnyContent) {
+            // Priority: vacation > non-school-day > no content
             if (activeVacation) return (
               <div className="rounded-2xl px-4 py-3" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
                 <p className="text-sm font-semibold text-[#7a4a1a]">🌴 <strong>{activeVacation.name}</strong> · No lessons today — enjoy your time off!</p>
+              </div>
+            );
+            if (!isSchoolDay) return (
+              <div className="py-8 flex flex-col items-center text-center">
+                <span className="text-[52px] block mb-2">🌿</span>
+                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
+                  No school today
+                </p>
+                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
+                  Enjoy your day off! Lessons will be here on your next school day.
+                </p>
+                {upcomingDay && (
+                  <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 w-full max-w-sm text-left">
+                    <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
+                      Coming up {new Date(upcomingDay.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" })}
+                    </p>
+                    <div className="space-y-1.5">
+                      {upcomingDay.lessons.slice(0, 4).map((l, i) => (
+                        <div key={i} className="flex items-center gap-2 text-sm">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#5c7f63] shrink-0" />
+                          <span className="text-[#2d2926] truncate">{l.title}</span>
+                        </div>
+                      ))}
+                      {upcomingDay.lessons.length > 4 && (
+                        <p className="text-xs text-[#b5aca4]">+{upcomingDay.lessons.length - 4} more</p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             );
             if (subjects.length === 0) return (

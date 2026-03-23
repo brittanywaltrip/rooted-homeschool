@@ -1339,6 +1339,7 @@ function StepCurriculum({
                   onChange={(e) => handleOtherInput(e.target.value)}
                   placeholder="e.g. Bible, Latin, Music…"
                   autoFocus
+                  style={{ textTransform: "capitalize" }}
                   className="mt-2 w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
                 />
               )}
