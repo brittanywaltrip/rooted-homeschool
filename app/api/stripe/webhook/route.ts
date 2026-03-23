@@ -11,7 +11,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const ADMIN_EMAIL = 'garfieldbrittany@gmail.com'
+const ADMIN_EMAIL = 'hello.rootedapp@gmail.com'
 const FOUNDING_PRICE_ID = process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID
 const STANDARD_PRICE_ID = process.env.STRIPE_STANDARD_PRICE_ID
 
@@ -325,7 +325,7 @@ export async function POST(req: NextRequest) {
           console.error('[webhook] PAYMENT MISSED — no user found for email:', customerEmail, 'sessionId:', session.id)
           // Alert Brittany so she can fix manually
           await sendEmail(
-            'garfieldbrittany@gmail.com',
+            'hello.rootedapp@gmail.com',
             '⚠️ Payment received but no matching user found',
             `A payment was received but could not be matched to a user.\n\nEmail: ${customerEmail}\nSession: ${session.id}\n\nPlease manually update this account in Supabase.`
           ).catch(() => {})

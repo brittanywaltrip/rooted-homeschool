@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
-const ADMIN_EMAIL = "garfieldbrittany@gmail.com";
+const ADMIN_EMAIL = "hello.rootedapp@gmail.com";
 
 // ─── Prices ───────────────────────────────────────────────────────────────────
 

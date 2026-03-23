@@ -6,7 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Pencil, Trash2, Check, X, Plus, ChevronDown, ChevronUp, ExternalLink, ArrowLeft, Eye, EyeOff } from "lucide-react";
 
-const ADMIN_EMAIL = "garfieldbrittany@gmail.com";
+const ADMIN_EMAIL = "hello.rootedapp@gmail.com";
 
 const CATEGORIES = [
   { id: "discounts",   label: "💰 Discounts"   },

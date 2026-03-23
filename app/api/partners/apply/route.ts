@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     // Email to Brittany
     await resend.emails.send({
       from: 'Rooted Partners <hello@rootedhomeschoolapp.com>',
-      to: 'garfieldbrittany@gmail.com',
+      to: 'hello.rootedapp@gmail.com',
       subject: `🤝 New Partner Application — ${firstName} ${lastName}`,
       text: `New partner application!\n\nName: ${firstName} ${lastName}\nEmail: ${email}\nPlatform: ${platform}\nProfile: ${profileLink}\nAudience: ${audienceSize}\nUsed Rooted: ${usedRooted}\n\nTheir story:\n${story}`
     })
