@@ -1,4 +1,4 @@
-# Rooted Homeschool — Product Bible & Session Handoff
+—→→→———→→→→→→→→→→···—→→→→→→→→→→——————————————→→→—————→→→→→→→——————→→→→→→—→———→→→—→——→→————→→—————————————# Rooted Homeschool — Product Bible & Session Handoff
 > Last updated: March 23, 2026
 > This file is the source of truth for the app vision, decisions, architecture, and what comes next.
 > Read this before every Claude Code session. Reference it when starting a new Claude conversation.
