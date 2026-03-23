@@ -444,7 +444,7 @@ export default function Home() {
               { number: "For You",  label: "Built for Families Like Yours", icon: "🌱" },
               { number: "5",       label: "Sections, All-in-One", icon: "✨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
-              { number: "1-Click", label: "State-Ready Reports",  icon: "📋" },
+              { number: "1-Click", label: "Progress Reports",  icon: "📋" },
             ].map(({ number, label, icon }) => (
               <div key={label} className="py-9 px-4 text-center">
                 <div className="text-xl mb-2">{icon}</div>
@@ -760,7 +760,7 @@ export default function Home() {
                     ))}
                   </div>
                   <div className="bg-[#e8f0e9] rounded-xl px-3 py-2 text-center">
-                    <p className="text-[10px] text-[#5c7f63] font-semibold">✓ Ready for state submission</p>
+                    <p className="text-[10px] text-[#5c7f63] font-semibold">✓ Print, share, or save forever</p>
                   </div>
                 </div>
               </div>
