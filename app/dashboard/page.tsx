@@ -88,18 +88,53 @@ function formatDateHero(date: Date) {
   return `${weekday} · ${rest}`;
 }
 
-function buildGreeting(familyName: string): string {
-  const now  = new Date();
-  const h    = now.getHours();
-  const dow  = now.getDay(); // 0=Sun … 6=Sat
-  const name = familyName
-    ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}`
-    : "";
-  if (dow === 6) return `Happy Saturday, ${name}! 🌿`;
-  if (dow === 0) return `Happy Sunday,${name}! 🌿`;
-  const base   = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
-  const suffix = dow === 1 ? " Ready for the week?" : dow === 3 ? " Halfway there" : dow === 5 ? " Happy Friday" : "";
-  return `${base}${name}!${suffix} 🌿`;
+function buildGreeting(firstName: string, opts: { allDone?: boolean; isSchoolDay?: boolean; streak?: number } = {}): string {
+  const now = new Date();
+  const h = now.getHours();
+  const dow = now.getDay();
+  const name = firstName ? ` ${firstName}` : "";
+  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000);
+
+  // All done celebration
+  if (opts.allDone) {
+    const celebrations = [
+      `You did it${name}! 🎉`,
+      `Amazing day${name}! 🌟`,
+      `All done${name}! 🎉`,
+      `Crushed it${name}! ⭐`,
+    ];
+    return celebrations[dayOfYear % celebrations.length];
+  }
+
+  // Non-school day
+  if (!opts.isSchoolDay) {
+    const offDay = [
+      `Enjoy your day off${name}! 🌿`,
+      `No school today${name} — relax! 🌿`,
+      `Happy day off${name}! 🌿`,
+    ];
+    return offDay[dayOfYear % offDay.length];
+  }
+
+  // School day greeting
+  const timeOfDay = h < 10 ? "Good morning" : h < 15 ? "Good afternoon" : "Good evening";
+  const dayFlavors: Record<number, string[]> = {
+    1: ["New week energy!", "Ready for the week?", "Let's start strong!"],
+    2: ["Keep it going!", "Tuesday focus time!", "You've got this!"],
+    3: ["Halfway there!", "Midweek momentum!", "Keep going strong!"],
+    4: ["Almost Friday!", "Thursday push!", "Nearly there!"],
+    5: ["Happy Friday!", "Last day of the week!", "Finish strong!"],
+  };
+  const flavors = dayFlavors[dow] ?? ["Let's learn something great!"];
+  const flavor = flavors[dayOfYear % flavors.length];
+
+  let greeting = `${timeOfDay}${name}! ${flavor}`;
+
+  if (opts.streak && opts.streak >= 5) {
+    greeting += ` 🔥 ${opts.streak} days strong`;
+  }
+
+  return greeting;
 }
 
 function toTitleCase(name: string) {
@@ -397,6 +432,8 @@ export default function TodayPage() {
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
+  const [streak,                 setStreak]                 = useState(0);
+  const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
@@ -438,6 +475,75 @@ export default function TodayPage() {
       const todayDayName = new Date().toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       setIsSchoolDay(schoolDays.includes(todayDayName));
     }
+
+    // Streak + week dots: fetch recent completed lesson dates
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0];
+    const { data: recentLessons } = await supabase
+      .from("lessons")
+      .select("date, scheduled_date, completed")
+      .eq("user_id", effectiveUserId)
+      .gte("scheduled_date", thirtyDaysAgoStr);
+
+    // Build sets of dates with any lessons and dates with all complete
+    const lessonsByDate = new Map<string, { total: number; done: number }>();
+    for (const l of recentLessons ?? []) {
+      const d = l.date ?? l.scheduled_date ?? "";
+      if (!d) continue;
+      const entry = lessonsByDate.get(d) ?? { total: 0, done: 0 };
+      entry.total++;
+      if (l.completed) entry.done++;
+      lessonsByDate.set(d, entry);
+    }
+
+    // Calculate streak: consecutive school days going back from yesterday with at least 1 completed lesson
+    let currentStreak = 0;
+    const cursor = new Date();
+    cursor.setDate(cursor.getDate() - 1); // start from yesterday
+    for (let i = 0; i < 60; i++) {
+      const dateStr = cursor.toISOString().split("T")[0];
+      const dayName = cursor.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+      if (schoolDays.length > 0 && !schoolDays.includes(dayName)) {
+        cursor.setDate(cursor.getDate() - 1);
+        continue; // skip non-school days
+      }
+      const entry = lessonsByDate.get(dateStr);
+      if (entry && entry.done > 0) {
+        currentStreak++;
+        cursor.setDate(cursor.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+    // If today has completions, count today too
+    const todayEntry = lessonsByDate.get(today);
+    if (todayEntry && todayEntry.done > 0) currentStreak++;
+    setStreak(currentStreak);
+
+    // Week dots: Mon–Fri of current week
+    const nowDate = new Date();
+    const currentDow = nowDate.getDay(); // 0=Sun
+    const monday = new Date(nowDate);
+    monday.setDate(monday.getDate() - ((currentDow === 0 ? 7 : currentDow) - 1));
+    const dots: ("done" | "partial" | "off" | "future")[] = [];
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(monday);
+      d.setDate(d.getDate() + i);
+      const dateStr = d.toISOString().split("T")[0];
+      const dayName = d.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+      if (dateStr > today) {
+        dots.push("future");
+      } else if (schoolDays.length > 0 && !schoolDays.includes(dayName)) {
+        dots.push("off");
+      } else {
+        const entry = lessonsByDate.get(dateStr);
+        if (!entry || entry.total === 0) dots.push("off");
+        else if (entry.done === entry.total) dots.push("done");
+        else dots.push("partial");
+      }
+    }
+    setWeekDots(dots);
 
     const { data: childrenData } = await supabase
       .from("children").select("id, name, color")
@@ -771,7 +877,7 @@ export default function TodayPage() {
       {/* ── Hero Header ──────────────────────────────────────── */}
       <PageHero
         overline={formatDateHero(new Date())}
-        title={buildGreeting(familyName)}
+        title={buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}
       >
         {totalToday > 0 && isSchoolDay && !activeVacation && (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
@@ -781,6 +887,36 @@ export default function TodayPage() {
             </div>
             <span className="text-[12px] font-semibold text-white">{completedToday} / {totalToday}</span>
           </div>
+        )}
+
+        {/* Week strip — Mon–Fri dots */}
+        {weekDots.length === 5 && isSchoolDay && !activeVacation && (
+          <div className="flex items-center justify-center gap-2 mt-2">
+            {["M", "T", "W", "T", "F"].map((label, i) => {
+              const todayDow = new Date().getDay();
+              const dotDow = i + 1; // 1=Mon … 5=Fri
+              const isToday = dotDow === todayDow;
+              const dot = weekDots[i];
+              const size = isToday ? "w-2.5 h-2.5" : "w-2 h-2";
+              const color =
+                dot === "done" ? "bg-[#a8d4aa]" :
+                dot === "partial" ? "border border-[#a8d4aa] bg-transparent" :
+                "bg-white/20";
+              return (
+                <div key={i} className="flex flex-col items-center gap-0.5">
+                  <div className={`rounded-full ${size} ${color}`} />
+                  <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.4)" }}>{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Streak */}
+        {streak >= 2 && isSchoolDay && !activeVacation && (
+          <p className="text-[11px] mt-1.5 text-center" style={{ color: "rgba(255,255,255,0.6)" }}>
+            🌱 {streak} day streak
+          </p>
         )}
       </PageHero>
 
