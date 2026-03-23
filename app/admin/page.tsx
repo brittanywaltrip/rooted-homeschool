@@ -160,9 +160,16 @@ export default function AdminPage() {
 
   const fetchData = async (accessToken: string) => {
     setRefreshing(true);
-    const res = await fetch("/api/admin/summary", {
+    let res = await fetch("/api/admin/summary", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    if (res.status === 403) {
+      // Session token not ready yet — retry once after a short delay
+      await new Promise(r => setTimeout(r, 1500));
+      res = await fetch("/api/admin/summary", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    }
     if (!res.ok) {
       setError("Failed to load admin data.");
       setRefreshing(false);
