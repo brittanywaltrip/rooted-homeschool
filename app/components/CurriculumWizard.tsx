@@ -581,9 +581,10 @@ export default function CurriculumWizard({
 
             <div>
               <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">Curriculum name *</label>
-              <input value={curricName} onChange={(e) => setCurricName(e.target.value)}
+              <input type="text" value={curricName} onChange={(e) => setCurricName(e.target.value)}
                 placeholder="e.g. Saxon Math 5/4, All About Reading Level 3"
                 autoFocus={mode === "create"}
+                style={{ textTransform: "capitalize" }}
                 className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
 
@@ -602,8 +603,9 @@ export default function CurriculumWizard({
                 ))}
               </div>
               {subject === "Other" && (
-                <input value={customSubject} onChange={(e) => setCustomSubject(e.target.value)}
+                <input type="text" value={customSubject} onChange={(e) => setCustomSubject(e.target.value)}
                   placeholder="Enter subject name" autoFocus
+                  style={{ textTransform: "capitalize" }}
                   className="mt-2 w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
               )}
             </div>
