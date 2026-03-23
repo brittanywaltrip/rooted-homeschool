@@ -180,6 +180,42 @@ Founding Family deadline: April 30, 2026. First 200 families only.
 
 ---
 
+## ⚠️ CRITICAL: Auth Architecture — Do Not Break This
+
+Rooted uses **localStorage-based auth** via `createClient` from `@supabase/supabase-js` (in `lib/supabase.ts`).
+This is a **client-side only** session — stored in the browser, NOT in cookies.
+
+### The Rule: middleware.ts must NEVER verify auth sessions
+
+The middleware CANNOT read Supabase sessions because:
+- `createServerClient` (used in middleware) reads from **cookies**
+- `createClient` (used in the app) stores sessions in **localStorage**
+- These are different storage locations — middleware will NEVER find the session
+
+**What happens if you add auth checks to middleware.ts:**
+User logs in → app calls router.push('/dashboard') → middleware intercepts → calls getUser() → finds nothing in cookies → redirects to /login → user stuck on "Logging in..." forever. ALL users locked out.
+
+### What middleware.ts is allowed to do (only this):
+```ts
+// Stripe webhook routes bypass only. Nothing else.
+export function middleware(request: NextRequest) {
+  if (pathname.startsWith('/api/stripe/webhook') || ...) return NextResponse.next()
+  return NextResponse.next() // pass everything through — do NOT add auth checks here
+}
+```
+
+### How route protection actually works:
+- Auth is checked INSIDE each dashboard layout/page via `supabase.auth.getUser()` client-side
+- If no session → the component itself redirects to /login
+- DO NOT add server-side auth checks in middleware — it will break login for all users
+
+### If you ever see "stuck on Logging in...":
+1. Check middleware.ts immediately — remove any auth/session/getUser logic
+2. Matcher should only include the 4 Stripe/cron routes
+3. Never use `createServerClient` from `@supabase/ssr` in middleware
+
+---
+
 ## What's NOT Allowed (decisions made, do not reverse without discussion)
 
 - ❌ No compliance language anywhere ("state requirements", "legally required", "for compliance")
