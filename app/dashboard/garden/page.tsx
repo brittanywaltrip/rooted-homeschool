@@ -207,6 +207,7 @@ export default function GardenPage() {
   const [allLessons, setAllLessons]     = useState<LessonRow[]>([]);
   const [vacationBlocks, setVacationBlocks] = useState<VacationBlock[]>([]);
   const [familyName, setFamilyName]     = useState("");
+  const [profile, setProfile]           = useState<{ plan_type?: string; subscription_status?: string } | null>(null);
 
   const todayStr = toDateStr(new Date());
   const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
@@ -229,12 +230,14 @@ export default function GardenPage() {
         supabase.from("lessons").select("child_id, date, scheduled_date, hours").eq("user_id", effectiveUserId).eq("completed", true),
         supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
         supabase.from("vacation_blocks").select("start_date, end_date, name").eq("user_id", effectiveUserId),
-        supabase.from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle(),
+        supabase.from("profiles").select("display_name, plan_type, subscription_status").eq("id", effectiveUserId).maybeSingle(),
       ]);
 
       setAllLessons((completed as LessonRow[]) ?? []);
       setVacationBlocks((vacBlocks as VacationBlock[]) ?? []);
-      setFamilyName((profile as { display_name?: string } | null)?.display_name ?? "");
+      const profileData = profile as { display_name?: string; plan_type?: string; subscription_status?: string } | null;
+      setFamilyName(profileData?.display_name ?? "");
+      setProfile(profileData);
 
       const counts: Record<string, number> = {};
       completed?.forEach((l) => {
@@ -542,6 +545,27 @@ export default function GardenPage() {
         <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
           Badges {earnedBadges.length > 0 && `· ${earnedBadges.length} earned`}
         </h2>
+
+        {/* Founding Member badge — only for founding members */}
+        {(profile?.plan_type === 'founding_family' || profile?.subscription_status === 'founding') && (
+          <div className="mb-3">
+            <p className="text-xs text-[#b8823a] font-medium mb-2">⭐ Founding Member</p>
+            <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col items-center gap-1.5">
+                <div
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl shadow-sm"
+                  style={{ background: 'linear-gradient(135deg, #b8823a 0%, #e8b87a 50%, #b8823a 100%)' }}
+                  title="Founding Member"
+                >
+                  ⭐
+                </div>
+                <span className="text-[10px] font-semibold text-[#b8823a] text-center leading-tight">
+                  Founding<br />Member
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {earnedBadges.length > 0 && (
           <div className="mb-3">

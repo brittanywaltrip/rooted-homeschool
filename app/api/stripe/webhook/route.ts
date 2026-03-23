@@ -36,11 +36,167 @@ async function getActiveSubCount(): Promise<number> {
   }
 }
 
-async function sendEmail(to: string, subject: string, text: string, from = 'Rooted <hello@rootedhomeschoolapp.com>') {
+async function sendEmail(to: string, subject: string, text: string, from = 'Rooted <hello@rootedhomeschoolapp.com>', html?: string) {
   const { Resend } = await import('resend')
   const resend = new Resend(process.env.RESEND_API_KEY)
-  const result = await resend.emails.send({ from, to, subject, text })
+  const payload: { from: string; to: string; subject: string; text: string; html?: string } = { from, to, subject, text }
+  if (html) payload.html = html
+  const result = await resend.emails.send(payload)
   if (result.error) console.error('Resend sendEmail error:', result.error)
+}
+
+function foundingWelcomeHtml(firstName: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to Rooted</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f8f7f4;font-family:'Georgia',serif;">
+
+  <!-- Wrapper -->
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f7f4;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="padding:0 0 32px 0;">
+              <div style="background-color:#3d5c42;border-radius:16px;padding:24px 32px;text-align:center;">
+                <div style="font-size:36px;margin-bottom:8px;">🌱</div>
+                <div style="color:#ffffff;font-size:24px;font-weight:bold;letter-spacing:-0.5px;">Rooted Homeschool</div>
+                <div style="color:#a8c5ad;font-size:14px;margin-top:4px;">Founding Family Member</div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Main card -->
+          <tr>
+            <td style="background-color:#fefcf9;border-radius:16px;padding:40px;border:1px solid #e8e2d9;">
+
+              <!-- Greeting -->
+              <p style="margin:0 0 8px 0;font-size:13px;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;">A personal note</p>
+              <h1 style="margin:0 0 24px 0;font-size:28px;color:#2d2926;line-height:1.3;">
+                Welcome to the Rooted family, ${firstName}. 🌿
+              </h1>
+
+              <p style="margin:0 0 16px 0;font-size:16px;color:#3d3530;line-height:1.7;">
+                I'm Brittany — homeschool mom of 2 and the person who built Rooted from scratch because I was tired of feeling disorganized and constantly wondering if we were doing enough.
+              </p>
+
+              <p style="margin:0 0 16px 0;font-size:16px;color:#3d3530;line-height:1.7;">
+                You just became one of our <strong style="color:#3d5c42;">Founding Members</strong> — one of the very first families to believe in what we're building here. That genuinely means everything to me.
+              </p>
+
+              <p style="margin:0 0 32px 0;font-size:16px;color:#3d3530;line-height:1.7;">
+                Your $39/yr rate is <strong style="color:#3d5c42;">locked in forever</strong>. No matter how much Rooted grows, your price never increases. That's my promise to you for being here at the beginning. 🎁
+              </p>
+
+              <!-- What you get -->
+              <div style="background-color:#f0f7f0;border-radius:12px;padding:24px;margin-bottom:32px;border:1px solid #c8dfc9;">
+                <p style="margin:0 0 16px 0;font-size:13px;color:#5c7f63;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">✨ As a Founding Member you get</p>
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">🌱 &nbsp;Unlimited photos &amp; full memory history</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">📅 &nbsp;Finish Line curriculum pacing</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">✨ &nbsp;AI Family Update — share with grandparents</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">🎓 &nbsp;AI Graduation Letter</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">⭐ &nbsp;Exclusive Founding Member badge in your Garden</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">🔒 &nbsp;Your $39/yr price locked in forever</td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Get started steps -->
+              <p style="margin:0 0 16px 0;font-size:16px;font-weight:bold;color:#2d2926;">Here's where to start 👇</p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+                <tr>
+                  <td style="padding:10px 0;border-bottom:1px solid #e8e2d9;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">1️⃣</td>
+                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Set up your curriculum</strong><br>Go to Plan → add your curriculum for each child. Rooted will auto-schedule lessons across your school week.</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 0;border-bottom:1px solid #e8e2d9;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">2️⃣</td>
+                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Check off your first lesson</strong><br>Open Today and tap the circle next to a lesson. Watch your Garden grow its first leaf. 🍃</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 0;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">3️⃣</td>
+                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Log a memory</strong><br>Tap + Log something to save a field trip, book, or moment. These are the things you'll want to look back on.</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA button -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+                <tr>
+                  <td align="center">
+                    <a href="https://rootedhomeschoolapp.com/dashboard"
+                       style="display:inline-block;background-color:#3d5c42;color:#ffffff;font-size:16px;font-weight:bold;padding:16px 40px;border-radius:12px;text-decoration:none;letter-spacing:0.3px;">
+                      Open Rooted →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Personal close -->
+              <div style="border-top:1px solid #e8e2d9;padding-top:24px;">
+                <p style="margin:0 0 12px 0;font-size:15px;color:#3d3530;line-height:1.7;">
+                  I'd genuinely love to hear how it goes for your family. Hit reply on this email anytime — I read every one.
+                </p>
+                <p style="margin:0;font-size:15px;color:#3d3530;line-height:1.7;">
+                  From our family to yours — welcome home. 🌿
+                </p>
+                <p style="margin:16px 0 0 0;font-size:15px;color:#5c7f63;font-weight:bold;">
+                  — Brittany, founder &amp; homeschool mom
+                </p>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:24px 0 0 0;">
+              <p style="margin:0;font-size:13px;color:#7a6f65;">Rooted Homeschool · rootedhomeschoolapp.com</p>
+              <p style="margin:4px 0 0 0;font-size:13px;color:#7a6f65;">Questions? Reply to this email or reach us at hello@rootedhomeschoolapp.com</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>`
 }
 
 export async function POST(req: NextRequest) {
@@ -71,7 +227,7 @@ export async function POST(req: NextRequest) {
 
       await supabase.from('profiles').update({
         is_pro: true,
-        subscription_status: 'active',
+        subscription_status: plan === 'founding_family' ? 'founding' : 'standard',
         plan_type: plan,
         stripe_customer_id: session.customer as string,
       }).eq('id', userId)
@@ -104,15 +260,22 @@ export async function POST(req: NextRequest) {
         const subjectLine = isFounding
           ? `Welcome to the Rooted family, ${firstName}! 🌱`
           : `Welcome to Rooted, ${firstName}! 🌱`
-        const body = isFounding
-          ? `Hi ${firstName},\n\nI just wanted to personally thank you for becoming a Founding Member of Rooted.\n\nYou're one of the first families to believe in what we're building here — and that genuinely means the world to me. Rooted exists because of families like yours.\n\nAs a Founding Member, you've locked in your $39/yr rate forever. While I keep building and improving Rooted, your price will never go up.\n\nI'd love to hear how it's going for your family. Feel free to reply to this email anytime — I personally read every response.\n\nThank you for being here. 🌱\n\n${SIGNATURE}`
-          : `Hi ${firstName},\n\nThank you so much for subscribing to Rooted — welcome to the family! 🌱\n\nI'm so glad you're here. Rooted is built for families like yours, and I'm genuinely excited to be a part of your homeschool journey.\n\nIf you ever have questions, ideas, or just want to share how it's going — reply to this email anytime. I personally read every response.\n\nThank you for being here. 🌱\n\n${SIGNATURE}`
-        await sendEmail(
-          customerEmail,
-          subjectLine,
-          body,
-          'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
-        ).catch((err) => console.error("Resend sendEmail error:", err))
+        if (isFounding) {
+          await sendEmail(
+            customerEmail,
+            subjectLine,
+            `Hi ${firstName}, welcome to Rooted! You're a Founding Member — your $39/yr is locked forever. Open the app at rootedhomeschoolapp.com/dashboard. — Brittany`,
+            'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
+            foundingWelcomeHtml(firstName)
+          ).catch((err) => console.error("Resend sendEmail error:", err))
+        } else {
+          await sendEmail(
+            customerEmail,
+            subjectLine,
+            `Hi ${firstName},\n\nThank you so much for subscribing to Rooted — welcome to the family! 🌱\n\nI'm so glad you're here. Rooted is built for families like yours, and I'm genuinely excited to be a part of your homeschool journey.\n\nIf you ever have questions, ideas, or just want to share how it's going — reply to this email anytime. I personally read every response.\n\nThank you for being here. 🌱\n\n${SIGNATURE}`,
+            'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
+          ).catch((err) => console.error("Resend sendEmail error:", err))
+        }
       }
     }
 
@@ -128,7 +291,7 @@ export async function POST(req: NextRequest) {
           const plan = planType(priceId)
           await supabase.from('profiles').update({
             is_pro: true,
-            subscription_status: 'active',
+            subscription_status: plan === 'founding_family' ? 'founding' : 'standard',
             plan_type: plan,
             stripe_customer_id: session.customer as string,
           }).eq('id', matchedUser.id)
@@ -142,16 +305,22 @@ export async function POST(req: NextRequest) {
             .maybeSingle()
           const firstName = profile?.first_name ?? 'friend'
           const isFounding = plan === 'founding_family'
-          await sendEmail(
-            customerEmail,
-            isFounding
-              ? `Welcome to the Rooted family, ${firstName}! 🌱`
-              : `Welcome to Rooted, ${firstName}! 🌱`,
-            isFounding
-              ? `Hi ${firstName},\n\nI just wanted to personally thank you for becoming a Founding Member of Rooted.\n\nYou're one of the first families to believe in what we're building here — and that genuinely means the world to me.\n\nAs a Founding Member, you've locked in your $39/yr rate forever.\n\nFeel free to reply to this email anytime — I personally read every response.\n\nThank you for being here. 🌱\n\n— Brittany Waltrip\nFounder, Rooted Homeschool\nhello@rootedhomeschoolapp.com`
-              : `Hi ${firstName},\n\nThank you so much for subscribing to Rooted — welcome to the family! 🌱\n\nFeel free to reply anytime. I personally read every response.\n\nThank you for being here. 🌱\n\n— Brittany Waltrip\nFounder, Rooted Homeschool\nhello@rootedhomeschoolapp.com`,
-            'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
-          ).catch(err => console.error('[webhook] fallback email error:', err))
+          if (isFounding) {
+            await sendEmail(
+              customerEmail,
+              `Welcome to the Rooted family, ${firstName}! 🌱`,
+              `Hi ${firstName}, welcome to Rooted! You're a Founding Member — your $39/yr is locked forever. Open the app at rootedhomeschoolapp.com/dashboard. — Brittany`,
+              'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
+              foundingWelcomeHtml(firstName)
+            ).catch(err => console.error('[webhook] fallback email error:', err))
+          } else {
+            await sendEmail(
+              customerEmail,
+              `Welcome to Rooted, ${firstName}! 🌱`,
+              `Hi ${firstName},\n\nThank you so much for subscribing to Rooted — welcome to the family! 🌱\n\nFeel free to reply anytime. I personally read every response.\n\nThank you for being here. 🌱\n\n— Brittany Waltrip\nFounder, Rooted Homeschool\nhello@rootedhomeschoolapp.com`,
+              'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
+            ).catch(err => console.error('[webhook] fallback email error:', err))
+          }
         } else {
           console.error('[webhook] PAYMENT MISSED — no user found for email:', customerEmail, 'sessionId:', session.id)
           // Alert Brittany so she can fix manually
@@ -215,7 +384,7 @@ export async function POST(req: NextRequest) {
 
     await supabase.from('profiles').update({
       is_pro: isActive,
-      subscription_status: sub.status,
+      subscription_status: isActive ? (plan === 'founding_family' ? 'founding' : 'standard') : sub.status,
       plan_type: isActive ? plan : 'free',
     }).eq('stripe_customer_id', sub.customer as string)
   }
