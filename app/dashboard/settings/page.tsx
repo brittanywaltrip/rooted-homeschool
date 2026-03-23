@@ -300,6 +300,7 @@ export default function SettingsPage() {
     setSavingFirst(false);
     setSavedFirst(true);
     setEditingFirst(false);
+    refreshProfile();
     setTimeout(() => setSavedFirst(false), 2500);
   }
 
@@ -315,6 +316,7 @@ export default function SettingsPage() {
     setSavingLast(false);
     setSavedLast(true);
     setEditingLast(false);
+    refreshProfile();
     setTimeout(() => setSavedLast(false), 2500);
   }
 
@@ -353,15 +355,8 @@ export default function SettingsPage() {
     setSavingFamily(false);
     setSavedFamily(true);
     setEditingName(false);
-
-    // Update sidebar DOM directly as instant visual confirmation
-    document.querySelectorAll("[data-sidebar-name]").forEach((el) => {
-      el.textContent = nameToSave || "Your Family";
-    });
-
     refreshProfile();
-    console.log("[Settings] refreshProfile called after saving name:", nameToSave);
-    setTimeout(() => window.location.reload(), 300);
+    setTimeout(() => setSavedFamily(false), 2500);
   }
 
   // ── Homeschool state ──────────────────────────────────────────────────────
@@ -378,6 +373,7 @@ export default function SettingsPage() {
     });
     setSavingState(false);
     setSavedState(true);
+    refreshProfile();
     setTimeout(() => setSavedState(false), 2500);
   }
 
@@ -437,6 +433,7 @@ export default function SettingsPage() {
       .upload(path, file, { contentType: file.type, upsert: true });
 
     if (uploadErr) {
+      console.error("[Settings] Photo upload error:", uploadErr);
       setPhotoError(
         uploadErr.message.includes("Bucket not found")
           ? "Create a public storage bucket named 'family-photos' in Supabase first."
@@ -460,8 +457,9 @@ export default function SettingsPage() {
     });
 
     if (!res.ok) {
-      const { error } = await res.json();
-      setPhotoError(`Saved photo but couldn't update profile: ${error}`);
+      const body = await res.json().catch(() => ({}));
+      console.error("[Settings] Photo profile update error:", body);
+      setPhotoError(`Saved photo but couldn't update profile: ${body.error ?? "unknown error"}`);
       setPhotoUploading(false);
       return;
     }
@@ -469,9 +467,8 @@ export default function SettingsPage() {
     // Cache-bust so re-uploads to the same path always show the new image
     setFamilyPhotoUrl(`${url}?t=${Date.now()}`);
     setPhotoUploading(false);
+    setPhotoError(null);
     refreshProfile();
-    console.log("[Settings] refreshProfile called after uploading photo:", url);
-    setTimeout(() => window.location.reload(), 300);
   }
 
   // ── Add child ─────────────────────────────────────────────────────────────
