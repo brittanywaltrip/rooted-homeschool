@@ -3,15 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 
-const PLATFORMS = [
-  "Instagram",
-  "TikTok",
-  "YouTube",
-  "Facebook Group",
-  "Blog or Podcast",
-  "Other",
-];
-
 const AUDIENCE_SIZES = [
   "Under 1,000",
   "1,000–5,000",
@@ -28,8 +19,8 @@ export default function PartnersPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
-  const [platform, setPlatform] = useState("");
-  const [profileLink, setProfileLink] = useState("");
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [platformLinks, setPlatformLinks] = useState<Record<string, string>>({});
   const [audienceSize, setAudienceSize] = useState("");
   const [story, setStory] = useState("");
   const [usedRooted, setUsedRooted] = useState("");
@@ -39,6 +30,19 @@ export default function PartnersPage() {
     setError(null);
     setSubmitting(true);
 
+    if (selectedPlatforms.length === 0) {
+      setError("Please select at least one platform.");
+      setSubmitting(false);
+      return;
+    }
+
+    const hasAtLeastOneLink = selectedPlatforms.some(p => platformLinks[p]?.trim());
+    if (!hasAtLeastOneLink) {
+      setError("Please provide at least one profile link.");
+      setSubmitting(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/partners/apply", {
         method: "POST",
@@ -47,8 +51,8 @@ export default function PartnersPage() {
           firstName,
           lastName,
           email,
-          platform,
-          profileLink,
+          platforms: selectedPlatforms,
+          platformLinks,
           audienceSize,
           story,
           usedRooted,
@@ -459,37 +463,96 @@ export default function PartnersPage() {
                 />
               </div>
 
+              {/* Platform checkboxes */}
               <div>
-                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
-                  Your primary platform *
+                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
+                  Your platforms <span className="text-[#3d5c42]">*</span>
                 </label>
-                <select
-                  required
-                  value={platform}
-                  onChange={(e) => setPlatform(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
-                >
-                  <option value="">Select a platform</option>
-                  {PLATFORMS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
+                <p className="text-xs text-[#7a6f65] mb-3">Select all that apply</p>
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  {[
+                    { id: "instagram", label: "📸 Instagram" },
+                    { id: "tiktok", label: "🎵 TikTok" },
+                    { id: "youtube", label: "▶️ YouTube" },
+                    { id: "facebook", label: "👥 Facebook Group" },
+                    { id: "blog", label: "✍️ Blog" },
+                    { id: "podcast", label: "🎙️ Podcast" },
+                    { id: "pinterest", label: "📌 Pinterest" },
+                    { id: "other", label: "🌐 Other" },
+                  ].map(({ id, label }) => (
+                    <label
+                      key={id}
+                      className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        selectedPlatforms.includes(id)
+                          ? "border-[#3d5c42] bg-[#f0f7f0]"
+                          : "border-[#e8e2d9] bg-white"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPlatforms.includes(id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedPlatforms((prev) => [...prev, id]);
+                          } else {
+                            setSelectedPlatforms((prev) => prev.filter((p) => p !== id));
+                            setPlatformLinks((prev) => {
+                              const updated = { ...prev };
+                              delete updated[id];
+                              return updated;
+                            });
+                          }
+                        }}
+                        className="accent-[#3d5c42]"
+                      />
+                      <span className="text-sm text-[#2d2926]">{label}</span>
+                    </label>
                   ))}
-                </select>
-              </div>
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
-                  Link to your profile or group *
-                </label>
-                <input
-                  type="url"
-                  required
-                  value={profileLink}
-                  onChange={(e) => setProfileLink(e.target.value)}
-                  placeholder="https://instagram.com/yourhandle"
-                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
-                />
+                {/* Dynamic link inputs */}
+                {selectedPlatforms.length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold text-[#7a6f65] uppercase tracking-widest">
+                      Your links
+                    </p>
+                    {selectedPlatforms.map((platformId) => {
+                      const labels: Record<string, string> = {
+                        instagram: "Instagram profile URL",
+                        tiktok: "TikTok profile URL",
+                        youtube: "YouTube channel URL",
+                        facebook: "Facebook group URL",
+                        blog: "Blog URL",
+                        podcast: "Podcast URL or show name",
+                        pinterest: "Pinterest profile URL",
+                        other: "Link or description",
+                      };
+                      return (
+                        <div key={platformId}>
+                          <label className="block text-xs text-[#7a6f65] mb-1 capitalize">
+                            {labels[platformId]}
+                          </label>
+                          <input
+                            type="text"
+                            value={platformLinks[platformId] || ""}
+                            onChange={(e) =>
+                              setPlatformLinks((prev) => ({
+                                ...prev,
+                                [platformId]: e.target.value,
+                              }))
+                            }
+                            placeholder={
+                              platformId === "podcast"
+                                ? "https://... or show name"
+                                : "https://..."
+                            }
+                            className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div>
