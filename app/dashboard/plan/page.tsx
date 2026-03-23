@@ -412,6 +412,7 @@ export default function PlanPage() {
   const [monthLessons, setMonthLessons] = useState<Lesson[]>([]);
   const [lessons,          setLessons]          = useState<Lesson[]>([]);
   const [children,         setChildren]         = useState<Child[]>([]);
+  const [selectedChild,    setSelectedChild]    = useState<string | null>(null);
   const [subjects,         setSubjects]         = useState<Subject[]>([]);
   const [curriculumGoals,  setCurriculumGoals]  = useState<CurriculumGoal[]>([]);
   const [loading,          setLoading]          = useState(true);
@@ -812,11 +813,42 @@ export default function PlanPage() {
         </div>
       </div>
 
+      {/* ── Child Filter Pills ────────────────────────────────── */}
+      {children.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 mb-4 px-4">
+          <button
+            onClick={() => setSelectedChild(null)}
+            className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
+              !selectedChild
+                ? 'bg-[#3d5c42] text-white'
+                : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
+            }`}>
+            All
+          </button>
+          {children.map((child: any) => (
+            <button
+              key={child.id}
+              onClick={() => setSelectedChild(child.id === selectedChild ? null : child.id)}
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
+                selectedChild === child.id
+                  ? 'bg-[#3d5c42] text-white'
+                  : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
+              }`}>
+              {child.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── Manage Curriculum ────────────────────────────────── */}
-      {!isPartner && curricGroups.length > 0 && (
+      {!isPartner && curricGroups.length > 0 && (() => {
+        const visibleCurricGroups = selectedChild
+          ? curricGroups.filter(g => g.childId === selectedChild)
+          : curricGroups;
+        return visibleCurricGroups.length > 0 ? (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">Your Curricula</p>
-          {curricGroups.map((group) => {
+          {visibleCurricGroups.map((group) => {
             const child   = children.find((c) => c.id === group.childId);
             const subStyle = getSubjectStyle(group.subjectName ?? undefined);
             return (() => {
@@ -906,7 +938,8 @@ export default function PlanPage() {
             })();
           })}
         </div>
-      )}
+        ) : null;
+      })()}
 
       {/* ── Curriculum empty state ───────────────────────────── */}
       {!loading && !isPartner && curricGroups.length === 0 && (

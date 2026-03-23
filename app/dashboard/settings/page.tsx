@@ -177,8 +177,8 @@ export default function SettingsPage() {
       .eq("id", user.id)
       .maybeSingle();
 
-    setFirstName((profile as { first_name?: string } | null)?.first_name ?? "");
-    setLastName((profile as { last_name?: string } | null)?.last_name ?? "");
+    setFirstName((profile as { first_name?: string } | null)?.first_name ?? user.user_metadata?.first_name ?? "");
+    setLastName((profile as { last_name?: string } | null)?.last_name ?? user.user_metadata?.last_name ?? "");
     setFamilyName(
       profile?.display_name ?? user.user_metadata?.family_name ?? ""
     );

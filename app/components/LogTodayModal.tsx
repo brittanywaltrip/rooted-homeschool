@@ -272,13 +272,13 @@ export default function LogTodayModal({
       />
 
       {/* Sheet */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center">
+      <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center md:inset-0 md:items-center">
         <div
-          className="bg-[#fefcf9] rounded-t-3xl shadow-xl w-full max-w-lg"
+          className="bg-[#fefcf9] rounded-t-3xl md:rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Drag handle */}
-          <div className="w-10 h-1 bg-[#e8e2d9] rounded-full mx-auto mt-3" />
+          <div className="w-10 h-1 bg-[#e8e2d9] rounded-full mx-auto mt-3 md:hidden" />
 
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-4 pb-1">

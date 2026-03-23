@@ -387,8 +387,8 @@ export default function ReportsPage() {
         <p className="text-xs font-semibold text-[#8b6f47] mb-1">📌 Know Your State</p>
         <p className="text-xs text-[#7a6f65] leading-relaxed">
           This report documents your home education activities. Check the Resources tab for your
-          state&apos;s specific requirements — some states require annual portfolios, others need
-          standardized test results. Keep copies of this report for your records.
+          state&apos;s homeschool information — some states request annual portfolios, others may ask for
+          standardized test results. Keep copies of this report for your family records.
         </p>
       </div>
 

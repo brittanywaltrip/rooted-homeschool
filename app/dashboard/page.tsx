@@ -338,6 +338,7 @@ export default function TodayPage() {
   const [firstName,       setFirstName]       = useState("");
   const [onboarded,       setOnboarded]       = useState<boolean | null>(null);
   const [children,        setChildren]        = useState<Child[]>([]);
+  const [selectedChild,   setSelectedChild]   = useState<string | null>(null);
   const [lessons,         setLessons]         = useState<Lesson[]>([]);
   const [hasAnyLessons,   setHasAnyLessons]   = useState(false);
   const [leafCounts,      setLeafCounts]      = useState<Record<string, number>>({});
@@ -860,6 +861,33 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* ── Child Filter Pills ─────────────────────────────── */}
+      {children.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 mb-4 px-4">
+          <button
+            onClick={() => setSelectedChild(null)}
+            className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
+              !selectedChild
+                ? 'bg-[#3d5c42] text-white'
+                : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
+            }`}>
+            All
+          </button>
+          {children.map((child: any) => (
+            <button
+              key={child.id}
+              onClick={() => setSelectedChild(child.id === selectedChild ? null : child.id)}
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
+                selectedChild === child.id
+                  ? 'bg-[#3d5c42] text-white'
+                  : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
+              }`}>
+              {child.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── Today's Sections ─────────────────────────────── */}
       <div>
         {allDoneBanner && (
@@ -869,8 +897,11 @@ export default function TodayPage() {
           </div>
         )}
         {(() => {
+          const visibleChildren = selectedChild
+            ? children.filter(c => c.id === selectedChild)
+            : children;
           const childIds = new Set(children.map((c) => c.id));
-          const sectionsWithContent = children.filter((child) =>
+          const sectionsWithContent = visibleChildren.filter((child) =>
             lessons.some((l) => l.child_id === child.id) ||
             todayBooks.some((b) => b.payload.child_id === child.id) ||
             todayMemoryEvents.some((e) => e.payload.child_id === child.id)

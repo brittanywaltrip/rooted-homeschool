@@ -71,6 +71,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [checking,  setChecking]  = useState(true);
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [isAdmin,   setIsAdmin]   = useState(false);
+  const [profileData, setProfileData] = useState<{ first_name?: string | null; family_photo_url?: string | null }>({});
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
     isPartner: false,
     effectiveUserId: "",
@@ -92,7 +93,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       // Load family name + subscription status
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, subscription_status, family_photo_url, onboarded")
+        .select("display_name, subscription_status, family_photo_url, first_name, onboarded")
         .eq("id", session.user.id)
         .maybeSingle();
 
@@ -107,6 +108,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       if (session.user.email === "garfieldbrittany@gmail.com") {
         sessionStorage.removeItem("rooted_partner");
         setPartnerCtx({ isPartner: false, effectiveUserId: session.user.id, ownerName: "" });
+        if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
         setChecking(false);
         return;
       }
@@ -149,6 +151,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         effectiveUserId: session.user.id,
         ownerName: "",
       });
+      if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
       setChecking(false);
     });
   }, [router]);
@@ -266,9 +269,15 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         <Link
           href="/dashboard/settings"
           onClick={() => setMenuOpen(false)}
-          className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0"
+          className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
         >
-          {displayName ? displayName.charAt(0).toUpperCase() : '🌿'}
+          {profileData.family_photo_url ? (
+            <img src={profileData.family_photo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+          ) : profileData.first_name ? (
+            profileData.first_name.charAt(0).toUpperCase()
+          ) : displayName ? (
+            displayName.charAt(0).toUpperCase()
+          ) : '🌿'}
         </Link>
       </div>
 
@@ -362,9 +371,15 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             </div>
             <Link
               href="/dashboard/settings"
-              className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors"
+              className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors overflow-hidden"
             >
-              {displayName ? displayName.charAt(0).toUpperCase() : '🌿'}
+              {profileData.family_photo_url ? (
+                <img src={profileData.family_photo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+              ) : profileData.first_name ? (
+                profileData.first_name.charAt(0).toUpperCase()
+              ) : displayName ? (
+                displayName.charAt(0).toUpperCase()
+              ) : '🌿'}
             </Link>
           </div>
 

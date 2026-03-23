@@ -41,5 +41,13 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Sync first_name / last_name to auth user_metadata so it's available everywhere
+  if (patch.first_name !== undefined || patch.last_name !== undefined) {
+    const metaUpdate: Record<string, unknown> = {}
+    if (patch.first_name !== undefined) metaUpdate.first_name = patch.first_name
+    if (patch.last_name !== undefined) metaUpdate.last_name = patch.last_name
+    await supabase.auth.admin.updateUserById(user.id, { user_metadata: metaUpdate })
+  }
+
   return NextResponse.json({ ok: true })
 }
