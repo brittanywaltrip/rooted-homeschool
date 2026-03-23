@@ -1271,7 +1271,7 @@ export default function PlanPage() {
       {deleteConfirmGroup && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
-            <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+            <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
               Remove &ldquo;{deleteConfirmGroup.curricName}&rdquo;?
             </h2>
             <p className="text-sm text-[#7a6f65] leading-relaxed">

@@ -45,163 +45,206 @@ export default function LoginPage() {
     else setView("forgot-sent");
   }
 
+  const bullets = [
+    "Plan your week in minutes",
+    "Watch their tree grow with every lesson",
+    "Capture memories automatically",
+    "Look back on everything they've learned this year",
+  ];
+
   return (
-    <div className="min-h-screen bg-[#f8f7f4] flex flex-col items-center justify-center px-4 py-12">
-      {/* Logo */}
-      <Link href="/" className="flex items-center gap-2 mb-8">
-        <span className="text-2xl">🌿</span>
-        <span className="text-xl font-semibold text-[#5c7f63]">Rooted Homeschool</span>
-      </Link>
+    <div className="min-h-screen flex flex-col lg:flex-row">
 
-      <div className="w-full max-w-sm bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl shadow-sm p-8">
+      {/* ── Left panel — desktop only ─────────────────────────────────────── */}
+      <div className="hidden lg:flex lg:w-1/2 bg-[#3d5c42] flex-col justify-center px-14 py-16">
+        <Link href="/" className="flex items-center gap-3 mb-12">
+          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-xl">🌿</div>
+          <span className="text-xl font-bold text-white">Rooted Homeschool</span>
+        </Link>
 
-        {/* ── Login form ─────────────────────────────────────────────── */}
-        {view === "login" && (
-          <>
-            <h1 className="text-2xl font-bold text-[#2d2926] mb-1">Welcome back</h1>
-            <p className="text-sm text-[#7a6f65] mb-7">Good to see you again.</p>
+        <h2 className="text-3xl font-bold font-serif text-white leading-snug mb-8">
+          Every lesson.<br />Every memory.<br />Every milestone.
+        </h2>
 
-            <form onSubmit={handleLogin} className="flex flex-col gap-4">
-              <div>
-                <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
-                  Email address
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  required
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-                />
+        <ul className="space-y-4">
+          {bullets.map((b) => (
+            <li key={b} className="flex items-center gap-3">
+              <div className="w-6 h-6 rounded-full bg-white/25 flex items-center justify-center shrink-0">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l3 3 5-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </div>
+              <span className="text-white/90 text-sm font-medium">{b}</span>
+            </li>
+          ))}
+        </ul>
 
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-medium text-[#2d2926]">
-                    Password
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => { setError(""); setResetEmail(email); setView("forgot"); }}
-                    className="text-xs text-[#5c7f63] hover:underline"
-                  >
-                    Forgot password?
-                  </button>
-                </div>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Your password"
-                  required
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-                />
-              </div>
-
-              {error && (
-                <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-                  {error}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors mt-1"
-              >
-                {loading ? "Logging in…" : "Log In"}
-              </button>
-            </form>
-
-            <p className="text-center text-sm text-[#7a6f65] mt-6">
-              Don&apos;t have an account?{" "}
-              <Link href="/signup" className="text-[#5c7f63] font-medium hover:underline">
-                Create one
-              </Link>
-            </p>
-          </>
-        )}
-
-        {/* ── Forgot password form ───────────────────────────────────── */}
-        {view === "forgot" && (
-          <>
-            <h1 className="text-2xl font-bold text-[#2d2926] mb-1">Reset your password</h1>
-            <p className="text-sm text-[#7a6f65] mb-7">
-              Enter your email and we&apos;ll send you a link to set a new password.
-            </p>
-
-            <form onSubmit={handleForgot} className="flex flex-col gap-4">
-              <div>
-                <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
-                  Email address
-                </label>
-                <input
-                  type="email"
-                  value={resetEmail}
-                  onChange={(e) => setResetEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  required
-                  autoFocus
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-                />
-              </div>
-
-              {error && (
-                <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-                  {error}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors"
-              >
-                {loading ? "Sending…" : "Send Reset Link"}
-              </button>
-            </form>
-
-            <button
-              onClick={() => { setError(""); setView("login"); }}
-              className="w-full text-center text-sm text-[#7a6f65] hover:text-[#2d2926] mt-5 transition-colors"
-            >
-              ← Back to login
-            </button>
-          </>
-        )}
-
-        {/* ── Confirmation ───────────────────────────────────────────── */}
-        {view === "forgot-sent" && (
-          <div className="text-center py-2">
-            <div className="w-14 h-14 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-4">
-              <span className="text-2xl">📬</span>
-            </div>
-            <h1 className="text-xl font-bold text-[#2d2926] mb-2">Check your email</h1>
-            <p className="text-sm text-[#7a6f65] leading-relaxed mb-1">
-              We sent a password reset link to
-            </p>
-            <p className="text-sm font-semibold text-[#2d2926] mb-6">{resetEmail}</p>
-            <p className="text-xs text-[#b5aca4] mb-6">
-              Didn&apos;t get it? Check your spam folder or{" "}
-              <button
-                onClick={() => { setError(""); setView("forgot"); }}
-                className="text-[#5c7f63] hover:underline"
-              >
-                try again
-              </button>
-              .
-            </p>
-            <button
-              onClick={() => { setError(""); setView("login"); }}
-              className="w-full border border-[#e8e2d9] hover:bg-[#f0ede8] text-[#7a6f65] font-medium py-2.5 rounded-xl transition-colors text-sm"
-            >
-              ← Back to login
-            </button>
-          </div>
-        )}
-
+        <p className="mt-12 text-white/50 text-xs">Free to start · No credit card needed</p>
       </div>
+
+      {/* ── Right panel — form ────────────────────────────────────────────── */}
+      <div className="flex-1 bg-[#f8f7f4] flex flex-col items-center justify-center px-6 py-12">
+
+        {/* Mobile logo + tagline */}
+        <div className="lg:hidden text-center mb-8">
+          <Link href="/" className="inline-flex items-center gap-2 mb-3">
+            <span className="text-2xl">🌿</span>
+            <span className="text-xl font-semibold text-[#5c7f63]">Rooted Homeschool</span>
+          </Link>
+          <p className="text-sm text-[#7a6f65]">Every lesson. Every memory. Every milestone.</p>
+        </div>
+
+        <div className="w-full max-w-sm bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl shadow-sm p-8">
+
+          {/* ── Login form ─────────────────────────────────────────────── */}
+          {view === "login" && (
+            <>
+              <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Welcome back</h1>
+              <p className="text-sm text-[#7a6f65] mb-7">Good to see you again.</p>
+
+              <form onSubmit={handleLogin} className="flex flex-col gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
+                    Email address
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    required
+                    className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm font-medium text-[#2d2926]">
+                      Password
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => { setError(""); setResetEmail(email); setView("forgot"); }}
+                      className="text-xs text-[#5c7f63] hover:underline"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Your password"
+                    required
+                    className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+                  />
+                </div>
+
+                {error && (
+                  <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                    {error}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors mt-1"
+                >
+                  {loading ? "Logging in…" : "Log In"}
+                </button>
+              </form>
+
+              <p className="text-center text-sm text-[#7a6f65] mt-6">
+                Don&apos;t have an account?{" "}
+                <Link href="/signup" className="text-[#5c7f63] font-medium hover:underline">
+                  Create one
+                </Link>
+              </p>
+            </>
+          )}
+
+          {/* ── Forgot password form ───────────────────────────────────── */}
+          {view === "forgot" && (
+            <>
+              <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Reset your password</h1>
+              <p className="text-sm text-[#7a6f65] mb-7">
+                Enter your email and we&apos;ll send you a link to set a new password.
+              </p>
+
+              <form onSubmit={handleForgot} className="flex flex-col gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
+                    Email address
+                  </label>
+                  <input
+                    type="email"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    required
+                    autoFocus
+                    className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+                  />
+                </div>
+
+                {error && (
+                  <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                    {error}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors"
+                >
+                  {loading ? "Sending…" : "Send Reset Link"}
+                </button>
+              </form>
+
+              <button
+                onClick={() => { setError(""); setView("login"); }}
+                className="w-full text-center text-sm text-[#7a6f65] hover:text-[#2d2926] mt-5 transition-colors"
+              >
+                ← Back to login
+              </button>
+            </>
+          )}
+
+          {/* ── Confirmation ───────────────────────────────────────────── */}
+          {view === "forgot-sent" && (
+            <div className="text-center py-2">
+              <div className="w-14 h-14 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">📬</span>
+              </div>
+              <h1 className="text-xl font-bold font-serif text-[#2d2926] mb-2">Check your email</h1>
+              <p className="text-sm text-[#7a6f65] leading-relaxed mb-1">
+                We sent a password reset link to
+              </p>
+              <p className="text-sm font-semibold text-[#2d2926] mb-6">{resetEmail}</p>
+              <p className="text-xs text-[#b5aca4] mb-6">
+                Didn&apos;t get it? Check your spam folder or{" "}
+                <button
+                  onClick={() => { setError(""); setView("forgot"); }}
+                  className="text-[#5c7f63] hover:underline"
+                >
+                  try again
+                </button>
+                .
+              </p>
+              <button
+                onClick={() => { setError(""); setView("login"); }}
+                className="w-full border border-[#e8e2d9] hover:bg-[#f0ede8] text-[#7a6f65] font-medium py-2.5 rounded-xl transition-colors text-sm"
+              >
+                ← Back to login
+              </button>
+            </div>
+          )}
+
+        </div>
+      </div>
+
     </div>
   );
 }

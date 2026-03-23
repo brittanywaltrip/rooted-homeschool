@@ -475,7 +475,7 @@ export default function CurriculumWizard({
         {step === 1 && (
           <div className="space-y-5">
             <div className="text-center">
-              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                 Which child is this for?
               </h2>
               <p className="text-sm text-[#7a6f65]">Select a child to assign this curriculum to.</p>
@@ -526,7 +526,7 @@ export default function CurriculumWizard({
         {step === 2 && (
           <div className="space-y-5">
             <div className="text-center">
-              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                 {mode === "edit" ? "Edit curriculum" : "Tell us about this curriculum"}
               </h2>
               <p className="text-sm text-[#7a6f65]">
@@ -619,7 +619,7 @@ export default function CurriculumWizard({
         {step === 3 && (
           <div className="space-y-5">
             <div className="text-center">
-              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>Pick your school days</h2>
+              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>Pick your school days</h2>
               <p className="text-sm text-[#7a6f65]">
                 {mode === "edit"
                   ? "Remaining lessons will be rescheduled on these days."
@@ -707,7 +707,7 @@ export default function CurriculumWizard({
             {!done && !generating && !error && (
               <>
                 <div className="text-center">
-                  <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+                  <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                     {mode === "edit"
                       ? `Here's ${childObj?.name ?? "your"}'s schedule`
                       : `Here's ${childObj?.name ? `${childObj.name}'s` : "your"} plan`}
@@ -778,7 +778,7 @@ export default function CurriculumWizard({
               <div className="text-center py-6 space-y-4">
                 <div className="text-5xl">🌿</div>
                 <div>
-                  <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+                  <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                     {mode === "edit" ? "Curriculum updated!" : `${genCount} lessons scheduled!`}
                   </h2>
                   <p className="text-sm text-[#7a6f65] leading-relaxed">

@@ -553,7 +553,7 @@ export default function TourPage() {
             <em className="not-italic" style={{ color: "#86c98a" }}>in Action</em>
           </h1>
           <p className="anim-fade-in-up delay-300 text-base sm:text-lg text-white/78 mb-10 leading-relaxed max-w-[36rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)" }}>
-            Not a curriculum — a calm companion that works alongside the one you already love.
+            Not a curriculum. A planning and memory tool that works alongside the one you already love.
             Plan your days, capture memories, and actually see how far your kids have come.
           </p>
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">

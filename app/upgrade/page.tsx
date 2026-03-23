@@ -95,7 +95,7 @@ export default function UpgradePage() {
         {/* Header */}
         <div className="text-center mb-12">
           <div className="text-5xl mb-5">🌿</div>
-          <h1 className="text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: 'Georgia, serif' }}>
+          <h1 className="text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: 'var(--font-display)' }}>
             Join the Rooted Family
           </h1>
           <p className="text-[#7a6f65] leading-relaxed max-w-md mx-auto text-base">
@@ -279,7 +279,7 @@ export default function UpgradePage() {
 
         {/* Vision section */}
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-7 mb-8 text-center max-w-xl mx-auto">
-          <h2 className="text-lg font-bold text-[#2d2926] mb-3" style={{ fontFamily: 'Georgia, serif' }}>
+          <h2 className="text-lg font-bold text-[#2d2926] mb-3" style={{ fontFamily: 'var(--font-display)' }}>
             Rooted is just getting started 🌱
           </h2>
           <p className="text-sm text-[#7a6f65] leading-relaxed">

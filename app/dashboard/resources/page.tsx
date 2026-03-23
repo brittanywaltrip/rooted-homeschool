@@ -479,7 +479,7 @@ export default function ResourcesPage() {
         <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">
           Curated for Homeschool Families
         </p>
-        <h1 className="text-3xl font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+        <h1 className="text-3xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
           Resources 📚
         </h1>
         <p className="text-sm text-[#7a6f65] mt-1">
@@ -587,7 +587,7 @@ export default function ResourcesPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <h2 className="text-xl font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+              <h2 className="text-xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
                 This Week&apos;s Free Picks ⭐
               </h2>
               <span className="text-[10px] font-semibold bg-[#fef5e4] text-[#8b6820] px-2 py-0.5 rounded-full border border-[#f0dda8]">
@@ -634,7 +634,7 @@ export default function ResourcesPage() {
       {/* ── 4. Easy Win Today ───────────────────────────────────── */}
       <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #fef9e8 0%, #fef3d0 100%)" }}>
         <div className="mb-5">
-          <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+          <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
             Easy Win Today ⚡
           </h2>
           <p className="text-sm text-[#7a6f65]">Zero prep. Right now. You&apos;ve got this.</p>

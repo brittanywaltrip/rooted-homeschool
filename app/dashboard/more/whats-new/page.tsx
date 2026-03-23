@@ -112,7 +112,7 @@ export default function WhatsNewPage() {
       {/* Header */}
       <div>
         <p className="text-xs font-semibold uppercase tracking-widest text-[#7a9e7e] mb-1">Rooted</p>
-        <h1 className="text-2xl font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+        <h1 className="text-2xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
           What&apos;s New 🌱
         </h1>
         <p className="text-sm text-[#7a6f65] mt-1 leading-relaxed">

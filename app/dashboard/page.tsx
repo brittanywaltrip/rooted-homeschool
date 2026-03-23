@@ -912,7 +912,7 @@ export default function TodayPage() {
             if (subjects.length === 0) return (
               <div className="py-8 flex flex-col items-center text-center">
                 <span className="text-[52px] block mb-2">🌿</span>
-                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                   {firstName ? `Ready to start, ${firstName}?` : "Ready to start?"}
                 </p>
                 <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">Set up your curriculum and your first lessons will appear right here.</p>

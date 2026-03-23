@@ -108,11 +108,11 @@ function TitleSlide({ slide }: { slide: Extract<SlideType, { kind: "title" }> })
       <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#c9a84c] mb-3">
         A Homeschool Journey
       </p>
-      <h1 className="text-5xl sm:text-7xl font-bold text-white mb-4" style={{ fontFamily: "Georgia, serif" }}>
+      <h1 className="text-5xl sm:text-7xl font-bold text-white mb-4" style={{ fontFamily: "var(--font-display)" }}>
         {child.name}
       </h1>
       <div className="w-24 h-px bg-gradient-to-r from-transparent via-[#c9a84c] to-transparent my-4" />
-      <p className="text-lg text-[#c8bfad] mt-2" style={{ fontFamily: "Georgia, serif" }}>
+      <p className="text-lg text-[#c8bfad] mt-2" style={{ fontFamily: "var(--font-display)" }}>
         {yearsCount} {yearsCount === 1 ? "year" : "years"} of learning, growing & becoming
       </p>
 
@@ -135,7 +135,7 @@ function StatsSlide({ slide }: { slide: Extract<SlideType, { kind: "stats" }> })
   return (
     <div className="flex flex-col items-center justify-center h-full px-8 select-none">
       <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#c9a84c] mb-3">The Numbers</p>
-      <h2 className="text-4xl font-bold text-white mb-12" style={{ fontFamily: "Georgia, serif" }}>
+      <h2 className="text-4xl font-bold text-white mb-12" style={{ fontFamily: "var(--font-display)" }}>
         A Journey in Review
       </h2>
       <div className="grid grid-cols-3 gap-6 w-full max-w-2xl">
@@ -146,7 +146,7 @@ function StatsSlide({ slide }: { slide: Extract<SlideType, { kind: "stats" }> })
             style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(201,168,76,0.25)" }}
           >
             <span className="text-3xl mb-3">{s.icon}</span>
-            <span className="text-4xl font-bold text-white mb-2" style={{ fontFamily: "Georgia, serif" }}>
+            <span className="text-4xl font-bold text-white mb-2" style={{ fontFamily: "var(--font-display)" }}>
               {s.value.toLocaleString()}
             </span>
             <span className="text-xs text-[#8a8070] whitespace-pre-line leading-tight uppercase tracking-wider">
@@ -166,7 +166,7 @@ function YearSlide({ slide }: { slide: Extract<SlideType, { kind: "year" }> }) {
       <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#c9a84c] mb-3">
         Year {index + 1} of {total}
       </p>
-      <h2 className="text-5xl font-bold text-white mb-2" style={{ fontFamily: "Georgia, serif" }}>
+      <h2 className="text-5xl font-bold text-white mb-2" style={{ fontFamily: "var(--font-display)" }}>
         {data.label}
       </h2>
       <div className="w-24 h-px bg-gradient-to-r from-transparent via-[#c9a84c] to-transparent my-6" />
@@ -176,7 +176,7 @@ function YearSlide({ slide }: { slide: Extract<SlideType, { kind: "year" }> }) {
           className="rounded-2xl p-5 text-center"
           style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(201,168,76,0.2)" }}
         >
-          <div className="text-3xl font-bold text-white mb-1" style={{ fontFamily: "Georgia, serif" }}>
+          <div className="text-3xl font-bold text-white mb-1" style={{ fontFamily: "var(--font-display)" }}>
             {data.lessons}
           </div>
           <div className="text-xs uppercase tracking-widest text-[#8a8070]">Lessons</div>
@@ -185,7 +185,7 @@ function YearSlide({ slide }: { slide: Extract<SlideType, { kind: "year" }> }) {
           className="rounded-2xl p-5 text-center"
           style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(201,168,76,0.2)" }}
         >
-          <div className="text-3xl font-bold text-white mb-1" style={{ fontFamily: "Georgia, serif" }}>
+          <div className="text-3xl font-bold text-white mb-1" style={{ fontFamily: "var(--font-display)" }}>
             {data.books.length}
           </div>
           <div className="text-xs uppercase tracking-widest text-[#8a8070]">Books Read</div>
@@ -221,7 +221,7 @@ function PhotosSlide({ slide }: { slide: Extract<SlideType, { kind: "photos" }> 
     return (
       <div className="flex flex-col items-center justify-center h-full px-8 select-none">
         <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#c9a84c] mb-4">Photo Memories</p>
-        <p className="text-[#8a8070] text-lg" style={{ fontFamily: "Georgia, serif" }}>
+        <p className="text-[#8a8070] text-lg" style={{ fontFamily: "var(--font-display)" }}>
           Every moment lived — even the ones not photographed.
         </p>
       </div>
@@ -230,7 +230,7 @@ function PhotosSlide({ slide }: { slide: Extract<SlideType, { kind: "photos" }> 
   return (
     <div className="flex flex-col items-center justify-center h-full px-6 select-none">
       <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#c9a84c] mb-2">Photo Memories</p>
-      <h2 className="text-3xl font-bold text-white mb-8" style={{ fontFamily: "Georgia, serif" }}>
+      <h2 className="text-3xl font-bold text-white mb-8" style={{ fontFamily: "var(--font-display)" }}>
         Moments Along the Way
       </h2>
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 w-full max-w-2xl">
@@ -261,13 +261,13 @@ function NarrativeSlide({ slide }: { slide: Extract<SlideType, { kind: "narrativ
         <div className="max-w-xl text-center">
           <div
             className="text-6xl text-[#c9a84c] opacity-30 leading-none mb-4"
-            style={{ fontFamily: "Georgia, serif" }}
+            style={{ fontFamily: "var(--font-display)" }}
           >
             &ldquo;
           </div>
           <p
             className="text-[#e8e0d4] leading-relaxed text-base sm:text-lg"
-            style={{ fontFamily: "Georgia, serif" }}
+            style={{ fontFamily: "var(--font-display)" }}
           >
             {slide.text}
           </p>
@@ -289,7 +289,7 @@ function FinalSlide({ slide }: { slide: Extract<SlideType, { kind: "final" }> })
         </p>
         <h1
           className="text-5xl sm:text-6xl font-bold text-white mb-6 text-center"
-          style={{ fontFamily: "Georgia, serif" }}
+          style={{ fontFamily: "var(--font-display)" }}
         >
           Congratulations,
           <br />
@@ -298,7 +298,7 @@ function FinalSlide({ slide }: { slide: Extract<SlideType, { kind: "final" }> })
         <div className="w-32 h-px bg-gradient-to-r from-transparent via-[#c9a84c] to-transparent my-4" />
         <p
           className="text-[#c8bfad] text-lg text-center max-w-sm"
-          style={{ fontFamily: "Georgia, serif" }}
+          style={{ fontFamily: "var(--font-display)" }}
         >
           Your homeschool journey has shaped you into exactly who you were meant to be.
         </p>

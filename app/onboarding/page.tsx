@@ -125,7 +125,7 @@ function StepHeading({ eyebrow, title, sub }: { eyebrow?: string; title: string;
       {eyebrow && (
         <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#7a9e7e] mb-3">{eyebrow}</p>
       )}
-      <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3 leading-snug" style={{ fontFamily: "Georgia, serif" }}>
+      <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
         {title}
       </h2>
       {sub && <p className="text-sm text-[#7a6f65] leading-relaxed">{sub}</p>}
@@ -283,7 +283,7 @@ function StepWelcome({ firstName, onNext }: { firstName: string; onNext: () => v
         </p>
         <h1
           className="text-4xl sm:text-5xl font-bold text-white mb-4 leading-tight"
-          style={{ fontFamily: "Georgia, serif" }}
+          style={{ fontFamily: "var(--font-display)" }}
         >
           {firstName ? `Hello, ${firstName}! 🌿` : "Welcome! 🌿"}
         </h1>
@@ -984,7 +984,7 @@ function StepCurriculum({
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#7a9e7e] mb-2">Step 5 of 7</p>
           <h2
             className="text-2xl sm:text-3xl font-bold text-[#2d2926] leading-snug"
-            style={{ fontFamily: "Georgia, serif" }}
+            style={{ fontFamily: "var(--font-display)" }}
           >
             {heading}
           </h2>
@@ -1527,7 +1527,7 @@ function StepTodayPreview({
       <div className="relative z-10 w-full max-w-md mx-auto">
         <div className="text-center mb-6">
           <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#7a9e7e] mb-2">Step 6 of 7</p>
-          <h2 className="text-3xl font-bold text-[#2d2926] leading-snug mb-2" style={{ fontFamily: "Georgia, serif" }}>
+          <h2 className="text-3xl font-bold text-[#2d2926] leading-snug mb-2" style={{ fontFamily: "var(--font-display)" }}>
             {heading}
           </h2>
           <p className="text-sm text-[#7a6f65]">Your first lesson is scheduled. Let&apos;s grow! 🌱</p>
