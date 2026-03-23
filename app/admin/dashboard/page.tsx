@@ -109,8 +109,11 @@ export default function AdminDashboardPage() {
           router.replace('/dashboard');
           return;
         }
-        setToken(session.access_token);
-        await fetchStats(session.access_token);
+        // Refresh the session to get a fresh access token
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        const token = refreshed.session?.access_token ?? session.access_token;
+        setToken(token);
+        await fetchStats(token);
         setLoading(false);
       }
     });

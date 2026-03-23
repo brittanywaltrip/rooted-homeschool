@@ -238,12 +238,14 @@ export default function AdminResourcesPage() {
 
   // Auth check — wait for session rehydration on mobile
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION') {
         if (!session || !["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"].includes(session.user.email ?? '')) {
           router.replace('/dashboard');
           return;
         }
+        // Refresh the session to get a fresh access token
+        await supabase.auth.refreshSession();
         setChecking(false);
       }
     });

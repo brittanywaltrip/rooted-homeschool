@@ -160,16 +160,9 @@ export default function AdminPage() {
 
   const fetchData = async (accessToken: string) => {
     setRefreshing(true);
-    let res = await fetch("/api/admin/summary", {
+    const res = await fetch("/api/admin/summary", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (res.status === 403) {
-      // Session token not ready yet — retry once after a short delay
-      await new Promise(r => setTimeout(r, 1500));
-      res = await fetch("/api/admin/summary", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    }
     if (!res.ok) {
       setError("Failed to load admin data.");
       setRefreshing(false);
@@ -196,7 +189,10 @@ export default function AdminPage() {
           router.replace('/dashboard');
           return;
         }
-        await fetchData(session.access_token);
+        // Refresh the session to get a fresh access token
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        const token = refreshed.session?.access_token ?? session.access_token;
+        await fetchData(token);
       }
     });
     return () => subscription.unsubscribe();
