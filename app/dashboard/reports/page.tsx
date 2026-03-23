@@ -254,7 +254,7 @@ export default function ReportsPage() {
       {/* Header */}
       <div>
         <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">
-          For State Compliance
+          For Your Family Records
         </p>
         <h1 className="text-2xl font-bold text-[#2d2926]">Reports 📋</h1>
         <p className="text-sm text-[#7a6f65] mt-1">
@@ -384,11 +384,11 @@ export default function ReportsPage() {
 
       {/* Info banner */}
       <div className="bg-[#f5ede0] border border-[#c4956a]/30 rounded-2xl p-4">
-        <p className="text-xs font-semibold text-[#8b6f47] mb-1">📌 Note on State Requirements</p>
+        <p className="text-xs font-semibold text-[#8b6f47] mb-1">📌 Know Your State</p>
         <p className="text-xs text-[#7a6f65] leading-relaxed">
           This report documents your home education activities. Check the Resources tab for your
-          state&apos;s specific requirements — some states require annual portfolios, others need
-          standardized test results. Keep copies of this report for your records.
+          state&apos;s homeschool information — some states request annual portfolios, others may ask for
+          standardized test results. Keep copies of this report for your family records.
         </p>
       </div>
 

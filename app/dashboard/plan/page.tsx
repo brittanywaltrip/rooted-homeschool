@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -400,6 +401,8 @@ function DayColumn({
 
 export default function PlanPage() {
   const { isPartner, effectiveUserId } = usePartner();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const todayMidnight = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
   const todayStr = toDateStr(todayMidnight);
 
@@ -409,6 +412,7 @@ export default function PlanPage() {
   const [monthLessons, setMonthLessons] = useState<Lesson[]>([]);
   const [lessons,          setLessons]          = useState<Lesson[]>([]);
   const [children,         setChildren]         = useState<Child[]>([]);
+  const [selectedChild,    setSelectedChild]    = useState<string | null>(null);
   const [subjects,         setSubjects]         = useState<Subject[]>([]);
   const [curriculumGoals,  setCurriculumGoals]  = useState<CurriculumGoal[]>([]);
   const [loading,          setLoading]          = useState(true);
@@ -434,8 +438,22 @@ export default function PlanPage() {
 
   // ── Curriculum management ─────────────────────────────────────────────────
   const [showCreateWizard,  setShowCreateWizard]  = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("openWizard") === "true") {
+      setShowCreateWizard(true);
+      router.replace("/dashboard/plan");
+    }
+  }, [searchParams, router]);
   const [editWizardData,    setEditWizardData]    = useState<CurriculumWizardEditData | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
+
+  // ── Plan tip banner ───────────────────────────────────────────────────────
+  const [tipDismissed, setTipDismissed] = useState(false);
+  const [onboarded,    setOnboarded]    = useState(false);
+  useEffect(() => {
+    if (localStorage.getItem("rooted_plan_tip_dismissed") === "1") setTipDismissed(true);
+  }, []);
 
   // ── Vacation blocks ───────────────────────────────────────────────────────
   const [vacationBlocks,   setVacationBlocks]   = useState<VacationBlock[]>([]);
@@ -460,7 +478,8 @@ export default function PlanPage() {
     const ws = new Date(weekStart), we = new Date(weekStart);
     we.setDate(we.getDate() + 6);
     const s = toDateStr(ws), e = toDateStr(we);
-    const [{ data: kids }, { data: subs }, { data: goals }, { data: bySched }, { data: byDate }] = await Promise.all([
+    const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }, { data: bySched }, { data: byDate }] = await Promise.all([
+      supabase.from("profiles").select("onboarded").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days").eq("user_id", effectiveUserId).order("created_at"),
@@ -469,6 +488,7 @@ export default function PlanPage() {
       supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
+    setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
     setChildren(kids ?? []);
     setSubjects((subs as Subject[]) ?? []);
     setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
@@ -527,8 +547,8 @@ export default function PlanPage() {
 
   // ── Week navigation ───────────────────────────────────────────────────────
 
-  function prevWeek() { setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; }); }
-  function nextWeek() { setWeekStart((d) => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; }); }
+  function prevWeek() { setWeekStart((d) => getMondayOf(new Date(d.getTime() - 7 * 24 * 60 * 60 * 1000))); }
+  function nextWeek() { setWeekStart((d) => getMondayOf(new Date(d.getTime() + 7 * 24 * 60 * 60 * 1000))); }
   function goToToday() { setWeekStart(getMondayOf(new Date())); }
 
   // ── Month navigation ──────────────────────────────────────────────────────
@@ -753,6 +773,21 @@ export default function PlanPage() {
     </PageHero>
     <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
 
+      {/* ── Plan tip banner ──────────────────────────────────── */}
+      {!tipDismissed && !isPartner && onboarded && curricGroups.length > 0 && (
+        <div className="relative flex items-start gap-3 rounded-2xl px-4 py-3.5 pr-10" style={{ background: "#eef4ee", border: "1.5px solid #c8dcc8" }}>
+          <span className="text-base shrink-0 mt-0.5">💡</span>
+          <p className="text-sm text-[#3d5c42] leading-snug">
+            <strong>Double-check your lesson count</strong> — tap <strong>Edit</strong> on any curriculum to confirm the number is right for your edition. Already started? Set &ldquo;Lessons Done&rdquo; too.
+          </p>
+          <button
+            onClick={() => { localStorage.setItem("rooted_plan_tip_dismissed", "1"); setTipDismissed(true); }}
+            aria-label="Dismiss"
+            className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#c8dcc8]/60 transition-colors text-lg leading-none"
+          >×</button>
+        </div>
+      )}
+
       {/* ── Action bar ───────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         {!isPartner && (
@@ -768,7 +803,7 @@ export default function PlanPage() {
               This week
             </button>
           )}
-          <button onClick={prevWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+          <button onClick={prevWeek} disabled={isCurrentWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
             <ChevronLeft size={16} />
           </button>
           <span className="text-sm font-semibold text-[#2d2926] whitespace-nowrap px-1">{formatWeekRange(weekStart)}</span>
@@ -778,11 +813,42 @@ export default function PlanPage() {
         </div>
       </div>
 
+      {/* ── Child Filter Pills ────────────────────────────────── */}
+      {children.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 mb-4 px-4">
+          <button
+            onClick={() => setSelectedChild(null)}
+            className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
+              !selectedChild
+                ? 'bg-[#3d5c42] text-white'
+                : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
+            }`}>
+            All
+          </button>
+          {children.map((child: any) => (
+            <button
+              key={child.id}
+              onClick={() => setSelectedChild(child.id === selectedChild ? null : child.id)}
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
+                selectedChild === child.id
+                  ? 'bg-[#3d5c42] text-white'
+                  : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
+              }`}>
+              {child.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── Manage Curriculum ────────────────────────────────── */}
-      {!isPartner && curricGroups.length > 0 && (
+      {!isPartner && curricGroups.length > 0 && (() => {
+        const visibleCurricGroups = selectedChild
+          ? curricGroups.filter(g => g.childId === selectedChild)
+          : curricGroups;
+        return visibleCurricGroups.length > 0 ? (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">Your Curricula</p>
-          {curricGroups.map((group) => {
+          {visibleCurricGroups.map((group) => {
             const child   = children.find((c) => c.id === group.childId);
             const subStyle = getSubjectStyle(group.subjectName ?? undefined);
             return (() => {
@@ -872,7 +938,8 @@ export default function PlanPage() {
             })();
           })}
         </div>
-      )}
+        ) : null;
+      })()}
 
       {/* ── Curriculum empty state ───────────────────────────── */}
       {!loading && !isPartner && curricGroups.length === 0 && (
@@ -930,6 +997,12 @@ export default function PlanPage() {
             className="flex items-center gap-1.5 text-xs font-semibold text-[#7a4a1a] bg-[#fef9e8] hover:bg-[#fef0d0] px-3 py-1.5 rounded-full transition-colors border border-[#f0dda8]"
           >
             <Plus size={12} strokeWidth={2.5} />Add a Break
+          </button>
+          <button
+            onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+            className="px-4 py-2 bg-[#e0f0f7] border border-[#b0d5e8] text-[#0C447C] text-sm font-semibold rounded-full hover:bg-[#c8e4f0] transition-colors"
+          >
+            + Add vacation
           </button>
         </div>
       )}
@@ -1121,7 +1194,16 @@ export default function PlanPage() {
           {/* Mobile: 3-day view */}
           <div className="lg:hidden">
             <div className="flex items-center justify-between mb-3">
-              <button onClick={() => setMobileOffset((v) => Math.max(0, v - 1))} disabled={!canMobileLeft}
+              <button
+                onClick={() => {
+                  if (canMobileLeft) {
+                    setMobileOffset((v) => Math.max(0, v - 1));
+                  } else if (!isCurrentWeek) {
+                    prevWeek();
+                    setMobileOffset(4);
+                  }
+                }}
+                disabled={!canMobileLeft && isCurrentWeek}
                 className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-25 transition-all">
                 <ChevronLeft size={18} />
               </button>
@@ -1130,8 +1212,16 @@ export default function PlanPage() {
                 {" – "}
                 {mobileDays[2]?.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </span>
-              <button onClick={() => setMobileOffset((v) => Math.min(4, v + 1))} disabled={!canMobileRight}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-25 transition-all">
+              <button
+                onClick={() => {
+                  if (mobileOffset < 4) {
+                    setMobileOffset((v) => v + 1);
+                  } else {
+                    nextWeek();
+                    setMobileOffset(0);
+                  }
+                }}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-all">
                 <ChevronRight size={18} />
               </button>
             </div>
@@ -1220,7 +1310,7 @@ export default function PlanPage() {
       {deleteConfirmGroup && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
-            <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+            <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
               Remove &ldquo;{deleteConfirmGroup.curricName}&rdquo;?
             </h2>
             <p className="text-sm text-[#7a6f65] leading-relaxed">

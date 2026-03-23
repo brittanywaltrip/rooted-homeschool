@@ -48,7 +48,7 @@ export default function PageHero({
       </p>
       <h1
         className="text-[22px] sm:text-[26px] font-bold leading-tight"
-        style={{ color: "#fefcf9", fontFamily: "Georgia, serif" }}
+        style={{ color: "#fefcf9", fontFamily: "var(--font-display)" }}
       >
         {title}
       </h1>

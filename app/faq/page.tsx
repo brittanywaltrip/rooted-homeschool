@@ -17,7 +17,7 @@ const sections = [
       },
       {
         q: "Is Rooted really free to start?",
-        a: "Yes! The free plan gives you full access to daily lesson logging, your family's Garden, the basic progress tracker, and state compliance reports. No credit card required. You can use Rooted free for as long as you like — Pro is available when you're ready for extra features.",
+        a: "Yes! The free plan gives you full access to daily lesson logging, your family's Garden, the basic progress tracker, and progress reports. No credit card required. You can use Rooted free for as long as you like — Pro is available when you're ready for extra features.",
       },
       {
         q: "How do I set up my curriculum?",
@@ -81,12 +81,12 @@ const sections = [
     ],
   },
   {
-    title: "Reports & State Requirements",
+    title: "Know Your State",
     emoji: "📋",
     items: [
       {
-        q: "How do I generate a compliance report?",
-        a: "Go to Reports in your dashboard. Select the child, choose a date range, and click Generate Report. Rooted pulls your logged lessons, hours, subjects, and books read into a formatted PDF that meets your state's reporting format. You can download it, print it, or save it for your records.",
+        q: "How do I generate a progress report?",
+        a: "Go to Reports in your dashboard. Select the child, choose a date range, and click Generate Report. Rooted pulls your logged lessons, hours, subjects, and books read into a formatted PDF you can download, print, or save for your records.",
       },
       {
         q: "Which states does Rooted support?",
@@ -94,7 +94,7 @@ const sections = [
       },
       {
         q: "Where do I set my state?",
-        a: "Go to Settings in your dashboard and look for the State field under your family profile. Select your state from the dropdown. Rooted uses your state setting to format your compliance reports correctly. You can update this at any time if you move.",
+        a: "Go to Settings in your dashboard and look for the State field under your family profile. Select your state from the dropdown. Rooted uses your state setting to format your reports correctly. You can update this at any time if you move.",
       },
     ],
   },
@@ -104,11 +104,11 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, basic progress tracking, state compliance report generation, and the Memories section. It's genuinely useful for everyday homeschooling — Pro adds AI features, the Family Update, Graduation Slideshow, curriculum pacing, and priority support.",
+        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, field trips, activities, books, reflections, and basic progress view. You also get 50 photos and your last 30 days of memories. Pro unlocks unlimited photos, your full memory history, AI Year in Review, progress reports, curriculum pacing, and priority support.",
       },
       {
         q: "What is the Founding Family price?",
-        a: "Founding Families get lifetime access to Rooted Pro for $39/year — locked in forever, even as the price increases. This is our way of thanking early supporters who helped us build and improve the app. The Founding Family price is only available for a limited time while we're in early access.",
+        a: "Founding Families get lifetime access to Rooted Pro for $39/year — locked in forever, even as the price increases. This is our way of thanking early supporters who helped us build and improve the app. The Founding Family price is only available for a limited time while we're in early access. We also offer a monthly option at $6.99/mo if you prefer not to commit annually.",
       },
       {
         q: "When does the founding price end?",
@@ -116,7 +116,7 @@ const sections = [
       },
       {
         q: "How do I upgrade to Pro?",
-        a: 'Click Upgrade to Pro in your sidebar or visit the pricing section on the homepage. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account is upgraded instantly — no waiting, no manual review. You can cancel anytime from Settings → Billing.',
+        a: 'Click Upgrade to Pro in your sidebar or visit the pricing section on the homepage. Choose from three options: $39/yr Founding Family (limited time, price locked forever), $59/yr Standard, or $6.99/mo monthly. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account is upgraded instantly — no waiting, no manual review. You can cancel anytime from Settings → Billing.',
       },
     ],
   },

@@ -157,6 +157,9 @@ export default function CurriculumWizard({
 
   const [lessonsPerDay, setLessonsPerDay] = useState("1");
   const [targetDate, setTargetDate] = useState(editData?.targetDate ?? "");
+
+  // Track curricula saved so far for the current child (for "Added so far" pills)
+  const [savedForThisChild, setSavedForThisChild] = useState<Array<{ name: string; lessons: string }>>([]);
   const [generating, setGenerating] = useState(false);
   const [done, setDone] = useState(false);
   const [genCount, setGenCount] = useState(0);
@@ -450,6 +453,9 @@ export default function CurriculumWizard({
 
   function resetForAnotherCurriculum() {
     const savedChildId = childId;
+    // Track what was just saved for the "Added so far" pills
+    const subjectLabel = subject === "Other" ? customSubject : subject;
+    setSavedForThisChild(prev => [...prev, { name: curricName || subjectLabel || "Curriculum", lessons: totalLessons }]);
     setCurricName(""); setSubject(""); setCustomSubject("");
     setTotalLessons(""); setStartLesson("1");
     setSchoolDays([true, true, true, true, true, false, false]);
@@ -475,7 +481,7 @@ export default function CurriculumWizard({
         {step === 1 && (
           <div className="space-y-5">
             <div className="text-center">
-              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                 Which child is this for?
               </h2>
               <p className="text-sm text-[#7a6f65]">Select a child to assign this curriculum to.</p>
@@ -490,7 +496,7 @@ export default function CurriculumWizard({
                     Head to Settings to add your children first, then come back to set up your curriculum.
                   </p>
                 </div>
-                <Link href="/dashboard/settings" onClick={onClose}
+                <Link href="/dashboard/settings?section=children" onClick={onClose}
                   className="inline-block px-5 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors">
                   Go to Settings →
                 </Link>
@@ -498,7 +504,7 @@ export default function CurriculumWizard({
             ) : (
               <div className="space-y-2">
                 {children.map((child) => (
-                  <button key={child.id} onClick={() => setChildId(child.id)}
+                  <button key={child.id} onClick={() => { setChildId(child.id); setSavedForThisChild([]); }}
                     className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
                       childId === child.id ? "border-[#5c7f63] bg-[#f2f9f3] shadow-sm" : "border-[#e8e2d9] bg-white hover:border-[#c8ddb8]"
                     }`}>
@@ -526,7 +532,7 @@ export default function CurriculumWizard({
         {step === 2 && (
           <div className="space-y-5">
             <div className="text-center">
-              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                 {mode === "edit" ? "Edit curriculum" : "Tell us about this curriculum"}
               </h2>
               <p className="text-sm text-[#7a6f65]">
@@ -547,9 +553,29 @@ export default function CurriculumWizard({
               </div>
             )}
 
-            {mode === "create" && (
+            {mode === "create" && savedForThisChild.length === 0 && (
               <div className="bg-[#f8f7f4] border border-[#e8e2d9] rounded-xl px-3 py-2.5 text-xs text-[#7a6f65] leading-relaxed">
                 💡 Run this wizard multiple times to add multiple curricula for the same child — e.g. Math + Language Arts separately.
+              </div>
+            )}
+
+            {savedForThisChild.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
+                  Added so far
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {savedForThisChild.map((item, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-1.5 bg-[#eef5ee] border border-[#b8d9bc] rounded-full px-3 py-1.5"
+                    >
+                      <span className="text-[#3d5c42] text-xs">✓</span>
+                      <span className="text-xs font-semibold text-[#2d2926]">{item.name}</span>
+                      <span className="text-[10px] text-[#7a6f65]">· {item.lessons} lessons</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -619,7 +645,7 @@ export default function CurriculumWizard({
         {step === 3 && (
           <div className="space-y-5">
             <div className="text-center">
-              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>Pick your school days</h2>
+              <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>Pick your school days</h2>
               <p className="text-sm text-[#7a6f65]">
                 {mode === "edit"
                   ? "Remaining lessons will be rescheduled on these days."
@@ -707,7 +733,7 @@ export default function CurriculumWizard({
             {!done && !generating && !error && (
               <>
                 <div className="text-center">
-                  <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+                  <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                     {mode === "edit"
                       ? `Here's ${childObj?.name ?? "your"}'s schedule`
                       : `Here's ${childObj?.name ? `${childObj.name}'s` : "your"} plan`}
@@ -778,7 +804,7 @@ export default function CurriculumWizard({
               <div className="text-center py-6 space-y-4">
                 <div className="text-5xl">🌿</div>
                 <div>
-                  <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+                  <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                     {mode === "edit" ? "Curriculum updated!" : `${genCount} lessons scheduled!`}
                   </h2>
                   <p className="text-sm text-[#7a6f65] leading-relaxed">

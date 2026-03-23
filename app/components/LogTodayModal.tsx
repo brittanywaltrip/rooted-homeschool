@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Child   = { id: string; name: string; color: string | null };
 type Subject = { id: string; name: string; color: string | null };
-type Mode = null | "lesson" | "book" | "project" | "photo" | "reflection" | "break";
+type Mode = null | "book" | "field_trip" | "project" | "activity" | "photo" | "reflection";
 
 interface LogTodayModalProps {
   children: Child[];
@@ -22,12 +23,12 @@ interface LogTodayModalProps {
 // ─── Mode definitions ─────────────────────────────────────────────────────────
 
 const MODES: { mode: Mode; emoji: string; label: string }[] = [
-  { mode: "lesson",     emoji: "✅", label: "Lesson"     },
   { mode: "book",       emoji: "📖", label: "Book"       },
+  { mode: "field_trip", emoji: "🗺️",  label: "Field Trip" },
   { mode: "project",    emoji: "🔬", label: "Project"    },
+  { mode: "activity",   emoji: "🎵", label: "Activity"   },
   { mode: "photo",      emoji: "📷", label: "Photo"      },
   { mode: "reflection", emoji: "💭", label: "Reflection" },
-  { mode: "break",      emoji: "🌴", label: "Break"      },
 ];
 
 // ─── Child pill selector ──────────────────────────────────────────────────────
@@ -107,20 +108,39 @@ export default function LogTodayModal({
   const [mode,    setMode]    = useState<Mode>(null);
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState("");
+  const [isPro,   setIsPro]   = useState<boolean | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Lesson fields
-  const [lessonTitle,   setLessonTitle]   = useState("");
-  const [lessonChild,   setLessonChild]   = useState(children.length === 1 ? children[0].id : "");
-  const [lessonSubject, setLessonSubject] = useState("");
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase
+        .from("profiles")
+        .select("is_pro")
+        .eq("id", user.id)
+        .single()
+        .then(({ data }) => {
+          setIsPro((data as { is_pro?: boolean } | null)?.is_pro ?? false);
+        });
+    });
+  }, []);
 
   // Book fields
   const [bookTitle,  setBookTitle]  = useState("");
   const [bookChild,  setBookChild]  = useState(children.length === 1 ? children[0].id : "");
 
+  // Field Trip fields
+  const [fieldTripTitle, setFieldTripTitle] = useState("");
+  const [fieldTripChild, setFieldTripChild] = useState(children.length === 1 ? children[0].id : "");
+
   // Project fields
   const [projectTitle, setProjectTitle] = useState("");
   const [projectDesc,  setProjectDesc]  = useState("");
   const [projectChild, setProjectChild] = useState(children.length === 1 ? children[0].id : "");
+
+  // Activity fields
+  const [activityTitle, setActivityTitle] = useState("");
+  const [activityChild, setActivityChild] = useState(children.length === 1 ? children[0].id : "");
 
   // Photo fields
   const [photoTitle, setPhotoTitle] = useState("");
@@ -128,11 +148,10 @@ export default function LogTodayModal({
 
   // Reflection fields
   const [reflectionText, setReflectionText] = useState("");
+  const [reflectionPrivate, setReflectionPrivate] = useState(false);
 
-  // Break fields
-  const [breakStart, setBreakStart] = useState(today);
-  const [breakEnd,   setBreakEnd]   = useState(today);
-  const [breakLabel, setBreakLabel] = useState("");
+  // Date override for non-reflection modes
+  const [dateOverride, setDateOverride] = useState<string | null>(null);
 
   function selectMode(m: Mode) {
     setMode(m);
@@ -146,31 +165,23 @@ export default function LogTodayModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setError("Not logged in."); setSaving(false); return; }
 
-      if (mode === "lesson") {
-        if (!lessonTitle.trim()) { setError("Please enter a lesson title."); setSaving(false); return; }
-        let subjectId: string | null = null;
-        if (lessonSubject) {
-          const sub = subjects.find((s) => s.name === lessonSubject);
-          subjectId = sub?.id ?? null;
-        }
-        await supabase.from("lessons").insert({
-          user_id: user.id,
-          child_id: lessonChild || null,
-          subject_id: subjectId,
-          title: lessonTitle.trim(),
-          completed: true,
-          date: saveDate,
-        });
-        onSaved("lesson", lessonChild || undefined);
-
-      } else if (mode === "book") {
+      if (mode === "book") {
         if (!bookTitle.trim()) { setError("Please enter a book title."); setSaving(false); return; }
         await supabase.from("app_events").insert({
           user_id: user.id,
           type: "memory_book",
-          payload: { title: bookTitle.trim(), date: saveDate, child_id: bookChild || undefined },
+          payload: { title: bookTitle.trim(), date: dateOverride || saveDate, child_id: bookChild || undefined },
         });
         onSaved("book", bookChild || undefined);
+
+      } else if (mode === "field_trip") {
+        if (!fieldTripTitle.trim()) { setError("Please enter a title."); setSaving(false); return; }
+        await supabase.from("app_events").insert({
+          user_id: user.id,
+          type: "memory_field_trip",
+          payload: { title: fieldTripTitle.trim(), date: dateOverride || saveDate, child_id: fieldTripChild || undefined },
+        });
+        onSaved("field_trip", fieldTripChild || undefined);
 
       } else if (mode === "project") {
         if (!projectTitle.trim()) { setError("Please enter a title."); setSaving(false); return; }
@@ -180,42 +191,61 @@ export default function LogTodayModal({
           payload: {
             title: projectTitle.trim(),
             description: projectDesc.trim() || undefined,
-            date: saveDate,
+            date: dateOverride || saveDate,
             child_id: projectChild || undefined,
           },
         });
         onSaved("project", projectChild || undefined);
 
+      } else if (mode === "activity") {
+        if (!activityTitle.trim()) { setError("Please enter a title."); setSaving(false); return; }
+        await supabase.from("app_events").insert({
+          user_id: user.id,
+          type: "memory_activity",
+          payload: { title: activityTitle.trim(), date: dateOverride || saveDate, child_id: activityChild || undefined },
+        });
+        onSaved("activity", activityChild || undefined);
+
       } else if (mode === "photo") {
         if (!photoTitle.trim()) { setError("Please enter a title."); setSaving(false); return; }
+
+        // Check photo limit for free users
+        if (!isPro) {
+          const { data: countProfile } = await supabase
+            .from("profiles")
+            .select("photo_count")
+            .eq("id", user.id)
+            .single();
+
+          if ((countProfile?.photo_count ?? 0) >= 50) {
+            setUploadError(
+              "You've reached the 50-photo limit on the free plan. Upgrade to upload unlimited photos."
+            );
+            setSaving(false);
+            return;
+          }
+        }
+
         await supabase.from("app_events").insert({
           user_id: user.id,
           type: "memory_photo",
-          payload: { title: photoTitle.trim(), date: saveDate, child_id: photoChild || undefined },
+          payload: { title: photoTitle.trim(), date: dateOverride || saveDate, child_id: photoChild || undefined },
         });
+
+        // Increment photo count for free users
+        if (!isPro) {
+          await supabase.rpc("increment_photo_count", { p_user_id: user.id });
+        }
+
         onSaved("photo", photoChild || undefined);
 
       } else if (mode === "reflection") {
         if (!reflectionText.trim()) { setError("Please write something first."); setSaving(false); return; }
         await supabase.from("daily_reflections").upsert(
-          { user_id: user.id, date: saveDate, reflection: reflectionText.trim(), updated_at: new Date().toISOString() },
+          { user_id: user.id, date: saveDate, reflection: reflectionText.trim(), is_private: reflectionPrivate, updated_at: new Date().toISOString() },
           { onConflict: "user_id,date" }
         );
         onSaved("reflection");
-
-      } else if (mode === "break") {
-        if (!breakStart || !breakEnd || breakEnd < breakStart) {
-          setError("Please set valid start and end dates.");
-          setSaving(false);
-          return;
-        }
-        await supabase.from("vacation_blocks").insert({
-          user_id: user.id,
-          name: breakLabel.trim() || "Break",
-          start_date: breakStart,
-          end_date: breakEnd,
-        });
-        onSaved("break");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -225,12 +255,12 @@ export default function LogTodayModal({
   }
 
   const canSave = !saving && (
-    (mode === "lesson"     && lessonTitle.trim().length > 0) ||
-    (mode === "book"       && bookTitle.trim().length > 0) ||
-    (mode === "project"    && projectTitle.trim().length > 0) ||
-    (mode === "photo"      && photoTitle.trim().length > 0) ||
-    (mode === "reflection" && reflectionText.trim().length > 0) ||
-    (mode === "break"      && !!breakStart && !!breakEnd && breakEnd >= breakStart)
+    (mode === "book"        && bookTitle.trim().length > 0) ||
+    (mode === "field_trip"  && fieldTripTitle.trim().length > 0) ||
+    (mode === "project"     && projectTitle.trim().length > 0) ||
+    (mode === "activity"    && activityTitle.trim().length > 0) ||
+    (mode === "photo"       && photoTitle.trim().length > 0) ||
+    (mode === "reflection"  && reflectionText.trim().length > 0)
   );
 
   return (
@@ -242,13 +272,13 @@ export default function LogTodayModal({
       />
 
       {/* Sheet */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center">
+      <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center md:inset-0 md:items-center">
         <div
-          className="bg-[#fefcf9] rounded-t-3xl shadow-xl w-full max-w-lg"
+          className="bg-[#fefcf9] rounded-t-3xl md:rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Drag handle */}
-          <div className="w-10 h-1 bg-[#e8e2d9] rounded-full mx-auto mt-3" />
+          <div className="w-10 h-1 bg-[#e8e2d9] rounded-full mx-auto mt-3 md:hidden" />
 
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-4 pb-1">
@@ -263,7 +293,7 @@ export default function LogTodayModal({
                 </button>
               )}
               {mode === null && (
-                <h2 className="text-lg font-bold text-[#2d2926]">What happened today? 🌿</h2>
+                <h2 className="text-lg font-bold text-[#2d2926]">What happened?</h2>
               )}
               {mode !== null && (
                 <h2 className="text-base font-bold text-[#2d2926]">
@@ -286,7 +316,7 @@ export default function LogTodayModal({
             {/* ── Step 1: Mode picker ── */}
             {mode === null && (
               <>
-                <p className="text-sm text-[#7a6f65] mb-5">Log something great. It only takes a second.</p>
+                <p className="text-sm text-[#7a6f65] mb-5">Log today or something from last week.</p>
                 <div className="grid grid-cols-2 gap-3">
                   {MODES.map(({ mode: m, emoji, label }) => (
                     <button
@@ -305,23 +335,6 @@ export default function LogTodayModal({
 
             {/* ── Step 2: Forms ── */}
 
-            {mode === "lesson" && (
-              <div className="space-y-4 mt-4">
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What did you learn today? *</label>
-                  <input
-                    value={lessonTitle}
-                    onChange={(e) => setLessonTitle(e.target.value)}
-                    placeholder="e.g. Chapter 4 reading, Long division practice"
-                    autoFocus
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                  />
-                </div>
-                <ChildPills children={children} value={lessonChild} onChange={setLessonChild} />
-                <SubjectPills subjects={subjects} value={lessonSubject} onChange={setLessonSubject} />
-              </div>
-            )}
-
             {mode === "book" && (
               <div className="space-y-4 mt-4">
                 <div>
@@ -335,6 +348,22 @@ export default function LogTodayModal({
                   />
                 </div>
                 <ChildPills children={children} value={bookChild} onChange={setBookChild} />
+              </div>
+            )}
+
+            {mode === "field_trip" && (
+              <div className="space-y-4 mt-4">
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Where did you go? *</label>
+                  <input
+                    value={fieldTripTitle}
+                    onChange={(e) => setFieldTripTitle(e.target.value)}
+                    placeholder="e.g. Natural History Museum, Farm visit"
+                    autoFocus
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                  />
+                </div>
+                <ChildPills children={children} value={fieldTripChild} onChange={setFieldTripChild} />
               </div>
             )}
 
@@ -361,6 +390,22 @@ export default function LogTodayModal({
                   />
                 </div>
                 <ChildPills children={children} value={projectChild} onChange={setProjectChild} />
+              </div>
+            )}
+
+            {mode === "activity" && (
+              <div className="space-y-4 mt-4">
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What activity did you do? *</label>
+                  <input
+                    value={activityTitle}
+                    onChange={(e) => setActivityTitle(e.target.value)}
+                    placeholder="e.g. Piano practice, Soccer, Art class"
+                    autoFocus
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                  />
+                </div>
+                <ChildPills children={children} value={activityChild} onChange={setActivityChild} />
               </div>
             )}
 
@@ -394,39 +439,46 @@ export default function LogTodayModal({
                     className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setReflectionPrivate(v => !v)}
+                  className="flex items-center gap-2 text-xs text-[#7a6f65]"
+                >
+                  <div className={`w-8 h-[18px] rounded-full transition-colors relative ${reflectionPrivate ? "bg-[#5c7f63]" : "bg-[#e8e2d9]"}`}>
+                    <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${reflectionPrivate ? "translate-x-[16px]" : "translate-x-[2px]"}`} />
+                  </div>
+                  <span>{reflectionPrivate ? "🔒 Private — only you can see this" : "👀 Visible in Kid Mode"}</span>
+                </button>
               </div>
             )}
 
-            {mode === "break" && (
-              <div className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Start date</label>
-                    <input
-                      type="date"
-                      value={breakStart}
-                      onChange={(e) => setBreakStart(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">End date</label>
-                    <input
-                      type="date"
-                      value={breakEnd}
-                      onChange={(e) => setBreakEnd(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Label (optional)</label>
+            {/* Date picker — for non-reflection modes */}
+            {mode !== null && mode !== "reflection" && (
+              <div className="mt-4">
+                <label className="text-xs font-medium text-[#7a6f65] block mb-2">When?</label>
+                <div className="flex gap-2">
+                  {[
+                    { label: "Today", value: new Date().toISOString().split("T")[0] },
+                    { label: "Yesterday", value: new Date(Date.now() - 86400000).toISOString().split("T")[0] },
+                  ].map(opt => (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      onClick={() => setDateOverride(opt.value)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        (dateOverride || new Date().toISOString().split("T")[0]) === opt.value
+                          ? "bg-[#eef5ee] border-[#5c7f63] text-[#3d5c42] font-semibold"
+                          : "bg-white border-[#e8e2d9] text-[#7a6f65]"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
                   <input
-                    value={breakLabel}
-                    onChange={(e) => setBreakLabel(e.target.value)}
-                    placeholder="Spring Break, Sick Day, Family Trip..."
-                    autoFocus
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                    type="date"
+                    value={dateOverride || new Date().toISOString().split("T")[0]}
+                    onChange={e => setDateOverride(e.target.value)}
+                    className="px-2 py-1.5 rounded-full text-xs border border-[#e8e2d9] text-[#7a6f65] bg-white"
                   />
                 </div>
               </div>
@@ -437,6 +489,17 @@ export default function LogTodayModal({
               <>
                 {error && (
                   <p className="mt-3 text-xs text-red-500 text-center">{error}</p>
+                )}
+                {uploadError && (
+                  <div className="mt-3 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] p-4 text-center">
+                    <p className="mb-2 text-sm text-[#2d2926]">{uploadError}</p>
+                    <Link
+                      href="/dashboard/pricing"
+                      className="text-sm font-semibold text-[#5c7f63] underline underline-offset-2"
+                    >
+                      Upgrade to Pro
+                    </Link>
+                  </div>
                 )}
                 <button
                   type="button"

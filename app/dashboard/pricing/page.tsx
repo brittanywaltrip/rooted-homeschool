@@ -7,29 +7,36 @@ import { supabase } from "@/lib/supabase";
 
 // ─── Feature comparison data ──────────────────────────────────────────────────
 
-const features: { label: string; free: boolean; pro: boolean; foundingOnly?: boolean }[] = [
-  { label: "Daily lesson logging",           free: true,  pro: true  },
-  { label: "Garden & growing trees",         free: true,  pro: true  },
-  { label: "Photo memories & book log",      free: true,  pro: true  },
-  { label: "Unlimited children",             free: true,  pro: true  },
-  { label: "Compliance-ready PDF reports",   free: true,  pro: true  },
-  { label: "Finish Line curriculum pacing",  free: false, pro: true  },
-  { label: "AI Family Update narrative",     free: false, pro: true  },
-  { label: "AI Graduation Letter",           free: false, pro: true  },
-  { label: "AI Year in Review",              free: false, pro: true  },
-  { label: "Priority support",               free: false, pro: true  },
-  { label: "Founding price locked forever",  free: false, pro: true, foundingOnly: true },
+type FeatureRow = { label: string; free: string; founding: string; standard: string; foundingOnly?: boolean };
+
+const features: FeatureRow[] = [
+  { label: "Daily lesson logging",           free: "✓",              founding: "✓",            standard: "✓"           },
+  { label: "Garden & growing trees",         free: "✓",              founding: "✓",            standard: "✓"           },
+  { label: "Unlimited children",             free: "✓",              founding: "✓",            standard: "✓"           },
+  { label: "Photo memories & book log",      free: "50 photos · 30 days", founding: "✓ Unlimited", standard: "✓ Unlimited" },
+  { label: "Full memory history",            free: "—",              founding: "✓",            standard: "✓"           },
+  { label: "AI Year in Review",              free: "1 / year",       founding: "✓ Unlimited",  standard: "✓ Unlimited" },
+  { label: "Progress reports",   free: "—",              founding: "✓",            standard: "✓"           },
+  { label: "Finish Line curriculum pacing",  free: "—",              founding: "✓",            standard: "✓"           },
+  { label: "AI Family Update narrative",     free: "—",              founding: "✓",            standard: "✓"           },
+  { label: "AI Graduation Letter",           free: "—",              founding: "✓",            standard: "✓"           },
+  { label: "Priority support",               free: "—",              founding: "✓",            standard: "—"           },
+  { label: "Founding price locked forever",  free: "—",              founding: "Forever 🎁",   standard: "—",          foundingOnly: true },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Cell({ yes, dim }: { yes: boolean; dim?: boolean }) {
+function Cell({ value, highlight }: { value: string; highlight?: boolean }) {
+  const isCheck = value === "✓";
+  const isDash = value === "—";
   return (
-    <td className="py-3 px-4 text-center">
-      {yes ? (
-        <Check size={15} strokeWidth={2.5} className={dim ? "inline text-[#b5aca4]" : "inline text-[#5c7f63]"} />
-      ) : (
+    <td className={`py-3 px-4 text-center text-xs font-medium ${highlight ? "bg-[#f0f7f0]" : ""}`}>
+      {isCheck ? (
+        <Check size={15} strokeWidth={2.5} className="inline text-[#5c7f63]" />
+      ) : isDash ? (
         <Minus size={14} strokeWidth={2} className="inline text-[#d4cfc9]" />
+      ) : (
+        <span className={highlight ? "text-[#3d5c42]" : "text-[#7a6f65]"}>{value}</span>
       )}
     </td>
   );
@@ -88,7 +95,7 @@ export default function DashboardPricingPage() {
       </div>
 
       {/* Plan cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
         {/* Free Forever */}
         <div className={`relative bg-[#fefcf9] border-2 rounded-2xl p-5 flex flex-col ${
@@ -107,7 +114,7 @@ export default function DashboardPricingPage() {
             <span className="text-3xl font-bold text-[#2d2926]">$0</span>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Lesson logging", "Garden", "Unlimited children", "PDF reports", "Memories"].map(f => (
+            {["Lesson logging", "Garden", "Unlimited children", "50 photos", "Memories — last 30 days", "1 AI Year in Review / year"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -149,7 +156,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#5c7f63] mt-0.5">≈ $3.25/month</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Free", "Unlimited children", "Finish Line pacing", "AI Family Update", "AI Graduation Letter", "AI Year in Review", "Priority support", "Price locked forever ✦"].map(f => (
+            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "AI Family Update", "AI Graduation Letter", "Priority support", "Price locked forever ✦"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#3d5c42]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -182,7 +189,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#b5aca4] mt-0.5">≈ $4.92/month</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Free", "Unlimited children", "Finish Line pacing", "AI Family Update", "AI Graduation Letter", "AI Year in Review", "Priority support"].map(f => (
+            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "AI Family Update", "AI Graduation Letter"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -200,6 +207,39 @@ export default function DashboardPricingPage() {
                 className="block w-full text-center py-2.5 rounded-xl bg-[#2d2926] hover:bg-[#1a1714] text-white text-xs font-bold transition-colors"
               >
                 Subscribe — $59/yr →
+              </Link>
+            )}
+          </div>
+        </div>
+
+        {/* Monthly */}
+        <div className="relative bg-[#fefcf9] border-2 border-[#e8e2d9] rounded-2xl p-5 flex flex-col">
+          <p className="text-base font-bold text-[#2d2926] mb-1">Monthly</p>
+          <p className="text-xs text-[#7a6f65] mb-4 leading-relaxed">Pay as you go, cancel anytime.</p>
+          <div className="mb-5">
+            <span className="text-3xl font-bold text-[#2d2926]">$6.99</span>
+            <span className="text-sm text-[#7a6f65]">/mo</span>
+            <p className="text-[10px] text-[#b5aca4] mt-0.5">≈ $83.88/year</p>
+          </div>
+          <div className="space-y-1.5 mb-6 flex-1">
+            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "AI Family Update", "AI Graduation Letter"].map(f => (
+              <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
+                <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
+                {f}
+              </div>
+            ))}
+          </div>
+          <div className="mt-auto">
+            {loaded && isPro ? (
+              <div className="w-full text-center py-2.5 rounded-xl bg-[#f0ede8] text-xs font-medium text-[#b5aca4]">
+                Monthly plan
+              </div>
+            ) : (
+              <Link
+                href="/upgrade"
+                className="block w-full text-center py-2.5 rounded-xl border border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8] text-xs font-bold transition-colors"
+              >
+                Subscribe — $6.99/mo →
               </Link>
             )}
           </div>
@@ -246,9 +286,9 @@ export default function DashboardPricingPage() {
                       </span>
                     )}
                   </td>
-                  <Cell yes={f.free} />
-                  <Cell yes={f.pro} />
-                  <Cell yes={f.pro} dim={f.foundingOnly} />
+                  <Cell value={f.free} />
+                  <Cell value={f.founding} highlight />
+                  <Cell value={f.standard} />
                 </tr>
               ))}
             </tbody>

@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import type { YearStats, YearReviewResponse } from "@/app/api/year-in-review/route";
+import PaywallCard from "@/components/PaywallCard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,8 @@ function StatCard({
 
 export default function YearInReviewPage() {
   const { effectiveUserId } = usePartner();
+  const [isPro,      setIsPro]      = useState<boolean | null>(null);
+  const [checkingPro, setCheckingPro] = useState(true);
   const [stats,     setStats]     = useState<YearStats | null>(null);
   const [review,    setReview]    = useState<YearReviewResponse | null>(null);
   const [loading,   setLoading]   = useState(true);   // data loading
@@ -78,10 +81,25 @@ export default function YearInReviewPage() {
 
   const year = new Date().getFullYear();
 
+  // ── Pro check (before any data fetching) ───────────────────────────────────
+
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    supabase
+      .from("profiles")
+      .select("is_pro")
+      .eq("id", effectiveUserId)
+      .single()
+      .then(({ data }) => {
+        setIsPro((data as { is_pro?: boolean } | null)?.is_pro ?? false);
+        setCheckingPro(false);
+      });
+  }, [effectiveUserId]);
+
   // ── Fetch all data ───────────────────────────────────────────────────────────
 
   const fetchStats = useCallback(async () => {
-    if (!effectiveUserId) return;
+    if (!effectiveUserId || !isPro) return;
 
     const [
       { data: profile },
@@ -162,9 +180,9 @@ export default function YearInReviewPage() {
 
     setStats(built);
     setLoading(false);
-  }, [effectiveUserId, year]);
+  }, [effectiveUserId, isPro, year]);
 
-  useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => { if (isPro) fetchStats(); }, [fetchStats, isPro]);
 
   // ── Generate review ──────────────────────────────────────────────────────────
 
@@ -201,6 +219,25 @@ export default function YearInReviewPage() {
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
+
+  if (checkingPro) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#e8e2d9] border-t-[#5c7f63]" />
+      </div>
+    );
+  }
+
+  if (!isPro) {
+    return (
+      <div className="max-w-3xl px-4 py-7">
+        <PaywallCard
+          feature="Year in Review"
+          description="Unlock your personalized homeschool year in review — a beautiful summary of your family's learning journey."
+        />
+      </div>
+    );
+  }
 
   const totalLeaves = stats
     ? stats.totalLessons + stats.booksRead

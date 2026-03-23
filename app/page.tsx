@@ -411,16 +411,16 @@ export default function Home() {
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
-            Your family&apos;s calm, beautiful homeschool companion. 🌿
+            Built for families who take homeschooling seriously. 🌱
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
             <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#3d5c42] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35), 0 0 48px rgba(134,201,138,0.12)" }}>
               Get Started Free →
             </Link>
-            <a href="#features" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base" style={{ border: "1px solid rgba(255,255,255,0.35)", backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.06)" }}>
+            <Link href="/tour" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base" style={{ border: "1px solid rgba(255,255,255,0.35)", backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.06)" }}>
               See Inside →
-            </a>
+            </Link>
           </div>
 
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
@@ -444,7 +444,7 @@ export default function Home() {
               { number: "For You",  label: "Built for Families Like Yours", icon: "🌱" },
               { number: "5",       label: "Sections, All-in-One", icon: "✨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
-              { number: "1-Click", label: "State-Ready Reports",  icon: "📋" },
+              { number: "1-Click", label: "Progress Reports",  icon: "📋" },
             ].map(({ number, label, icon }) => (
               <div key={label} className="py-9 px-4 text-center">
                 <div className="text-xl mb-2">{icon}</div>
@@ -520,7 +520,7 @@ export default function Home() {
             {
               mockup: <ReportMockup />,
               title: "Print-Ready Reports",
-              desc: "Generate clean, professional progress reports for state compliance. Configure, preview, and print in one click.",
+              desc: "Generate clean, professional progress reports for your family records. Configure, preview, and print in one click.",
             },
           ].map(({ mockup, title, desc }) => (
             <div key={title} className="mockup-card flex flex-col gap-5 cursor-default">
@@ -575,7 +575,7 @@ export default function Home() {
                 title: "Curated Resources",
                 color: "#e8f4f8",
                 border: "#a8d0e0",
-                desc: "Discounts, field trips, printables, science projects, and state requirements \u2014 curated for you.",
+                desc: "Discounts, field trips, printables, science projects, and state homeschool information \u2014 curated for you.",
               },
               {
                 emoji: "📸",
@@ -760,7 +760,7 @@ export default function Home() {
                     ))}
                   </div>
                   <div className="bg-[#e8f0e9] rounded-xl px-3 py-2 text-center">
-                    <p className="text-[10px] text-[#5c7f63] font-semibold">✓ Ready for state submission</p>
+                    <p className="text-[10px] text-[#5c7f63] font-semibold">✓ Print, share, or save forever</p>
                   </div>
                 </div>
               </div>
@@ -852,7 +852,7 @@ export default function Home() {
         </div>
 
         {/* Plan cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-12 mt-8 items-start">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-12 mt-8 items-start">
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
@@ -870,8 +870,10 @@ export default function Home() {
               {[
                 "Unlimited children",
                 "Daily lesson tracking",
-                "Basic progress view",
-                "Garden & memories",
+                "Garden & growth tree",
+                "50 photos",
+                "Memories — last 30 days",
+                "1 AI Year in Review / year",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -911,10 +913,13 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
-                "All 6 app sections",
-                "Printable compliance reports",
-                "Streaks & insights",
-                "Memories & photo log",
+                "Unlimited photos",
+                "Full memory history — all time",
+                "Unlimited AI Year in Review",
+                "Printable progress reports",
+                "Finish Line curriculum pacing",
+                "AI Family Update",
+                "AI Graduation Letter",
                 "Priority support",
                 "Lifetime founding price 🎁",
               ].map((f) => (
@@ -948,11 +953,13 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
-                "All 6 app sections",
-                "Printable compliance reports",
-                "Streaks & insights",
-                "Memories & photo log",
-                "Standard support",
+                "Unlimited photos",
+                "Full memory history — all time",
+                "Unlimited AI Year in Review",
+                "Printable progress reports",
+                "Finish Line curriculum pacing",
+                "AI Family Update",
+                "AI Graduation Letter",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -965,6 +972,44 @@ export default function Home() {
               className="block w-full border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold py-3 rounded-xl transition-colors text-sm"
             >
               Start Free Trial
+            </Link>
+          </div>
+
+          {/* Monthly */}
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Monthly</p>
+            <div className="flex items-end justify-center gap-1 mb-1">
+              <span
+                className="text-4xl font-bold text-[#2d2926]"
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                $6.99
+              </span>
+              <span className="text-sm text-[#b5aca4] mb-1">/mo</span>
+            </div>
+            <p className="text-xs text-[#b5aca4] mb-6">Pay as you go · ≈ $83.88/year</p>
+            <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
+              {[
+                "Unlimited children",
+                "Unlimited photos",
+                "Full memory history — all time",
+                "Unlimited AI Year in Review",
+                "Printable progress reports",
+                "Finish Line curriculum pacing",
+                "AI Family Update",
+                "AI Graduation Letter",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
+                  <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <Link
+              href="/signup"
+              className="block w-full border border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8] font-medium py-3 rounded-xl transition-colors text-sm"
+            >
+              Start Monthly →
             </Link>
           </div>
         </div>
@@ -984,11 +1029,15 @@ export default function Home() {
               {[
                 { feature: "Children",               free: "Unlimited", founding: "Unlimited",  standard: "Unlimited" },
                 { feature: "Lesson tracking",        free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Garden & growth tree",   free: "Basic", founding: "Full",       standard: "Full"      },
-                { feature: "Memories log",           free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Curated resources",      free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Streaks & insights",     free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Compliance reports",     free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Garden & growth tree",   free: "✓",     founding: "✓",          standard: "✓"         },
+                { feature: "Photo memories & book log", free: "50 photos · 30 days", founding: "✓ Unlimited", standard: "✓ Unlimited" },
+                { feature: "Full memory history",    free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "AI Year in Review",      free: "1 / year", founding: "✓ Unlimited", standard: "✓ Unlimited" },
+                { feature: "Memories log",           free: "30 days", founding: "✓ All time",  standard: "✓ All time" },
+                { feature: "Progress reports",     free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Finish Line pacing",     free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "AI Family Update",       free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "AI Graduation Letter",   free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Partner/co-parent view", free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
                 { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },

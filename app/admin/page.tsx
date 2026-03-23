@@ -6,12 +6,27 @@
 // update plan_type to 'refunded', subscription_status to 'refunded'.
 // Webhook handles all future paying members automatically.
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"];
+
+const TEST_EMAILS_PATTERNS = ["rooted.", "test", "finalpass", "mobiletest", "finaltest"];
+const TEST_EMAILS_EXACT = [
+  "zoereywaltrip@gmail.com",
+  "brittanywaltrip20@gmail.com",
+  "josephgarfield12@gmail.com",
+  "het787@gmail.com",
+  "wovapi4416@lxbeta.com",
+];
+
+function isTestUser(email: string): boolean {
+  const lower = email.toLowerCase();
+  if (TEST_EMAILS_EXACT.includes(lower)) return true;
+  return TEST_EMAILS_PATTERNS.some(p => lower.includes(p));
+}
 
 interface AdminSummary {
   // Growth
@@ -130,9 +145,13 @@ export default function AdminPage() {
   const router = useRouter();
   const [data,         setData]         = useState<AdminSummary | null>(null);
   const [error,        setError]        = useState<string | null>(null);
-  const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Free" | "Refunded">("All");
+  const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Standard" | "Monthly" | "Free" | "Refunded">("All");
   const [refreshing,   setRefreshing]   = useState(false);
   const [emailsCopied, setEmailsCopied] = useState(false);
+  const [hideTestUsers, setHideTestUsers] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedUser, setSelectedUser] = useState<string | null>(null);
+  const [showTestSection, setShowTestSection] = useState(false);
 
   const loadData = async () => {
     setRefreshing(true);
@@ -165,10 +184,56 @@ export default function AdminPage() {
     setTimeout(() => setEmailsCopied(false), 2000);
   }
 
+  function downloadCSV() {
+    const rows = filteredSignups();
+    const header = "Name,Email,Plan,Kids,Joined,Last Active,Lessons,Curricula";
+    const csvRows = rows.map(u => {
+      const name = (u.first_name || u.last_name)
+        ? [u.first_name, u.last_name].filter(Boolean).join(" ")
+        : u.family_name ?? "";
+      return [
+        `"${name}"`,
+        `"${u.email}"`,
+        u.plan,
+        u.children_count,
+        u.joined ? new Date(u.joined).toLocaleDateString() : "",
+        u.last_active ? new Date(u.last_active).toLocaleDateString() : "Never",
+        u.lessons_done,
+        u.curricula_count,
+      ].join(",");
+    });
+    const csv = [header, ...csvRows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `rooted-users-${signupFilter.toLowerCase()}-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function filteredSignups() {
     if (!data) return [];
-    if (signupFilter === "All") return data.recentSignups;
-    return data.recentSignups.filter(u => u.plan === signupFilter);
+    let list = data.recentSignups;
+    // Hide test users
+    if (hideTestUsers) {
+      list = list.filter(u => !isTestUser(u.email));
+    }
+    // Filter by tab
+    if (signupFilter !== "All") {
+      list = list.filter(u => u.plan === signupFilter);
+    }
+    // Search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(u =>
+        u.email.toLowerCase().includes(q) ||
+        (u.family_name ?? "").toLowerCase().includes(q) ||
+        (u.first_name ?? "").toLowerCase().includes(q) ||
+        (u.last_name ?? "").toLowerCase().includes(q)
+      );
+    }
+    return list;
   }
 
   if (error) {
@@ -189,11 +254,16 @@ export default function AdminPage() {
 
   const visible = filteredSignups();
 
+  const testCount = data.recentSignups.filter(u => isTestUser(u.email)).length;
+  const realUsers = data.recentSignups.filter(u => !isTestUser(u.email));
+
   const counts = {
-    All:      data.recentSignups.length,
-    Founding: data.recentSignups.filter(u => u.plan === "Founding").length,
-    Free:     data.recentSignups.filter(u => u.plan === "Free").length,
-    Refunded: data.recentSignups.filter(u => u.plan === "Refunded").length,
+    All:      realUsers.length,
+    Founding: realUsers.filter(u => u.plan === "Founding").length,
+    Standard: realUsers.filter(u => u.plan === "Standard").length,
+    Monthly:  realUsers.filter(u => u.plan === "Monthly").length,
+    Free:     realUsers.filter(u => u.plan === "Free").length,
+    Refunded: realUsers.filter(u => u.plan === "Refunded").length,
   };
 
   return (
@@ -203,7 +273,7 @@ export default function AdminPage() {
       <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4 flex items-center justify-between gap-4">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-[#8cba8e] mb-0.5">Rooted</p>
-          <h1 className="text-xl font-bold text-[#fefcf9]" style={{ fontFamily: "Georgia, serif" }}>
+          <h1 className="text-xl font-bold text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>
             Founder Dashboard 🌱
           </h1>
           <p className="text-xs text-[#a8c5a0]">
@@ -241,7 +311,7 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="🌱" title="Growth" />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <StatCard label="Total Families"      value={data.totalUsers} />
+            <StatCard label="Real Families" value={data.totalUsers - testCount} sub={`${testCount} test accounts hidden`} />
             <StatCard label="Last 24 Hours"        value={data.last24hSignups} />
             <StatCard label="Yesterday"            value={data.yesterdaySignups} />
             <StatCard label="Paying Subscribers"   value={data.stripeActiveTotal}
@@ -316,9 +386,30 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="📋" title={`All Signups (${data.recentSignups.length})`} />
 
+          {/* Search + test toggle */}
+          <div className="flex items-center gap-3 mb-3">
+            <input
+              type="text"
+              placeholder="Search by name or email..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="flex-1 px-4 py-2.5 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl text-sm text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+            />
+            <button
+              onClick={() => setHideTestUsers(v => !v)}
+              className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition-colors whitespace-nowrap ${
+                hideTestUsers
+                  ? "bg-[#e8f0e9] text-[#3d5c42] border-[#b8d9bc]"
+                  : "bg-rose-50 text-rose-600 border-rose-200"
+              }`}
+            >
+              {hideTestUsers ? `🧪 ${testCount} test hidden` : `🧪 Showing ${testCount} test`}
+            </button>
+          </div>
+
           {/* Filter tabs + Copy emails */}
           <div className="flex items-center gap-2 mb-4 flex-wrap">
-            {(["All", "Founding", "Free", "Refunded"] as const).map(tab => (
+            {(["All", "Founding", "Standard", "Monthly", "Free", "Refunded"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setSignupFilter(tab)}
@@ -326,6 +417,8 @@ export default function AdminPage() {
                   signupFilter === tab
                     ? tab === "Founding"
                       ? "bg-amber-100 text-amber-800 border-amber-300"
+                      : tab === "Standard" || tab === "Monthly"
+                      ? "bg-blue-100 text-blue-800 border-blue-300"
                       : tab === "Refunded"
                       ? "bg-red-100 text-red-600 border-red-300"
                       : "bg-[#e8f0e9] text-[#3d5c42] border-[#b8d9bc]"
@@ -342,6 +435,12 @@ export default function AdminPage() {
             >
               {emailsCopied ? "✓ Copied!" : "📋 Copy emails"}
             </button>
+            <button
+              onClick={downloadCSV}
+              className="px-3 py-1.5 rounded-full text-xs font-semibold border bg-[#fefcf9] text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors"
+            >
+              📥 Download CSV
+            </button>
           </div>
 
           {/* Mobile card list */}
@@ -349,7 +448,7 @@ export default function AdminPage() {
             {visible.map((u) => {
               const name = (u.first_name || u.last_name)
                 ? [u.first_name, u.last_name].filter(Boolean).join(" ")
-                : u.family_name ?? null;
+                : u.family_name ?? u.email.split("@")[0];
               return (
                 <div
                   key={u.id}
@@ -398,17 +497,18 @@ export default function AdminPage() {
                   {visible.map((u) => {
                     const name = (u.first_name || u.last_name)
                       ? [u.first_name, u.last_name].filter(Boolean).join(" ")
-                      : u.family_name ?? "—";
+                      : u.family_name ?? u.email.split("@")[0];
                     return (
+                      <React.Fragment key={u.id}>
                       <tr
-                        key={u.id}
-                        className={`hover:brightness-95 transition-colors ${
+                        onClick={() => setSelectedUser(selectedUser === u.id ? null : u.id)}
+                        className={`hover:brightness-95 transition-colors cursor-pointer ${
                           u.plan === "Founding" ? "bg-amber-50" :
                           u.plan === "Refunded" ? "bg-red-50"   : ""
                         }`}
                       >
                         <td className="px-4 py-3 font-medium text-[#2d2926] max-w-[140px] truncate">{name}</td>
-                        <td className="px-4 py-3 text-[#7a6f65] text-xs max-w-[180px] truncate">{u.email}</td>
+                        <td className="px-4 py-3 text-[#7a6f65] text-xs whitespace-nowrap">{u.email}</td>
                         <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{formatRelativeDate(u.joined)}</td>
                         <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{formatRelativeDate(u.last_active)}</td>
                         <td className="px-4 py-3"><PlanPill plan={u.plan} /></td>
@@ -416,6 +516,57 @@ export default function AdminPage() {
                         <td className="px-4 py-3 text-right text-[#2d2926]">{u.curricula_count}</td>
                         <td className="px-4 py-3 text-right text-[#2d2926]">{u.lessons_done}</td>
                       </tr>
+                      {selectedUser === u.id && (
+                        <tr className="bg-[#f8f5f0]">
+                          <td colSpan={8} className="px-6 py-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                              <div>
+                                <p className="text-[#b5aca4] font-semibold uppercase tracking-wider mb-1">Full Name</p>
+                                <p className="text-[#2d2926]">{name !== u.email.split("@")[0] ? name : "Not set"}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#b5aca4] font-semibold uppercase tracking-wider mb-1">Email</p>
+                                <p className="text-[#2d2926] break-all">{u.email}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#b5aca4] font-semibold uppercase tracking-wider mb-1">Plan & Status</p>
+                                <div className="flex items-center gap-2">
+                                  <PlanPill plan={u.plan} />
+                                  {u.subscription_status && (
+                                    <span className="text-[10px] text-[#7a6f65]">{u.subscription_status}</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-[#b5aca4] font-semibold uppercase tracking-wider mb-1">Signup Date</p>
+                                <p className="text-[#2d2926]">{u.joined ? new Date(u.joined).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "—"}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#b5aca4] font-semibold uppercase tracking-wider mb-1">Children</p>
+                                <p className="text-[#2d2926]">{u.children_count}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#b5aca4] font-semibold uppercase tracking-wider mb-1">Lessons Logged</p>
+                                <p className="text-[#2d2926]">{u.lessons_done}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#b5aca4] font-semibold uppercase tracking-wider mb-1">Curricula</p>
+                                <p className="text-[#2d2926]">{u.curricula_count}</p>
+                              </div>
+                              <div>
+                                <p className="text-[#b5aca4] font-semibold uppercase tracking-wider mb-1">Last Active</p>
+                                <p className="text-[#2d2926]">{formatRelativeDate(u.last_active)}</p>
+                              </div>
+                            </div>
+                            {u.plan === "Founding" && (
+                              <div className="mt-3 inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-xs font-bold">
+                                ⭐ Founding Member
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
@@ -432,6 +583,9 @@ export default function AdminPage() {
               <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-1">Est. Annual Revenue</p>
               <p className="text-4xl font-bold text-[#2d2926] leading-none">${data.estAnnualRevenue.toLocaleString()}</p>
               <p className="text-xs text-[#7a6f65] mt-2">Based on live Stripe active subscriptions</p>
+              <p className="text-sm font-semibold text-[#5c7f63] mt-2">
+                MRR: ${Math.round(data.estAnnualRevenue / 12).toLocaleString()}/mo
+              </p>
               <p className="text-xs text-[#b5aca4] mt-1">If you issued a refund, cancel the subscription in Stripe to keep this accurate.</p>
             </div>
             <StatCard

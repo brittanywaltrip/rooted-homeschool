@@ -29,6 +29,7 @@ type Reflection = {
   id: string;
   date: string;
   reflection: string;
+  is_private: boolean;
   updated_at: string;
 };
 
@@ -39,6 +40,7 @@ type Child = { id: string; name: string; color: string | null };
 const MEMORY_TYPES = [
   { id: "all",        label: "All",         emoji: "✨" },
   { id: "photo",      label: "Photos",      emoji: "📷" },
+  { id: "field_trip", label: "Field Trips", emoji: "🗺️"  },
   { id: "project",    label: "Projects",    emoji: "📁" },
   { id: "book",       label: "Books",       emoji: "📖" },
   { id: "reflection", label: "Reflections", emoji: "📝" },
@@ -84,7 +86,13 @@ export default function MemoriesPage() {
   const load = useCallback(async () => {
     if (!effectiveUserId) return;
 
-    const [{ data: kids }, { data: events }, { data: profile }, { data: reflData }] = await Promise.all([
+    // Query profile first so we know if user is pro (needed for 30-day gate)
+    const { data: profile } = await supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single();
+    const userIsPro = (profile as { is_pro?: boolean } | null)?.is_pro ?? false;
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const [{ data: kids }, { data: events }, { data: reflData }] = await Promise.all([
       supabase
         .from("children")
         .select("id, name, color")
@@ -95,19 +103,19 @@ export default function MemoriesPage() {
         .from("app_events")
         .select("id, type, payload, created_at")
         .eq("user_id", effectiveUserId)
-        .in("type", ["memory_photo", "memory_project", "memory_book"])
+        .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"])
+        .gte("created_at", userIsPro ? "2020-01-01" : thirtyDaysAgo)
         .order("created_at", { ascending: false }),
-      supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
       supabase
         .from("daily_reflections")
-        .select("id, date, reflection, updated_at")
+        .select("id, date, reflection, is_private, updated_at")
         .eq("user_id", effectiveUserId)
         .order("date", { ascending: false }),
     ]);
 
     setChildren(kids ?? []);
     setMemories((events as unknown as Memory[]) ?? []);
-    setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setIsPro(userIsPro);
     setReflections((reflData as unknown as Reflection[]) ?? []);
     setLoading(false);
   }, [effectiveUserId]);
@@ -162,9 +170,9 @@ export default function MemoriesPage() {
     setSavingReflection(true);
     const { data } = await supabase
       .from("daily_reflections")
-      .update({ reflection: reflectionEditText.trim() })
+      .update({ reflection: reflectionEditText.trim(), is_private: viewingReflection.is_private })
       .eq("id", viewingReflection.id)
-      .select("id, date, reflection, updated_at")
+      .select("id, date, reflection, is_private, updated_at")
       .single();
     if (data) {
       const updated = data as Reflection;
@@ -193,6 +201,23 @@ export default function MemoriesPage() {
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSaving(false); return; }
+
+    // Check photo limit for free users
+    if (modalType === "photo" && !isPro) {
+      const { data: countProfile } = await supabase
+        .from("profiles")
+        .select("photo_count")
+        .eq("id", user.id)
+        .single();
+
+      if ((countProfile?.photo_count ?? 0) >= 50) {
+        setUploadError(
+          "You've reached the 50-photo limit on the free plan. Upgrade to upload unlimited photos."
+        );
+        setSaving(false);
+        return;
+      }
+    }
 
     // Upload photo if provided
     let photoUrl: string | undefined;
@@ -234,6 +259,11 @@ export default function MemoriesPage() {
       .single();
 
     if (data) setMemories((prev) => [data as unknown as Memory, ...prev]);
+
+    // Increment photo count for free users after successful upload
+    if (modalType === "photo" && !isPro) {
+      await supabase.rpc("increment_photo_count", { p_user_id: user.id });
+    }
 
     setSaving(false);
     closeModal();
@@ -282,7 +312,7 @@ export default function MemoriesPage() {
 
       {/* AI Year in Review — live feature */}
       <Link
-        href="/dashboard/year-in-review"
+        href={isPro ? "/dashboard/year-in-review" : "/dashboard/pricing"}
         className="block bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 hover:from-[#ddeade] hover:to-[#c5e0c8] transition-colors group"
       >
         <div className="flex items-start gap-3">
@@ -296,13 +326,28 @@ export default function MemoriesPage() {
               print a beautiful keepsake to share with grandparents.
             </p>
             <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-[#5c7f63] bg-white/70 px-2.5 py-1 rounded-full group-hover:bg-white transition-colors">
-              Open Year in Review <ArrowRight size={10} />
+              {isPro ? (
+                <>Open Year in Review <ArrowRight size={10} /></>
+              ) : (
+                "🔒 Pro Feature"
+              )}
             </span>
           </div>
           <Download size={16} className="text-[#5c7f63] shrink-0 mt-0.5" />
         </div>
       </Link>
 
+      {/* Family Update CTA */}
+      <Link
+        href="/dashboard/family-update"
+        className="flex items-center justify-between bg-[#eef5ee] border border-[#b8d9bc] rounded-2xl px-4 py-4 hover:bg-[#e4f0e4] transition-colors"
+      >
+        <div>
+          <p className="text-sm font-semibold text-[#2d2926]">Generate your family update ✨</p>
+          <p className="text-xs text-[#7a6f65] mt-0.5">An AI-written summary to share with grandparents</p>
+        </div>
+        <span className="text-[#5c7f63] text-lg shrink-0">→</span>
+      </Link>
 
       {/* Type filter tabs */}
       <div className="flex gap-2 flex-wrap">
@@ -320,6 +365,19 @@ export default function MemoriesPage() {
           </button>
         ))}
       </div>
+
+      {/* Free user upgrade banner */}
+      {!isPro && !loading && (
+        <div className="flex items-center justify-between bg-[#fafdf8] border border-[#c8dcc9] rounded-2xl px-4 py-3">
+          <p className="text-xs text-[#5c7f63] leading-snug">
+            📖 Showing your last 30 days — upgrade to unlock your full family story
+          </p>
+          <Link href="/dashboard/pricing"
+            className="text-xs font-semibold text-[#3d5c42] underline underline-offset-2 shrink-0 ml-3">
+            Upgrade
+          </Link>
+        </div>
+      )}
 
       {/* ── Reflections tab ─────────────────────────────────── */}
       {activeType === "reflection" && (
@@ -348,7 +406,10 @@ export default function MemoriesPage() {
                   className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-left hover:bg-[#faf8f5] transition-colors"
                 >
                   <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <span className="text-xs font-semibold text-[#5c7f63]">{dateLabel}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-[#5c7f63]">{dateLabel}</span>
+                      {r.is_private && <span className="text-[10px] text-[#b5aca4]">🔒</span>}
+                    </div>
                     <span className="text-[#c8bfb5] text-base leading-none shrink-0">›</span>
                   </div>
                   <p className="text-sm text-[#2d2926] leading-relaxed line-clamp-2">{r.reflection}</p>
@@ -432,17 +493,19 @@ export default function MemoriesPage() {
               <div>
                 {activeType === "all" && gridPhotos.length > 0 && (
                   <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-                    Projects &amp; Books
+                    Memories
                   </p>
                 )}
                 <div className="space-y-2.5">
                   {listItems.map((m) => {
-                    const isPhoto   = m.type === "memory_photo";
-                    const isProject = m.type === "memory_project";
-                    const isBook    = m.type === "memory_book";
-                    const emoji = isPhoto ? "📷" : isProject ? "📁" : "📖";
-                    const bg    = isPhoto ? "#f0f4ff" : isProject ? "#f5ede0" : "#e8f0e9";
-                    const label = isPhoto ? "Photo" : isProject ? "Project" : "Book";
+                    const isPhoto     = m.type === "memory_photo";
+                    const isProject   = m.type === "memory_project";
+                    const isBook      = m.type === "memory_book";
+                    const isFieldTrip = m.type === "memory_field_trip";
+                    const isActivity  = m.type === "memory_activity";
+                    const emoji = isPhoto ? "📷" : isProject ? "📁" : isBook ? "📖" : isFieldTrip ? "🗺️" : "🎵";
+                    const bg    = isPhoto ? "#f0f4ff" : isProject ? "#f5ede0" : isBook ? "#e8f0e9" : isFieldTrip ? "#fff8e8" : "#f0e8f5";
+                    const label = isPhoto ? "Photo" : isProject ? "Project" : isBook ? "Book" : isFieldTrip ? "Field Trip" : "Activity";
                     const p = m.payload;
                     return (
                       <div
@@ -535,6 +598,23 @@ export default function MemoriesPage() {
                 <X size={18} />
               </button>
             </div>
+
+            {/* Private toggle */}
+            <button
+              onClick={async () => {
+                const newVal = !viewingReflection.is_private;
+                await supabase.from("daily_reflections").update({ is_private: newVal }).eq("id", viewingReflection.id);
+                const updated = { ...viewingReflection, is_private: newVal };
+                setViewingReflection(updated);
+                setReflections(prev => prev.map(r => r.id === updated.id ? updated : r));
+              }}
+              className="flex items-center gap-2 text-xs text-[#7a6f65]"
+            >
+              <div className={`w-8 h-[18px] rounded-full transition-colors relative ${viewingReflection.is_private ? "bg-[#5c7f63]" : "bg-[#e8e2d9]"}`}>
+                <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${viewingReflection.is_private ? "translate-x-[16px]" : "translate-x-[2px]"}`} />
+              </div>
+              <span>{viewingReflection.is_private ? "🔒 Private — hidden in Kid Mode" : "👀 Visible in Kid Mode"}</span>
+            </button>
 
             {editingReflection ? (
               <>
@@ -665,9 +745,17 @@ export default function MemoriesPage() {
                     onChange={handleFileSelect}
                   />
                   {uploadError && (
-                    <p className="text-xs text-red-500 mt-1.5 bg-red-50 rounded-xl px-3 py-2">
-                      {uploadError}
-                    </p>
+                    <div className="mt-1.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] p-4 text-center">
+                      <p className="mb-2 text-sm text-[#2d2926]">{uploadError}</p>
+                      {uploadError.includes("50-photo") && (
+                        <Link
+                          href="/dashboard/pricing"
+                          className="text-sm font-semibold text-[#5c7f63] underline underline-offset-2"
+                        >
+                          Upgrade to Pro
+                        </Link>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

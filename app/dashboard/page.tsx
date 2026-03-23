@@ -88,11 +88,18 @@ function formatDateHero(date: Date) {
   return `${weekday} · ${rest}`;
 }
 
-function getGreeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
+function buildGreeting(familyName: string): string {
+  const now  = new Date();
+  const h    = now.getHours();
+  const dow  = now.getDay(); // 0=Sun … 6=Sat
+  const name = familyName
+    ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}`
+    : "";
+  if (dow === 6) return `Happy Saturday, ${name}! 🌿`;
+  if (dow === 0) return `Happy Sunday,${name}! 🌿`;
+  const base   = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  const suffix = dow === 1 ? " Ready for the week?" : dow === 3 ? " Halfway there" : dow === 5 ? " Happy Friday" : "";
+  return `${base}${name}!${suffix} 🌿`;
 }
 
 function toTitleCase(name: string) {
@@ -146,6 +153,8 @@ function FloatingLeaves({ active }: { active: boolean }) {
 
 // ─── Today Lesson Card ────────────────────────────────────────────────────────
 
+type Particle = { id: number; x: number; y: number; color: string; delay: number };
+
 function TodayLessonCard({
   lesson, childObj, onToggle, onEdit, onDelete, isPartner,
 }: {
@@ -158,6 +167,7 @@ function TodayLessonCard({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showLeaf, setShowLeaf] = useState(false);
+  const [particles, setParticles] = useState<Particle[]>([]);
   const prevCompleted = useRef(lesson.completed);
 
   useEffect(() => {
@@ -165,7 +175,24 @@ function TodayLessonCard({
       setShowLeaf(true);
       const t = setTimeout(() => setShowLeaf(false), 1300);
       prevCompleted.current = true;
-      return () => clearTimeout(t);
+
+      // Tier 1: particle burst from checkbox
+      const colors = ['#5c7f63', '#7a9e7e', '#a8d4aa', '#f0d090', '#d4b896'];
+      const newParticles: Particle[] = Array.from({ length: 10 }, (_, i) => {
+        const angle = (i * 36 + Math.random() * 20 - 10) * (Math.PI / 180);
+        const dist  = 60 + Math.random() * 20;
+        return {
+          id:    i,
+          x:     Math.cos(angle) * dist,
+          y:     Math.sin(angle) * dist,
+          color: colors[i % colors.length],
+          delay: Math.round(Math.random() * 40),
+        };
+      });
+      setParticles(newParticles);
+      const pt = setTimeout(() => setParticles([]), 500);
+
+      return () => { clearTimeout(t); clearTimeout(pt); };
     }
     prevCompleted.current = lesson.completed;
   }, [lesson.completed]);
@@ -242,6 +269,24 @@ function TodayLessonCard({
         </span>
       )}
 
+      {/* Tier 1: Particle burst */}
+      {particles.map(p => (
+        <span
+          key={p.id}
+          className="particle-burst absolute rounded-full"
+          style={{
+            width: 7,
+            height: 7,
+            left: 29,
+            top: 25,
+            backgroundColor: p.color,
+            animationDelay: `${p.delay}ms`,
+            '--px': `${p.x}px`,
+            '--py': `${p.y}px`,
+          } as React.CSSProperties}
+        />
+      ))}
+
       {/* 3-dot menu */}
       {!isPartner && (
         <div className="relative shrink-0" data-no-toggle>
@@ -290,13 +335,19 @@ export default function TodayPage() {
   const { isPartner, effectiveUserId } = usePartner();
 
   const [familyName,      setFamilyName]      = useState("");
+  const [firstName,       setFirstName]       = useState("");
   const [onboarded,       setOnboarded]       = useState<boolean | null>(null);
   const [children,        setChildren]        = useState<Child[]>([]);
+  const [selectedChild,   setSelectedChild]   = useState<string | null>(null);
   const [lessons,         setLessons]         = useState<Lesson[]>([]);
   const [hasAnyLessons,   setHasAnyLessons]   = useState(false);
   const [leafCounts,      setLeafCounts]      = useState<Record<string, number>>({});
   const [loading,         setLoading]         = useState(true);
   const [celebrating,     setCelebrating]     = useState(false);
+  const [childDoneToast,    setChildDoneToast]    = useState<string | null>(null);
+  const [childDoneToastOut, setChildDoneToastOut] = useState(false);
+  const [allDoneBanner,     setAllDoneBanner]     = useState(false);
+  const childDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [todayMemoryEvents, setTodayMemoryEvents] = useState<TodayEvent[]>([]);
   const [todayBooks,        setTodayBooks]        = useState<BookLog[]>([]);
@@ -342,8 +393,14 @@ export default function TodayPage() {
   const [savingActivityEdit,    setSavingActivityEdit]    = useState(false);
 
   const [showLogModal,           setShowLogModal]           = useState(false);
+  const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
+  const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
+  const [upcomingDay,            setUpcomingDay]            = useState<{
+    date: string;
+    lessons: { title: string; childId: string | null; subjectName: string | null }[];
+  } | null>(null);
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
@@ -370,6 +427,7 @@ export default function TodayPage() {
       supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
     ]);
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
+    setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
 
@@ -386,8 +444,10 @@ export default function TodayPage() {
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
       supabase.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", effectiveUserId),
     ]);
-    setLessons((lessonsData as unknown as Lesson[]) ?? []);
+    const loadedLessons = (lessonsData as unknown as Lesson[]) ?? [];
+    setLessons(loadedLessons);
     setHasAnyLessons((totalLessons ?? 0) > 0);
+    setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
 
     const [{ data: completed }, { data: bookEvents }, { data: memEvents }] = await Promise.all([
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
@@ -425,6 +485,37 @@ export default function TodayPage() {
       (b: { start_date: string; end_date: string; name: string }) => today >= b.start_date && today <= b.end_date
     );
     setActiveVacation(currentVac ? { name: currentVac.name, end_date: currentVac.end_date } : null);
+    setAllVacationBlocks((vacBlocks ?? []) as { name: string; start_date: string; end_date: string }[]);
+
+    // Upcoming lessons — first school day after today with scheduled lessons
+    const nextDates = Array.from({ length: 14 }, (_, i) => {
+      const d = new Date(); d.setDate(d.getDate() + i + 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    });
+    const { data: upcomingData } = await supabase
+      .from("lessons")
+      .select("title, scheduled_date, child_id, subjects(name)")
+      .eq("user_id", effectiveUserId)
+      .eq("completed", false)
+      .gte("scheduled_date", nextDates[0])
+      .lte("scheduled_date", nextDates[13])
+      .order("scheduled_date");
+    type UpRow = { title: string; scheduled_date: string | null; child_id: string | null; subjects: { name: string } | null };
+    if (upcomingData && upcomingData.length > 0) {
+      const rows = upcomingData as unknown as UpRow[];
+      const firstDate = rows[0].scheduled_date ?? "";
+      const dayRows = rows.filter((l) => l.scheduled_date === firstDate);
+      setUpcomingDay({
+        date: firstDate,
+        lessons: dayRows.map((l) => ({
+          title:       l.title,
+          childId:     l.child_id,
+          subjectName: l.subjects?.name ?? null,
+        })),
+      });
+    } else {
+      setUpcomingDay(null);
+    }
 
     setLoading(false);
   }, [today, effectiveUserId]);
@@ -442,13 +533,41 @@ export default function TodayPage() {
 
   async function toggleLesson(id: string, current: boolean) {
     const lesson = lessons.find((l) => l.id === id);
-    setLessons((prev) => prev.map((l) => (l.id === id ? { ...l, completed: !current } : l)));
+    const updatedLessons = lessons.map(l => l.id === id ? { ...l, completed: !current } : l);
+    setLessons(updatedLessons);
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
 
     if (!current) {
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 1600);
       triggerGardenAnimation(lesson?.child_id ?? undefined);
+
+      // Tier 2: child done toast at 300ms
+      const childId = lesson?.child_id;
+      if (childId) {
+        const childLessons = updatedLessons.filter(l => l.child_id === childId);
+        const childAllDone = childLessons.length > 0 && childLessons.every(l => l.completed);
+        if (childAllDone) {
+          const childName = children.find(c => c.id === childId)?.name;
+          if (childName) {
+            setTimeout(() => {
+              if (childDoneTimerRef.current) clearTimeout(childDoneTimerRef.current);
+              setChildDoneToastOut(false);
+              setChildDoneToast(childName);
+              childDoneTimerRef.current = setTimeout(() => {
+                setChildDoneToastOut(true);
+                setTimeout(() => { setChildDoneToast(null); setChildDoneToastOut(false); }, 300);
+              }, 2500);
+            }, 300);
+          }
+        }
+      }
+
+      // Tier 3: all done banner at 800ms
+      const allNowDone = updatedLessons.length > 0 && updatedLessons.every(l => l.completed);
+      if (allNowDone) {
+        setTimeout(() => setAllDoneBanner(true), 800);
+      }
 
       if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
         const { data: goalRow } = await supabase
@@ -471,6 +590,9 @@ export default function TodayPage() {
           });
         }
       }
+    } else {
+      // Unchecking — immediately hide the all done banner
+      setAllDoneBanner(false);
     }
     await refreshLeafCounts();
   }
@@ -552,6 +674,9 @@ export default function TodayPage() {
       setTimeout(() => setCelebrating(false), 1600);
       if (childId) setLeafCounts((prev) => ({ ...prev, [childId]: (prev[childId] ?? 0) + 1 }));
       triggerGardenAnimation(childId);
+    } else if (type === "field_trip" || type === "activity") {
+      setSavedMemoryToast(true);
+      setTimeout(() => setSavedMemoryToast(false), 2500);
     }
     loadData();
   }
@@ -619,6 +744,9 @@ export default function TodayPage() {
   const totalToday     = lessons.length;
   const progressPct    = totalToday > 0 ? Math.round((completedToday / totalToday) * 100) : 0;
   const allDone        = totalToday > 0 && completedToday === totalToday;
+  const isWeekend      = [0, 6].includes(new Date().getDay());
+  const pendingLessons = totalToday > 0 && !allDone;
+  const showUpcoming   = !activeVacation && subjects.length > 0 && !pendingLessons && !!upcomingDay;
 
   if (loading) {
     return (
@@ -636,7 +764,7 @@ export default function TodayPage() {
       {/* ── Hero Header ──────────────────────────────────────── */}
       <PageHero
         overline={formatDateHero(new Date())}
-        title={`${getGreeting()}${familyName ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}` : ""}! 🌿`}
+        title={buildGreeting(familyName)}
       >
         {totalToday > 0 && (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
@@ -713,30 +841,7 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* ── Founding Family upgrade banner ───────────────── */}
-      {!isPartner && !isPro && !upgradeDismissed && new Date() < new Date("2026-04-30") && (
-        <div className="relative bg-gradient-to-br from-[#fef9f0] to-[#fef6e4] border border-[#f0d090] rounded-2xl p-5 flex items-start gap-4">
-          <span className="text-2xl shrink-0">🌱</span>
-          <div className="flex-1 pr-6">
-            <p className="text-sm font-bold text-[#2d2926] mb-1">
-              Lock in your Founding Family price — {Math.max(0, Math.ceil((new Date("2026-04-30").getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))} days left
-            </p>
-            <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">
-              Memories, insights, transcripts and more — $39/yr locked forever for the first 200 families.
-            </p>
-            <a href="/upgrade" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors">
-              Claim Founding Price →
-            </a>
-          </div>
-          <button
-            onClick={() => { localStorage.setItem("rooted_upgrade_dismissed", today); setUpgradeDismissed(true); }}
-            aria-label="Dismiss"
-            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0dda8]/50 transition-colors text-lg leading-none"
-          >×</button>
-        </div>
-      )}
-
-      {/* ── Curriculum setup nudge ───────────────────────── */}
+            {/* ── Curriculum setup nudge ───────────────────────── */}
       {!isPartner && !nudgeDismissed && children.length > 0 && subjects.length === 0 && (
         <div className="flex items-start justify-between gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
           <div className="flex items-start gap-3 min-w-0">
@@ -756,17 +861,47 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* ── Child Filter Pills ─────────────────────────────── */}
+      {children.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 mb-4 px-4">
+          <button
+            onClick={() => setSelectedChild(null)}
+            className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
+              !selectedChild
+                ? 'bg-[#3d5c42] text-white'
+                : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
+            }`}>
+            All
+          </button>
+          {children.map((child: any) => (
+            <button
+              key={child.id}
+              onClick={() => setSelectedChild(child.id === selectedChild ? null : child.id)}
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
+                selectedChild === child.id
+                  ? 'bg-[#3d5c42] text-white'
+                  : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
+              }`}>
+              {child.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── Today's Sections ─────────────────────────────── */}
       <div>
-        {allDone && (
+        {allDoneBanner && (
           <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
             <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
             <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
           </div>
         )}
         {(() => {
+          const visibleChildren = selectedChild
+            ? children.filter(c => c.id === selectedChild)
+            : children;
           const childIds = new Set(children.map((c) => c.id));
-          const sectionsWithContent = children.filter((child) =>
+          const sectionsWithContent = visibleChildren.filter((child) =>
             lessons.some((l) => l.child_id === child.id) ||
             todayBooks.some((b) => b.payload.child_id === child.id) ||
             todayMemoryEvents.some((e) => e.payload.child_id === child.id)
@@ -785,9 +920,11 @@ export default function TodayPage() {
             if (subjects.length === 0) return (
               <div className="py-8 flex flex-col items-center text-center">
                 <span className="text-[52px] block mb-2">🌿</span>
-                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>Welcome to Rooted 🌱</p>
-                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">Your garden grows with every lesson you log together.</p>
-                <Link href="/dashboard/plan" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
+                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
+                  {firstName ? `Ready to start, ${firstName}?` : "Ready to start?"}
+                </p>
+                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">Set up your curriculum and your first lessons will appear right here.</p>
+                <Link href="/dashboard/plan?openWizard=true" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
                   Set Up Curriculum →
                 </Link>
               </div>
@@ -904,6 +1041,74 @@ export default function TodayPage() {
       )}
 
 
+      {/* ── Coming Up ──────────────────────────────────────── */}
+      {showUpcoming && upcomingDay && (() => {
+        const upcomingDate = new Date(upcomingDay.date + "T00:00:00");
+        const dayName      = upcomingDate.toLocaleDateString("en-US", { weekday: "long" });
+        const fullLabel    = upcomingDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+        const msFromNow    = upcomingDate.getTime() - new Date().setHours(0, 0, 0, 0);
+        const daysFromNow  = Math.round(msFromNow / 86400000);
+        const relLabel     = daysFromNow === 1 ? "tomorrow" : `in ${daysFromNow} days`;
+
+        // Check if a vacation block starts on the upcoming day
+        const vacOnDay = allVacationBlocks.find(
+          (b) => upcomingDay.date >= b.start_date && upcomingDay.date <= b.end_date
+        );
+        if (vacOnDay) {
+          return (
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4] mb-2">
+                Coming Up · {dayName.toUpperCase()}
+              </p>
+              <p className="text-sm text-[#7a4a1a]">🌴 {vacOnDay.name} starts {fullLabel}</p>
+            </div>
+          );
+        }
+
+        // Group lessons by child, collect subject names per child
+        const byChild = new Map<string, { childId: string | null; subjects: Set<string> }>();
+        for (const l of upcomingDay.lessons) {
+          const key = l.childId ?? "__unassigned__";
+          if (!byChild.has(key)) byChild.set(key, { childId: l.childId, subjects: new Set() });
+          if (l.subjectName) byChild.get(key)!.subjects.add(l.subjectName);
+        }
+
+        return (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
+            <div className="flex items-center justify-between mb-2.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4]">
+                Coming Up · {dayName.toUpperCase()}
+              </p>
+              <p className="text-[10px] text-[#c8bfb5]">{relLabel}</p>
+            </div>
+            <div className="space-y-2">
+              {Array.from(byChild.values()).map(({ childId, subjects }) => {
+                const child    = children.find((c) => c.id === childId);
+                const subList  = Array.from(subjects).join(", ");
+                return (
+                  <div key={childId ?? "__unassigned__"} className="flex items-center gap-2.5">
+                    {child ? (
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white"
+                        style={{ backgroundColor: child.color ?? "#5c7f63" }}
+                      >
+                        {child.name.charAt(0).toUpperCase()}
+                      </div>
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-[#e8e2d9] flex items-center justify-center shrink-0 text-[10px] font-bold text-[#7a6f65]">?</div>
+                    )}
+                    <span className="text-sm text-[#2d2926] truncate">
+                      {child ? toTitleCase(child.name) : "Unassigned"}
+                      {subList && <span className="text-[#7a6f65]"> · {subList}</span>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Daily Quote ───────────────────────────────────── */}
       <div className="bg-[#f5f2ec] rounded-xl px-4 py-3">
         <p className="text-[13px] italic leading-relaxed border-l-2 border-[#e8e2d9] pl-3" style={{ color: "#9e958d" }}>&ldquo;{quote}&rdquo;</p>
@@ -919,8 +1124,7 @@ export default function TodayPage() {
           className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 rounded-full bg-[#5c7f63] hover:bg-[#3d5c42] active:scale-95 text-white shadow-lg flex items-center gap-2 px-4 py-3 transition-all"
           aria-label="Log today"
         >
-          <span className="text-2xl font-light leading-none">+</span>
-          <span className="text-sm font-semibold">Log Today</span>
+          <span className="text-sm font-semibold">+ Log something</span>
         </button>
       )}
 
@@ -1068,6 +1272,15 @@ export default function TodayPage() {
         />
       )}
 
+      {/* ── Saved to Memories toast ──────────────────────── */}
+      {savedMemoryToast && (
+        <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[70] pointer-events-none toast-slide-up">
+          <div className="bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">
+            Saved to Memories 🌱
+          </div>
+        </div>
+      )}
+
       {/* ── Garden growth toast ───────────────────────────── */}
       {gardenToast && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
@@ -1112,6 +1325,17 @@ export default function TodayPage() {
       )}
 
       <FloatingLeaves active={celebrating} />
+
+      {/* ── Tier 2: Child done toast ──────────────────────── */}
+      {childDoneToast && (
+        <div
+          className={`fixed bottom-24 left-1/2 z-[70] pointer-events-none ${childDoneToastOut ? 'child-toast-out' : 'child-toast-in'}`}
+        >
+          <div className="bg-[#2d2926] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">
+            🌟 {childDoneToast}&apos;s done for today!
+          </div>
+        </div>
+      )}
 
       </div>
     </>
