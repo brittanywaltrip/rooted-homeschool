@@ -10,7 +10,7 @@ const FEATURES = [
   { emoji: '🌱', label: 'The Family Garden',      desc: 'Watch each child\'s tree bloom'       },
   { emoji: '📚', label: 'Curated Resources',      desc: 'Discounts, field trips & printables'  },
   { emoji: '📸', label: 'Capture Memories',       desc: 'Photos, books & project log'          },
-  { emoji: '📋', label: 'Compliance Reports',     desc: 'Print-ready PDF in one click'         },
+  { emoji: '📋', label: 'Progress Reports',     desc: 'Print-ready PDF in one click'         },
   { emoji: '🎯', label: 'Finish Line Tracker',    desc: 'Curriculum pacing & goal tracking'    },
 ]
 

@@ -337,6 +337,17 @@ export default function MemoriesPage() {
         </div>
       </Link>
 
+      {/* Family Update CTA */}
+      <Link
+        href="/dashboard/family-update"
+        className="flex items-center justify-between bg-[#eef5ee] border border-[#b8d9bc] rounded-2xl px-4 py-4 hover:bg-[#e4f0e4] transition-colors"
+      >
+        <div>
+          <p className="text-sm font-semibold text-[#2d2926]">Generate your family update ✨</p>
+          <p className="text-xs text-[#7a6f65] mt-0.5">An AI-written summary to share with grandparents</p>
+        </div>
+        <span className="text-[#5c7f63] text-lg shrink-0">→</span>
+      </Link>
 
       {/* Type filter tabs */}
       <div className="flex gap-2 flex-wrap">

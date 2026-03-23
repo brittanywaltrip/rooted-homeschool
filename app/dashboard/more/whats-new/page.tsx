@@ -18,9 +18,9 @@ const UPDATES = [
   {
     date: "March 2026",
     emoji: "📸",
-    title: "Capture Today — Field Trips & Activities",
+    title: "+ Log Something — Field Trips & Activities",
     description:
-      "Tap 'Capture Today' to log more than just lessons. Add a field trip (where did you go?), an activity like piano or co-op, a book, a photo, a project, or a reflection. Everything saves to Memories automatically.",
+      "Tap '+ Log something' to log more than just lessons. Add a field trip (where did you go?), an activity like piano or co-op, a book, a photo, a project, or a reflection. Everything saves to Memories automatically.",
     inspiredByFamily: false,
   },
   {
@@ -34,9 +34,9 @@ const UPDATES = [
   {
     date: "March 2026",
     emoji: "🌿",
-    title: '"Capture Today" — Not Just Lessons',
+    title: '"+ Log Something" — Not Just Lessons',
     description:
-      "We renamed 'Log Today' to 'Capture Today' because that's what you're really doing — capturing your homeschool story, not just checking boxes. The button now lives in the bottom corner of your Today page, always ready.",
+      "We renamed 'Log Today' to '+ Log something' because that's what you're really doing — capturing your homeschool story, not just checking boxes. The button now lives in the bottom corner of your Today page, always ready.",
     inspiredByFamily: false,
   },
   {

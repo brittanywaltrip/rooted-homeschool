@@ -3,25 +3,27 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, Camera, Calendar, MoreHorizontal, Settings } from "lucide-react";
+import { Sun, Leaf, Camera, Calendar, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
 import { ProfileProvider, useProfile } from "@/lib/profile-context";
 
 const navItems = [
-  { label: "Today",    href: "/dashboard",          icon: Sun      },
-  { label: "Plan",     href: "/dashboard/plan",     icon: Calendar },
-  { label: "Garden",   href: "/dashboard/garden",   icon: Leaf     },
-  { label: "Memories", href: "/dashboard/memories", icon: Camera   },
+  { label: "Today",     href: "/dashboard",           icon: Sun      },
+  { label: "Plan",      href: "/dashboard/plan",      icon: Calendar },
+  { label: "Garden",    href: "/dashboard/garden",    icon: Leaf     },
+  { label: "Memories",  href: "/dashboard/memories",  icon: Camera   },
+  { label: "Resources", href: "/dashboard/resources",  icon: Search   },
 ];
 
 // Primary tabs shown in mobile bottom nav
 const mobileBottomNav = [
-  { label: "Today",    href: "/dashboard",          icon: Sun      },
-  { label: "Plan",     href: "/dashboard/plan",     icon: Calendar },
-  { label: "Garden",   href: "/dashboard/garden",   icon: Leaf     },
-  { label: "Memories", href: "/dashboard/memories", icon: Camera   },
+  { label: "Today",     href: "/dashboard",           icon: Sun      },
+  { label: "Plan",      href: "/dashboard/plan",      icon: Calendar },
+  { label: "Garden",    href: "/dashboard/garden",    icon: Leaf     },
+  { label: "Memories",  href: "/dashboard/memories",  icon: Camera   },
+  { label: "Resources", href: "/dashboard/resources",  icon: Search   },
 ];
 
 function NavLink({
@@ -247,7 +249,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const sidebarContent = (
     <>
       {/* Brand */}
-      <div className="px-5 py-5 border-b border-[#e8e2d9]">
+      <div className="px-5 py-5 border-b border-[#e8e2d9] flex items-center justify-between">
         <Link
           href="/dashboard"
           onClick={() => setMenuOpen(false)}
@@ -260,6 +262,13 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             <span className="text-sm font-bold text-[#2d2926] block leading-none">Rooted</span>
             <span className="text-[10px] text-[#7a6f65] leading-none">{displayName || "Homeschool"}</span>
           </div>
+        </Link>
+        <Link
+          href="/dashboard/settings"
+          onClick={() => setMenuOpen(false)}
+          className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0"
+        >
+          {displayName ? displayName.charAt(0).toUpperCase() : '🌿'}
         </Link>
       </div>
 
@@ -291,20 +300,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* Settings + Sign out */}
       <div className="p-3 border-t border-[#e8e2d9] space-y-0.5">
-        <NavLink
-          label="More"
-          href="/dashboard/more"
-          icon={MoreHorizontal}
-          active={isActive("/dashboard/more")}
-          onClick={() => setMenuOpen(false)}
-        />
-        <NavLink
-          label="Settings"
-          href="/dashboard/settings"
-          icon={Settings}
-          active={isActive("/dashboard/settings")}
-          onClick={() => setMenuOpen(false)}
-        />
         {isAdmin && (
           <Link
             href="/admin"
@@ -365,13 +360,12 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               <span className="text-base">🌿</span>
               <span className="text-sm font-bold text-[#2d2926]">Rooted</span>
             </div>
-            <button
-              onClick={() => setMenuOpen(!menuOpen)}
-              className="text-[#7a6f65] p-1 rounded-lg hover:bg-[#f0ede8]"
-              aria-label="More options"
+            <Link
+              href="/dashboard/settings"
+              className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors"
             >
-              <MoreHorizontal size={20} />
-            </button>
+              {displayName ? displayName.charAt(0).toUpperCase() : '🌿'}
+            </Link>
           </div>
 
           {/* Partner banner */}
@@ -407,17 +401,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-          <Link
-            href="/dashboard/more"
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors ${
-              isActive("/dashboard/more") ? "text-[#3d5c42]" : "text-[#7a6f65]"
-            }`}
-          >
-            <div className={`p-1.5 rounded-lg ${isActive("/dashboard/more") ? "bg-[#e8f0e9]" : ""}`}>
-              <MoreHorizontal size={18} strokeWidth={isActive("/dashboard/more") ? 2.5 : 1.8} />
-            </div>
-            More
-          </Link>
         </nav>
       </div>
     </PartnerContext.Provider>

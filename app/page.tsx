@@ -520,7 +520,7 @@ export default function Home() {
             {
               mockup: <ReportMockup />,
               title: "Print-Ready Reports",
-              desc: "Generate clean, professional progress reports for state compliance. Configure, preview, and print in one click.",
+              desc: "Generate clean, professional progress reports for your family records. Configure, preview, and print in one click.",
             },
           ].map(({ mockup, title, desc }) => (
             <div key={title} className="mockup-card flex flex-col gap-5 cursor-default">
@@ -575,7 +575,7 @@ export default function Home() {
                 title: "Curated Resources",
                 color: "#e8f4f8",
                 border: "#a8d0e0",
-                desc: "Discounts, field trips, printables, science projects, and state requirements \u2014 curated for you.",
+                desc: "Discounts, field trips, printables, science projects, and state homeschool information \u2014 curated for you.",
               },
               {
                 emoji: "📸",
@@ -916,7 +916,7 @@ export default function Home() {
                 "Unlimited photos",
                 "Full memory history — all time",
                 "Unlimited AI Year in Review",
-                "Printable compliance reports",
+                "Printable progress reports",
                 "Finish Line curriculum pacing",
                 "AI Family Update",
                 "AI Graduation Letter",
@@ -956,7 +956,7 @@ export default function Home() {
                 "Unlimited photos",
                 "Full memory history — all time",
                 "Unlimited AI Year in Review",
-                "Printable compliance reports",
+                "Printable progress reports",
                 "Finish Line curriculum pacing",
                 "AI Family Update",
                 "AI Graduation Letter",
@@ -994,7 +994,7 @@ export default function Home() {
                 "Unlimited photos",
                 "Full memory history — all time",
                 "Unlimited AI Year in Review",
-                "Printable compliance reports",
+                "Printable progress reports",
                 "Finish Line curriculum pacing",
                 "AI Family Update",
                 "AI Graduation Letter",
@@ -1034,7 +1034,7 @@ export default function Home() {
                 { feature: "Full memory history",    free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "AI Year in Review",      free: "1 / year", founding: "✓ Unlimited", standard: "✓ Unlimited" },
                 { feature: "Memories log",           free: "30 days", founding: "✓ All time",  standard: "✓ All time" },
-                { feature: "Compliance reports",     free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Progress reports",     free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Finish Line pacing",     free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "AI Family Update",       free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "AI Graduation Letter",   free: "—",     founding: "✓",          standard: "✓"         },

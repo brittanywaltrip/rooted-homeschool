@@ -1093,8 +1093,7 @@ export default function TodayPage() {
           className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 rounded-full bg-[#5c7f63] hover:bg-[#3d5c42] active:scale-95 text-white shadow-lg flex items-center gap-2 px-4 py-3 transition-all"
           aria-label="Log today"
         >
-          <span className="text-2xl font-light leading-none">+</span>
-          <span className="text-sm font-semibold">Capture Today</span>
+          <span className="text-sm font-semibold">+ Log something</span>
         </button>
       )}
 

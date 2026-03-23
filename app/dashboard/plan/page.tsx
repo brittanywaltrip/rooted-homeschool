@@ -965,6 +965,12 @@ export default function PlanPage() {
           >
             <Plus size={12} strokeWidth={2.5} />Add a Break
           </button>
+          <button
+            onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+            className="px-4 py-2 bg-[#e0f0f7] border border-[#b0d5e8] text-[#0C447C] text-sm font-semibold rounded-full hover:bg-[#c8e4f0] transition-colors"
+          >
+            + Add vacation
+          </button>
         </div>
       )}
 

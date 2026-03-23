@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera, GraduationCap, ExternalLink, Sprout } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useProfile } from "@/lib/profile-context";
@@ -1369,7 +1370,43 @@ export default function SettingsPage() {
         </section>
       )}
 
-      <div className="h-4" />
+      {/* ── Kid View ─────────────────────────────────────────────────── */}
+      <div className="mt-8 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+        <Link
+          href="/child"
+          className="flex items-center justify-between px-5 py-4 hover:bg-[#f8f5f0] transition-colors"
+        >
+          <div>
+            <p className="text-sm font-semibold text-[#2d2926]">Kid view</p>
+            <p className="text-xs text-[#7a6f65]">Show the garden to your child</p>
+          </div>
+          <span className="text-[#7a6f65]">→</span>
+        </Link>
+      </div>
+
+      {/* ── Help & More ──────────────────────────────────────────────── */}
+      <div className="mt-6 mb-8">
+        <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-3 px-1">Help & More</p>
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
+          {[
+            { label: "What's new",      href: "/dashboard/more/whats-new", sub: "Latest updates" },
+            { label: "FAQ",             href: "/faq",                       sub: "Common questions" },
+            { label: "Contact us",      href: "/contact",                   sub: "hello.rootedapp@gmail.com" },
+          ].map(item => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="flex items-center justify-between px-5 py-3.5 hover:bg-[#f8f5f0] transition-colors"
+            >
+              <div>
+                <p className="text-sm font-medium text-[#2d2926]">{item.label}</p>
+                <p className="text-xs text-[#7a6f65]">{item.sub}</p>
+              </div>
+              <span className="text-[#c8bfb5]">→</span>
+            </Link>
+          ))}
+        </div>
+      </div>
 
       {/* ── New School Year Modal ────────────────────────────── */}
       {showYearModal && (

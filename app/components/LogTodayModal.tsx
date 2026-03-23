@@ -150,6 +150,9 @@ export default function LogTodayModal({
   const [reflectionText, setReflectionText] = useState("");
   const [reflectionPrivate, setReflectionPrivate] = useState(false);
 
+  // Date override for non-reflection modes
+  const [dateOverride, setDateOverride] = useState<string | null>(null);
+
   function selectMode(m: Mode) {
     setMode(m);
     setError("");
@@ -167,7 +170,7 @@ export default function LogTodayModal({
         await supabase.from("app_events").insert({
           user_id: user.id,
           type: "memory_book",
-          payload: { title: bookTitle.trim(), date: saveDate, child_id: bookChild || undefined },
+          payload: { title: bookTitle.trim(), date: dateOverride || saveDate, child_id: bookChild || undefined },
         });
         onSaved("book", bookChild || undefined);
 
@@ -176,7 +179,7 @@ export default function LogTodayModal({
         await supabase.from("app_events").insert({
           user_id: user.id,
           type: "memory_field_trip",
-          payload: { title: fieldTripTitle.trim(), date: saveDate, child_id: fieldTripChild || undefined },
+          payload: { title: fieldTripTitle.trim(), date: dateOverride || saveDate, child_id: fieldTripChild || undefined },
         });
         onSaved("field_trip", fieldTripChild || undefined);
 
@@ -188,7 +191,7 @@ export default function LogTodayModal({
           payload: {
             title: projectTitle.trim(),
             description: projectDesc.trim() || undefined,
-            date: saveDate,
+            date: dateOverride || saveDate,
             child_id: projectChild || undefined,
           },
         });
@@ -199,7 +202,7 @@ export default function LogTodayModal({
         await supabase.from("app_events").insert({
           user_id: user.id,
           type: "memory_activity",
-          payload: { title: activityTitle.trim(), date: saveDate, child_id: activityChild || undefined },
+          payload: { title: activityTitle.trim(), date: dateOverride || saveDate, child_id: activityChild || undefined },
         });
         onSaved("activity", activityChild || undefined);
 
@@ -226,7 +229,7 @@ export default function LogTodayModal({
         await supabase.from("app_events").insert({
           user_id: user.id,
           type: "memory_photo",
-          payload: { title: photoTitle.trim(), date: saveDate, child_id: photoChild || undefined },
+          payload: { title: photoTitle.trim(), date: dateOverride || saveDate, child_id: photoChild || undefined },
         });
 
         // Increment photo count for free users
@@ -290,7 +293,7 @@ export default function LogTodayModal({
                 </button>
               )}
               {mode === null && (
-                <h2 className="text-lg font-bold text-[#2d2926]">What happened today? 🌿</h2>
+                <h2 className="text-lg font-bold text-[#2d2926]">What happened?</h2>
               )}
               {mode !== null && (
                 <h2 className="text-base font-bold text-[#2d2926]">
@@ -313,7 +316,7 @@ export default function LogTodayModal({
             {/* ── Step 1: Mode picker ── */}
             {mode === null && (
               <>
-                <p className="text-sm text-[#7a6f65] mb-5">Log something great. It only takes a second.</p>
+                <p className="text-sm text-[#7a6f65] mb-5">Log today or something from last week.</p>
                 <div className="grid grid-cols-2 gap-3">
                   {MODES.map(({ mode: m, emoji, label }) => (
                     <button
@@ -446,6 +449,38 @@ export default function LogTodayModal({
                   </div>
                   <span>{reflectionPrivate ? "🔒 Private — only you can see this" : "👀 Visible in Kid Mode"}</span>
                 </button>
+              </div>
+            )}
+
+            {/* Date picker — for non-reflection modes */}
+            {mode !== null && mode !== "reflection" && (
+              <div className="mt-4">
+                <label className="text-xs font-medium text-[#7a6f65] block mb-2">When?</label>
+                <div className="flex gap-2">
+                  {[
+                    { label: "Today", value: new Date().toISOString().split("T")[0] },
+                    { label: "Yesterday", value: new Date(Date.now() - 86400000).toISOString().split("T")[0] },
+                  ].map(opt => (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      onClick={() => setDateOverride(opt.value)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        (dateOverride || new Date().toISOString().split("T")[0]) === opt.value
+                          ? "bg-[#eef5ee] border-[#5c7f63] text-[#3d5c42] font-semibold"
+                          : "bg-white border-[#e8e2d9] text-[#7a6f65]"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                  <input
+                    type="date"
+                    value={dateOverride || new Date().toISOString().split("T")[0]}
+                    onChange={e => setDateOverride(e.target.value)}
+                    className="px-2 py-1.5 rounded-full text-xs border border-[#e8e2d9] text-[#7a6f65] bg-white"
+                  />
+                </div>
               </div>
             )}
 

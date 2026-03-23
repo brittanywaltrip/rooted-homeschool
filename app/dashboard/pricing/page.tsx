@@ -16,7 +16,7 @@ const features: FeatureRow[] = [
   { label: "Photo memories & book log",      free: "50 photos · 30 days", founding: "✓ Unlimited", standard: "✓ Unlimited" },
   { label: "Full memory history",            free: "—",              founding: "✓",            standard: "✓"           },
   { label: "AI Year in Review",              free: "1 / year",       founding: "✓ Unlimited",  standard: "✓ Unlimited" },
-  { label: "Compliance-ready PDF reports",   free: "—",              founding: "✓",            standard: "✓"           },
+  { label: "Progress reports",   free: "—",              founding: "✓",            standard: "✓"           },
   { label: "Finish Line curriculum pacing",  free: "—",              founding: "✓",            standard: "✓"           },
   { label: "AI Family Update narrative",     free: "—",              founding: "✓",            standard: "✓"           },
   { label: "AI Graduation Letter",           free: "—",              founding: "✓",            standard: "✓"           },

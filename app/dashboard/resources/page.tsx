@@ -477,13 +477,13 @@ export default function ResourcesPage() {
       {/* ── 1. Header ──────────────────────────────────────────── */}
       <div>
         <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">
-          Curated for Homeschool Families
+          DISCOVER
         </p>
         <h1 className="text-3xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-          Resources 📚
+          Resources
         </h1>
         <p className="text-sm text-[#7a6f65] mt-1">
-          Deals, freebies, field trips & more — all in one place.
+          Everything homeschool, in one place.
         </p>
       </div>
 
@@ -500,7 +500,7 @@ export default function ResourcesPage() {
                   <MapPin size={15} className="text-white" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-[#4a7c59]">Your State</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-[#4a7c59]">Know Your State</p>
                   <p className="text-lg font-bold text-[#2d2926] leading-tight">{userState}</p>
                 </div>
               </div>
@@ -559,6 +559,9 @@ export default function ResourcesPage() {
             </div>
             <p className="px-5 pb-4 text-[10px] text-[#8aaa90] italic leading-relaxed">
               Laws change — always verify requirements with your state homeschool association or HSLDA.org before making legal decisions.
+            </p>
+            <p className="text-[10px] text-[#7a6f65] italic mt-2 px-1">
+              Rooted provides this as helpful information only. For legal questions about homeschooling in your state, consult HSLDA or a local homeschool association.
             </p>
           </div>
         );
@@ -1011,7 +1014,7 @@ export default function ResourcesPage() {
             <a href="https://hslda.org" target="_blank" rel="noopener noreferrer" className="text-[#4a7c59] hover:underline">HSLDA.org</a>.
           </p>
           <p className="text-[11px] italic text-[#b5aca4]">
-            State requirements are for informational purposes only and may not reflect current law. Always verify with your state&apos;s department of education.
+            State homeschool information is for informational purposes only and may not reflect current law. Always verify with your state&apos;s department of education.
           </p>
 
           {/* Search + level filter */}
