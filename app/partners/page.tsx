@@ -24,6 +24,7 @@ export default function PartnersPage() {
   const [audienceSize, setAudienceSize] = useState("");
   const [story, setStory] = useState("");
   const [usedRooted, setUsedRooted] = useState("");
+  const [paypalEmail, setPaypalEmail] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,6 +57,7 @@ export default function PartnersPage() {
           audienceSize,
           story,
           usedRooted,
+          paypalEmail,
         }),
       });
 
@@ -613,6 +615,25 @@ export default function PartnersPage() {
                     </label>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
+                  PayPal email
+                  <span className="text-[#7a6f65] font-normal normal-case tracking-normal ml-1">
+                    (for monthly commission payouts — optional for now)
+                  </span>
+                </label>
+                <input
+                  type="email"
+                  value={paypalEmail}
+                  onChange={(e) => setPaypalEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                />
+                <p className="text-xs text-[#7a6f65] mt-2">
+                  Commissions are paid on the 1st of each month for the previous month&apos;s verified conversions.
+                </p>
               </div>
 
               {error && (

@@ -86,7 +86,7 @@ function confirmationHtml(firstName: string): string {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { firstName, lastName, email, platforms, platformLinks, audienceSize, story, usedRooted } = body
+  const { firstName, lastName, email, platforms, platformLinks, audienceSize, story, usedRooted, paypalEmail } = body
 
   if (!firstName || !lastName || !email || !platforms?.length || !story) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
       from: 'Rooted Partners <hello@rootedhomeschoolapp.com>',
       to: 'hello.rootedapp@gmail.com',
       subject: `🤝 New Partner Application — ${firstName} ${lastName}`,
-      text: `New partner application!\n\nName: ${firstName} ${lastName}\nEmail: ${email}\n\nPlatforms:\n${platformSummary}\n\nAudience: ${audienceSize || 'not specified'}\nUsed Rooted: ${usedRooted || 'not specified'}\n\nTheir story:\n${story}`
+      text: `New partner application!\n\nName: ${firstName} ${lastName}\nEmail: ${email}\nPayPal: ${paypalEmail || 'not provided'}\n\nPlatforms:\n${platformSummary}\n\nAudience: ${audienceSize || 'not specified'}\nUsed Rooted: ${usedRooted || 'not specified'}\n\nTheir story:\n${story}`
     })
 
     // Confirmation email to applicant
