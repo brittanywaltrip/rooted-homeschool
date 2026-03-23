@@ -336,7 +336,7 @@ export default function AdminPage() {
           <SectionHeader emoji="🌱" title="Growth" />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <StatCard label="Real Families" value={data.totalUsers - testCount} sub={`${testCount} test accounts hidden`} />
-            <StatCard label="Last 24 Hours"        value={data.last24hSignups} />
+            <StatCard label="Today"                value={data.last24hSignups} />
             <StatCard label="Yesterday"            value={data.yesterdaySignups} />
             <StatCard label="Paying Customers"     value={data.payingFoundingCount + data.stripeStandardCount}
               sub={`${data.payingFoundingCount} founding · ${data.stripeStandardCount} standard · live from Stripe`} />

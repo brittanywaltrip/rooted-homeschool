@@ -29,18 +29,20 @@ export async function GET(req: Request) {
   const now = new Date();
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
-  const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const last48h = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+  const todayMidnight = new Date(now);
+  todayMidnight.setHours(0, 0, 0, 0);
+  const yesterdayMidnight = new Date(todayMidnight);
+  yesterdayMidnight.setDate(yesterdayMidnight.getDate() - 1);
 
   // Auth users — no limit beyond perPage
   const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
   const allUsers = authData?.users ?? [];
 
   const totalUsers = allUsers.length;
-  const last24hSignups  = allUsers.filter(u => new Date(u.created_at) >= last24h).length;
+  const last24hSignups  = allUsers.filter(u => new Date(u.created_at) >= todayMidnight).length;
   const yesterdaySignups = allUsers.filter(u => {
     const d = new Date(u.created_at);
-    return d >= last48h && d < last24h;
+    return d >= yesterdayMidnight && d < todayMidnight;
   }).length;
 
   // Profiles — all rows, no limit
