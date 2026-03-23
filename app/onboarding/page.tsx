@@ -288,10 +288,10 @@ function StepWelcome({ firstName, onNext }: { firstName: string; onNext: () => v
           {firstName ? `Hello, ${firstName}! 🌿` : "Welcome! 🌿"}
         </h1>
         <p className="text-[#c8ddb8] text-base sm:text-lg leading-relaxed mb-2 max-w-xs">
-          Your calm, beautiful homeschool companion.
+          Your homeschool, finally organized.
         </p>
         <p className="text-[#a0cc9a] text-sm leading-relaxed mb-10 max-w-xs">
-          Let&apos;s get you set up in 2 minutes.
+          Let&apos;s get everything set up.
         </p>
 
         <button
