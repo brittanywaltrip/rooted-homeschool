@@ -154,15 +154,10 @@ export default function AdminPage() {
   const [showTestSection, setShowTestSection] = useState(false);
   const [affiliates, setAffiliates] = useState<{ id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; profiles: { display_name: string | null; first_name: string | null; last_name: string | null } | null }[]>([]);
 
-  const loadData = async () => {
+  const fetchData = async (accessToken: string) => {
     setRefreshing(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session || !ADMIN_EMAILS.includes(session.user.email ?? "")) {
-      router.replace("/dashboard");
-      return;
-    }
     const res = await fetch("/api/admin/summary", {
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!res.ok) {
       setError("Failed to load admin data.");
@@ -182,7 +177,19 @@ export default function AdminPage() {
     setRefreshing(false);
   };
 
-  useEffect(() => { loadData(); }, [router]);
+  // Wait for Supabase to rehydrate session before checking admin access
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'INITIAL_SESSION') {
+        if (!session || !ADMIN_EMAILS.includes(session.user.email ?? '')) {
+          router.replace('/dashboard');
+          return;
+        }
+        await fetchData(session.access_token);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [router]);
 
   function copyEmails() {
     if (!data) return;
@@ -290,7 +297,10 @@ export default function AdminPage() {
           </p>
         </div>
         <button
-          onClick={loadData}
+          onClick={async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) await fetchData(session.access_token);
+          }}
           disabled={refreshing}
           className="flex items-center gap-2 bg-[#4e7055] hover:bg-[#5c7f63] disabled:opacity-50 text-[#fefcf9] text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors border border-[#6a9070] shrink-0"
         >

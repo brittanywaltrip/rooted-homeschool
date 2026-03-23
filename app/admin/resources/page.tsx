@@ -236,15 +236,18 @@ export default function AdminResourcesPage() {
     setTimeout(() => setToast(null), 3000);
   }
 
-  // Auth check
+  // Auth check — wait for session rehydration on mobile
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user || user.email !== ADMIN_EMAIL) {
-        router.replace("/dashboard");
-        return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION') {
+        if (!session || !["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"].includes(session.user.email ?? '')) {
+          router.replace('/dashboard');
+          return;
+        }
+        setChecking(false);
       }
-      setChecking(false);
     });
+    return () => subscription.unsubscribe();
   }, [router]);
 
   // Load resources

@@ -103,16 +103,18 @@ export default function AdminDashboardPage() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session || session.user.email !== ADMIN_EMAIL) {
-        router.replace("/dashboard");
-        return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'INITIAL_SESSION') {
+        if (!session || !["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"].includes(session.user.email ?? '')) {
+          router.replace('/dashboard');
+          return;
+        }
+        setToken(session.access_token);
+        await fetchStats(session.access_token);
+        setLoading(false);
       }
-      setToken(session.access_token);
-      await fetchStats(session.access_token);
-      setLoading(false);
-    })();
+    });
+    return () => subscription.unsubscribe();
   }, [router, fetchStats]);
 
   async function deleteUser(userId: string, email: string) {

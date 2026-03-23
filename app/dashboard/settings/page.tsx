@@ -160,6 +160,7 @@ export default function SettingsPage() {
   // Affiliate / Ambassador
   const [affiliateData, setAffiliateData] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string } | null>(null);
   const [affiliateStats, setAffiliateStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
+  const [copiedToast, setCopiedToast] = useState(false);
 
   // School year transition
   const [showYearModal,    setShowYearModal]    = useState(false);
@@ -1405,56 +1406,52 @@ export default function SettingsPage() {
         </Link>
       </div>
 
-      {/* ── Ambassador Partnership ────────────────────────────────────── */}
+      {/* ── Rooted Partner ───────────────────────────────────────────── */}
       {affiliateData?.is_active && (
-        <div className="mt-6">
-          <p className="text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-3 px-1">
-            🤝 Your Ambassador Partnership
-          </p>
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
+            🤝 Rooted Partner
+          </h2>
+          <div className="bg-[#eef0ff] border border-[#c7d2fe] rounded-2xl p-5 space-y-4">
 
-            {/* Code + copy */}
-            <div className="px-5 py-4 border-b border-[#e8e2d9]">
-              <p className="text-xs text-[#7a6f65] mb-1">Your discount code</p>
-              <div className="flex items-center justify-between">
-                <span className="text-2xl font-bold text-[#4338ca] tracking-widest font-mono">
+            {/* Code */}
+            <div>
+              <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Your Code</p>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(affiliateData.code);
+                  setCopiedToast(true);
+                  setTimeout(() => setCopiedToast(false), 2000);
+                }}
+                className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full text-left hover:bg-[#f5f5ff] transition-colors"
+              >
+                <span className="text-lg font-bold text-[#4338ca] tracking-widest font-mono flex-1">
                   {affiliateData.code}
                 </span>
-                <button
-                  onClick={() => navigator.clipboard.writeText(affiliateData.code)}
-                  className="text-xs font-semibold text-[#4338ca] bg-[#eef0ff] px-3 py-1.5 rounded-lg active:scale-95 transition-transform"
-                >
-                  Copy
-                </button>
-              </div>
-              <p className="text-xs text-[#7a6f65] mt-1.5">
-                15% off for anyone who uses this at checkout
-              </p>
+                <span className="text-xs text-[#6366f1]">Tap to copy</span>
+              </button>
             </div>
 
             {/* Referral link */}
-            <div className="px-5 py-4 border-b border-[#e8e2d9]">
-              <p className="text-xs text-[#7a6f65] mb-1">Your referral link</p>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-[#2d2926] font-mono truncate">
+            <div>
+              <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Your Referral Link</p>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`https://rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`);
+                  setCopiedToast(true);
+                  setTimeout(() => setCopiedToast(false), 2000);
+                }}
+                className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full text-left hover:bg-[#f5f5ff] transition-colors"
+              >
+                <span className="text-sm text-[#4338ca] flex-1 truncate">
                   rootedhomeschoolapp.com/upgrade?ref={affiliateData.code}
                 </span>
-                <button
-                  onClick={() => navigator.clipboard.writeText(
-                    `https://rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`
-                  )}
-                  className="text-xs font-semibold text-[#4338ca] bg-[#eef0ff] px-3 py-1.5 rounded-lg shrink-0 active:scale-95 transition-transform"
-                >
-                  Copy
-                </button>
-              </div>
-              <p className="text-xs text-[#7a6f65] mt-1.5">
-                Share this link — discount applies automatically, no code needed
-              </p>
+                <span className="text-xs text-[#6366f1] shrink-0">Tap to copy</span>
+              </button>
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 divide-x divide-[#e8e2d9]">
+            <div className="grid grid-cols-3 divide-x divide-[#c7d2fe] bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
               <div className="px-4 py-4 text-center">
                 <p className="text-2xl font-bold text-[#2d2926]">{affiliateStats?.totalRedemptions ?? '—'}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Families reached</p>
@@ -1469,15 +1466,12 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Status */}
-            <div className="px-5 py-3 bg-[#f8f7f4] border-t border-[#e8e2d9]">
-              <p className="text-xs text-[#7a6f65]">
-                ✅ Active Partner · Since {new Date(affiliateData.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-              </p>
-            </div>
-
+            {/* Partner since */}
+            <p className="text-xs text-[#6366f1] text-center">
+              Partner since {new Date(affiliateData.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </p>
           </div>
-        </div>
+        </section>
       )}
 
       {/* ── Help & More ──────────────────────────────────────────────── */}
@@ -1553,6 +1547,14 @@ export default function SettingsPage() {
       )}
 
       {/* ── Success Toast ────────────────────────────────────── */}
+      {copiedToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+          <div className="bg-[#4338ca] text-white px-5 py-2.5 rounded-xl shadow-lg text-sm font-semibold">
+            Copied!
+          </div>
+        </div>
+      )}
+
       {yearSuccessToast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-sm px-4">
           <div className="bg-[#2d2926] text-white text-sm rounded-2xl px-5 py-4 shadow-lg flex items-start gap-3">
