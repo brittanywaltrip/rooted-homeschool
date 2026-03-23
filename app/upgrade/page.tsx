@@ -57,6 +57,12 @@ function UpgradePageInner() {
     loadFoundingCount()
   }, [])
 
+  useEffect(() => {
+    if (refCode) {
+      fetch(`/api/affiliate/track-click?code=${refCode}`).catch(() => {})
+    }
+  }, [refCode])
+
   async function handleClick(plan: 'founding' | 'standard') {
     setError(null)
     setLoadingPlan(plan)
