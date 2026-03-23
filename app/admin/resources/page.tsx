@@ -6,7 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Pencil, Trash2, Check, X, Plus, ChevronDown, ChevronUp, ExternalLink, ArrowLeft, Eye, EyeOff } from "lucide-react";
 
-const ADMIN_EMAIL = "garfieldbrittany@gmail.com";
+const ADMIN_EMAIL = "hello.rootedapp@gmail.com";
 
 const CATEGORIES = [
   { id: "discounts",   label: "💰 Discounts"   },
@@ -236,15 +236,20 @@ export default function AdminResourcesPage() {
     setTimeout(() => setToast(null), 3000);
   }
 
-  // Auth check
+  // Auth check — wait for session rehydration on mobile
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user || user.email !== ADMIN_EMAIL) {
-        router.replace("/dashboard");
-        return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'INITIAL_SESSION') {
+        if (!session || !["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"].includes(session.user.email ?? '')) {
+          router.replace('/dashboard');
+          return;
+        }
+        // Refresh the session to get a fresh access token
+        await supabase.auth.refreshSession();
+        setChecking(false);
       }
-      setChecking(false);
     });
+    return () => subscription.unsubscribe();
   }, [router]);
 
   // Load resources
@@ -348,13 +353,15 @@ export default function AdminResourcesPage() {
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
         {/* Header */}
         <div>
-          <Link
-            href="/dashboard/settings"
-            className="inline-flex items-center gap-1.5 text-xs text-[#7a6f65] hover:text-[#3d5c42] mb-4 transition-colors"
-          >
-            <ArrowLeft size={13} />
-            Back to Settings
-          </Link>
+          <div className="flex items-center gap-4 mb-4">
+            <Link
+              href="/admin"
+              className="inline-flex items-center gap-1.5 text-xs text-[#7a6f65] hover:text-[#3d5c42] transition-colors"
+            >
+              <ArrowLeft size={13} />
+              Back to admin
+            </Link>
+          </div>
           <h1 className="text-2xl font-bold text-[#2d2926]">Resources Admin ⚙️</h1>
           <p className="text-sm text-[#7a6f65] mt-1">
             Manage all resource links shown to users. Changes go live immediately.

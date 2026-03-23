@@ -55,6 +55,9 @@ interface AdminSummary {
   stripeActiveTotal: number;
   cancelledFoundingCount: number;
   cancelledStandardCount: number;
+  payingFoundingCount: number;
+  activeAffiliateCount: number;
+  affiliateUserIds: string[];
   // Funnel
   funnel: {
     totalSignups: number;
@@ -112,6 +115,7 @@ function PlanPill({ plan }: { plan: string }) {
     plan === "Founding"  ? "bg-amber-100 text-amber-800" :
     plan === "Standard"  ? "bg-green-100 text-green-800" :
     plan === "Refunded"  ? "bg-red-100 text-red-600"     :
+    plan === "Partner"   ? "bg-indigo-100 text-indigo-800" :
                            "bg-[#f0ede8] text-[#7a6f65] border border-[#e8e2d9]";
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${cls}`}>
@@ -145,23 +149,19 @@ export default function AdminPage() {
   const router = useRouter();
   const [data,         setData]         = useState<AdminSummary | null>(null);
   const [error,        setError]        = useState<string | null>(null);
-  const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Standard" | "Monthly" | "Free" | "Refunded">("All");
+  const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Standard" | "Monthly" | "Free" | "Refunded" | "Partner">("All");
   const [refreshing,   setRefreshing]   = useState(false);
   const [emailsCopied, setEmailsCopied] = useState(false);
   const [hideTestUsers, setHideTestUsers] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [showTestSection, setShowTestSection] = useState(false);
+  const [affiliates, setAffiliates] = useState<{ id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; profiles: { display_name: string | null; first_name: string | null; last_name: string | null } | null }[]>([]);
 
-  const loadData = async () => {
+  const fetchData = async (accessToken: string) => {
     setRefreshing(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session || !ADMIN_EMAILS.includes(session.user.email ?? "")) {
-      router.replace("/dashboard");
-      return;
-    }
     const res = await fetch("/api/admin/summary", {
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!res.ok) {
       setError("Failed to load admin data.");
@@ -170,10 +170,33 @@ export default function AdminPage() {
     }
     const json = await res.json();
     setData(json);
+
+    // Load affiliates
+    const { data: affRows } = await supabase
+      .from("affiliates")
+      .select("id, name, code, stripe_coupon_id, is_active, created_at, profiles(display_name, first_name, last_name)")
+      .order("created_at", { ascending: false });
+    if (affRows) setAffiliates(affRows as unknown as typeof affiliates);
+
     setRefreshing(false);
   };
 
-  useEffect(() => { loadData(); }, [router]);
+  // Wait for Supabase to rehydrate session before checking admin access
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'INITIAL_SESSION') {
+        if (!session || !ADMIN_EMAILS.includes(session.user.email ?? '')) {
+          router.replace('/dashboard');
+          return;
+        }
+        // Refresh the session to get a fresh access token
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        const token = refreshed.session?.access_token ?? session.access_token;
+        await fetchData(token);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [router]);
 
   function copyEmails() {
     if (!data) return;
@@ -264,6 +287,7 @@ export default function AdminPage() {
     Monthly:  realUsers.filter(u => u.plan === "Monthly").length,
     Free:     realUsers.filter(u => u.plan === "Free").length,
     Refunded: realUsers.filter(u => u.plan === "Refunded").length,
+    Partner:  realUsers.filter(u => u.plan === "Partner").length,
   };
 
   return (
@@ -272,7 +296,9 @@ export default function AdminPage() {
       {/* ── Sticky Header ──────────────────────────────────── */}
       <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4 flex items-center justify-between gap-4">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-[#8cba8e] mb-0.5">Rooted</p>
+          <Link href="/dashboard" className="text-xs text-[#a8c5a0] hover:text-[#fefcf9] transition-colors">
+            ← Back to app
+          </Link>
           <h1 className="text-xl font-bold text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>
             Founder Dashboard 🌱
           </h1>
@@ -281,7 +307,10 @@ export default function AdminPage() {
           </p>
         </div>
         <button
-          onClick={loadData}
+          onClick={async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) await fetchData(session.access_token);
+          }}
           disabled={refreshing}
           className="flex items-center gap-2 bg-[#4e7055] hover:bg-[#5c7f63] disabled:opacity-50 text-[#fefcf9] text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors border border-[#6a9070] shrink-0"
         >
@@ -312,11 +341,12 @@ export default function AdminPage() {
           <SectionHeader emoji="🌱" title="Growth" />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <StatCard label="Real Families" value={data.totalUsers - testCount} sub={`${testCount} test accounts hidden`} />
-            <StatCard label="Last 24 Hours"        value={data.last24hSignups} />
+            <StatCard label="Today"                value={data.last24hSignups} />
             <StatCard label="Yesterday"            value={data.yesterdaySignups} />
-            <StatCard label="Paying Subscribers"   value={data.stripeActiveTotal}
-              sub={`${data.stripeFoundingCount} founding · ${data.stripeStandardCount} standard · live from Stripe`} />
-            <StatCard label="Founding Members"     value={data.foundingFamilies} />
+            <StatCard label="Paying Customers"     value={data.payingFoundingCount + data.stripeStandardCount}
+              sub={`${data.payingFoundingCount} founding · ${data.stripeStandardCount} standard · live from Stripe`} />
+            <StatCard label="Rooted Partners"      value={data.activeAffiliateCount}
+              sub="Comped affiliates" />
             <StatCard label="Free Users"           value={data.freeUsers} />
           </div>
         </section>
@@ -409,7 +439,7 @@ export default function AdminPage() {
 
           {/* Filter tabs + Copy emails */}
           <div className="flex items-center gap-2 mb-4 flex-wrap">
-            {(["All", "Founding", "Standard", "Monthly", "Free", "Refunded"] as const).map(tab => (
+            {(["All", "Founding", "Standard", "Monthly", "Partner", "Free", "Refunded"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setSignupFilter(tab)}
@@ -419,6 +449,8 @@ export default function AdminPage() {
                       ? "bg-amber-100 text-amber-800 border-amber-300"
                       : tab === "Standard" || tab === "Monthly"
                       ? "bg-blue-100 text-blue-800 border-blue-300"
+                      : tab === "Partner"
+                      ? "bg-indigo-100 text-indigo-800 border-indigo-300"
                       : tab === "Refunded"
                       ? "bg-red-100 text-red-600 border-red-300"
                       : "bg-[#e8f0e9] text-[#3d5c42] border-[#b8d9bc]"
@@ -590,8 +622,8 @@ export default function AdminPage() {
             </div>
             <StatCard
               label="Founding Members Paying"
-              value={data.stripeFoundingCount}
-              sub={`$${(data.stripeFoundingCount * 39).toLocaleString()} · $39/yr each`}
+              value={data.payingFoundingCount}
+              sub={`$${(data.payingFoundingCount * 39).toLocaleString()} · $39/yr each`}
             />
             <StatCard
               label="Standard Paying"
@@ -609,6 +641,42 @@ export default function AdminPage() {
             </div>
           </div>
         </section>
+
+        {/* ── Affiliates / Ambassadors ────────────────────────────────── */}
+        {affiliates.length > 0 && (
+          <section>
+            <SectionHeader emoji="🤝" title="Ambassadors" />
+            <div className="space-y-3">
+              {affiliates.map((aff) => {
+                const displayName = aff.profiles?.first_name
+                  ? [aff.profiles.first_name, aff.profiles.last_name].filter(Boolean).join(" ")
+                  : aff.profiles?.display_name ?? aff.name;
+                return (
+                  <div key={aff.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="font-semibold text-[#2d2926]">{displayName}</p>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${aff.is_active ? 'bg-green-100 text-green-800' : 'bg-[#f0ede8] text-[#7a6f65]'}`}>
+                        {aff.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                    <p className="text-sm font-mono text-[#4338ca] font-bold tracking-wider mb-1">{aff.code}</p>
+                    <p className="text-xs text-[#7a6f65]">
+                      Partner since {new Date(aff.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                    <a
+                      href={`https://dashboard.stripe.com/coupons/${aff.stripe_coupon_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block mt-2 text-xs text-[#4338ca] hover:underline"
+                    >
+                      View coupon in Stripe →
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
       </div>
     </div>

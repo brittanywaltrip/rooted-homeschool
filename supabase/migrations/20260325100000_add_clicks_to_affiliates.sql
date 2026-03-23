@@ -1,0 +1,1 @@
+ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS clicks integer DEFAULT 0;

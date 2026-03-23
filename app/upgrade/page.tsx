@@ -1,16 +1,26 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
 export default function UpgradePage() {
+  return (
+    <Suspense fallback={null}>
+      <UpgradePageInner />
+    </Suspense>
+  )
+}
+
+function UpgradePageInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [loadingPlan, setLoadingPlan] = useState<'founding' | 'standard' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
   const [foundingCount, setFoundingCount] = useState<number | null>(null)
+  const refCode = searchParams.get('ref')
 
   useEffect(() => {
     async function loadUserProfile() {
@@ -47,6 +57,12 @@ export default function UpgradePage() {
     loadFoundingCount()
   }, [])
 
+  useEffect(() => {
+    if (refCode) {
+      fetch(`/api/affiliate/track-click?code=${refCode}`).catch(() => {})
+    }
+  }, [refCode])
+
   async function handleClick(plan: 'founding' | 'standard') {
     setError(null)
     setLoadingPlan(plan)
@@ -64,7 +80,7 @@ export default function UpgradePage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, ref: refCode || null }),
       })
 
       const json = await res.json()
