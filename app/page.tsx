@@ -411,7 +411,7 @@ export default function Home() {
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
-            Your family&apos;s calm, beautiful homeschool companion. 🌿
+            Built for families who take homeschooling seriously. 🌱
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
