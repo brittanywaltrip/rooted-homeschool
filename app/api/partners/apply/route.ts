@@ -86,15 +86,19 @@ function confirmationHtml(firstName: string): string {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { firstName, lastName, email, platforms, platformLinks, audienceSize, story, usedRooted, paypalEmail } = body
+  const { firstName, lastName, email, platforms, platformLinks, platformSizes, story, whatToShare, usedRooted, postFrequency, paypalEmail } = body
 
   if (!firstName || !lastName || !email || !platforms?.length || !story) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
+  const links = platformLinks as Record<string, string> | undefined
+  const sizes = platformSizes as Record<string, string> | undefined
   const platformSummary = (platforms as string[]).map((p: string) => {
-    const link = (platformLinks as Record<string, string>)?.[p] || 'no link provided'
-    return `  ${p}: ${link}`
+    const link = links?.[p] || 'no link provided'
+    const size = sizes?.[p] || 'not specified'
+    const sizeLabel = p === 'facebook' ? 'members' : 'followers'
+    return `  ${p}: ${link} (${size} ${sizeLabel})`
   }).join('\n')
 
   try {
@@ -106,7 +110,7 @@ export async function POST(req: NextRequest) {
       from: 'Rooted Partners <hello@rootedhomeschoolapp.com>',
       to: 'hello.rootedapp@gmail.com',
       subject: `🤝 New Partner Application — ${firstName} ${lastName}`,
-      text: `New partner application!\n\nName: ${firstName} ${lastName}\nEmail: ${email}\nPayPal: ${paypalEmail || 'not provided'}\n\nPlatforms:\n${platformSummary}\n\nAudience: ${audienceSize || 'not specified'}\nUsed Rooted: ${usedRooted || 'not specified'}\n\nTheir story:\n${story}`
+      text: `New partner application!\n\nName: ${firstName} ${lastName}\nEmail: ${email}\nPayPal: ${paypalEmail || 'not provided'}\n\nPlatforms:\n${platformSummary}\n\nPost frequency: ${postFrequency || 'not specified'}\nUsed Rooted: ${usedRooted || 'not specified'}\n\nTheir story:\n${story}\n\nWhat they want to share:\n${whatToShare || 'not specified'}`
     })
 
     // Confirmation email to applicant

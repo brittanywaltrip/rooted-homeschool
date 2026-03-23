@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 
-const AUDIENCE_SIZES = [
+const AUDIENCE_RANGES = [
   "Under 1,000",
   "1,000–5,000",
   "5,000–20,000",
@@ -21,9 +21,11 @@ export default function PartnersPage() {
   const [email, setEmail] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [platformLinks, setPlatformLinks] = useState<Record<string, string>>({});
-  const [audienceSize, setAudienceSize] = useState("");
+  const [platformSizes, setPlatformSizes] = useState<Record<string, string>>({});
   const [story, setStory] = useState("");
+  const [whatToShare, setWhatToShare] = useState("");
   const [usedRooted, setUsedRooted] = useState("");
+  const [postFrequency, setPostFrequency] = useState("");
   const [paypalEmail, setPaypalEmail] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
@@ -54,9 +56,11 @@ export default function PartnersPage() {
           email,
           platforms: selectedPlatforms,
           platformLinks,
-          audienceSize,
+          platformSizes,
           story,
+          whatToShare,
           usedRooted,
+          postFrequency,
           paypalEmail,
         }),
       });
@@ -503,6 +507,11 @@ export default function PartnersPage() {
                               delete updated[id];
                               return updated;
                             });
+                            setPlatformSizes((prev) => {
+                              const updated = { ...prev };
+                              delete updated[id];
+                              return updated;
+                            });
                           }
                         }}
                         className="accent-[#3d5c42]"
@@ -512,14 +521,14 @@ export default function PartnersPage() {
                   ))}
                 </div>
 
-                {/* Dynamic link inputs */}
+                {/* Dynamic link + audience size per platform */}
                 {selectedPlatforms.length > 0 && (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <p className="text-xs font-semibold text-[#7a6f65] uppercase tracking-widest">
-                      Your links
+                      Your links &amp; audience
                     </p>
                     {selectedPlatforms.map((platformId) => {
-                      const labels: Record<string, string> = {
+                      const linkLabels: Record<string, string> = {
                         instagram: "Instagram profile URL",
                         tiktok: "TikTok profile URL",
                         youtube: "YouTube channel URL",
@@ -529,11 +538,10 @@ export default function PartnersPage() {
                         pinterest: "Pinterest profile URL",
                         other: "Link or description",
                       };
+                      const sizeLabel = platformId === "facebook" ? "members" : "followers";
                       return (
-                        <div key={platformId}>
-                          <label className="block text-xs text-[#7a6f65] mb-1 capitalize">
-                            {labels[platformId]}
-                          </label>
+                        <div key={platformId} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-4 space-y-3">
+                          <p className="text-xs font-semibold text-[#2d2926] capitalize">{linkLabels[platformId]?.split(" ")[0]}</p>
                           <input
                             type="text"
                             value={platformLinks[platformId] || ""}
@@ -550,29 +558,28 @@ export default function PartnersPage() {
                             }
                             className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
                           />
+                          <select
+                            value={platformSizes[platformId] || ""}
+                            onChange={(e) =>
+                              setPlatformSizes((prev) => ({
+                                ...prev,
+                                [platformId]: e.target.value,
+                              }))
+                            }
+                            className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                          >
+                            <option value="">Approximate {sizeLabel}</option>
+                            {AUDIENCE_RANGES.map((s) => (
+                              <option key={s} value={s}>
+                                {s} {sizeLabel}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       );
                     })}
                   </div>
                 )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
-                  Approximate audience size
-                </label>
-                <select
-                  value={audienceSize}
-                  onChange={(e) => setAudienceSize(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
-                >
-                  <option value="">Select a range</option>
-                  {AUDIENCE_SIZES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
               </div>
 
               <div>
@@ -585,6 +592,19 @@ export default function PartnersPage() {
                   value={story}
                   onChange={(e) => setStory(e.target.value)}
                   placeholder="Tell us about your family, what you homeschool, and why Rooted resonates with you..."
+                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
+                  What would you love to share about Rooted?
+                </label>
+                <textarea
+                  rows={3}
+                  value={whatToShare}
+                  onChange={(e) => setWhatToShare(e.target.value)}
+                  placeholder="Reels, stories, a blog post, a TikTok series, a group recommendation..."
                   className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent resize-none"
                 />
               </div>
@@ -609,6 +629,34 @@ export default function PartnersPage() {
                         value={opt}
                         checked={usedRooted === opt}
                         onChange={(e) => setUsedRooted(e.target.value)}
+                        className="sr-only"
+                      />
+                      {opt}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
+                  How often do you post?
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  {["Daily", "A few times a week", "Weekly", "A few times a month"].map((opt) => (
+                    <label
+                      key={opt}
+                      className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm cursor-pointer transition-colors ${
+                        postFrequency === opt
+                          ? "bg-[#e8f0e9] border-[#5c7f63] text-[#3d5c42] font-semibold"
+                          : "bg-[#f8f7f4] border-[#e8e2d9] text-[#7a6f65] hover:border-[#c8bfb5]"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="postFrequency"
+                        value={opt}
+                        checked={postFrequency === opt}
+                        onChange={(e) => setPostFrequency(e.target.value)}
                         className="sr-only"
                       />
                       {opt}
