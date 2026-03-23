@@ -29,6 +29,7 @@ type Reflection = {
   id: string;
   date: string;
   reflection: string;
+  is_private: boolean;
   updated_at: string;
 };
 
@@ -107,7 +108,7 @@ export default function MemoriesPage() {
         .order("created_at", { ascending: false }),
       supabase
         .from("daily_reflections")
-        .select("id, date, reflection, updated_at")
+        .select("id, date, reflection, is_private, updated_at")
         .eq("user_id", effectiveUserId)
         .order("date", { ascending: false }),
     ]);
@@ -169,9 +170,9 @@ export default function MemoriesPage() {
     setSavingReflection(true);
     const { data } = await supabase
       .from("daily_reflections")
-      .update({ reflection: reflectionEditText.trim() })
+      .update({ reflection: reflectionEditText.trim(), is_private: viewingReflection.is_private })
       .eq("id", viewingReflection.id)
-      .select("id, date, reflection, updated_at")
+      .select("id, date, reflection, is_private, updated_at")
       .single();
     if (data) {
       const updated = data as Reflection;
@@ -394,7 +395,10 @@ export default function MemoriesPage() {
                   className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-left hover:bg-[#faf8f5] transition-colors"
                 >
                   <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <span className="text-xs font-semibold text-[#5c7f63]">{dateLabel}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-[#5c7f63]">{dateLabel}</span>
+                      {r.is_private && <span className="text-[10px] text-[#b5aca4]">🔒</span>}
+                    </div>
                     <span className="text-[#c8bfb5] text-base leading-none shrink-0">›</span>
                   </div>
                   <p className="text-sm text-[#2d2926] leading-relaxed line-clamp-2">{r.reflection}</p>
@@ -583,6 +587,23 @@ export default function MemoriesPage() {
                 <X size={18} />
               </button>
             </div>
+
+            {/* Private toggle */}
+            <button
+              onClick={async () => {
+                const newVal = !viewingReflection.is_private;
+                await supabase.from("daily_reflections").update({ is_private: newVal }).eq("id", viewingReflection.id);
+                const updated = { ...viewingReflection, is_private: newVal };
+                setViewingReflection(updated);
+                setReflections(prev => prev.map(r => r.id === updated.id ? updated : r));
+              }}
+              className="flex items-center gap-2 text-xs text-[#7a6f65]"
+            >
+              <div className={`w-8 h-[18px] rounded-full transition-colors relative ${viewingReflection.is_private ? "bg-[#5c7f63]" : "bg-[#e8e2d9]"}`}>
+                <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${viewingReflection.is_private ? "translate-x-[16px]" : "translate-x-[2px]"}`} />
+              </div>
+              <span>{viewingReflection.is_private ? "🔒 Private — hidden in Kid Mode" : "👀 Visible in Kid Mode"}</span>
+            </button>
 
             {editingReflection ? (
               <>

@@ -148,6 +148,7 @@ export default function LogTodayModal({
 
   // Reflection fields
   const [reflectionText, setReflectionText] = useState("");
+  const [reflectionPrivate, setReflectionPrivate] = useState(false);
 
   function selectMode(m: Mode) {
     setMode(m);
@@ -238,7 +239,7 @@ export default function LogTodayModal({
       } else if (mode === "reflection") {
         if (!reflectionText.trim()) { setError("Please write something first."); setSaving(false); return; }
         await supabase.from("daily_reflections").upsert(
-          { user_id: user.id, date: saveDate, reflection: reflectionText.trim(), updated_at: new Date().toISOString() },
+          { user_id: user.id, date: saveDate, reflection: reflectionText.trim(), is_private: reflectionPrivate, updated_at: new Date().toISOString() },
           { onConflict: "user_id,date" }
         );
         onSaved("reflection");
@@ -435,6 +436,16 @@ export default function LogTodayModal({
                     className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setReflectionPrivate(v => !v)}
+                  className="flex items-center gap-2 text-xs text-[#7a6f65]"
+                >
+                  <div className={`w-8 h-[18px] rounded-full transition-colors relative ${reflectionPrivate ? "bg-[#5c7f63]" : "bg-[#e8e2d9]"}`}>
+                    <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${reflectionPrivate ? "translate-x-[16px]" : "translate-x-[2px]"}`} />
+                  </div>
+                  <span>{reflectionPrivate ? "🔒 Private — only you can see this" : "👀 Visible in Kid Mode"}</span>
+                </button>
               </div>
             )}
 
