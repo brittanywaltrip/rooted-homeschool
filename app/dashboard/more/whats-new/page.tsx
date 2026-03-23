@@ -9,6 +9,38 @@ import { ChevronLeft } from "lucide-react";
 const UPDATES = [
   {
     date: "March 2026",
+    emoji: "🎉",
+    title: "Celebrations When You Finish",
+    description:
+      "Every lesson you check off now feels like it matters. A little burst when you check a lesson, a toast when your child finishes their day, and an 'Amazing day!' banner when the whole family is done — because you earned it.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "March 2026",
+    emoji: "📸",
+    title: "Capture Today — Field Trips & Activities",
+    description:
+      "Tap 'Capture Today' to log more than just lessons. Add a field trip (where did you go?), an activity like piano or co-op, a book, a photo, a project, or a reflection. Everything saves to Memories automatically.",
+    inspiredByFamily: false,
+  },
+  {
+    date: "March 2026",
+    emoji: "⚙️",
+    title: "Settings, Simplified",
+    description:
+      "Settings now has three clear tabs: Our Family (your name, photo, and state), Our Kids (add, edit, or reorder children), and Account (subscription and sign out). Everything in its place.",
+    inspiredByFamily: false,
+  },
+  {
+    date: "March 2026",
+    emoji: "🌿",
+    title: '"Capture Today" — Not Just Lessons',
+    description:
+      "We renamed 'Log Today' to 'Capture Today' because that's what you're really doing — capturing your homeschool story, not just checking boxes. The button now lives in the bottom corner of your Today page, always ready.",
+    inspiredByFamily: false,
+  },
+  {
+    date: "March 2026",
     emoji: "🌴",
     title: "Vacation Blocking",
     description:
