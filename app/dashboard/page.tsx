@@ -95,8 +95,8 @@ function buildGreeting(familyName: string): string {
   const name = familyName
     ? `, ${familyName.replace(/^The\s+/i, "").trim() || familyName}`
     : "";
-  if (dow === 6) return `Enjoy your Saturday${name}! 🌿`;
-  if (dow === 0) return `Rest up for the week ahead${name}! 🌿`;
+  if (dow === 6) return `Happy Saturday, ${name}! 🌿`;
+  if (dow === 0) return `Happy Sunday,${name}! 🌿`;
   const base   = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
   const suffix = dow === 1 ? " Ready for the week?" : dow === 3 ? " Halfway there" : dow === 5 ? " Happy Friday" : "";
   return `${base}${name}!${suffix} 🌿`;
@@ -840,30 +840,7 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* ── Founding Family upgrade banner ───────────────── */}
-      {!isPartner && !isPro && !upgradeDismissed && new Date() < new Date("2026-04-30") && (
-        <div className="relative bg-gradient-to-br from-[#fef9f0] to-[#fef6e4] border border-[#f0d090] rounded-2xl p-5 flex items-start gap-4">
-          <span className="text-2xl shrink-0">🌱</span>
-          <div className="flex-1 pr-6">
-            <p className="text-sm font-bold text-[#2d2926] mb-1">
-              Lock in your Founding Family price — {Math.max(0, Math.ceil((new Date("2026-04-30").getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))} days left
-            </p>
-            <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">
-              Memories, insights, transcripts and more — $39/yr locked forever for the first 200 families.
-            </p>
-            <a href="/upgrade" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors">
-              Claim Founding Price →
-            </a>
-          </div>
-          <button
-            onClick={() => { localStorage.setItem("rooted_upgrade_dismissed", today); setUpgradeDismissed(true); }}
-            aria-label="Dismiss"
-            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0dda8]/50 transition-colors text-lg leading-none"
-          >×</button>
-        </div>
-      )}
-
-      {/* ── Curriculum setup nudge ───────────────────────── */}
+            {/* ── Curriculum setup nudge ───────────────────────── */}
       {!isPartner && !nudgeDismissed && children.length > 0 && subjects.length === 0 && (
         <div className="flex items-start justify-between gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
           <div className="flex items-start gap-3 min-w-0">
