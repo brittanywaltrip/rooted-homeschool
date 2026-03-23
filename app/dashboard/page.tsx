@@ -434,6 +434,7 @@ export default function TodayPage() {
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
   const [streak,                 setStreak]                 = useState(0);
   const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
+  const [showFamilyUpdate,       setShowFamilyUpdate]       = useState(false);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
@@ -544,6 +545,26 @@ export default function TodayPage() {
       }
     }
     setWeekDots(dots);
+
+    // Check if we should show the family update prompt
+    const now = new Date();
+    const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+    const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+    const monthKey = `family_update_seen_${prevMonthYear}_${prevMonth}`;
+    const alreadySeen = localStorage.getItem(monthKey) === "1";
+    if (!alreadySeen && now.getDate() <= 15) {
+      // Check if user had lessons last month
+      const prevStart = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-01`;
+      const prevEnd = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-31`;
+      const { count: prevMonthLessons } = await supabase
+        .from("lessons")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", effectiveUserId)
+        .eq("completed", true)
+        .gte("date", prevStart)
+        .lte("date", prevEnd);
+      if ((prevMonthLessons ?? 0) > 0) setShowFamilyUpdate(true);
+    }
 
     const { data: childrenData } = await supabase
       .from("children").select("id, name, color")
@@ -922,6 +943,37 @@ export default function TodayPage() {
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
 
+      {/* ── AI Family Update Prompt ────────────────────────────── */}
+      {showFamilyUpdate && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl px-5 py-4" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
+          <Link href="/dashboard/family-update" onClick={() => {
+            const now = new Date();
+            const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+            const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+            localStorage.setItem(`family_update_seen_${prevMonthYear}_${prevMonth}`, "1");
+            setShowFamilyUpdate(false);
+          }} className="flex items-center gap-3 flex-1 min-w-0">
+            <span className="text-xl shrink-0">✨</span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[#7a4a1a]">
+                Your {new Date(new Date().getFullYear(), new Date().getMonth() - 1).toLocaleDateString("en-US", { month: "long" })} family update is ready
+              </p>
+              <p className="text-xs text-[#a68a50]">See what your family accomplished this month →</p>
+            </div>
+          </Link>
+          <button
+            onClick={() => {
+              const now = new Date();
+              const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+              const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+              localStorage.setItem(`family_update_seen_${prevMonthYear}_${prevMonth}`, "1");
+              setShowFamilyUpdate(false);
+            }}
+            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[#a68a50] hover:bg-[#f0dda8]/50 transition-colors text-lg leading-none"
+          >×</button>
+        </div>
+      )}
+
       {/* ── Setup Banner ─────────────────────────────────────── */}
       {onboarded === true && children.length === 0 && !bannerDismissed && (
         <div className="relative flex items-center justify-between gap-4 bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4">
@@ -1034,10 +1086,23 @@ export default function TodayPage() {
       {/* ── Today's Sections ─────────────────────────────── */}
       <div>
         {allDoneBanner && (
-          <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
-            <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
-            <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
-          </div>
+          <>
+            <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
+              <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
+              <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
+            </div>
+            <button
+              onClick={() => setShowLogModal(true)}
+              className="mb-4 w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-[#5c7f63] hover:bg-[#faf8f5] transition-colors text-left"
+            >
+              <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0 text-lg">📸</div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-[#2d2926]">Capture today&apos;s memory</p>
+                <p className="text-xs text-[#7a6f65]">What did you do today? Add a photo, book, or note.</p>
+              </div>
+              <span className="text-[#c8bfb5] text-lg">›</span>
+            </button>
+          </>
         )}
         {(() => {
           const visibleChildren = selectedChild

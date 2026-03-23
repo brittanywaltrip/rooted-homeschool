@@ -60,6 +60,7 @@ export default function MemoriesPage() {
   const [modalType,    setModalType]   = useState<"photo" | "project" | "book">("photo");
   const [showLogModal, setShowLogModal] = useState(false);
   const [lightboxUrl,  setLightboxUrl] = useState<string | null>(null);
+  const [memoryDaysThisWeek, setMemoryDaysThisWeek] = useState(0);
 
   // Form state
   const [formTitle,   setFormTitle]   = useState("");
@@ -117,6 +118,23 @@ export default function MemoriesPage() {
     setMemories((events as unknown as Memory[]) ?? []);
     setIsPro(userIsPro);
     setReflections((reflData as unknown as Reflection[]) ?? []);
+
+    // Memory logging streak — how many days this week have entries
+    const nowDate = new Date();
+    const currentDow = nowDate.getDay();
+    const monday = new Date(nowDate);
+    monday.setDate(monday.getDate() - ((currentDow === 0 ? 7 : currentDow) - 1));
+    monday.setHours(0, 0, 0, 0);
+    const mondayStr = monday.toISOString();
+    const { data: weekEvents } = await supabase
+      .from("app_events")
+      .select("created_at")
+      .eq("user_id", effectiveUserId)
+      .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"])
+      .gte("created_at", mondayStr);
+    const uniqueDays = new Set((weekEvents ?? []).map(e => e.created_at?.split("T")[0]));
+    setMemoryDaysThisWeek(uniqueDays.size);
+
     setLoading(false);
   }, [effectiveUserId]);
 
@@ -308,6 +326,15 @@ export default function MemoriesPage() {
           </div>
           <span className="text-[#c8bfb5] text-lg leading-none">›</span>
         </button>
+      )}
+
+      {/* Memories streak */}
+      {memoryDaysThisWeek >= 2 && (
+        <p className="text-xs text-[#5c7f63] text-center -mt-2">
+          {memoryDaysThisWeek >= 5
+            ? "🌟 You captured something every school day this week!"
+            : `🌿 You've captured something ${memoryDaysThisWeek} days this week`}
+        </p>
       )}
 
       {/* AI Year in Review — live feature */}
