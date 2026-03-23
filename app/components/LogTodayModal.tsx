@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -107,6 +108,22 @@ export default function LogTodayModal({
   const [mode,    setMode]    = useState<Mode>(null);
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState("");
+  const [isPro,   setIsPro]   = useState<boolean | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase
+        .from("profiles")
+        .select("is_pro")
+        .eq("id", user.id)
+        .single()
+        .then(({ data }) => {
+          setIsPro((data as { is_pro?: boolean } | null)?.is_pro ?? false);
+        });
+    });
+  }, []);
 
   // Book fields
   const [bookTitle,  setBookTitle]  = useState("");
@@ -187,11 +204,35 @@ export default function LogTodayModal({
 
       } else if (mode === "photo") {
         if (!photoTitle.trim()) { setError("Please enter a title."); setSaving(false); return; }
+
+        // Check photo limit for free users
+        if (!isPro) {
+          const { data: countProfile } = await supabase
+            .from("profiles")
+            .select("photo_count")
+            .eq("id", user.id)
+            .single();
+
+          if ((countProfile?.photo_count ?? 0) >= 50) {
+            setUploadError(
+              "You've reached the 50-photo limit on the free plan. Upgrade to upload unlimited photos."
+            );
+            setSaving(false);
+            return;
+          }
+        }
+
         await supabase.from("app_events").insert({
           user_id: user.id,
           type: "memory_photo",
           payload: { title: photoTitle.trim(), date: saveDate, child_id: photoChild || undefined },
         });
+
+        // Increment photo count for free users
+        if (!isPro) {
+          await supabase.rpc("increment_photo_count", { p_user_id: user.id });
+        }
+
         onSaved("photo", photoChild || undefined);
 
       } else if (mode === "reflection") {
@@ -402,6 +443,17 @@ export default function LogTodayModal({
               <>
                 {error && (
                   <p className="mt-3 text-xs text-red-500 text-center">{error}</p>
+                )}
+                {uploadError && (
+                  <div className="mt-3 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] p-4 text-center">
+                    <p className="mb-2 text-sm text-[#2d2926]">{uploadError}</p>
+                    <Link
+                      href="/dashboard/pricing"
+                      className="text-sm font-semibold text-[#5c7f63] underline underline-offset-2"
+                    >
+                      Upgrade to Pro
+                    </Link>
+                  </div>
                 )}
                 <button
                   type="button"

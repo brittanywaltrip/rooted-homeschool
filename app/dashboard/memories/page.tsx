@@ -85,7 +85,13 @@ export default function MemoriesPage() {
   const load = useCallback(async () => {
     if (!effectiveUserId) return;
 
-    const [{ data: kids }, { data: events }, { data: profile }, { data: reflData }] = await Promise.all([
+    // Query profile first so we know if user is pro (needed for 30-day gate)
+    const { data: profile } = await supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single();
+    const userIsPro = (profile as { is_pro?: boolean } | null)?.is_pro ?? false;
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const [{ data: kids }, { data: events }, { data: reflData }] = await Promise.all([
       supabase
         .from("children")
         .select("id, name, color")
@@ -97,8 +103,8 @@ export default function MemoriesPage() {
         .select("id, type, payload, created_at")
         .eq("user_id", effectiveUserId)
         .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"])
+        .gte("created_at", userIsPro ? "2020-01-01" : thirtyDaysAgo)
         .order("created_at", { ascending: false }),
-      supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
       supabase
         .from("daily_reflections")
         .select("id, date, reflection, updated_at")
@@ -108,7 +114,7 @@ export default function MemoriesPage() {
 
     setChildren(kids ?? []);
     setMemories((events as unknown as Memory[]) ?? []);
-    setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setIsPro(userIsPro);
     setReflections((reflData as unknown as Reflection[]) ?? []);
     setLoading(false);
   }, [effectiveUserId]);
@@ -195,6 +201,23 @@ export default function MemoriesPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSaving(false); return; }
 
+    // Check photo limit for free users
+    if (modalType === "photo" && !isPro) {
+      const { data: countProfile } = await supabase
+        .from("profiles")
+        .select("photo_count")
+        .eq("id", user.id)
+        .single();
+
+      if ((countProfile?.photo_count ?? 0) >= 50) {
+        setUploadError(
+          "You've reached the 50-photo limit on the free plan. Upgrade to upload unlimited photos."
+        );
+        setSaving(false);
+        return;
+      }
+    }
+
     // Upload photo if provided
     let photoUrl: string | undefined;
     if (modalType === "photo" && formFile) {
@@ -235,6 +258,11 @@ export default function MemoriesPage() {
       .single();
 
     if (data) setMemories((prev) => [data as unknown as Memory, ...prev]);
+
+    // Increment photo count for free users after successful upload
+    if (modalType === "photo" && !isPro) {
+      await supabase.rpc("increment_photo_count", { p_user_id: user.id });
+    }
 
     setSaving(false);
     closeModal();
@@ -321,6 +349,19 @@ export default function MemoriesPage() {
           </button>
         ))}
       </div>
+
+      {/* Free user upgrade banner */}
+      {!isPro && !loading && (
+        <div className="flex items-center justify-between bg-[#fafdf8] border border-[#c8dcc9] rounded-2xl px-4 py-3">
+          <p className="text-xs text-[#5c7f63] leading-snug">
+            📖 Showing your last 30 days — upgrade to unlock your full family story
+          </p>
+          <Link href="/dashboard/pricing"
+            className="text-xs font-semibold text-[#3d5c42] underline underline-offset-2 shrink-0 ml-3">
+            Upgrade
+          </Link>
+        </div>
+      )}
 
       {/* ── Reflections tab ─────────────────────────────────── */}
       {activeType === "reflection" && (
@@ -668,9 +709,17 @@ export default function MemoriesPage() {
                     onChange={handleFileSelect}
                   />
                   {uploadError && (
-                    <p className="text-xs text-red-500 mt-1.5 bg-red-50 rounded-xl px-3 py-2">
-                      {uploadError}
-                    </p>
+                    <div className="mt-1.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] p-4 text-center">
+                      <p className="mb-2 text-sm text-[#2d2926]">{uploadError}</p>
+                      {uploadError.includes("50-photo") && (
+                        <Link
+                          href="/dashboard/pricing"
+                          className="text-sm font-semibold text-[#5c7f63] underline underline-offset-2"
+                        >
+                          Upgrade to Pro
+                        </Link>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
