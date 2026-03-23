@@ -25,6 +25,18 @@ export default function SignupPage() {
     setError("");
     setLoading(true);
 
+    // Validate required name fields
+    if (!firstName.trim()) {
+      setError("Please enter your first name.");
+      setLoading(false);
+      return;
+    }
+    if (!lastName.trim()) {
+      setError("Please enter your last name.");
+      setLoading(false);
+      return;
+    }
+
     const capFirst = capitalize(firstName);
     const capLast = capitalize(lastName);
 
@@ -122,6 +134,7 @@ export default function SignupPage() {
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
                     placeholder="Jane"
+                    required
                     className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
                   />
                 </div>
@@ -132,6 +145,7 @@ export default function SignupPage() {
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
                     placeholder="Smith"
+                    required
                     className="w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
                   />
                 </div>
