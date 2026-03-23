@@ -2,11 +2,20 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  // Skip auth for Stripe webhook — Stripe sends unauthenticated POST requests
-  if (request.nextUrl.pathname.startsWith('/api/stripe/webhook') ||
-      request.nextUrl.pathname.startsWith('/api/webhook') ||
-      request.nextUrl.pathname.startsWith('/api/webhooks') ||
-      request.nextUrl.pathname.startsWith('/api/cron')) {
+  const { pathname } = request.nextUrl
+
+  // Skip middleware entirely for these paths
+  if (
+    pathname.startsWith('/api/stripe/webhook') ||
+    pathname.startsWith('/api/webhook') ||
+    pathname.startsWith('/api/webhooks') ||
+    pathname.startsWith('/api/cron') ||
+    pathname.startsWith('/api/') ||
+    pathname === '/login' ||
+    pathname === '/signup' ||
+    pathname === '/auth/callback' ||
+    pathname.startsWith('/auth/')
+  ) {
     return NextResponse.next()
   }
 
@@ -31,7 +40,7 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
+  if (!user && pathname.startsWith('/dashboard')) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
