@@ -82,7 +82,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (session.user.email === "garfieldbrittany@gmail.com") {
+      const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"];
+      if (ADMIN_EMAILS.includes(session.user.email ?? "")) {
         setIsAdmin(true);
       }
 
