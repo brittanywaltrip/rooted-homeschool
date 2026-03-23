@@ -72,7 +72,37 @@ function ColorPicker({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-type SettingsTab = "family" | "kids" | "account";
+type SettingsTab = "family" | "kids" | "account" | "partners";
+
+const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"];
+
+type AffiliateRow = { id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; user_id: string };
+
+function AffiliateStatsRow({ couponId }: { couponId: string }) {
+  const [stats, setStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
+  useEffect(() => {
+    fetch(`/api/stripe/affiliate-stats?coupon_id=${couponId}`)
+      .then(r => r.json())
+      .then(setStats)
+      .catch(() => {});
+  }, [couponId]);
+  return (
+    <div className="grid grid-cols-3 divide-x divide-[#c7d2fe] bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
+      <div className="px-3 py-3 text-center">
+        <p className="text-lg font-bold text-[#2d2926]">{stats?.totalRedemptions ?? '—'}</p>
+        <p className="text-[10px] text-[#7a6f65]">Families</p>
+      </div>
+      <div className="px-3 py-3 text-center">
+        <p className="text-lg font-bold text-[#3d5c42]">{stats?.payingCount ?? '—'}</p>
+        <p className="text-[10px] text-[#7a6f65]">Paying</p>
+      </div>
+      <div className="px-3 py-3 text-center">
+        <p className="text-lg font-bold text-[#2d2926]">${stats?.revenueDriven ?? '—'}</p>
+        <p className="text-[10px] text-[#7a6f65]">Revenue</p>
+      </div>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const { refreshProfile } = useProfile();
@@ -160,7 +190,9 @@ export default function SettingsPage() {
   // Affiliate / Ambassador
   const [affiliateData, setAffiliateData] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string } | null>(null);
   const [affiliateStats, setAffiliateStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
-  const [copiedToast, setCopiedToast] = useState(false);
+  const [copiedToast, setCopiedToast] = useState<string | false>(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [allAffiliates, setAllAffiliates] = useState<AffiliateRow[]>([]);
 
   // School year transition
   const [showYearModal,    setShowYearModal]    = useState(false);
@@ -214,9 +246,25 @@ export default function SettingsPage() {
       .eq("user_id", user.id)
       .maybeSingle();
     if (affData) setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string });
+
+    // Admin: load all affiliates
+    const admin = ADMIN_EMAILS.includes(user.email ?? "");
+    setIsAdmin(admin);
+    if (admin) {
+      const { data: allAff } = await supabase
+        .from("affiliates")
+        .select("id, name, code, stripe_coupon_id, is_active, created_at, user_id")
+        .order("created_at", { ascending: false });
+      setAllAffiliates((allAff ?? []) as AffiliateRow[]);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  function showCopiedToast(msg = "Copied!") {
+    setCopiedToast(msg);
+    setTimeout(() => setCopiedToast(false), 2000);
+  }
 
   useEffect(() => {
     if (affiliateData?.stripe_coupon_id) {
@@ -615,18 +663,18 @@ export default function SettingsPage() {
       </div>
 
       {/* ── Tab navigation ─────────────────────────────────── */}
-      <div className="flex gap-1.5 bg-[#f0ede8] rounded-full p-1 w-fit">
-        {(["family", "kids", "account"] as SettingsTab[]).map((tab) => (
+      <div className="flex gap-1.5 bg-[#f0ede8] rounded-full p-1 w-fit overflow-x-auto">
+        {(["family", "kids", "account", ...(isAdmin ? ["partners" as SettingsTab] : [])] as SettingsTab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors whitespace-nowrap ${
               activeTab === tab
                 ? "bg-[#5c7f63] text-white shadow-sm"
                 : "text-[#7a6f65] hover:text-[#2d2926]"
             }`}
           >
-            {tab === "family" ? "Our Family" : tab === "kids" ? "Our Kids" : "Account"}
+            {tab === "family" ? "Our Family" : tab === "kids" ? "Our Kids" : tab === "partners" ? "Partners" : "Account"}
           </button>
         ))}
       </div>
@@ -1392,6 +1440,70 @@ export default function SettingsPage() {
         </section>
       )}
 
+      {/* ── Partners Tab (admin only) ──────────────────────────────── */}
+      {activeTab === "partners" && isAdmin && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
+            Rooted Partners
+          </h2>
+          <p className="text-sm text-[#7a6f65]">
+            {allAffiliates.length} active partner{allAffiliates.length !== 1 ? "s" : ""}
+          </p>
+
+          {allAffiliates.length === 0 && (
+            <p className="text-sm text-[#7a6f65]">No partners yet.</p>
+          )}
+
+          {allAffiliates.map((aff) => (
+            <div key={aff.id} className="bg-[#eef0ff] border border-[#c7d2fe] rounded-2xl p-5 space-y-4">
+              {/* Name + status */}
+              <div className="flex items-center justify-between">
+                <p className="font-semibold text-[#2d2926]">{aff.name}</p>
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                  aff.is_active ? "bg-green-100 text-green-800" : "bg-[#f0ede8] text-[#7a6f65]"
+                }`}>
+                  {aff.is_active ? "Active" : "Inactive"}
+                </span>
+              </div>
+
+              {/* Discount code */}
+              <div>
+                <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Discount Code</p>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(aff.code); showCopiedToast("Code copied!"); }}
+                  className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full text-left hover:bg-[#f5f5ff] transition-colors"
+                >
+                  <span className="text-lg font-bold text-[#4338ca] tracking-widest font-mono flex-1">{aff.code}</span>
+                  <span className="text-xs text-[#6366f1]">Tap to copy</span>
+                </button>
+              </div>
+
+              {/* Referral link */}
+              <div>
+                <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Referral Link</p>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(`https://rootedhomeschoolapp.com/upgrade?ref=${aff.code}`); showCopiedToast("Link copied!"); }}
+                  className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full text-left hover:bg-[#f5f5ff] transition-colors"
+                >
+                  <span className="text-sm text-[#4338ca] flex-1 truncate">
+                    rootedhomeschoolapp.com/upgrade?ref={aff.code}
+                  </span>
+                  <span className="text-xs text-[#6366f1] shrink-0">Tap to copy</span>
+                </button>
+              </div>
+
+              {/* Stats */}
+              <AffiliateStatsRow couponId={aff.stripe_coupon_id} />
+
+              {/* Meta */}
+              <p className="text-xs text-[#6366f1]">
+                Partner since {new Date(aff.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ── Kid View ─────────────────────────────────────────────────── */}
       <div className="mt-8 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
         <Link
@@ -1420,8 +1532,7 @@ export default function SettingsPage() {
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(affiliateData.code);
-                  setCopiedToast(true);
-                  setTimeout(() => setCopiedToast(false), 2000);
+                  showCopiedToast("Code copied!");
                 }}
                 className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full text-left hover:bg-[#f5f5ff] transition-colors"
               >
@@ -1438,8 +1549,7 @@ export default function SettingsPage() {
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(`https://rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`);
-                  setCopiedToast(true);
-                  setTimeout(() => setCopiedToast(false), 2000);
+                  showCopiedToast("Link copied!");
                 }}
                 className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full text-left hover:bg-[#f5f5ff] transition-colors"
               >
@@ -1550,7 +1660,7 @@ export default function SettingsPage() {
       {copiedToast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
           <div className="bg-[#4338ca] text-white px-5 py-2.5 rounded-xl shadow-lg text-sm font-semibold">
-            Copied!
+            {copiedToast}
           </div>
         </div>
       )}
