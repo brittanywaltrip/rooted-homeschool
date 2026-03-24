@@ -762,7 +762,7 @@ export default function PlanPage() {
     )}
 
     {/* ── Hero Header ──────────────────────────────────────── */}
-    <PageHero overline="Your Curriculum" title="Plan 📋">
+    <PageHero overline="Your Curriculum" title="Plan">
       {/* Week navigation inside hero */}
       <div className="flex items-center justify-center gap-1.5 mt-3">
         {!isCurrentWeek && (
@@ -781,7 +781,7 @@ export default function PlanPage() {
       </div>
 
       {/* Week strip inside hero */}
-      <div className="flex items-stretch mt-3 -mx-6 -mb-8 pt-1" style={{ background: "rgba(0,0,0,0.1)" }}>
+      <div className="flex items-stretch mt-3 rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
         {["S", "M", "T", "W", "T", "F", "S"].map((label, i) => {
           const actualDate = new Date(weekStart);
           actualDate.setDate(weekStart.getDate() - 1 + i);
