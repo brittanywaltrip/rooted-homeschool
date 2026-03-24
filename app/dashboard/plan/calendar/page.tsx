@@ -65,6 +65,13 @@ function getEventChildId(ev: AppEvent): string | null {
   return ev.payload?.child_id ?? null;
 }
 
+function getSeasonalTint(month: number): string {
+  if (month === 11 || month <= 1) return "rgba(120, 168, 224, 0.06)"; // Dec/Jan/Feb — cool blue-gray
+  if (month >= 2 && month <= 4)   return "rgba(122, 158, 126, 0.06)"; // Mar/Apr/May — soft green
+  if (month >= 5 && month <= 7)   return "rgba(224, 160, 64, 0.06)";  // Jun/Jul/Aug — warm amber
+  return "rgba(200, 120, 80, 0.06)";                                   // Sep/Oct/Nov — warm rust
+}
+
 const DOW_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const MEMORY_TYPES = ["memory_book", "memory_photo", "memory_project", "memory_activity"];
@@ -213,6 +220,83 @@ export default function CalendarPage() {
 
   const monthLabel = monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
+  // ── Derived: child dots for a day ───────────────────────────────────────────
+
+  function getChildDots(dateStr: string): { childId: string; color: string }[] {
+    const activity = dayMap.get(dateStr);
+    if (!activity) return [];
+
+    const seen = new Set<string>();
+    const dots: { childId: string; color: string }[] = [];
+
+    for (const l of activity.lessons) {
+      const cid = l.child_id ?? "__none__";
+      if (!seen.has(cid)) {
+        seen.add(cid);
+        const child = children.find((c) => c.id === cid);
+        dots.push({ childId: cid, color: child?.color ?? "#7a6f65" });
+      }
+    }
+    for (const ev of [...activity.memories, ...activity.fieldTrips]) {
+      const cid = getEventChildId(ev) ?? "__none__";
+      if (!seen.has(cid)) {
+        seen.add(cid);
+        const child = children.find((c) => c.id === cid);
+        dots.push({ childId: cid, color: child?.color ?? "#7a6f65" });
+      }
+    }
+
+    return dots.slice(0, 5);
+  }
+
+  // ── Derived: emoji indicators for a day ─────────────────────────────────────
+
+  function getEmojiIndicators(dateStr: string): { emoji: string; count: number; badgeColor: string }[] {
+    const activity = dayMap.get(dateStr);
+    if (!activity) return [];
+    const indicators: { emoji: string; count: number; badgeColor: string }[] = [];
+    if (activity.fieldTrips.length > 0) {
+      indicators.push({ emoji: "\uD83D\uDE8C", count: activity.fieldTrips.length, badgeColor: "#6b3fa0" });
+    }
+    if (activity.memories.length > 0) {
+      indicators.push({ emoji: "\uD83D\uDCF8", count: activity.memories.length, badgeColor: "#d4920a" });
+    }
+    return indicators;
+  }
+
+  // ── Derived: has memory (golden day glow) ───────────────────────────────────
+
+  function hasMemory(dateStr: string): boolean {
+    const activity = dayMap.get(dateStr);
+    return (activity?.memories.length ?? 0) > 0;
+  }
+
+  // ── Month summary ───────────────────────────────────────────────────────────
+
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const isCurrentOrPastMonth = monthStart <= now;
+
+  const monthSummary = (() => {
+    if (!isCurrentOrPastMonth) return null;
+
+    // Count school days (Mon-Fri, not in vacation)
+    let schoolDays = 0;
+    let activeDays = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(year, month, d);
+      const dow = date.getDay();
+      if (dow === 0 || dow === 6) continue; // weekend
+      const ds = toDateStr(date);
+      if (isInVacation(ds, vacations)) continue;
+      schoolDays++;
+      if (dayMap.has(ds) && dayMap.get(ds)!.lessons.length > 0) {
+        activeDays++;
+      }
+    }
+    return { activeDays, schoolDays };
+  })();
+
   // ── Get day detail for selected day ─────────────────────────────────────────
 
   const selectedDayActivity: DayActivity | null = selectedDay ? (dayMap.get(selectedDay) ?? { lessons: [], memories: [], fieldTrips: [] }) : null;
@@ -238,44 +322,6 @@ export default function CalendarPage() {
       map.get(k)!.fieldTrips.push(ev);
     }
     return Array.from(map.values());
-  }
-
-  // ── Get child colors for a day's richness bars ──────────────────────────────
-
-  function getChildBars(dateStr: string): { childId: string; color: string; height: number }[] {
-    const activity = dayMap.get(dateStr);
-    if (!activity) return [];
-
-    const childCounts = new Map<string, number>();
-    for (const l of activity.lessons) {
-      const cid = l.child_id ?? "__none__";
-      childCounts.set(cid, (childCounts.get(cid) ?? 0) + 1);
-    }
-    for (const ev of [...activity.memories, ...activity.fieldTrips]) {
-      const cid = getEventChildId(ev) ?? "__none__";
-      childCounts.set(cid, (childCounts.get(cid) ?? 0) + 1);
-    }
-
-    return Array.from(childCounts.entries()).map(([cid, count]) => {
-      const child = children.find((c) => c.id === cid);
-      return {
-        childId: cid,
-        color: child?.color ?? "#7a6f65",
-        height: count >= 3 ? 12 : count >= 2 ? 8 : 4,
-      };
-    });
-  }
-
-  // ── Type dots for a day ─────────────────────────────────────────────────────
-
-  function getTypeDots(dateStr: string): { color: string; label: string }[] {
-    const activity = dayMap.get(dateStr);
-    if (!activity) return [];
-    const dots: { color: string; label: string }[] = [];
-    if (activity.lessons.length > 0) dots.push({ color: "#3d5c42", label: "lessons" });
-    if (activity.memories.length > 0) dots.push({ color: "#d4920a", label: "memories" });
-    if (activity.fieldTrips.length > 0) dots.push({ color: "#6b3fa0", label: "field trips" });
-    return dots;
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -351,7 +397,7 @@ export default function CalendarPage() {
           <span className="text-3xl animate-pulse">📅</span>
         </div>
       ) : (
-        <div>
+        <div className="rounded-2xl p-2" style={{ backgroundColor: getSeasonalTint(month) }}>
           {/* Day of week headers */}
           <div className="grid grid-cols-7 gap-1 mb-1">
             {DOW_HEADERS.map((d) => (
@@ -370,8 +416,9 @@ export default function CalendarPage() {
               const isToday = dateStr === todayStr;
               const isSelected = dateStr === selectedDay;
               const vacation = isInVacation(dateStr, vacations);
-              const bars = getChildBars(dateStr);
-              const dots = getTypeDots(dateStr);
+              const childDots = getChildDots(dateStr);
+              const emojis = getEmojiIndicators(dateStr);
+              const isGoldenDay = !isToday && hasMemory(dateStr);
 
               return (
                 <button
@@ -387,52 +434,62 @@ export default function CalendarPage() {
                       : "border-[#e8e2d9] bg-white hover:bg-[#faf8f4]"
                   }`}
                 >
-                  {/* Date number */}
+                  {/* Date number row */}
                   <div className="flex items-center justify-between w-full mb-1">
                     <span
                       className={`text-[11px] font-bold leading-none ${
                         isToday
                           ? "w-5 h-5 rounded-full bg-[#3d5c42] text-white flex items-center justify-center"
+                          : isGoldenDay
+                          ? "w-5 h-5 rounded-full flex items-center justify-center text-[#8b6820]"
                           : vacation
                           ? "text-[#4a7caa]"
                           : "text-[#2d2926]"
                       }`}
+                      style={isGoldenDay && !isToday ? { backgroundColor: "#fef3e8" } : undefined}
                     >
-                      {day.getDate()}
+                      {vacation && !isToday && !isGoldenDay ? (
+                        <span style={{ opacity: 0.3 }}>{day.getDate()}</span>
+                      ) : (
+                        day.getDate()
+                      )}
                     </span>
                     {vacation && (
-                      <span className="text-[8px] text-[#4a7caa] font-medium truncate max-w-[40px]">
+                      <span className="text-[8px] text-[#4a7caa] font-medium truncate max-w-[40px] flex items-center gap-0.5">
+                        <span className="text-[9px]">{"\uD83C\uDF34"}</span>
                         {vacation.name}
                       </span>
                     )}
                   </div>
 
-                  {/* Richness bars */}
-                  {bars.length > 0 && (
-                    <div className="flex gap-0.5 w-full mb-1">
-                      {bars.map((bar) => (
+                  {/* Child dots */}
+                  {childDots.length > 0 && (
+                    <div className="flex flex-wrap gap-[3px] mb-1" style={{ opacity: vacation ? 0.4 : 1 }}>
+                      {childDots.map((dot) => (
                         <div
-                          key={bar.childId}
-                          className="flex-1 rounded-sm"
-                          style={{
-                            backgroundColor: bar.color,
-                            height: `${bar.height}px`,
-                            opacity: vacation ? 0.4 : 0.7,
-                          }}
+                          key={dot.childId}
+                          className="w-[5px] h-[5px] rounded-full"
+                          style={{ backgroundColor: dot.color }}
                         />
                       ))}
                     </div>
                   )}
 
-                  {/* Type dots */}
-                  {dots.length > 0 && (
-                    <div className="flex gap-1 mt-auto">
-                      {dots.map((dot) => (
-                        <div
-                          key={dot.label}
-                          className="w-[5px] h-[5px] rounded-full"
-                          style={{ backgroundColor: dot.color }}
-                        />
+                  {/* Emoji indicators */}
+                  {emojis.length > 0 && (
+                    <div className="flex gap-1 mt-auto items-center" style={{ opacity: vacation ? 0.4 : 1 }}>
+                      {emojis.map((ind) => (
+                        <span key={ind.emoji} className="relative leading-none">
+                          <span className="text-[10px]">{ind.emoji}</span>
+                          {ind.count > 1 && (
+                            <span
+                              className="absolute -top-1 -right-2 text-[7px] font-bold text-white rounded-full w-[12px] h-[12px] flex items-center justify-center leading-none"
+                              style={{ backgroundColor: ind.badgeColor }}
+                            >
+                              {ind.count}
+                            </span>
+                          )}
+                        </span>
                       ))}
                     </div>
                   )}
@@ -447,27 +504,30 @@ export default function CalendarPage() {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] text-[#7a6f65]">
         {children.map((c) => (
           <div key={c.id} className="flex items-center gap-1.5">
-            <div className="w-3 h-2 rounded-sm" style={{ backgroundColor: c.color ?? "#5c7f63" }} />
+            <div className="w-[5px] h-[5px] rounded-full" style={{ backgroundColor: c.color ?? "#5c7f63" }} />
             <span>{c.name}</span>
           </div>
         ))}
         <div className="flex items-center gap-1.5">
-          <div className="w-[6px] h-[6px] rounded-full bg-[#3d5c42]" />
-          <span>Lessons</span>
+          <span className="text-[10px] leading-none">{"\uD83D\uDCF8"}</span>
+          <span>Memory (golden day)</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-[6px] h-[6px] rounded-full bg-[#d4920a]" />
-          <span>Memory / Photo</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-[6px] h-[6px] rounded-full bg-[#6b3fa0]" />
+          <span className="text-[10px] leading-none">{"\uD83D\uDE8C"}</span>
           <span>Field trip</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-3 h-2 rounded-sm bg-[#dceefb] border border-[#c8ddf0]" />
+          <span className="text-[10px] leading-none">{"\uD83C\uDF34"}</span>
           <span>Vacation</span>
         </div>
       </div>
+
+      {/* ── Month Summary Line ──────────────────────────────── */}
+      {monthSummary && (
+        <p className="text-xs text-center text-[#7a6f65] italic px-4 py-2">
+          Your family learned together on {monthSummary.activeDays} of {monthSummary.schoolDays} school days this month {"\uD83C\uDF31"}
+        </p>
+      )}
 
       {/* ── 5. Day Detail Sheet ─────────────────────────────── */}
       {selectedDay && selectedDayActivity && (
@@ -544,7 +604,7 @@ export default function CalendarPage() {
                   {/* Memories */}
                   {group.memories.map((ev) => (
                     <div key={ev.id} className="flex items-center gap-2 pl-8">
-                      <div className="w-[5px] h-[5px] rounded-full bg-[#d4920a] shrink-0" />
+                      <span className="text-[10px] leading-none shrink-0">{"\uD83D\uDCF8"}</span>
                       <span className="text-xs text-[#8b6820]">
                         {ev.payload?.title ?? ev.payload?.caption ?? "Memory logged"}
                       </span>
@@ -554,7 +614,7 @@ export default function CalendarPage() {
                   {/* Field trips */}
                   {group.fieldTrips.map((ev) => (
                     <div key={ev.id} className="flex items-center gap-2 pl-8">
-                      <div className="w-[5px] h-[5px] rounded-full bg-[#6b3fa0] shrink-0" />
+                      <span className="text-[10px] leading-none shrink-0">{"\uD83D\uDE8C"}</span>
                       <span className="text-xs text-[#6b3fa0]">
                         {ev.payload?.title ?? "Field trip"}
                       </span>
