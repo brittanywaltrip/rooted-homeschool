@@ -83,30 +83,16 @@ export default function WelcomePage() {
         style={{ opacity: showContent ? 1 : 0, transform: showContent ? 'translateY(0)' : 'translateY(16px)', transition: 'opacity 0.6s ease, transform 0.6s ease' }}
       >
 
-        {/* Growing sprout animation */}
+        {/* Rooted logo */}
         <div className="mb-6 flex justify-center">
-          <div style={{ animation: 'sproutGrow 0.8s cubic-bezier(0.34,1.56,0.64,1) forwards', transformOrigin: 'bottom center' }}>
-            <svg viewBox="0 0 120 140" width="110" height="128" aria-hidden>
-              {/* Ground */}
-              <ellipse cx="60" cy="128" rx="38" ry="8" fill="#c8ddb8" opacity="0.6" />
-              {/* Trunk */}
-              <rect x="56" y="72" width="8" height="56" rx="4" fill="#8b6f47" />
-              {/* Left branch */}
-              <path d="M60 90 Q38 78 42 60 Q54 72 60 90" fill="#5c7f63" />
-              {/* Right branch */}
-              <path d="M60 90 Q82 78 78 60 Q66 72 60 90" fill="#7a9e7e" />
-              {/* Canopy layers */}
-              <circle cx="60" cy="52" r="26" fill="#5c7f63" />
-              <circle cx="60" cy="38" r="20" fill="#3d5c42" />
-              <circle cx="48" cy="46" r="13" fill="#7a9e7e" opacity="0.85" />
-              <circle cx="72" cy="46" r="13" fill="#7a9e7e" opacity="0.85" />
-              <circle cx="60" cy="24" r="14" fill="#3d5c42" />
-              {/* Sparkles */}
-              <circle cx="30" cy="38" r="2.5" fill="#a8d8a8" style={{ animation: 'sparkle 1.8s ease-in-out infinite 0.2s' }} />
-              <circle cx="90" cy="32" r="2"   fill="#a8d8a8" style={{ animation: 'sparkle 1.8s ease-in-out infinite 0.9s' }} />
-              <circle cx="60" cy="12" r="1.8" fill="#c8f0c8" style={{ animation: 'sparkle 1.8s ease-in-out infinite 1.5s' }} />
-            </svg>
-          </div>
+          <img
+            src="/icon-192.png"
+            alt="Rooted"
+            width={88}
+            height={88}
+            className="rounded-2xl shadow-lg"
+            style={{ animation: 'sproutGrow 0.8s cubic-bezier(0.34,1.56,0.64,1) forwards' }}
+          />
         </div>
 
         {/* Welcome heading */}
@@ -176,10 +162,6 @@ export default function WelcomePage() {
         @keyframes sproutGrow {
           from { opacity: 0; transform: scale(0.3) translateY(30px); }
           to   { opacity: 1; transform: scale(1) translateY(0);      }
-        }
-        @keyframes sparkle {
-          0%, 100% { opacity: 0.3; transform: scale(1);   }
-          50%       { opacity: 1;   transform: scale(1.4); }
         }
       `}</style>
     </main>
