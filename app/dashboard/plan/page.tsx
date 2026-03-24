@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, X, AlertTriangle, CheckCircle2, Clock, TrendingUp } from "lucide-react";
+import Link from "next/link";
+import { Plus, X, AlertTriangle, CheckCircle2, Clock, TrendingUp, Calendar } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
@@ -644,6 +645,14 @@ export default function PlanPage() {
           </button>
         </div>
       )}
+
+      {/* ── 6. Calendar Link ──────────────────────────────── */}
+      <Link
+        href="/dashboard/plan/calendar"
+        className="flex items-center justify-center gap-2 text-sm font-semibold text-[#5c7f63] bg-white hover:bg-[#e8f0e9] px-4 py-3 rounded-xl transition-colors border border-[#e8e2d9] w-full"
+      >
+        <Calendar size={15} /> View calendar →
+      </Link>
 
     </div>
 
