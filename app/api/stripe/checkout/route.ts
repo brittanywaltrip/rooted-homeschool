@@ -55,6 +55,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Idempotency key: same user + plan + day = same session
+    const idempotencyKey = `checkout-${user.id}-${priceId}-${new Date().toDateString()}`
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
@@ -64,7 +67,7 @@ export async function POST(req: NextRequest) {
       cancel_url: 'https://www.rootedhomeschoolapp.com/upgrade',
       customer_email: user.email,
       metadata: { userId: user.id },
-    })
+    }, { idempotencyKey })
     console.log('[checkout] session created:', session.id)
     return NextResponse.json({ url: session.url })
   } catch (err) {

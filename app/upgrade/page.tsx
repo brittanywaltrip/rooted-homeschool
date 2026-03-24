@@ -227,11 +227,16 @@ function UpgradePageInner() {
               <button
                 onClick={() => handleClick('founding')}
                 disabled={loadingPlan !== null}
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm"
+                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm flex items-center justify-center gap-2"
               >
-                {loadingPlan === 'founding'
-                  ? 'Redirecting to checkout…'
-                  : 'Become a Founding Member → $39/yr'}
+                {loadingPlan === 'founding' ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Become a Founding Member → $39/yr'
+                )}
               </button>
             )}
           </div>
@@ -282,11 +287,16 @@ function UpgradePageInner() {
               <button
                 onClick={() => handleClick('standard')}
                 disabled={loadingPlan !== null}
-                className="w-full bg-[#2d2926] hover:bg-[#1a1714] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm"
+                className="w-full bg-[#2d2926] hover:bg-[#1a1714] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
               >
-                {loadingPlan === 'standard'
-                  ? 'Redirecting to checkout…'
-                  : 'Subscribe — $59/yr →'}
+                {loadingPlan === 'standard' ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Subscribe — $59/yr →'
+                )}
               </button>
             )}
           </div>
