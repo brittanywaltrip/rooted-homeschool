@@ -547,6 +547,11 @@ export default function SettingsPage() {
   async function archiveChild(id: string) {
     setDeletingId(id);
 
+    // Safety: log if archiving for a paying subscriber (user-initiated, but tracked)
+    if (isPro || subscriptionStatus === 'active') {
+      console.warn('[settings] Archiving child for paying subscriber — user-initiated. childId:', id, 'isPro:', isPro, 'status:', subscriptionStatus);
+    }
+
     const { error } = await supabase
       .from("children")
       .update({ archived: true })
