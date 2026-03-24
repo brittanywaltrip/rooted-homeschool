@@ -5,6 +5,7 @@ import { Bookmark, BookmarkCheck, ChevronDown, MapPin } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -459,20 +460,9 @@ export default function ResourcesPage() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-3xl px-4 py-8 space-y-8" style={{ background: "#faf9f6" }}>
-
-      {/* ── 1. Header ──────────────────────────────────────────── */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">
-          DISCOVER
-        </p>
-        <h1 className="text-3xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-          Resources
-        </h1>
-        <p className="text-sm text-[#7a6f65] mt-1">
-          Everything homeschool, in one place.
-        </p>
-      </div>
+    <>
+    <PageHero overline="Discover" title="Resources" subtitle="Everything homeschool, in one place." />
+    <div className="max-w-3xl px-4 py-6 space-y-8">
 
       {/* ── 2. Personalized State Banner ───────────────────────── */}
       {stateLoaded && userState && userState !== "Outside the US" && STATE_INFO[userState] ? (() => {
@@ -1140,5 +1130,6 @@ export default function ResourcesPage() {
         </div>
       )}
     </div>
+    </>
   );
 }
