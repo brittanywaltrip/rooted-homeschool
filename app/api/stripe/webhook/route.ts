@@ -199,6 +199,57 @@ function foundingWelcomeHtml(firstName: string): string {
 </html>`
 }
 
+// Helper: find user by email and activate their account
+async function activateByEmail(email: string, plan: string, stripeCustomerId: string, sessionId: string): Promise<{ userId: string; firstName: string } | null> {
+  console.log('[webhook] activateByEmail called — email:', email, 'plan:', plan, 'stripeCustomerId:', stripeCustomerId)
+
+  // Try to find user by email in auth
+  const { data: { users }, error: listErr } = await supabase.auth.admin.listUsers()
+  if (listErr) {
+    console.error('[webhook] FAILED to list users:', listErr.message)
+    return null
+  }
+  const matchedUser = users?.find(u => u.email?.toLowerCase() === email.toLowerCase())
+  if (!matchedUser) {
+    console.error('[webhook] NO USER FOUND for email:', email, 'sessionId:', sessionId)
+    await sendEmail(
+      'hello.rootedapp@gmail.com',
+      '⚠️ Payment received but no matching user found',
+      `A payment was received but could not be matched to a user.\n\nEmail: ${email}\nSession/Sub: ${sessionId}\n\nPlease manually update this account in Supabase.`
+    ).catch(() => {})
+    return null
+  }
+
+  console.log('[webhook] Found user:', matchedUser.id, 'for email:', email)
+
+  const updateData = {
+    is_pro: true,
+    subscription_status: plan === 'founding_family' ? 'founding' : 'standard',
+    plan_type: plan,
+    stripe_customer_id: stripeCustomerId,
+  }
+  const { error: updateErr } = await supabase.from('profiles').update(updateData).eq('id', matchedUser.id)
+  if (updateErr) {
+    console.error('[webhook] FAILED to update profile for:', email, 'userId:', matchedUser.id, 'error:', updateErr.message)
+    // Try upsert as fallback
+    const { error: upsertErr } = await supabase.from('profiles').upsert({ id: matchedUser.id, ...updateData })
+    if (upsertErr) {
+      console.error('[webhook] UPSERT ALSO FAILED:', upsertErr.message)
+      return null
+    }
+    console.log('[webhook] upsert fallback succeeded for:', email)
+  } else {
+    console.log('[webhook] profile updated successfully for:', email, 'plan:', plan)
+  }
+
+  // Verify the update stuck
+  const { data: verify } = await supabase.from('profiles').select('is_pro, plan_type, subscription_status').eq('id', matchedUser.id).maybeSingle()
+  console.log('[webhook] VERIFY after update — is_pro:', verify?.is_pro, 'plan_type:', verify?.plan_type, 'subscription_status:', verify?.subscription_status)
+
+  const { data: profile } = await supabase.from('profiles').select('first_name').eq('id', matchedUser.id).maybeSingle()
+  return { userId: matchedUser.id, firstName: profile?.first_name ?? 'friend' }
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.text()
   const sig = req.headers.get('stripe-signature')!
@@ -210,125 +261,131 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 })
   }
 
+  console.log('[webhook] event received:', event.type, 'id:', event.id)
+
   // ── checkout.session.completed ─────────────────────────────────────────────
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session
-    const userId = session.metadata?.userId
-    console.log('[webhook] checkout.session.completed fired',
-      'sessionId:', session.id,
-      'userId:', session.metadata?.userId ?? 'MISSING',
-      'email:', session.customer_details?.email ?? 'none'
+    const metaUserId = session.metadata?.userId
+    const customerEmail = session.customer_details?.email ?? session.customer_email ?? null
+    const stripeCustomerId = session.customer as string
+
+    console.log('[webhook] checkout.session.completed — sessionId:', session.id,
+      'metaUserId:', metaUserId ?? 'MISSING',
+      'email:', customerEmail ?? 'MISSING',
+      'stripeCustomerId:', stripeCustomerId
     )
-    if (userId) {
-      // Determine plan from line items
+
+    // Determine plan from line items
+    let plan = 'founding_family' // safe default
+    try {
       const lineItems = await stripe.checkout.sessions.listLineItems(session.id)
       const priceId = lineItems.data[0]?.price?.id
-      const plan = planType(priceId)
+      plan = planType(priceId)
+      console.log('[webhook] plan determined from line items:', plan, 'priceId:', priceId)
+    } catch (e) {
+      console.error('[webhook] failed to get line items, defaulting to founding_family:', e)
+    }
 
-      await supabase.from('profiles').update({
+    let activated = false
+    let firstName = 'friend'
+
+    // Path 1: use metadata userId
+    if (metaUserId) {
+      const updateData = {
         is_pro: true,
         subscription_status: plan === 'founding_family' ? 'founding' : 'standard',
         plan_type: plan,
-        stripe_customer_id: session.customer as string,
-      }).eq('id', userId)
-
-      // Look up family name + first name for emails
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('display_name, first_name')
-        .eq('id', userId)
-        .maybeSingle()
-
-      const familyName    = profile?.display_name ?? 'Unknown Family'
-      const firstName     = profile?.first_name ?? 'friend'
-      const customerEmail = session.customer_details?.email ?? '—'
-      const activeCount   = await getActiveSubCount()
-      const now           = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })
-
-      const SIGNATURE = `— Brittany Waltrip\nFounder, Rooted Homeschool App\nhello@rootedhomeschoolapp.com\nrootedhomeschoolapp.com`
-
-      // Notify Brittany
-      await sendEmail(
-        ADMIN_EMAIL,
-        `🌱 New ${plan === 'founding_family' ? 'Founding Member' : 'Subscriber'}! ${familyName} just subscribed`,
-        `New subscription on Rooted!\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(priceId)}\nTime: ${now}\nTotal active subscribers: ${activeCount}\n\nRooted is growing! 🌱`
-      ).catch((err) => console.error("Resend sendEmail error:", err))
-
-      // Thank-you email to the new subscriber
-      if (customerEmail !== '—') {
-        const isFounding = plan === 'founding_family'
-        const subjectLine = isFounding
-          ? `Welcome to the Rooted family, ${firstName}! 🌱`
-          : `Welcome to Rooted, ${firstName}! 🌱`
-        if (isFounding) {
-          await sendEmail(
-            customerEmail,
-            subjectLine,
-            `Hi ${firstName}, welcome to Rooted! You're a Founding Member — your $39/yr is locked forever. Open the app at rootedhomeschoolapp.com/dashboard. — Brittany`,
-            'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
-            foundingWelcomeHtml(firstName)
-          ).catch((err) => console.error("Resend sendEmail error:", err))
-        } else {
-          await sendEmail(
-            customerEmail,
-            subjectLine,
-            `Hi ${firstName},\n\nThank you so much for subscribing to Rooted — welcome to the family! 🌱\n\nI'm so glad you're here. Rooted is built for families like yours, and I'm genuinely excited to be a part of your homeschool journey.\n\nIf you ever have questions, ideas, or just want to share how it's going — reply to this email anytime. I personally read every response.\n\nThank you for being here. 🌱\n\n${SIGNATURE}`,
-            'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
-          ).catch((err) => console.error("Resend sendEmail error:", err))
-        }
+        stripe_customer_id: stripeCustomerId,
+      }
+      const { error } = await supabase.from('profiles').update(updateData).eq('id', metaUserId)
+      if (error) {
+        console.error('[webhook] metadata userId update FAILED:', error.message, '— falling back to email')
+      } else {
+        console.log('[webhook] metadata userId update succeeded for:', metaUserId)
+        activated = true
+        const { data: p } = await supabase.from('profiles').select('first_name, display_name').eq('id', metaUserId).maybeSingle()
+        firstName = p?.first_name ?? 'friend'
       }
     }
 
-    if (!userId) {
-      const customerEmail = session.customer_details?.email
-      console.log('[webhook] no userId in metadata, trying email fallback for:', customerEmail)
-      if (customerEmail) {
-        const { data: { users } } = await supabase.auth.admin.listUsers()
-        const matchedUser = users?.find(u => u.email === customerEmail)
-        if (matchedUser) {
-          const lineItems = await stripe.checkout.sessions.listLineItems(session.id)
-          const priceId = lineItems.data[0]?.price?.id
-          const plan = planType(priceId)
-          await supabase.from('profiles').update({
-            is_pro: true,
-            subscription_status: plan === 'founding_family' ? 'founding' : 'standard',
-            plan_type: plan,
-            stripe_customer_id: session.customer as string,
-          }).eq('id', matchedUser.id)
-          console.log('[webhook] fallback succeeded: updated', customerEmail, 'to', plan)
+    // Path 2: email fallback (always try if path 1 failed or was missing)
+    if (!activated && customerEmail) {
+      const result = await activateByEmail(customerEmail, plan, stripeCustomerId, session.id)
+      if (result) {
+        activated = true
+        firstName = result.firstName
+      }
+    }
 
-          // Still send the welcome email using fallback path
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('display_name, first_name')
-            .eq('id', matchedUser.id)
-            .maybeSingle()
-          const firstName = profile?.first_name ?? 'friend'
-          const isFounding = plan === 'founding_family'
-          if (isFounding) {
-            await sendEmail(
-              customerEmail,
-              `Welcome to the Rooted family, ${firstName}! 🌱`,
-              `Hi ${firstName}, welcome to Rooted! You're a Founding Member — your $39/yr is locked forever. Open the app at rootedhomeschoolapp.com/dashboard. — Brittany`,
-              'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
-              foundingWelcomeHtml(firstName)
-            ).catch(err => console.error('[webhook] fallback email error:', err))
-          } else {
-            await sendEmail(
-              customerEmail,
-              `Welcome to Rooted, ${firstName}! 🌱`,
-              `Hi ${firstName},\n\nThank you so much for subscribing to Rooted — welcome to the family! 🌱\n\nFeel free to reply anytime. I personally read every response.\n\nThank you for being here. 🌱\n\n— Brittany Waltrip\nFounder, Rooted Homeschool\nhello@rootedhomeschoolapp.com`,
-              'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
-            ).catch(err => console.error('[webhook] fallback email error:', err))
+    if (!activated) {
+      console.error('[webhook] CRITICAL: could not activate account — metaUserId:', metaUserId, 'email:', customerEmail, 'sessionId:', session.id)
+    }
+
+    // Send emails regardless of activation path
+    if (customerEmail && activated) {
+      const { data: prof } = await supabase.from('profiles').select('display_name').eq('stripe_customer_id', stripeCustomerId).maybeSingle()
+      const familyName = prof?.display_name ?? 'Unknown Family'
+      const activeCount = await getActiveSubCount()
+      const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })
+      const SIGNATURE = `— Brittany Waltrip\nFounder, Rooted Homeschool App\nhello@rootedhomeschoolapp.com\nrootedhomeschoolapp.com`
+
+      // Notify admin
+      await sendEmail(
+        ADMIN_EMAIL,
+        `🌱 New ${plan === 'founding_family' ? 'Founding Member' : 'Subscriber'}! ${familyName} just subscribed`,
+        `New subscription on Rooted!\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(undefined)}\nTime: ${now}\nTotal active subscribers: ${activeCount}\n\nRooted is growing! 🌱`
+      ).catch((err) => console.error("Resend admin email error:", err))
+
+      // Welcome email
+      const isFounding = plan === 'founding_family'
+      const subjectLine = isFounding
+        ? `Welcome to the Rooted family, ${firstName}! 🌱`
+        : `Welcome to Rooted, ${firstName}! 🌱`
+      if (isFounding) {
+        await sendEmail(customerEmail, subjectLine,
+          `Hi ${firstName}, welcome to Rooted! You're a Founding Member — your $39/yr is locked forever. Open the app at rootedhomeschoolapp.com/dashboard. — Brittany`,
+          'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
+          foundingWelcomeHtml(firstName)
+        ).catch((err) => console.error("Resend welcome email error:", err))
+      } else {
+        await sendEmail(customerEmail, subjectLine,
+          `Hi ${firstName},\n\nThank you so much for subscribing to Rooted — welcome to the family! 🌱\n\nFeel free to reply anytime. I personally read every response.\n\nThank you for being here. 🌱\n\n${SIGNATURE}`,
+          'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
+        ).catch((err) => console.error("Resend welcome email error:", err))
+      }
+    }
+  }
+
+  // ── customer.subscription.created ────────────────────────────────────────
+  if (event.type === 'customer.subscription.created') {
+    const sub = event.data.object as Stripe.Subscription
+    const customerId = sub.customer as string
+    const priceId = sub.items.data[0]?.price?.id
+    const plan = planType(priceId)
+    console.log('[webhook] subscription.created — customerId:', customerId, 'plan:', plan, 'status:', sub.status)
+
+    if (sub.status === 'active' || sub.status === 'trialing') {
+      // Try to update by stripe_customer_id first
+      const { data: existing } = await supabase.from('profiles').select('id').eq('stripe_customer_id', customerId).maybeSingle()
+      if (existing) {
+        await supabase.from('profiles').update({
+          is_pro: true,
+          subscription_status: plan === 'founding_family' ? 'founding' : 'standard',
+          plan_type: plan,
+        }).eq('id', existing.id)
+        console.log('[webhook] subscription.created — updated existing profile:', existing.id)
+      } else {
+        // Fallback: look up customer email from Stripe
+        try {
+          const customer = await stripe.customers.retrieve(customerId)
+          if (!customer.deleted && (customer as Stripe.Customer).email) {
+            const email = (customer as Stripe.Customer).email!
+            console.log('[webhook] subscription.created — no profile with customerId, trying email:', email)
+            await activateByEmail(email, plan, customerId, sub.id)
           }
-        } else {
-          console.error('[webhook] PAYMENT MISSED — no user found for email:', customerEmail, 'sessionId:', session.id)
-          // Alert Brittany so she can fix manually
-          await sendEmail(
-            'hello.rootedapp@gmail.com',
-            '⚠️ Payment received but no matching user found',
-            `A payment was received but could not be matched to a user.\n\nEmail: ${customerEmail}\nSession: ${session.id}\n\nPlease manually update this account in Supabase.`
-          ).catch(() => {})
+        } catch (e) {
+          console.error('[webhook] subscription.created — customer lookup failed:', e)
         }
       }
     }
@@ -378,15 +435,35 @@ export async function POST(req: NextRequest) {
   // ── customer.subscription.updated ─────────────────────────────────────────
   if (event.type === 'customer.subscription.updated') {
     const sub = event.data.object as Stripe.Subscription
+    const customerId = sub.customer as string
     const priceId = sub.items.data[0]?.price.id
     const plan = planType(priceId)
     const isActive = sub.status === 'active'
+    console.log('[webhook] subscription.updated — customerId:', customerId, 'plan:', plan, 'status:', sub.status)
 
-    await supabase.from('profiles').update({
+    const updateData = {
       is_pro: isActive,
       subscription_status: isActive ? (plan === 'founding_family' ? 'founding' : 'standard') : sub.status,
       plan_type: isActive ? plan : 'free',
-    }).eq('stripe_customer_id', sub.customer as string)
+    }
+
+    const { data: existing } = await supabase.from('profiles').select('id').eq('stripe_customer_id', customerId).maybeSingle()
+    if (existing) {
+      await supabase.from('profiles').update(updateData).eq('id', existing.id)
+      console.log('[webhook] subscription.updated — updated profile:', existing.id)
+    } else if (isActive) {
+      // No profile with this customer ID — try email lookup
+      try {
+        const customer = await stripe.customers.retrieve(customerId)
+        if (!customer.deleted && (customer as Stripe.Customer).email) {
+          const email = (customer as Stripe.Customer).email!
+          console.log('[webhook] subscription.updated — no profile with customerId, trying email:', email)
+          await activateByEmail(email, plan, customerId, sub.id)
+        }
+      } catch (e) {
+        console.error('[webhook] subscription.updated — customer lookup failed:', e)
+      }
+    }
   }
 
   return NextResponse.json({ received: true })
