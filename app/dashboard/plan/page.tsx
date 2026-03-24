@@ -781,7 +781,7 @@ export default function PlanPage() {
       </div>
 
       {/* Week strip inside hero */}
-      <div className="flex items-stretch mt-3 -mx-2 rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+      <div className="flex items-stretch mt-3 -mx-6 -mb-8 pt-1" style={{ background: "rgba(0,0,0,0.1)" }}>
         {["S", "M", "T", "W", "T", "F", "S"].map((label, i) => {
           const actualDate = new Date(weekStart);
           actualDate.setDate(weekStart.getDate() - 1 + i);
@@ -818,32 +818,7 @@ export default function PlanPage() {
     </PageHero>
     <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
 
-      {/* ── Child Filter Pills ────────────────────────────────── */}
-      {children.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto pb-1 mb-4 px-4">
-          <button
-            onClick={() => setSelectedChild(null)}
-            className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
-              !selectedChild
-                ? 'bg-[#3d5c42] text-white'
-                : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
-            }`}>
-            All
-          </button>
-          {children.map((child: any) => (
-            <button
-              key={child.id}
-              onClick={() => setSelectedChild(child.id === selectedChild ? null : child.id)}
-              className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
-                selectedChild === child.id
-                  ? 'bg-[#3d5c42] text-white'
-                  : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
-              }`}>
-              {child.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Child filter pills removed — curriculum cards already show child */}
 
       {/* ── Manage Curriculum ────────────────────────────────── */}
       {!isPartner && curricGroups.length > 0 && (() => {
