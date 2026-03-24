@@ -252,31 +252,17 @@ function StepWelcome({ firstName, onNext }: { firstName: string; onNext: () => v
       <div className="relative z-10 flex flex-col items-center text-center max-w-sm w-full animate-[fadeUp_0.7s_ease-out_forwards]">
         <style>{`
           @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-          @keyframes drawStem { from { stroke-dashoffset: 90; } to { stroke-dashoffset: 0; } }
-          @keyframes popLeaf { from { opacity:0; transform:scale(0) rotate(-15deg); } to { opacity:1; transform:scale(1) rotate(0deg); } }
-          @keyframes popLeafR { from { opacity:0; transform:scale(0) rotate(15deg); } to { opacity:1; transform:scale(1) rotate(0deg); } }
-          @keyframes popBud { from { opacity:0; transform:scale(0); } to { opacity:1; transform:scale(1); } }
+          @keyframes logoIn { from { opacity:0; transform:scale(0.8); } to { opacity:1; transform:scale(1); } }
         `}</style>
 
-        <svg width="110" height="130" viewBox="0 0 110 130" className="mb-8" aria-hidden>
-          <ellipse cx="55" cy="118" rx="30" ry="8" fill="#1a3d24" opacity="0.4" />
-          <path d="M55 115 Q55 80 55 40"
-            stroke="#7aaa78" strokeWidth="4" strokeLinecap="round" fill="none"
-            style={{ strokeDasharray: 90, strokeDashoffset: 90, animation: "drawStem 1s ease-out 0.4s forwards" }} />
-          <ellipse cx="38" cy="80" rx="20" ry="9"
-            fill="#5c9460" transform="rotate(-35, 38, 80)"
-            style={{ transformOrigin: "55px 80px", opacity: 0, animation: "popLeaf 0.45s ease-out 1.1s forwards" }} />
-          <ellipse cx="72" cy="64" rx="20" ry="9"
-            fill="#7aaa78" transform="rotate(25, 72, 64)"
-            style={{ transformOrigin: "55px 64px", opacity: 0, animation: "popLeafR 0.45s ease-out 1.3s forwards" }} />
-          <ellipse cx="34" cy="52" rx="14" ry="7"
-            fill="#4a8055" transform="rotate(-25, 34, 52)"
-            style={{ transformOrigin: "55px 52px", opacity: 0, animation: "popLeaf 0.4s ease-out 1.5s forwards" }} />
-          <circle cx="55" cy="38" r="9" fill="#a0cc9a"
-            style={{ transformOrigin: "55px 38px", opacity: 0, animation: "popBud 0.4s ease-out 1.7s forwards" }} />
-          <circle cx="55" cy="38" r="5" fill="#c8e8c0"
-            style={{ transformOrigin: "55px 38px", opacity: 0, animation: "popBud 0.4s ease-out 1.9s forwards" }} />
-        </svg>
+        <img
+          src="/icon-192.png"
+          alt="Rooted"
+          width={88}
+          height={88}
+          className="mb-8 rounded-2xl shadow-lg"
+          style={{ opacity: 0, animation: "logoIn 0.5s ease-out 0.4s forwards" }}
+        />
 
         <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#a0cc9a] mb-4">
           Welcome to Rooted
