@@ -1077,8 +1077,9 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Child Pills ──────────────────────────────────────── */}
-      {children.length > 0 && lessons.length > 0 && !activeVacation && isSchoolDay && (
+      {/* ── Child Pills + Card Stack (only when children exist) ── */}
+      {children.length > 0 && <>
+      {lessons.length > 0 && !activeVacation && isSchoolDay && (
         <div className="flex gap-2 overflow-x-auto pb-1 mb-4 px-4">
           {children.map((child) => {
             const childLessons = lessons.filter(l => l.child_id === child.id);
@@ -1316,6 +1317,7 @@ export default function TodayPage() {
           );
         })()}
       </div>
+      </>}
 
       {/* ── Welcome prompt (new users with children but no lessons ever) ─── */}
       {children.length > 0 && !hasAnyLessons && Object.values(leafCounts).reduce((a, b) => a + b, 0) === 0 && (
