@@ -2,19 +2,19 @@
 
 // ─── Stage constants ────────────────────────────────────────────────────────────
 
-export const LEAF_THRESHOLDS = [0, 5, 10, 20, 35, 50, 70, 90, 110, 135];
+export const LEAF_THRESHOLDS = [0, 1, 3, 6, 11, 21, 41, 70, 100, 135];
 
 export const STAGE_INFO = [
-  { name: "Seed",       desc: "Just beginning",       color: "#c4956a" },
-  { name: "Seedling",   desc: "First leaves unfurl",  color: "#8ab85a" },
-  { name: "Sprout",     desc: "Growing roots",        color: "#7ab85a" },
-  { name: "Sapling",    desc: "Taking shape",         color: "#6aaa4a" },
-  { name: "Young Tree", desc: "Reaching skyward",     color: "#5a9a3a" },
-  { name: "Blooming",   desc: "In full bloom",        color: "#5c7f63" },
-  { name: "Fruiting",   desc: "Bearing fruit",        color: "#4a8a2a" },
-  { name: "Harvest",    desc: "Ripe with knowledge",  color: "#3a7a1a" },
-  { name: "Autumn",     desc: "Seasons of wisdom",    color: "#c47a2a" },
-  { name: "Thriving",   desc: "Fully flourishing",    color: "#2d5c38" },
+  { name: "Seed",       desc: "Just planted",          color: "#c4956a" },
+  { name: "Sprouting",  desc: "A tiny shoot appears",  color: "#8ab85a" },
+  { name: "Seedling",   desc: "First leaves unfurl",   color: "#7ab85a" },
+  { name: "Young Plant",desc: "Getting taller",        color: "#6aaa4a" },
+  { name: "Growing",    desc: "Taking shape",          color: "#5a9a3a" },
+  { name: "Thriving",   desc: "Full and lush",         color: "#5c7f63" },
+  { name: "Full Tree",  desc: "Strong and tall",       color: "#4a8a2a" },
+  { name: "Blooming",   desc: "In full bloom",         color: "#3a7a1a" },
+  { name: "Fruiting",   desc: "Bearing fruit",         color: "#c47a2a" },
+  { name: "Majestic",   desc: "Fully flourishing",     color: "#2d5c38" },
 ];
 
 export function getStageFromLeaves(leafCount: number): number {
@@ -122,17 +122,17 @@ type TreeConfig = { emoji: string; size: number; overlay?: string };
 
 function getTreeConfig(stage: number): TreeConfig {
   switch (stage) {
-    case 1:  return { emoji: "🌱", size: 72 };
-    case 2:  return { emoji: "🌿", size: 80 };
-    case 3:  return { emoji: "🪴", size: 88 };
-    case 4:  return { emoji: "🌳", size: 96 };
-    case 5:  return { emoji: "🌲", size: 104 };
-    case 6:  return { emoji: "🌸", size: 104 };
-    case 7:  return { emoji: "🍃", size: 108 };
-    case 8:  return { emoji: "🌳", size: 108, overlay: "🍎" };
-    case 9:  return { emoji: "🍂", size: 104 };
-    case 10: return { emoji: "🌳", size: 112, overlay: "✨" };
-    default: return { emoji: "🌱", size: 72 };
+    case 1:  return { emoji: "🟤", size: 48 };   // bare soil/seed
+    case 2:  return { emoji: "🌱", size: 60 };   // tiny sprout
+    case 3:  return { emoji: "🌿", size: 72 };   // seedling
+    case 4:  return { emoji: "🪴", size: 84 };   // young plant
+    case 5:  return { emoji: "🌳", size: 96 };   // growing
+    case 6:  return { emoji: "🌲", size: 104 };  // thriving
+    case 7:  return { emoji: "🌳", size: 108 };  // full tree
+    case 8:  return { emoji: "🌸", size: 108 };  // blooming
+    case 9:  return { emoji: "🌳", size: 108, overlay: "🍎" };  // fruiting
+    case 10: return { emoji: "🌳", size: 112, overlay: "✨" };  // majestic
+    default: return { emoji: "🟤", size: 48 };
   }
 }
 
@@ -414,6 +414,8 @@ function EggsOverlay() {
 export interface GardenSceneProps {
   leafCount: number;
   childName?: string;
+  childColor?: string;
+  isBirthday?: boolean;
   compact?: boolean;
   showLabel?: boolean;
   className?: string;
@@ -423,6 +425,8 @@ export interface GardenSceneProps {
 export default function GardenScene({
   leafCount,
   childName,
+  childColor,
+  isBirthday = false,
   compact = false,
   showLabel = false,
   className = "",
@@ -469,6 +473,36 @@ export default function GardenScene({
           {stage >= 8 && <SceneButterfly x={45} y={40} delay={3.2} color="#86efac" />}
         </>
       )}
+
+      {/* Seasonal elements — one subtle touch per season */}
+      {!holiday && (() => {
+        const m = new Date().getMonth() + 1;
+        // Autumn: amber leaf drifts
+        if (m >= 9 && m <= 11 && stage < 9) return (
+          <span className="absolute text-lg pointer-events-none select-none" style={{
+            top: "15%", left: "35%",
+            animation: "seasonal-leaf 8s ease-in-out infinite",
+            opacity: 0.4,
+          }}>🍂</span>
+        );
+        // Winter: dusting
+        if (m === 12 || m <= 2) return (
+          <div className="absolute top-0 left-0 right-0 h-8 pointer-events-none" style={{
+            background: "linear-gradient(to bottom, rgba(255,255,255,0.15) 0%, transparent 100%)",
+          }} />
+        );
+        // Spring: blossom
+        if (m >= 3 && m <= 5 && stage >= 3) return (
+          <span className="absolute text-sm pointer-events-none select-none" style={{
+            bottom: "38%", left: "48%", opacity: 0.5,
+          }}>🌸</span>
+        );
+        // Summer: bigger sun + extra butterfly
+        if (m >= 6 && m <= 8) return (
+          <SceneButterfly x={38} y={18} delay={2.5} color="#87ceeb" />
+        );
+        return null;
+      })()}
 
       {/* Holiday overlays */}
       {holiday?.overlay === "snow"          && <SnowOverlay />}
@@ -517,11 +551,18 @@ export default function GardenScene({
         <GardenTreeSVG leafCount={leafCount} />
       </div>
 
-      {/* Child name label */}
+      {/* Child name label + birthday pennant */}
       {showLabel && childName && (
-        <div className="absolute bottom-2 left-0 right-0 flex justify-center pointer-events-none">
+        <div className="absolute bottom-2 left-0 right-0 flex justify-center items-center gap-1 pointer-events-none">
+          {isBirthday && (
+            <svg width="14" height="16" viewBox="0 0 14 16" className="shrink-0">
+              <polygon points="2,0 14,4 2,8" fill={childColor || "#5c7f63"} />
+              <line x1="2" y1="0" x2="2" y2="16" stroke={childColor || "#5c7f63"} strokeWidth="1.5" />
+              <polygon points="5,3 8,4 5,5" fill="#fef9c3" opacity="0.8" />
+            </svg>
+          )}
           <span className="text-[10px] font-semibold bg-white/75 backdrop-blur-sm text-[#2d2926] px-2.5 py-0.5 rounded-full shadow-sm">
-            {childName}
+            {childName}{isBirthday ? " 🎂" : ""}
           </span>
         </div>
       )}

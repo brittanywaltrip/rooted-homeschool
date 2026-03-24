@@ -9,13 +9,13 @@ import PageHero from "@/app/components/PageHero";
 
 function treeEmoji(leaves: number): string {
   const s = getStageFromLeaves(leaves);
-  const map: Record<number, string> = { 1:"🌱", 2:"🌿", 3:"🪴", 4:"🌳", 5:"🌲", 6:"🌸", 7:"🍃", 8:"🌳", 9:"🍂", 10:"🌳" };
+  const map: Record<number, string> = { 1:"🟤", 2:"🌱", 3:"🌿", 4:"🪴", 5:"🌳", 6:"🌲", 7:"🌳", 8:"🌸", 9:"🌳", 10:"🌳" };
   return map[s] ?? "🌱";
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Child = { id: string; name: string; color: string | null };
+type Child = { id: string; name: string; color: string | null; birthday?: string | null };
 
 type LessonRow = {
   child_id: string;
@@ -209,6 +209,7 @@ export default function GardenPage() {
   const [familyName, setFamilyName]     = useState("");
   const [profile, setProfile]           = useState<{ plan_type?: string; subscription_status?: string } | null>(null);
   const [isAffiliate, setIsAffiliate]   = useState(false);
+  const [badgeCelebration, setBadgeCelebration] = useState<string | null>(null);
 
   const todayStr = toDateStr(new Date());
   const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
@@ -218,7 +219,7 @@ export default function GardenPage() {
     async function load() {
       const { data: kids } = await supabase
         .from("children")
-        .select("id, name, color")
+        .select("id, name, color, birthday")
         .eq("user_id", effectiveUserId)
         .eq("archived", false)
         .order("sort_order");
@@ -257,6 +258,24 @@ export default function GardenPage() {
       });
 
       setLeafCounts(counts);
+
+      // Check for new badge celebrations
+      const totalLeaves = Object.values(counts).reduce((s, n) => s + n, 0);
+      const seenBadgesKey = `garden_badges_seen_${effectiveUserId}`;
+      const seenBadges = new Set(JSON.parse(localStorage.getItem(seenBadgesKey) ?? "[]") as string[]);
+      const newBadge = BADGES.find(b => b.check(totalLeaves) && !seenBadges.has(b.id));
+      if (newBadge) {
+        // Mark all currently earned badges as seen
+        const allEarned = BADGES.filter(b => b.check(totalLeaves)).map(b => b.id);
+        localStorage.setItem(seenBadgesKey, JSON.stringify(allEarned));
+        setBadgeCelebration(newBadge.label);
+        setTimeout(() => setBadgeCelebration(null), 3000);
+      } else if (seenBadges.size === 0 && totalLeaves > 0) {
+        // First visit with leaves — seed the seen badges so we don't celebrate old ones
+        const allEarned = BADGES.filter(b => b.check(totalLeaves)).map(b => b.id);
+        localStorage.setItem(seenBadgesKey, JSON.stringify(allEarned));
+      }
+
       setLoading(false);
     }
     load();
@@ -354,12 +373,19 @@ export default function GardenPage() {
         <Butterfly x={72} y={24} delay={1.8} color="#fbbf24" />
         <Butterfly x={45} y={38} delay={3.2} color="#86efac" />
 
-        {/* Vacation palm tree + sign */}
+        {/* Vacation palm trees — flanking left and right */}
         {activeVacation && (
           <>
             <div
               className="absolute garden-sway"
-              style={{ bottom: "27%", left: "50%", transform: "translateX(-50%)", transformOrigin: "center bottom", fontSize: "clamp(36px, 8vw, 56px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
+              style={{ bottom: "27%", left: "12%", transformOrigin: "center bottom", fontSize: "clamp(30px, 6vw, 48px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
+              aria-hidden
+            >
+              🌴
+            </div>
+            <div
+              className="absolute garden-sway-alt"
+              style={{ bottom: "27%", right: "12%", transformOrigin: "center bottom", fontSize: "clamp(30px, 6vw, 48px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
               aria-hidden
             >
               🌴
@@ -369,7 +395,7 @@ export default function GardenPage() {
               style={{ background: "#fef3dc", border: "1.5px solid #f0dda8" }}
             >
               <p className="text-xs font-semibold text-[#7a4a1a] leading-snug">
-                {familyName ? `The ${familyName.replace(/^The\s+/i, "").trim() || familyName} Family` : "Your family"} is on vacation 🌴
+                {familyName ? `${familyName.replace(/^The\s+/i, "").trim() || familyName}` : "Family"} is away 🌴
               </p>
             </div>
           </>
@@ -504,9 +530,14 @@ export default function GardenPage() {
         >
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
-              <p className="text-xs font-semibold uppercase tracking-widest mb-0.5"
+              <p className="text-xs font-semibold uppercase tracking-widest mb-0.5 flex items-center gap-1"
                 style={{ color: selectedStage.text }}>
                 {selectedChild.name}
+                {selectedChild.birthday && (() => {
+                  const bd = new Date(selectedChild.birthday + "T12:00:00");
+                  const now = new Date();
+                  return bd.getMonth() === now.getMonth() && bd.getDate() === now.getDate() ? " 🎂" : "";
+                })()}
               </p>
               <h2 className="text-xl font-bold text-[#2d2926]">
                 {selectedStage.name}
@@ -737,6 +768,37 @@ export default function GardenPage() {
 
       <div className="h-4" />
       </div>
+
+      {/* Badge celebration overlay */}
+      {badgeCelebration && (
+        <div className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center">
+          {/* Particles */}
+          {Array.from({ length: 12 }).map((_, i) => (
+            <span
+              key={i}
+              className="absolute text-xl"
+              style={{
+                left: `${30 + Math.random() * 40}%`,
+                top: `${30 + Math.random() * 30}%`,
+                animation: `badge-burst 1.5s ease-out forwards`,
+                animationDelay: `${i * 0.08}s`,
+                opacity: 0,
+              }}
+            >
+              {["⭐", "🌟", "✨", "🎉", "🏅"][i % 5]}
+            </span>
+          ))}
+          {/* Badge name */}
+          <div
+            className="bg-white/95 border border-[#e8e2d9] rounded-2xl px-6 py-4 text-center shadow-xl"
+            style={{ animation: "badge-pop 2s ease-out forwards" }}
+          >
+            <p className="text-2xl mb-1">🏅</p>
+            <p className="text-sm font-bold text-[#2d2926]">New badge earned!</p>
+            <p className="text-xs text-[#5c7f63] mt-0.5">{badgeCelebration}</p>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -9,7 +9,7 @@ import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Child = { id: string; name: string; color: string | null };
+type Child = { id: string; name: string; color: string | null; birthday?: string | null };
 
 type Lesson = {
   id: string;
@@ -47,37 +47,40 @@ type ActivityItem = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const QUOTES = [
-  "Education is not the filling of a pail, but the lighting of a fire.",
-  "Every child is a different kind of flower, and together they make this world a beautiful garden.",
-  "The beautiful thing about learning is that no one can take it away from you.",
-  "Children learn more from what you are than what you teach.",
-  "The roots of education are bitter, but the fruit is sweet.",
-  "Play is the highest form of research.",
-  "It's not that I'm so smart. It's just that I stay with problems longer.",
-  "Every child is an artist. The problem is how to remain an artist once we grow up.",
-  "Wonder is the beginning of wisdom.",
-  "The mind is not a vessel to be filled, but a fire to be kindled.",
-  "Children are not things to be molded, but people to be unfolded.",
-  "To teach is to learn twice.",
-  "Curiosity is the wick in the candle of learning.",
-  "The whole art of teaching is only the art of awakening the natural curiosity of young minds.",
-  "Children learn as they play. Most importantly, in play children learn how to learn.",
-  "It is easier to build strong children than to repair broken adults.",
-  "Tell me and I forget. Teach me and I remember. Involve me and I learn.",
-  "A child who reads will be an adult who thinks.",
-  "The greatest gifts you can give your children are the roots of responsibility and the wings of independence.",
-  "Education is not preparation for life; education is life itself.",
-  "What we want is to see the child in pursuit of knowledge, not knowledge in pursuit of the child.",
-  "The more that you read, the more things you will know.",
-  "Learning is a treasure that will follow its owner everywhere.",
-  "Children need the freedom and time to play. Play is not a luxury. Play is a necessity.",
-  "A book is a gift you can open again and again.",
-  "The joy of learning is as indispensable in life as eating and breathing.",
-  "Nothing in life is to be feared, only to be understood.",
-  "Every student can learn, just not on the same day or in the same way.",
-  "It's not what you teach, it's what you ignite.",
-  "Home is where the learning is.",
+const DID_YOU_KNOW = [
+  "Homeschool students score 15–30% higher on standardized tests on average 📚",
+  "Kids retain 90% more when they teach what they've learned to someone else 🌱",
+  "There are over 3.3 million homeschool students in the US — and growing 🌿",
+  "The average homeschool family spends just 3–4 hours a day on structured learning 🕐",
+  "Homeschool graduates are more likely to be civically engaged as adults 🗳️",
+  "Kids who learn at their own pace show stronger long-term retention 📖",
+  "Many colleges actively recruit homeschool graduates for their self-motivation 🎓",
+  "Reading aloud to children of any age strengthens vocabulary and comprehension 📗",
+  "Nature-based learning improves focus and reduces anxiety in children 🌲",
+  "Children learn best when they feel emotionally safe and unhurried 🏡",
+  "Asking 'what do you think?' develops critical thinking more than giving answers 💬",
+  "Music education strengthens math skills — even informally 🎵",
+  "Siblings who learn together develop stronger communication and empathy 👫",
+  "Hands-on projects create memories that reinforce learning for years 🔬",
+  "The best curriculum is the one your child will actually engage with 🌟",
+  "You don't have to do it all. Consistency beats perfection every time 🌱",
+  "Octopuses have three hearts, blue blood, and can open jars. They'd ace science 🐙",
+  "A group of flamingos is called a 'flamboyance.' You're welcome 🦩",
+  "Honey never expires — archaeologists found 3,000-year-old honey in Egypt still good 🍯",
+  "The shortest war in history lasted 38–45 minutes. Someone surrendered fast ⚔️",
+  "Bananas are technically berries. Strawberries are not. Botany is wild 🍌",
+  "The entire internet weighs about the same as a strawberry — in electrons 🍓",
+  "A day on Venus is longer than a year on Venus. Time is a construct 🪐",
+  "Wombats produce cube-shaped poop. Scientists are genuinely studying why 🐨",
+  "Cleopatra lived closer in time to the Moon landing than to the pyramids being built 🏛️",
+  "The word 'nerd' was first used by Dr. Seuss in 1950. He invented the nerd 🤓",
+  "Crows can recognize human faces and hold grudges for years 🐦‍⬛",
+  "Nintendo was founded in 1889. They started as a playing card company 🃏",
+  "Scotland's national animal is the unicorn 🦄",
+  "There are more possible games of chess than atoms in the observable universe ♟️",
+  "A bolt of lightning is five times hotter than the surface of the sun ⚡",
+  "Sloths can hold their breath longer than dolphins — up to 40 minutes 🦥",
+  "The smell of rain has a name: petrichor. One of the best words in English 🌧️",
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -89,52 +92,43 @@ function formatDateHero(date: Date) {
 }
 
 function buildGreeting(firstName: string, opts: { allDone?: boolean; isSchoolDay?: boolean; streak?: number } = {}): string {
-  const now = new Date();
-  const h = now.getHours();
-  const dow = now.getDay();
-  const name = firstName ? ` ${firstName}` : "";
-  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000);
+  const hour = new Date().getHours();
+  const day = new Date().getDay();
+  const name = firstName || "";
 
-  // All done celebration
+  // All done state
   if (opts.allDone) {
-    const celebrations = [
-      `You did it${name}! 🎉`,
-      `Amazing day${name}! 🌟`,
-      `All done${name}! 🎉`,
-      `Crushed it${name}! ⭐`,
-    ];
-    return celebrations[dayOfYear % celebrations.length];
+    if (day === 5) return `You finished the week${name ? `, ${name}` : ""}! 🎉`;
+    return `You did it${name ? `, ${name}` : ""}! 🎉`;
   }
 
-  // Non-school day
-  if (!opts.isSchoolDay) {
-    const offDay = [
-      `Enjoy your day off${name}! 🌿`,
-      `No school today${name} — relax! 🌿`,
-      `Happy day off${name}! 🌿`,
-    ];
-    return offDay[dayOfYear % offDay.length];
+  // Weekend / non-school day
+  if (!opts.isSchoolDay || day === 0 || day === 6) {
+    return `Enjoy the rest${name ? `, ${name}` : ""} 🌿`;
   }
 
-  // School day greeting
-  const timeOfDay = h < 10 ? "Good morning" : h < 15 ? "Good afternoon" : "Good evening";
-  const dayFlavors: Record<number, string[]> = {
-    1: ["New week energy!", "Ready for the week?", "Let's start strong!"],
-    2: ["Keep it going!", "Tuesday focus time!", "You've got this!"],
-    3: ["Halfway there!", "Midweek momentum!", "Keep going strong!"],
-    4: ["Almost Friday!", "Thursday push!", "Nearly there!"],
-    5: ["Happy Friday!", "Last day of the week!", "Finish strong!"],
-  };
-  const flavors = dayFlavors[dow] ?? ["Let's learn something great!"];
-  const flavor = flavors[dayOfYear % flavors.length];
-
-  let greeting = `${timeOfDay}${name}! ${flavor}`;
-
-  if (opts.streak && opts.streak >= 5) {
-    greeting += ` 🔥 ${opts.streak} days strong`;
+  // Monday
+  if (day === 1) {
+    if (hour < 12) return `Ready for the week${name ? `, ${name}` : ""}? 🌱`;
+    if (hour < 17) return `Great start to the week${name ? `, ${name}` : ""} 🌱`;
+    return `You showed up today${name ? `, ${name}` : ""} 🌿`;
   }
 
-  return greeting;
+  // Tue–Thu
+  if (day >= 2 && day <= 4) {
+    if (hour < 12) return `Good morning${name ? `, ${name}` : ""} 🌿`;
+    if (hour < 17) return `Keep it going${name ? `, ${name}` : ""} 🌱`;
+    return `Good evening${name ? `, ${name}` : ""} 🌿`;
+  }
+
+  // Friday
+  if (day === 5) {
+    if (hour < 12) return `Last day of the week — finish strong${name ? `, ${name}` : ""}! 🌟`;
+    if (hour < 17) return `Almost there${name ? `, ${name}` : ""} 🌱`;
+    return `What a week${name ? `, ${name}` : ""} 🌿`;
+  }
+
+  return `Good day${name ? `, ${name}` : ""} 🌿`;
 }
 
 function toTitleCase(name: string) {
@@ -366,7 +360,7 @@ export default function TodayPage() {
   const today = new Date().toISOString().split("T")[0];
   const start = new Date(new Date().getFullYear(), 0, 0);
   const dayOfYear = Math.floor((Date.now() - start.getTime()) / 86400000);
-  const quote = QUOTES[dayOfYear % QUOTES.length];
+  const [factIndex, setFactIndex] = useState(dayOfYear % DID_YOU_KNOW.length);
   const { isPartner, effectiveUserId } = usePartner();
 
   const [familyName,      setFamilyName]      = useState("");
@@ -435,6 +429,8 @@ export default function TodayPage() {
   const [streak,                 setStreak]                 = useState(0);
   const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
   const [showFamilyUpdate,       setShowFamilyUpdate]       = useState(false);
+  const [daysLearning,           setDaysLearning]           = useState<number | null>(null);
+  const [familyPhotoUrl,         setFamilyPhotoUrl]         = useState<string | null>(null);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
@@ -461,7 +457,7 @@ export default function TodayPage() {
     if (!effectiveUserId) return;
 
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
     ]);
@@ -469,12 +465,28 @@ export default function TodayPage() {
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
     // Check if today is a school day
     const schoolDays: string[] = (profile as { school_days?: string[] } | null)?.school_days ?? [];
     if (schoolDays.length > 0) {
       const todayDayName = new Date().toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       setIsSchoolDay(schoolDays.includes(todayDayName));
+    }
+
+    // "Days learning together" milestone — 1st school day of each month
+    const schoolYearStart = (profile as { school_year_start?: string } | null)?.school_year_start;
+    if (schoolYearStart) {
+      const now = new Date();
+      const milestoneKey = `milestone_shown_${now.getFullYear()}_${now.getMonth()}`;
+      if (!localStorage.getItem(milestoneKey)) {
+        const startDate = new Date(schoolYearStart + "T00:00:00");
+        const diffDays = Math.floor((now.getTime() - startDate.getTime()) / 86400000);
+        if (diffDays > 0) {
+          setDaysLearning(diffDays);
+          localStorage.setItem(milestoneKey, "1");
+        }
+      }
     }
 
     // Streak + week dots: fetch recent completed lesson dates
@@ -567,7 +579,7 @@ export default function TodayPage() {
     }
 
     const { data: childrenData } = await supabase
-      .from("children").select("id, name, color")
+      .from("children").select("id, name, color, birthday")
       .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order");
     setChildren(childrenData ?? []);
 
@@ -583,6 +595,14 @@ export default function TodayPage() {
     setLessons(loadedLessons);
     setHasAnyLessons((totalLessons ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
+
+    // Auto-select first incomplete child
+    const kids = childrenData ?? [];
+    const kidsWithLessons = kids.filter((c: Child) => loadedLessons.some(l => l.child_id === c.id));
+    if (kidsWithLessons.length > 0) {
+      const firstIncomplete = kidsWithLessons.find((c: Child) => !loadedLessons.filter(l => l.child_id === c.id).every(l => l.completed));
+      setSelectedChild((firstIncomplete ?? kidsWithLessons[0]).id);
+    }
 
     const [{ data: completed }, { data: bookEvents }, { data: memEvents }] = await Promise.all([
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
@@ -882,6 +902,8 @@ export default function TodayPage() {
   const pendingLessons = totalToday > 0 && !allDone;
   const showUpcoming   = !activeVacation && isSchoolDay && subjects.length > 0 && !pendingLessons && !!upcomingDay;
 
+  const childrenWithLessons = children.filter(c => lessons.some(l => l.child_id === c.id));
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-64 p-8">
@@ -897,8 +919,23 @@ export default function TodayPage() {
     <>
       {/* ── Hero Header ──────────────────────────────────────── */}
       <PageHero
-        overline={formatDateHero(new Date())}
-        title={buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}
+        overline={<><span>{formatDateHero(new Date())}</span>
+          {/* Family photo — top right of hero */}
+          <div className="absolute top-4 right-4 z-10">
+            {familyPhotoUrl ? (
+              <img src={familyPhotoUrl} alt="" className="w-8 h-8 rounded-full object-cover border-2 border-white/30" />
+            ) : familyName ? (
+              <div className="w-8 h-8 rounded-full bg-[#5c7f63] border-2 border-white/30 flex items-center justify-center text-xs font-bold text-white">
+                {familyName.replace(/^The\s+/i, "").charAt(0).toUpperCase()}
+              </div>
+            ) : null}
+          </div>
+        </>}
+        title={activeVacation
+          ? `${familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} are` : "You're"} away 🌴`
+          : buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}
+        subtitle={activeVacation ? `${activeVacation.name} · Back ${new Date(activeVacation.end_date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}` : undefined}
+        bgColor={activeVacation ? "#1a6b8a" : undefined}
       >
         {totalToday > 0 && isSchoolDay && !activeVacation && (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
@@ -910,33 +947,17 @@ export default function TodayPage() {
           </div>
         )}
 
-        {/* Week strip — Mon–Fri dots */}
-        {weekDots.length === 5 && isSchoolDay && !activeVacation && (
-          <div className="flex items-center justify-center gap-2 mt-2">
-            {["M", "T", "W", "T", "F"].map((label, i) => {
-              const todayDow = new Date().getDay();
-              const dotDow = i + 1; // 1=Mon … 5=Fri
-              const isToday = dotDow === todayDow;
-              const dot = weekDots[i];
-              const size = isToday ? "w-2.5 h-2.5" : "w-2 h-2";
-              const color =
-                dot === "done" ? "bg-[#a8d4aa]" :
-                dot === "partial" ? "border border-[#a8d4aa] bg-transparent" :
-                "bg-white/20";
-              return (
-                <div key={i} className="flex flex-col items-center gap-0.5">
-                  <div className={`rounded-full ${size} ${color}`} />
-                  <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.4)" }}>{label}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
         {/* Streak */}
         {streak >= 2 && isSchoolDay && !activeVacation && (
-          <p className="text-[11px] mt-1.5 text-center" style={{ color: "rgba(255,255,255,0.6)" }}>
+          <p className="text-[11px] mt-2 text-center" style={{ color: "rgba(255,255,255,0.6)" }}>
             🌱 {streak} day streak
+          </p>
+        )}
+
+        {/* Days learning milestone — shows once per month */}
+        {daysLearning && !activeVacation && (
+          <p className="text-[11px] mt-1 text-center" style={{ color: "rgba(255,255,255,0.5)" }}>
+            {familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} family has` : "You've"} been learning together for {daysLearning} days 🌱
           </p>
         )}
       </PageHero>
@@ -1056,30 +1077,31 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Child Filter Pills ─────────────────────────────── */}
-      {children.length > 1 && (
+      {/* ── Child Pills + Card Stack (only when children exist) ── */}
+      {children.length > 0 && <>
+      {lessons.length > 0 && !activeVacation && isSchoolDay && (
         <div className="flex gap-2 overflow-x-auto pb-1 mb-4 px-4">
-          <button
-            onClick={() => setSelectedChild(null)}
-            className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
-              !selectedChild
-                ? 'bg-[#3d5c42] text-white'
-                : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
-            }`}>
-            All
-          </button>
-          {children.map((child: any) => (
-            <button
-              key={child.id}
-              onClick={() => setSelectedChild(child.id === selectedChild ? null : child.id)}
-              className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
-                selectedChild === child.id
-                  ? 'bg-[#3d5c42] text-white'
-                  : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
-              }`}>
-              {child.name}
-            </button>
-          ))}
+          {children.map((child) => {
+            const childLessons = lessons.filter(l => l.child_id === child.id);
+            if (childLessons.length === 0) return null;
+            const childDone = childLessons.every(l => l.completed);
+            const isActive = selectedChild === child.id;
+            return (
+              <button
+                key={child.id}
+                onClick={() => setSelectedChild(child.id)}
+                className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
+                  isActive
+                    ? 'bg-[#3d5c42] text-white'
+                    : childDone
+                    ? 'bg-[#e8f5ea] border border-[#b8d9bc] text-[#3d5c42]'
+                    : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
+                }`}>
+                {child.name}
+                {childDone && <span className="text-[11px]">✓</span>}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -1105,19 +1127,9 @@ export default function TodayPage() {
           </>
         )}
         {(() => {
-          const visibleChildren = selectedChild
-            ? children.filter(c => c.id === selectedChild)
-            : children;
           const childIds = new Set(children.map((c) => c.id));
-          const sectionsWithContent = visibleChildren.filter((child) =>
-            lessons.some((l) => l.child_id === child.id) ||
-            todayBooks.some((b) => b.payload.child_id === child.id) ||
-            todayMemoryEvents.some((e) => e.payload.child_id === child.id)
-          );
           const unassignedLessons = lessons.filter((l) => !l.child_id || !childIds.has(l.child_id));
-          const unassignedBooks   = todayBooks.filter((b) => !b.payload.child_id || !childIds.has(b.payload.child_id ?? ""));
-          const unassignedMems    = todayMemoryEvents.filter((e) => !e.payload.child_id || !childIds.has(e.payload.child_id ?? ""));
-          const hasAnyContent     = sectionsWithContent.length > 0 || unassignedLessons.length > 0 || unassignedBooks.length > 0 || unassignedMems.length > 0;
+          const hasAnyContent     = childrenWithLessons.length > 0 || unassignedLessons.length > 0;
 
           if (!hasAnyContent) {
             // Priority: vacation > non-school-day > no content
@@ -1126,35 +1138,56 @@ export default function TodayPage() {
                 <p className="text-sm font-semibold text-[#7a4a1a]">🌴 <strong>{activeVacation.name}</strong> · No lessons today — enjoy your time off!</p>
               </div>
             );
-            if (!isSchoolDay) return (
-              <div className="py-8 flex flex-col items-center text-center">
-                <span className="text-[52px] block mb-2">🌿</span>
-                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
-                  No school today
-                </p>
-                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
-                  Enjoy your day off! Lessons will be here on your next school day.
-                </p>
-                {upcomingDay && (
-                  <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 w-full max-w-sm text-left">
-                    <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
-                      Coming up {new Date(upcomingDay.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" })}
-                    </p>
-                    <div className="space-y-1.5">
-                      {upcomingDay.lessons.slice(0, 4).map((l, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#5c7f63] shrink-0" />
-                          <span className="text-[#2d2926] truncate">{l.title}</span>
-                        </div>
-                      ))}
-                      {upcomingDay.lessons.length > 4 && (
-                        <p className="text-xs text-[#b5aca4]">+{upcomingDay.lessons.length - 4} more</p>
-                      )}
+            if (!isSchoolDay) {
+              const dow = new Date().getDay();
+              const isWeekend = dow === 0 || dow === 6;
+              return (
+                <div className="py-8 flex flex-col items-center text-center">
+                  {/* Leaf illustration */}
+                  <svg width="64" height="64" viewBox="0 0 64 64" className="mb-3 opacity-30">
+                    <path d="M32 8 C16 20, 8 36, 16 52 C24 48, 28 40, 32 32 C36 40, 40 48, 48 52 C56 36, 48 20, 32 8Z" fill="#5c7f63" />
+                    <line x1="32" y1="12" x2="32" y2="56" stroke="#3d5c42" strokeWidth="1.5" opacity="0.5" />
+                  </svg>
+                  <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
+                    {isWeekend ? "Rest day 🌿" : "No school today"}
+                  </p>
+                  <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
+                    {isWeekend ? "Your garden is still growing" : "Enjoy the slow morning"}
+                  </p>
+
+                  {/* Log memory prompt */}
+                  <button
+                    onClick={() => setShowLogModal(true)}
+                    className="w-full max-w-sm bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-[#5c7f63] hover:bg-[#faf8f5] transition-colors text-left mb-5"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0 text-lg">📸</div>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-[#2d2926]">Days off make the best memories</p>
+                      <p className="text-xs text-[#7a6f65]">Field trips, books, nature walks — log it →</p>
                     </div>
-                  </div>
-                )}
-              </div>
-            );
+                  </button>
+
+                  {upcomingDay && (
+                    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 w-full max-w-sm text-left">
+                      <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
+                        Coming up {new Date(upcomingDay.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" })}
+                      </p>
+                      <div className="space-y-1.5">
+                        {upcomingDay.lessons.slice(0, 4).map((l, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#5c7f63] shrink-0" />
+                            <span className="text-[#2d2926] truncate">{l.title}</span>
+                          </div>
+                        ))}
+                        {upcomingDay.lessons.length > 4 && (
+                          <p className="text-xs text-[#b5aca4]">+{upcomingDay.lessons.length - 4} more</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            }
             if (subjects.length === 0) return (
               <div className="py-8 flex flex-col items-center text-center">
                 <span className="text-[52px] block mb-2">🌿</span>
@@ -1170,95 +1203,121 @@ export default function TodayPage() {
             return <p className="text-sm text-[#b5aca4] text-center py-6">No lessons scheduled today</p>;
           }
 
-          return (
-            <div className="space-y-5">
-              {sectionsWithContent.map((child) => {
-                const childLessons = lessons.filter((l) => l.child_id === child.id);
-                const childBooks   = todayBooks.filter((b) => b.payload.child_id === child.id);
-                const childMems    = todayMemoryEvents.filter((e) => e.payload.child_id === child.id);
-                const done  = childLessons.filter((l) => l.completed).length;
-                const total = childLessons.length;
-                return (
-                  <div key={child.id}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <div
-                        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold text-white"
-                        style={{ backgroundColor: child.color ?? "#5c7f63" }}
-                      >
+          // Card-per-child system
+          const activeChild = selectedChild ? children.find(c => c.id === selectedChild) : childrenWithLessons[0];
+          if (!activeChild) return <p className="text-sm text-[#b5aca4] text-center py-6">No lessons scheduled today</p>;
+
+          // Large family summary mode (4+ kids, no child selected via pill)
+          if (childrenWithLessons.length >= 4 && !selectedChild) {
+            return (
+              <div className="space-y-2">
+                {childrenWithLessons.map(child => {
+                  const cl = lessons.filter(l => l.child_id === child.id);
+                  const d = cl.filter(l => l.completed).length;
+                  const t = cl.length;
+                  const done = t > 0 && d === t;
+                  return (
+                    <button key={child.id} onClick={() => setSelectedChild(child.id)}
+                      className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5 hover:border-[#5c7f63] transition-colors text-left">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white"
+                        style={{ backgroundColor: child.color ?? "#5c7f63" }}>
                         {child.name.charAt(0).toUpperCase()}
                       </div>
-                      <span className="text-xs font-bold tracking-widest uppercase" style={{ color: child.color ?? "#5c7f63" }}>
-                        {toTitleCase(child.name)}
+                      <span className="flex-1 text-sm font-medium text-[#2d2926]">{toTitleCase(child.name)}</span>
+                      <span className={`text-sm font-semibold ${done ? "text-[#3d5c42]" : "text-[#7a6f65]"}`}>
+                        {done ? "✓" : `${d}/${t}`}
                       </span>
-                      {total > 0 && <span className="text-[10px] text-[#b5aca4]">{done}/{total}</span>}
-                    </div>
-                    <div className="space-y-2">
-                      {childLessons.map((lesson) => (
-                        <TodayLessonCard key={lesson.id} lesson={lesson} childObj={child}
-                          onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                      ))}
-                      {childBooks.map((b) => (
-                        <button key={b.id}
-                          onClick={() => !isPartner && openActivityEdit({ type: "book", id: b.id, title: b.payload.title, childId: b.payload.child_id ?? "" })}
-                          className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
-                          <span className="text-lg shrink-0">📖</span>
-                          <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
-                          <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">Book</span>
-                        </button>
-                      ))}
-                      {childMems.map((e) => (
-                        <button key={e.id}
-                          onClick={() => !isPartner && openActivityEdit({ type: "memory", id: e.id, title: e.payload.title ?? "Memory", childId: e.payload.child_id ?? "", memoryType: e.type })}
-                          className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
-                          <span className="text-lg shrink-0">{e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷"}</span>
-                          <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{e.payload.title ?? "Memory"}</p>
-                          <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">
-                            {e.type === "memory_book" ? "Book" : e.type === "memory_project" ? "Project" : "Photo"}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-              {(unassignedLessons.length > 0 || unassignedBooks.length > 0 || unassignedMems.length > 0) && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold text-white bg-[#c8bfb5]">?</div>
-                    <span className="text-xs font-bold tracking-widest uppercase text-[#9e958d]">Unassigned</span>
-                  </div>
-                  <div className="space-y-2">
-                    {unassignedLessons.map((lesson) => (
-                      <TodayLessonCard key={lesson.id} lesson={lesson} childObj={undefined}
-                        onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                    ))}
-                    {unassignedBooks.map((b) => (
-                      <button key={b.id}
-                        onClick={() => !isPartner && openActivityEdit({ type: "book", id: b.id, title: b.payload.title, childId: "" })}
-                        className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
-                        <span className="text-lg shrink-0">📖</span>
-                        <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
-                        <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">Book</span>
-                      </button>
-                    ))}
-                    {unassignedMems.map((e) => (
-                      <button key={e.id}
-                        onClick={() => !isPartner && openActivityEdit({ type: "memory", id: e.id, title: e.payload.title ?? "Memory", childId: "", memoryType: e.type })}
-                        className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
-                        <span className="text-lg shrink-0">{e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷"}</span>
-                        <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{e.payload.title ?? "Memory"}</p>
-                        <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">
-                          {e.type === "memory_book" ? "Book" : e.type === "memory_project" ? "Project" : "Photo"}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          }
+
+          // Single child card view
+          const childLessons = lessons.filter(l => l.child_id === activeChild.id);
+          const childBooks = todayBooks.filter(b => b.payload.child_id === activeChild.id);
+          const childMems = todayMemoryEvents.filter(e => e.payload.child_id === activeChild.id);
+          const done = childLessons.filter(l => l.completed).length;
+          const total = childLessons.length;
+          const childAllDone = total > 0 && done === total;
+
+          // Find next incomplete child for "Next" button
+          const nextChild = childrenWithLessons.find(c =>
+            c.id !== activeChild.id && !lessons.filter(l => l.child_id === c.id).every(l => l.completed)
+          );
+
+          return (
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+              {/* Card header */}
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-[#f0ede8]">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white"
+                  style={{ backgroundColor: activeChild.color ?? "#5c7f63" }}>
+                  {activeChild.name.charAt(0).toUpperCase()}
+                </div>
+                <span className="flex-1 text-sm font-semibold text-[#2d2926]">
+                  {toTitleCase(activeChild.name)}
+                  {activeChild.birthday && (() => {
+                    const bd = new Date(activeChild.birthday + "T12:00:00");
+                    const now = new Date();
+                    return bd.getMonth() === now.getMonth() && bd.getDate() === now.getDate() ? " 🎂" : "";
+                  })()}
+                </span>
+                <span className={`text-sm font-semibold ${childAllDone ? "text-[#3d5c42]" : "text-[#7a6f65]"}`}>
+                  {childAllDone ? "✓ Done" : `${done}/${total}`}
+                </span>
+              </div>
+
+              {/* Lessons */}
+              <div className="p-3 space-y-2">
+                {childLessons.map(lesson => (
+                  <TodayLessonCard key={lesson.id} lesson={lesson} childObj={activeChild}
+                    onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
+                ))}
+                {childBooks.map(b => (
+                  <button key={b.id}
+                    onClick={() => !isPartner && openActivityEdit({ type: "book", id: b.id, title: b.payload.title, childId: b.payload.child_id ?? "" })}
+                    className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
+                    <span className="text-lg shrink-0">📖</span>
+                    <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
+                    <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">Book</span>
+                  </button>
+                ))}
+                {childMems.map(e => (
+                  <button key={e.id}
+                    onClick={() => !isPartner && openActivityEdit({ type: "memory", id: e.id, title: e.payload.title ?? "Memory", childId: e.payload.child_id ?? "", memoryType: e.type })}
+                    className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
+                    <span className="text-lg shrink-0">{e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷"}</span>
+                    <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{e.payload.title ?? "Memory"}</p>
+                  </button>
+                ))}
+              </div>
+
+              {/* Next child button */}
+              {childAllDone && nextChild && (
+                <button
+                  onClick={() => setSelectedChild(nextChild.id)}
+                  className="w-full px-4 py-3 border-t border-[#e8e2d9] bg-[#e8f5ea] text-sm font-semibold text-[#3d5c42] hover:bg-[#d4ead4] transition-colors"
+                >
+                  Next: {toTitleCase(nextChild.name)} →
+                </button>
+              )}
+
+              {/* Unassigned lessons */}
+              {unassignedLessons.length > 0 && (
+                <div className="px-3 pb-3 space-y-2">
+                  <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest px-1">Unassigned</p>
+                  {unassignedLessons.map(lesson => (
+                    <TodayLessonCard key={lesson.id} lesson={lesson} childObj={undefined}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
+                  ))}
                 </div>
               )}
             </div>
           );
         })()}
       </div>
+      </>}
 
       {/* ── Welcome prompt (new users with children but no lessons ever) ─── */}
       {children.length > 0 && !hasAnyLessons && Object.values(leafCounts).reduce((a, b) => a + b, 0) === 0 && (
@@ -1286,7 +1345,7 @@ export default function TodayPage() {
         const fullLabel    = upcomingDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
         const msFromNow    = upcomingDate.getTime() - new Date().setHours(0, 0, 0, 0);
         const daysFromNow  = Math.round(msFromNow / 86400000);
-        const relLabel     = daysFromNow === 1 ? "tomorrow" : `in ${daysFromNow} days`;
+        const headerLabel  = daysFromNow === 1 ? "Tomorrow 🌱" : `Next school day · ${dayName} 🌱`;
 
         // Check if a vacation block starts on the upcoming day
         const vacOnDay = allVacationBlocks.find(
@@ -1313,12 +1372,9 @@ export default function TodayPage() {
 
         return (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
-            <div className="flex items-center justify-between mb-2.5">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4]">
-                Coming Up · {dayName.toUpperCase()}
-              </p>
-              <p className="text-[10px] text-[#c8bfb5]">{relLabel}</p>
-            </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4] mb-2.5">
+              {headerLabel}
+            </p>
             <div className="space-y-2">
               {Array.from(byChild.values()).map(({ childId, subjects }) => {
                 const child    = children.find((c) => c.id === childId);
@@ -1343,15 +1399,25 @@ export default function TodayPage() {
                 );
               })}
             </div>
+            <p className="text-[11px] text-[#b5aca4] mt-2">
+              {upcomingDay.lessons.length} lesson{upcomingDay.lessons.length !== 1 ? "s" : ""} across {byChild.size} kid{byChild.size !== 1 ? "s" : ""}
+            </p>
           </div>
         );
       })()}
 
-      {/* ── Daily Quote ───────────────────────────────────── */}
-      <div className="bg-[#f5f2ec] rounded-xl px-4 py-3">
-        <p className="text-[13px] italic leading-relaxed border-l-2 border-[#e8e2d9] pl-3" style={{ color: "#9e958d" }}>&ldquo;{quote}&rdquo;</p>
-      </div>
-
+      {/* ── Did You Know card (school days only) ────────── */}
+      {isSchoolDay && !activeVacation && (
+        <button
+          onClick={() => setFactIndex((factIndex + 1) % DID_YOU_KNOW.length)}
+          className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 text-left hover:bg-[#faf8f5] transition-colors"
+        >
+          <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">Did you know?</p>
+          <p className="text-[13px] text-[#5c5248] leading-relaxed border-l-2 border-[#3d5c42] pl-3">
+            {DID_YOU_KNOW[factIndex]}
+          </p>
+        </button>
+      )}
 
       <div className="h-4" />
 

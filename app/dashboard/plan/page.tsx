@@ -463,6 +463,8 @@ export default function PlanPage() {
   const [vacEnd,           setVacEnd]           = useState("");
   const [vacReschedule,    setVacReschedule]    = useState<"shift" | "leave">("shift");
   const [savingVac,        setSavingVac]        = useState(false);
+  const [profileSchoolDays, setProfileSchoolDays] = useState<string[]>([]);
+  const [expandedCurricMenu, setExpandedCurricMenu] = useState<string | null>(null);
 
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
@@ -479,7 +481,7 @@ export default function PlanPage() {
     we.setDate(we.getDate() + 6);
     const s = toDateStr(ws), e = toDateStr(we);
     const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }, { data: bySched }, { data: byDate }] = await Promise.all([
-      supabase.from("profiles").select("onboarded").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("onboarded, school_days").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days").eq("user_id", effectiveUserId).order("created_at"),
@@ -489,6 +491,7 @@ export default function PlanPage() {
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
+    setProfileSchoolDays((profile as { school_days?: string[] } | null)?.school_days ?? []);
     setChildren(kids ?? []);
     setSubjects((subs as Subject[]) ?? []);
     setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
@@ -759,86 +762,63 @@ export default function PlanPage() {
     )}
 
     {/* ── Hero Header ──────────────────────────────────────── */}
-    <PageHero overline="Your Curriculum" title="Plan 📋">
-      {!loading && totalWeek > 0 && (
-        <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
-          <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.80)" }}>
-            {totalWeek} lesson{totalWeek !== 1 ? "s" : ""} this week
-            {" · "}{completedWeek} done
-            {" · "}{totalWeek - completedWeek} remaining
-            {completedWeek === totalWeek && totalWeek > 0 ? " 🌿" : ""}
-          </span>
-        </div>
-      )}
+    <PageHero overline="Your Curriculum" title="Plan">
+      {/* Week navigation inside hero */}
+      <div className="flex items-center justify-center gap-1.5 mt-3">
+        {!isCurrentWeek && (
+          <button onClick={goToToday}
+            className="text-[10px] font-semibold text-white/70 hover:text-white px-2 py-1 rounded-full transition-colors mr-1">
+            Today
+          </button>
+        )}
+        <button onClick={prevWeek} disabled={isCurrentWeek} className="w-7 h-7 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-20 transition-colors">
+          <ChevronLeft size={14} />
+        </button>
+        <span className="text-[12px] font-semibold text-white/80 whitespace-nowrap px-1">{formatWeekRange(weekStart)}</span>
+        <button onClick={nextWeek} className="w-7 h-7 rounded-full flex items-center justify-center text-white/60 hover:text-white transition-colors">
+          <ChevronRight size={14} />
+        </button>
+      </div>
+
+      {/* Week strip inside hero */}
+      <div className="flex items-stretch mt-3 rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+        {["S", "M", "T", "W", "T", "F", "S"].map((label, i) => {
+          const actualDate = new Date(weekStart);
+          actualDate.setDate(weekStart.getDate() - 1 + i);
+          const dateStr = toDateStr(actualDate);
+          const isToday = dateStr === todayStr;
+          const dayName = actualDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+          const isSchool = profileSchoolDays.length > 0 ? profileSchoolDays.includes(dayName) : (i >= 1 && i <= 5);
+          const dayLessons = lessons.filter(l => (l.scheduled_date ?? l.date) === dateStr);
+          const dayAllDone = dayLessons.length > 0 && dayLessons.every(l => l.completed);
+          const hasSome = dayLessons.length > 0;
+          const isVacation = vacationBlocks.some(b => dateStr >= b.start_date && dateStr <= b.end_date);
+
+          let dotColor = "";
+          if (dateStr <= todayStr && dayAllDone && hasSome) dotColor = "bg-[#a8d4aa]";
+          else if (dateStr <= todayStr && hasSome) dotColor = "border border-[#a8d4aa] bg-transparent";
+
+          return (
+            <div key={i} className={`flex-1 flex flex-col items-center py-2 gap-0.5 ${isVacation ? "bg-white/5" : ""}`}>
+              <span className="text-[9px] font-medium" style={{ color: "rgba(255,255,255,0.45)" }}>{label}</span>
+              <div className={`flex items-center justify-center rounded-full text-[11px] ${
+                isToday
+                  ? "w-7 h-7 bg-[#5c7f63] text-white font-bold"
+                  : isSchool
+                  ? "w-6 h-6 text-white/80"
+                  : "w-6 h-6 text-white/30"
+              }`}>
+                {actualDate.getDate()}
+              </div>
+              {dotColor ? <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} /> : <div className="w-1.5 h-1.5" />}
+            </div>
+          );
+        })}
+      </div>
     </PageHero>
     <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
 
-      {/* ── Plan tip banner ──────────────────────────────────── */}
-      {!tipDismissed && !isPartner && onboarded && curricGroups.length > 0 && (
-        <div className="relative flex items-start gap-3 rounded-2xl px-4 py-3.5 pr-10" style={{ background: "#eef4ee", border: "1.5px solid #c8dcc8" }}>
-          <span className="text-base shrink-0 mt-0.5">💡</span>
-          <p className="text-sm text-[#3d5c42] leading-snug">
-            <strong>Double-check your lesson count</strong> — tap <strong>Edit</strong> on any curriculum to confirm the number is right for your edition. Already started? Set &ldquo;Lessons Done&rdquo; too.
-          </p>
-          <button
-            onClick={() => { localStorage.setItem("rooted_plan_tip_dismissed", "1"); setTipDismissed(true); }}
-            aria-label="Dismiss"
-            className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#c8dcc8]/60 transition-colors text-lg leading-none"
-          >×</button>
-        </div>
-      )}
-
-      {/* ── Action bar ───────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        {!isPartner && (
-          <button onClick={() => setShowCreateWizard(true)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors border border-[#c8ddb8]">
-            + New Curriculum
-          </button>
-        )}
-        <div className="flex items-center gap-1.5 ml-auto">
-          {!isCurrentWeek && (
-            <button onClick={goToToday}
-              className="text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors mr-1">
-              This week
-            </button>
-          )}
-          <button onClick={prevWeek} disabled={isCurrentWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-sm font-semibold text-[#2d2926] whitespace-nowrap px-1">{formatWeekRange(weekStart)}</span>
-          <button onClick={nextWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
-            <ChevronRight size={16} />
-          </button>
-        </div>
-      </div>
-
-      {/* ── Child Filter Pills ────────────────────────────────── */}
-      {children.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto pb-1 mb-4 px-4">
-          <button
-            onClick={() => setSelectedChild(null)}
-            className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
-              !selectedChild
-                ? 'bg-[#3d5c42] text-white'
-                : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
-            }`}>
-            All
-          </button>
-          {children.map((child: any) => (
-            <button
-              key={child.id}
-              onClick={() => setSelectedChild(child.id === selectedChild ? null : child.id)}
-              className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
-                selectedChild === child.id
-                  ? 'bg-[#3d5c42] text-white'
-                  : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
-              }`}>
-              {child.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Child filter pills removed — curriculum cards already show child */}
 
       {/* ── Manage Curriculum ────────────────────────────────── */}
       {!isPartner && curricGroups.length > 0 && (() => {
@@ -895,26 +875,36 @@ export default function PlanPage() {
                         </p>
                       </div>
 
-                      {/* Actions */}
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      {/* ··· Menu */}
+                      <div className="relative shrink-0">
                         <button
-                          onClick={() => setEditWizardData({
-                            goalId: group.goalId ?? undefined,
-                            childId: group.childId ?? "",
-                            curricName: group.curricName,
-                            subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
-                            totalLessons: group.goalData?.total_lessons ?? group.totalCount,
-                            currentLesson: group.goalData?.current_lesson ?? completedCount,
-                            targetDate: group.goalData?.target_date ?? "",
-                            schoolDays: group.goalData?.school_days ?? [],
-                          })}
-                          className="flex items-center gap-1 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-2.5 py-1.5 rounded-xl transition-colors">
-                          ✏️ Edit
+                          onClick={(e) => { e.stopPropagation(); setExpandedCurricMenu(expandedCurricMenu === group.key ? null : group.key); }}
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors text-sm font-bold">
+                          ···
                         </button>
-                        <button onClick={() => setDeleteConfirmGroup(group)}
-                          className="flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-xl transition-colors">
-                          🗑️ Remove
-                        </button>
+                        {expandedCurricMenu === group.key && (
+                          <>
+                            <div className="fixed inset-0 z-20" onClick={() => setExpandedCurricMenu(null)} />
+                            <div className="absolute right-0 top-8 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[120px]">
+                              <button onClick={() => {
+                                setExpandedCurricMenu(null);
+                                setEditWizardData({
+                                  goalId: group.goalId ?? undefined,
+                                  childId: group.childId ?? "",
+                                  curricName: group.curricName,
+                                  subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
+                                  totalLessons: group.goalData?.total_lessons ?? group.totalCount,
+                                  currentLesson: group.goalData?.current_lesson ?? completedCount,
+                                  targetDate: group.goalData?.target_date ?? "",
+                                  schoolDays: group.goalData?.school_days ?? [],
+                                });
+                              }}
+                                className="w-full text-left px-3 py-2.5 text-xs text-[#2d2926] hover:bg-[#f8f7f4] transition-colors">✏️ Edit</button>
+                              <button onClick={() => { setExpandedCurricMenu(null); setDeleteConfirmGroup(group); }}
+                                className="w-full text-left px-3 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">🗑 Remove</button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1416,6 +1406,24 @@ export default function PlanPage() {
               </div>
             </div>
           </div>
+      )}
+
+      {/* ── Manage section ──────────────────────────────────── */}
+      {!isPartner && (
+        <div className="space-y-3 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4]">Manage</p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setShowCreateWizard(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-white hover:bg-[#e8f0e9] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
+              + New Curriculum
+            </button>
+            <button
+              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+              className="flex items-center gap-1.5 text-xs font-semibold text-[#7a6f65] bg-white hover:bg-[#f0ede8] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
+              + Add Break / Vacation
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ══════════════════════════════════════════════════════

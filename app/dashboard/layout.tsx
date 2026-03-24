@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, Camera, Calendar, Search } from "lucide-react";
+import { Sun, Leaf, Camera, Calendar, Search, Menu, X, Settings, Sprout, Megaphone, LogOut } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
@@ -17,12 +17,12 @@ const navItems = [
   { label: "Resources", href: "/dashboard/resources",  icon: Search   },
 ];
 
-// Primary tabs shown in mobile bottom nav
+// Primary tabs shown in mobile bottom nav (5 links + Menu button)
 const mobileBottomNav = [
-  { label: "Today",     href: "/dashboard",           icon: Sun      },
-  { label: "Plan",      href: "/dashboard/plan",      icon: Calendar },
-  { label: "Garden",    href: "/dashboard/garden",    icon: Leaf     },
-  { label: "Memories",  href: "/dashboard/memories",  icon: Camera   },
+  { label: "Today",     href: "/dashboard",            icon: Sun      },
+  { label: "Plan",      href: "/dashboard/plan",       icon: Calendar },
+  { label: "Garden",    href: "/dashboard/garden",     icon: Leaf     },
+  { label: "Memories",  href: "/dashboard/memories",   icon: Camera   },
   { label: "Resources", href: "/dashboard/resources",  icon: Search   },
 ];
 
@@ -70,6 +70,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const { displayName: profileName } = useProfile();
   const [checking,  setChecking]  = useState(true);
   const [menuOpen,  setMenuOpen]  = useState(false);
+  const [menuSheet, setMenuSheet] = useState(false);
   const [isAdmin,   setIsAdmin]   = useState(false);
   const [profileData, setProfileData] = useState<{ first_name?: string | null; family_photo_url?: string | null }>({});
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
@@ -363,24 +364,12 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         {/* Main */}
         <main className="flex-1 md:ml-52 flex flex-col min-h-screen">
           <UpgradeBanner />
-        {/* Mobile top bar — brand only; primary nav is in bottom bar */}
+        {/* Mobile top bar — brand only */}
           <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9] sticky top-0 z-30">
             <div className="flex items-center gap-2">
               <span className="text-base">🌿</span>
               <span className="text-sm font-bold text-[#2d2926]">Rooted</span>
             </div>
-            <Link
-              href="/dashboard/settings"
-              className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors overflow-hidden"
-            >
-              {profileData.family_photo_url ? (
-                <img src={profileData.family_photo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
-              ) : profileData.first_name ? (
-                profileData.first_name.charAt(0).toUpperCase()
-              ) : displayName ? (
-                displayName.charAt(0).toUpperCase()
-              ) : '🌿'}
-            </Link>
           </div>
 
           {/* Partner banner */}
@@ -397,7 +386,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           <div className="flex-1 pb-24 md:pb-0">{children}</div>
         </main>
 
-        {/* Mobile bottom nav bar */}
+        {/* Mobile bottom nav bar — 6 tabs */}
         <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#fefcf9] border-t border-[#e8e2d9] flex items-stretch" style={{ minHeight: "3.75rem", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           {mobileBottomNav.map(({ label, href, icon: Icon }) => {
             const active = isActive(href);
@@ -405,18 +394,92 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               <Link
                 key={href}
                 href={href}
-                className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors ${
-                  active ? "text-[#3d5c42]" : "text-[#7a6f65]"
+                onClick={() => setMenuSheet(false)}
+                className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[9px] font-medium transition-colors ${
+                  active ? "text-[#3d5c42]" : "text-[#c8bfb5]"
                 }`}
               >
-                <div className={`p-1.5 rounded-lg ${active ? "bg-[#e8f0e9]" : ""}`}>
-                  <Icon size={18} strokeWidth={active ? 2.5 : 1.8} />
-                </div>
+                <Icon size={22} strokeWidth={active ? 2.5 : 1.8} />
                 {label}
               </Link>
             );
           })}
+          {/* Menu tab */}
+          <button
+            onClick={() => setMenuSheet(!menuSheet)}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[9px] font-medium transition-colors ${
+              menuSheet ? "text-[#3d5c42]" : "text-[#c8bfb5]"
+            }`}
+          >
+            <Menu size={22} strokeWidth={menuSheet ? 2.5 : 1.8} />
+            Menu
+          </button>
         </nav>
+
+        {/* Menu sheet — slides up from bottom */}
+        {menuSheet && (
+          <>
+            <div className="md:hidden fixed inset-0 bg-black/30 z-50" onClick={() => setMenuSheet(false)} />
+            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-2xl border-t border-[#e8e2d9] shadow-xl" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 3.75rem)" }}>
+              {/* Handle */}
+              <div className="flex justify-center pt-3 pb-2">
+                <div className="w-10 h-1 rounded-full bg-[#e8e2d9]" />
+              </div>
+
+              {/* Family name + photo */}
+              <div className="px-5 pb-3 border-b border-[#e8e2d9] flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] shrink-0 overflow-hidden">
+                  {profileData.family_photo_url ? (
+                    <img src={profileData.family_photo_url} alt="" className="w-11 h-11 rounded-full object-cover" />
+                  ) : displayName ? (
+                    displayName.charAt(0).toUpperCase()
+                  ) : "🌿"}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-[#2d2926]">{displayName || "Your Family"}</p>
+                  <p className="text-[11px] text-[#7a6f65]">Rooted Homeschool</p>
+                </div>
+              </div>
+
+              {/* Menu items */}
+              <div className="px-3 py-2 space-y-0.5">
+                <Link href="/dashboard/settings" onClick={() => setMenuSheet(false)}
+                  className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors">
+                  <Settings size={18} className="text-[#7a6f65]" />
+                  Settings
+                </Link>
+                <Link href="/child" onClick={() => setMenuSheet(false)}
+                  className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors">
+                  <Sprout size={18} className="text-[#7a6f65]" />
+                  Kid Mode
+                </Link>
+                <Link href="/dashboard/more/whats-new" onClick={() => setMenuSheet(false)}
+                  className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors">
+                  <Megaphone size={18} className="text-[#7a6f65]" />
+                  What&apos;s New
+                </Link>
+                {isAdmin && (
+                  <Link href="/admin" onClick={() => setMenuSheet(false)}
+                    className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors">
+                    <span className="text-[15px]">🔒</span>
+                    Founder Dashboard
+                  </Link>
+                )}
+              </div>
+
+              {/* Sign out */}
+              <div className="px-3 pb-4 pt-1 border-t border-[#e8e2d9]">
+                <button
+                  onClick={() => { setMenuSheet(false); handleSignOut(); }}
+                  className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#7a6f65] hover:bg-red-50 hover:text-red-600 w-full transition-colors"
+                >
+                  <LogOut size={18} />
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </PartnerContext.Provider>
   );
