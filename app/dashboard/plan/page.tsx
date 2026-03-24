@@ -133,8 +133,17 @@ function calcPace(
   }
 
   // Determine lessons per week from school days
-  const daysPerWeek = schoolDays?.length ?? 5;
+  const daysPerWeek = (schoolDays && schoolDays.length > 0) ? schoolDays.length : 5;
   const lessonsPerWeek = daysPerWeek; // 1 lesson per school day is the default pace
+
+  // Guard: if pace is somehow 0, we can't project a finish date
+  if (lessonsPerWeek === 0) {
+    return {
+      badge: { label: "Pace not set", color: "#7a6f65", bg: "#f0ede8", icon: "clock" },
+      projectedFinish: null,
+      lessonsPerWeek: 0,
+    };
+  }
 
   // Calculate projected finish from today
   const today = new Date();
@@ -483,7 +492,7 @@ export default function PlanPage() {
                   const { badge, projectedFinish, lessonsPerWeek } = calcPace(
                     group.remainingCount,
                     group.totalCount,
-                    group.goalData?.school_days ?? profileSchoolDays.length > 0 ? profileSchoolDays : null,
+                    group.goalData?.school_days ?? (profileSchoolDays.length > 0 ? profileSchoolDays : null),
                     effectiveYearEnd,
                   );
                   const isBehind = badge.icon === "alert";
