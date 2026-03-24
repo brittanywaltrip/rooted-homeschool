@@ -919,18 +919,7 @@ export default function TodayPage() {
     <>
       {/* ── Hero Header ──────────────────────────────────────── */}
       <PageHero
-        overline={<><span>{formatDateHero(new Date())}</span>
-          {/* Family photo — top right of hero */}
-          <div className="absolute top-4 right-4 z-10">
-            {familyPhotoUrl ? (
-              <img src={familyPhotoUrl} alt="" className="w-8 h-8 rounded-full object-cover border-2 border-white/30" />
-            ) : familyName ? (
-              <div className="w-8 h-8 rounded-full bg-[#5c7f63] border-2 border-white/30 flex items-center justify-center text-xs font-bold text-white">
-                {familyName.replace(/^The\s+/i, "").charAt(0).toUpperCase()}
-              </div>
-            ) : null}
-          </div>
-        </>}
+        overline={formatDateHero(new Date())}
         title={activeVacation
           ? `${familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} are` : "You're"} away 🌴`
           : buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}

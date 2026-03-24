@@ -5,6 +5,7 @@ import { Bookmark, BookmarkCheck, ChevronDown, MapPin } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -420,19 +421,6 @@ export default function ResourcesPage() {
 
   const freshDrops = getFreshDrops();
   const dayIdx     = new Date().getDay();
-  const weekDateRange = (() => {
-    const now = new Date();
-    const mon = new Date(now);
-    mon.setDate(now.getDate() - ((now.getDay() + 6) % 7)); // back to Monday
-    const sun = new Date(mon);
-    sun.setDate(mon.getDate() + 6);
-    const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    // Same month → "Mar 17–23"; cross-month → "Mar 31–Apr 6"
-    return mon.getMonth() === sun.getMonth()
-      ? `${fmt(mon)}–${sun.getDate()}`
-      : `${fmt(mon)}–${fmt(sun)}`;
-  })();
-
   const todayWin1 = EASY_WINS[dayIdx % 6];
   const todayWin2 = EASY_WINS[(dayIdx + 1) % 6];
   const restWins  = EASY_WINS.filter((_, i) => i !== dayIdx % 6 && i !== (dayIdx + 1) % 6);
@@ -472,20 +460,9 @@ export default function ResourcesPage() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="max-w-3xl px-4 py-8 space-y-8" style={{ background: "#faf9f6" }}>
-
-      {/* ── 1. Header ──────────────────────────────────────────── */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">
-          DISCOVER
-        </p>
-        <h1 className="text-3xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-          Resources
-        </h1>
-        <p className="text-sm text-[#7a6f65] mt-1">
-          Everything homeschool, in one place.
-        </p>
-      </div>
+    <>
+    <PageHero overline="Discover" title="Resources" subtitle="Everything homeschool, in one place." />
+    <div className="max-w-3xl px-4 py-6 space-y-8">
 
       {/* ── 2. Personalized State Banner ───────────────────────── */}
       {stateLoaded && userState && userState !== "Outside the US" && STATE_INFO[userState] ? (() => {
@@ -589,13 +566,10 @@ export default function ResourcesPage() {
       <div>
         <div className="flex items-center justify-between mb-6">
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="mb-1">
               <h2 className="text-xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
                 This Week&apos;s Free Picks ⭐
               </h2>
-              <span className="text-[10px] font-semibold bg-[#fef5e4] text-[#8b6820] px-2 py-0.5 rounded-full border border-[#f0dda8]">
-                {weekDateRange}
-              </span>
             </div>
             <p className="text-xs text-[#7a6f65]">Exclusive finds — updated every week</p>
           </div>
@@ -1156,5 +1130,6 @@ export default function ResourcesPage() {
         </div>
       )}
     </div>
+    </>
   );
 }

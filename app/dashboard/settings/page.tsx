@@ -161,7 +161,6 @@ export default function SettingsPage() {
   const [deletingId,   setDeletingId]   = useState<string | null>(null);
 
   // Graduation
-  const [graduatingId, setGraduatingId] = useState<string | null>(null);
 
   // Family photo
   const [familyPhotoUrl,  setFamilyPhotoUrl]  = useState<string | null>(null);
@@ -565,21 +564,6 @@ export default function SettingsPage() {
   }
 
   // ── Graduate child ────────────────────────────────────────────────────────
-
-  async function graduateChild(id: string) {
-    setGraduatingId(id);
-    const today = new Date().toISOString().slice(0, 10);
-    const { error } = await supabase
-      .from("children")
-      .update({ graduated_at: today })
-      .eq("id", id);
-    if (!error) {
-      setChildren((prev) =>
-        prev.map((c) => c.id === id ? { ...c, graduated_at: today } : c)
-      );
-    }
-    setGraduatingId(null);
-  }
 
   // ── Partner access ────────────────────────────────────────────────────────
 
@@ -1052,16 +1036,7 @@ export default function SettingsPage() {
                           <GraduationCap size={12} />
                           <ExternalLink size={10} />
                         </a>
-                      ) : (
-                        <button
-                          onClick={() => graduateChild(child.id)}
-                          disabled={graduatingId === child.id}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-[#7a6f65] hover:text-[#5c7f63] hover:bg-[#e8f0e9] disabled:opacity-40 transition-colors"
-                          title="Mark as graduated"
-                        >
-                          <GraduationCap size={12} />
-                        </button>
-                      )}
+                      ) : null}
                       <button
                         onClick={() => startEdit(child)}
                         className="w-8 h-8 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors"
