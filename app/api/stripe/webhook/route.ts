@@ -158,7 +158,7 @@ function foundingWelcomeHtml(firstName: string): string {
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
                 <tr>
                   <td align="center">
-                    <a href="https://rootedhomeschoolapp.com/dashboard"
+                    <a href="https://www.rootedhomeschoolapp.com/dashboard"
                        style="display:inline-block;background-color:#3d5c42;color:#ffffff;font-size:16px;font-weight:bold;padding:16px 40px;border-radius:12px;text-decoration:none;letter-spacing:0.3px;">
                       Open Rooted →
                     </a>
@@ -284,7 +284,7 @@ function standardWelcomeHtml(firstName: string): string {
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
                 <tr>
                   <td align="center">
-                    <a href="https://rootedhomeschoolapp.com/dashboard"
+                    <a href="https://www.rootedhomeschoolapp.com/dashboard"
                        style="display:inline-block;background-color:#3d5c42;color:#ffffff;font-size:16px;font-weight:bold;padding:16px 40px;border-radius:12px;text-decoration:none;letter-spacing:0.3px;">
                       Go to your dashboard →
                     </a>
