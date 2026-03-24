@@ -3,7 +3,7 @@
 import React from "react";
 
 interface PageHeroProps {
-  overline: string;
+  overline: React.ReactNode;
   title: string;
   subtitle?: string;
   /** Extra JSX rendered inside the hero (e.g. progress strip) */

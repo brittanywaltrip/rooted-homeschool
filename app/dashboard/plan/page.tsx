@@ -763,88 +763,60 @@ export default function PlanPage() {
 
     {/* ── Hero Header ──────────────────────────────────────── */}
     <PageHero overline="Your Curriculum" title="Plan 📋">
-      {!loading && totalWeek > 0 && (
-        <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
-          <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.80)" }}>
-            {totalWeek} lesson{totalWeek !== 1 ? "s" : ""} this week
-            {" · "}{completedWeek} done
-            {" · "}{totalWeek - completedWeek} remaining
-            {completedWeek === totalWeek && totalWeek > 0 ? " 🌿" : ""}
-          </span>
-        </div>
-      )}
-    </PageHero>
-    <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
-
-      {/* Plan tip banner removed — no longer needed */}
-
-      {/* ── Action bar ───────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        {!isPartner && (
-          <button onClick={() => setShowCreateWizard(true)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors border border-[#c8ddb8]">
-            + New Curriculum
+      {/* Week navigation inside hero */}
+      <div className="flex items-center justify-center gap-1.5 mt-3">
+        {!isCurrentWeek && (
+          <button onClick={goToToday}
+            className="text-[10px] font-semibold text-white/70 hover:text-white px-2 py-1 rounded-full transition-colors mr-1">
+            Today
           </button>
         )}
-        <div className="flex items-center gap-1.5 ml-auto">
-          {!isCurrentWeek && (
-            <button onClick={goToToday}
-              className="text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors mr-1">
-              This week
-            </button>
-          )}
-          <button onClick={prevWeek} disabled={isCurrentWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-sm font-semibold text-[#2d2926] whitespace-nowrap px-1">{formatWeekRange(weekStart)}</span>
-          <button onClick={nextWeek} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
-            <ChevronRight size={16} />
-          </button>
-        </div>
+        <button onClick={prevWeek} disabled={isCurrentWeek} className="w-7 h-7 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-20 transition-colors">
+          <ChevronLeft size={14} />
+        </button>
+        <span className="text-[12px] font-semibold text-white/80 whitespace-nowrap px-1">{formatWeekRange(weekStart)}</span>
+        <button onClick={nextWeek} className="w-7 h-7 rounded-full flex items-center justify-center text-white/60 hover:text-white transition-colors">
+          <ChevronRight size={14} />
+        </button>
       </div>
 
-      {/* ── Week strip ────────────────────────────────────────── */}
-      {isCurrentWeek && (
-        <div className="flex items-stretch bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
-          {["S", "M", "T", "W", "T", "F", "S"].map((label, i) => {
-            const d = new Date(weekStart);
-            d.setDate(weekStart.getDate() + ((i === 0 ? 6 : i - 1))); // Align S M T W T F S to Sun=0
-            // Actually we need Sun to be the start. weekStart is Monday. Let's compute correctly:
-            const dayDate = new Date(weekStart);
-            dayDate.setDate(weekStart.getDate() + i - 1); // i=0 → Sunday before Monday
-            // Fix: Sunday is day before Monday, then Mon(1) Tue(2) ... Sat(6)
-            const actualDate = new Date(weekStart);
-            actualDate.setDate(weekStart.getDate() - 1 + i); // 0=Sun, 1=Mon, ..., 6=Sat
-            const dateStr = toDateStr(actualDate);
-            const isToday = dateStr === todayStr;
-            const dayName = actualDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-            const isSchool = profileSchoolDays.length > 0 ? profileSchoolDays.includes(dayName) : (i >= 1 && i <= 5);
-            const dayLessons = lessons.filter(l => (l.scheduled_date ?? l.date) === dateStr);
-            const allDone = dayLessons.length > 0 && dayLessons.every(l => l.completed);
-            const hasSome = dayLessons.length > 0;
+      {/* Week strip inside hero */}
+      <div className="flex items-stretch mt-3 -mx-2 rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+        {["S", "M", "T", "W", "T", "F", "S"].map((label, i) => {
+          const actualDate = new Date(weekStart);
+          actualDate.setDate(weekStart.getDate() - 1 + i);
+          const dateStr = toDateStr(actualDate);
+          const isToday = dateStr === todayStr;
+          const dayName = actualDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+          const isSchool = profileSchoolDays.length > 0 ? profileSchoolDays.includes(dayName) : (i >= 1 && i <= 5);
+          const dayLessons = lessons.filter(l => (l.scheduled_date ?? l.date) === dateStr);
+          const dayAllDone = dayLessons.length > 0 && dayLessons.every(l => l.completed);
+          const hasSome = dayLessons.length > 0;
+          const isVacation = vacationBlocks.some(b => dateStr >= b.start_date && dateStr <= b.end_date);
 
-            const isVacation = vacationBlocks.some(b => dateStr >= b.start_date && dateStr <= b.end_date);
+          let dotColor = "";
+          if (dateStr <= todayStr && dayAllDone && hasSome) dotColor = "bg-[#a8d4aa]";
+          else if (dateStr <= todayStr && hasSome) dotColor = "border border-[#a8d4aa] bg-transparent";
 
-            let dotColor = "bg-[#e8e2d9]"; // grey for non-school / no lessons
-            if (dateStr > todayStr) dotColor = "bg-[#e8e2d9]"; // future
-            else if (allDone && hasSome) dotColor = "bg-[#5c7f63]"; // done
-            else if (hasSome) dotColor = "border-2 border-[#5c7f63] bg-transparent"; // partial
-            else if (!isSchool) dotColor = "bg-[#e8e2d9]";
-
-            return (
-              <div key={i} className={`flex-1 flex flex-col items-center py-2.5 gap-1 ${isVacation ? "bg-[#e8f4fa]" : ""}`}>
-                <span className="text-[10px] font-medium text-[#b5aca4]">{label}{isVacation ? " 🌴" : ""}</span>
-                <div className={`flex items-center justify-center rounded-full ${
-                  isToday ? "w-8 h-8 bg-[#3d5c42] text-white text-xs font-bold" : "w-7 h-7 text-xs text-[#2d2926]"
-                }`}>
-                  {actualDate.getDate()}
-                </div>
-                <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+          return (
+            <div key={i} className={`flex-1 flex flex-col items-center py-2 gap-0.5 ${isVacation ? "bg-white/5" : ""}`}>
+              <span className="text-[9px] font-medium" style={{ color: "rgba(255,255,255,0.45)" }}>{label}</span>
+              <div className={`flex items-center justify-center rounded-full text-[11px] ${
+                isToday
+                  ? "w-7 h-7 bg-[#5c7f63] text-white font-bold"
+                  : isSchool
+                  ? "w-6 h-6 text-white/80"
+                  : "w-6 h-6 text-white/30"
+              }`}>
+                {actualDate.getDate()}
               </div>
-            );
-          })}
-        </div>
-      )}
+              {dotColor ? <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} /> : <div className="w-1.5 h-1.5" />}
+            </div>
+          );
+        })}
+      </div>
+    </PageHero>
+    <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
 
       {/* ── Child Filter Pills ────────────────────────────────── */}
       {children.length > 1 && (
@@ -1459,6 +1431,24 @@ export default function PlanPage() {
               </div>
             </div>
           </div>
+      )}
+
+      {/* ── Manage section ──────────────────────────────────── */}
+      {!isPartner && (
+        <div className="space-y-3 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4]">Manage</p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setShowCreateWizard(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-white hover:bg-[#e8f0e9] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
+              + New Curriculum
+            </button>
+            <button
+              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+              className="flex items-center gap-1.5 text-xs font-semibold text-[#7a6f65] bg-white hover:bg-[#f0ede8] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
+              + Add Break / Vacation
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ══════════════════════════════════════════════════════

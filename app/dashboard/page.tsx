@@ -430,6 +430,7 @@ export default function TodayPage() {
   const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
   const [showFamilyUpdate,       setShowFamilyUpdate]       = useState(false);
   const [daysLearning,           setDaysLearning]           = useState<number | null>(null);
+  const [familyPhotoUrl,         setFamilyPhotoUrl]         = useState<string | null>(null);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
@@ -456,7 +457,7 @@ export default function TodayPage() {
     if (!effectiveUserId) return;
 
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
     ]);
@@ -464,6 +465,7 @@ export default function TodayPage() {
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
     // Check if today is a school day
     const schoolDays: string[] = (profile as { school_days?: string[] } | null)?.school_days ?? [];
@@ -593,6 +595,14 @@ export default function TodayPage() {
     setLessons(loadedLessons);
     setHasAnyLessons((totalLessons ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
+
+    // Auto-select first incomplete child
+    const kids = childrenData ?? [];
+    const kidsWithLessons = kids.filter((c: Child) => loadedLessons.some(l => l.child_id === c.id));
+    if (kidsWithLessons.length > 0) {
+      const firstIncomplete = kidsWithLessons.find((c: Child) => !loadedLessons.filter(l => l.child_id === c.id).every(l => l.completed));
+      setSelectedChild((firstIncomplete ?? kidsWithLessons[0]).id);
+    }
 
     const [{ data: completed }, { data: bookEvents }, { data: memEvents }] = await Promise.all([
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
@@ -892,6 +902,8 @@ export default function TodayPage() {
   const pendingLessons = totalToday > 0 && !allDone;
   const showUpcoming   = !activeVacation && isSchoolDay && subjects.length > 0 && !pendingLessons && !!upcomingDay;
 
+  const childrenWithLessons = children.filter(c => lessons.some(l => l.child_id === c.id));
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-64 p-8">
@@ -907,7 +919,18 @@ export default function TodayPage() {
     <>
       {/* ── Hero Header ──────────────────────────────────────── */}
       <PageHero
-        overline={formatDateHero(new Date())}
+        overline={<><span>{formatDateHero(new Date())}</span>
+          {/* Family photo — top right of hero */}
+          <div className="absolute top-4 right-4 z-10">
+            {familyPhotoUrl ? (
+              <img src={familyPhotoUrl} alt="" className="w-8 h-8 rounded-full object-cover border-2 border-white/30" />
+            ) : familyName ? (
+              <div className="w-8 h-8 rounded-full bg-[#5c7f63] border-2 border-white/30 flex items-center justify-center text-xs font-bold text-white">
+                {familyName.replace(/^The\s+/i, "").charAt(0).toUpperCase()}
+              </div>
+            ) : null}
+          </div>
+        </>}
         title={activeVacation
           ? `${familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} are` : "You're"} away 🌴`
           : buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}
@@ -1054,26 +1077,18 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Child Filter Pills ─────────────────────────────── */}
-      {children.length > 1 && (
+      {/* ── Child Pills ──────────────────────────────────────── */}
+      {children.length > 0 && lessons.length > 0 && !activeVacation && isSchoolDay && (
         <div className="flex gap-2 overflow-x-auto pb-1 mb-4 px-4">
-          <button
-            onClick={() => setSelectedChild(null)}
-            className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
-              !selectedChild
-                ? 'bg-[#3d5c42] text-white'
-                : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
-            }`}>
-            All
-          </button>
           {children.map((child) => {
             const childLessons = lessons.filter(l => l.child_id === child.id);
-            const childDone = childLessons.length > 0 && childLessons.every(l => l.completed);
+            if (childLessons.length === 0) return null;
+            const childDone = childLessons.every(l => l.completed);
             const isActive = selectedChild === child.id;
             return (
               <button
                 key={child.id}
-                onClick={() => setSelectedChild(child.id === selectedChild ? null : child.id)}
+                onClick={() => setSelectedChild(child.id)}
                 className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
                   isActive
                     ? 'bg-[#3d5c42] text-white'
@@ -1111,19 +1126,9 @@ export default function TodayPage() {
           </>
         )}
         {(() => {
-          const visibleChildren = selectedChild
-            ? children.filter(c => c.id === selectedChild)
-            : children;
           const childIds = new Set(children.map((c) => c.id));
-          const sectionsWithContent = visibleChildren.filter((child) =>
-            lessons.some((l) => l.child_id === child.id) ||
-            todayBooks.some((b) => b.payload.child_id === child.id) ||
-            todayMemoryEvents.some((e) => e.payload.child_id === child.id)
-          );
           const unassignedLessons = lessons.filter((l) => !l.child_id || !childIds.has(l.child_id));
-          const unassignedBooks   = todayBooks.filter((b) => !b.payload.child_id || !childIds.has(b.payload.child_id ?? ""));
-          const unassignedMems    = todayMemoryEvents.filter((e) => !e.payload.child_id || !childIds.has(e.payload.child_id ?? ""));
-          const hasAnyContent     = sectionsWithContent.length > 0 || unassignedLessons.length > 0 || unassignedBooks.length > 0 || unassignedMems.length > 0;
+          const hasAnyContent     = childrenWithLessons.length > 0 || unassignedLessons.length > 0;
 
           if (!hasAnyContent) {
             // Priority: vacation > non-school-day > no content
@@ -1197,94 +1202,114 @@ export default function TodayPage() {
             return <p className="text-sm text-[#b5aca4] text-center py-6">No lessons scheduled today</p>;
           }
 
-          return (
-            <div className="space-y-5">
-              {sectionsWithContent.map((child) => {
-                const childLessons = lessons.filter((l) => l.child_id === child.id);
-                const childBooks   = todayBooks.filter((b) => b.payload.child_id === child.id);
-                const childMems    = todayMemoryEvents.filter((e) => e.payload.child_id === child.id);
-                const done  = childLessons.filter((l) => l.completed).length;
-                const total = childLessons.length;
-                return (
-                  <div key={child.id}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <div
-                        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold text-white"
-                        style={{ backgroundColor: child.color ?? "#5c7f63" }}
-                      >
+          // Card-per-child system
+          const activeChild = selectedChild ? children.find(c => c.id === selectedChild) : childrenWithLessons[0];
+          if (!activeChild) return <p className="text-sm text-[#b5aca4] text-center py-6">No lessons scheduled today</p>;
+
+          // Large family summary mode (4+ kids, no child selected via pill)
+          if (childrenWithLessons.length >= 4 && !selectedChild) {
+            return (
+              <div className="space-y-2">
+                {childrenWithLessons.map(child => {
+                  const cl = lessons.filter(l => l.child_id === child.id);
+                  const d = cl.filter(l => l.completed).length;
+                  const t = cl.length;
+                  const done = t > 0 && d === t;
+                  return (
+                    <button key={child.id} onClick={() => setSelectedChild(child.id)}
+                      className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5 hover:border-[#5c7f63] transition-colors text-left">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white"
+                        style={{ backgroundColor: child.color ?? "#5c7f63" }}>
                         {child.name.charAt(0).toUpperCase()}
                       </div>
-                      <span className="text-xs font-bold tracking-widest uppercase" style={{ color: child.color ?? "#5c7f63" }}>
-                        {toTitleCase(child.name)}
-                        {child.birthday && (() => {
-                          const bd = new Date(child.birthday + "T12:00:00");
-                          const now = new Date();
-                          return bd.getMonth() === now.getMonth() && bd.getDate() === now.getDate() ? " 🎂" : "";
-                        })()}
+                      <span className="flex-1 text-sm font-medium text-[#2d2926]">{toTitleCase(child.name)}</span>
+                      <span className={`text-sm font-semibold ${done ? "text-[#3d5c42]" : "text-[#7a6f65]"}`}>
+                        {done ? "✓" : `${d}/${t}`}
                       </span>
-                      {total > 0 && <span className="text-[10px] text-[#b5aca4]">{done}/{total}</span>}
-                    </div>
-                    <div className="space-y-2">
-                      {childLessons.map((lesson) => (
-                        <TodayLessonCard key={lesson.id} lesson={lesson} childObj={child}
-                          onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                      ))}
-                      {childBooks.map((b) => (
-                        <button key={b.id}
-                          onClick={() => !isPartner && openActivityEdit({ type: "book", id: b.id, title: b.payload.title, childId: b.payload.child_id ?? "" })}
-                          className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
-                          <span className="text-lg shrink-0">📖</span>
-                          <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
-                          <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">Book</span>
-                        </button>
-                      ))}
-                      {childMems.map((e) => (
-                        <button key={e.id}
-                          onClick={() => !isPartner && openActivityEdit({ type: "memory", id: e.id, title: e.payload.title ?? "Memory", childId: e.payload.child_id ?? "", memoryType: e.type })}
-                          className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
-                          <span className="text-lg shrink-0">{e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷"}</span>
-                          <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{e.payload.title ?? "Memory"}</p>
-                          <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">
-                            {e.type === "memory_book" ? "Book" : e.type === "memory_project" ? "Project" : "Photo"}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-              {(unassignedLessons.length > 0 || unassignedBooks.length > 0 || unassignedMems.length > 0) && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold text-white bg-[#c8bfb5]">?</div>
-                    <span className="text-xs font-bold tracking-widest uppercase text-[#9e958d]">Unassigned</span>
-                  </div>
-                  <div className="space-y-2">
-                    {unassignedLessons.map((lesson) => (
-                      <TodayLessonCard key={lesson.id} lesson={lesson} childObj={undefined}
-                        onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                    ))}
-                    {unassignedBooks.map((b) => (
-                      <button key={b.id}
-                        onClick={() => !isPartner && openActivityEdit({ type: "book", id: b.id, title: b.payload.title, childId: "" })}
-                        className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
-                        <span className="text-lg shrink-0">📖</span>
-                        <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
-                        <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">Book</span>
-                      </button>
-                    ))}
-                    {unassignedMems.map((e) => (
-                      <button key={e.id}
-                        onClick={() => !isPartner && openActivityEdit({ type: "memory", id: e.id, title: e.payload.title ?? "Memory", childId: "", memoryType: e.type })}
-                        className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
-                        <span className="text-lg shrink-0">{e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷"}</span>
-                        <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{e.payload.title ?? "Memory"}</p>
-                        <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">
-                          {e.type === "memory_book" ? "Book" : e.type === "memory_project" ? "Project" : "Photo"}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          }
+
+          // Single child card view
+          const childLessons = lessons.filter(l => l.child_id === activeChild.id);
+          const childBooks = todayBooks.filter(b => b.payload.child_id === activeChild.id);
+          const childMems = todayMemoryEvents.filter(e => e.payload.child_id === activeChild.id);
+          const done = childLessons.filter(l => l.completed).length;
+          const total = childLessons.length;
+          const childAllDone = total > 0 && done === total;
+
+          // Find next incomplete child for "Next" button
+          const nextChild = childrenWithLessons.find(c =>
+            c.id !== activeChild.id && !lessons.filter(l => l.child_id === c.id).every(l => l.completed)
+          );
+
+          return (
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+              {/* Card header */}
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-[#f0ede8]">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white"
+                  style={{ backgroundColor: activeChild.color ?? "#5c7f63" }}>
+                  {activeChild.name.charAt(0).toUpperCase()}
+                </div>
+                <span className="flex-1 text-sm font-semibold text-[#2d2926]">
+                  {toTitleCase(activeChild.name)}
+                  {activeChild.birthday && (() => {
+                    const bd = new Date(activeChild.birthday + "T12:00:00");
+                    const now = new Date();
+                    return bd.getMonth() === now.getMonth() && bd.getDate() === now.getDate() ? " 🎂" : "";
+                  })()}
+                </span>
+                <span className={`text-sm font-semibold ${childAllDone ? "text-[#3d5c42]" : "text-[#7a6f65]"}`}>
+                  {childAllDone ? "✓ Done" : `${done}/${total}`}
+                </span>
+              </div>
+
+              {/* Lessons */}
+              <div className="p-3 space-y-2">
+                {childLessons.map(lesson => (
+                  <TodayLessonCard key={lesson.id} lesson={lesson} childObj={activeChild}
+                    onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
+                ))}
+                {childBooks.map(b => (
+                  <button key={b.id}
+                    onClick={() => !isPartner && openActivityEdit({ type: "book", id: b.id, title: b.payload.title, childId: b.payload.child_id ?? "" })}
+                    className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
+                    <span className="text-lg shrink-0">📖</span>
+                    <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
+                    <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">Book</span>
+                  </button>
+                ))}
+                {childMems.map(e => (
+                  <button key={e.id}
+                    onClick={() => !isPartner && openActivityEdit({ type: "memory", id: e.id, title: e.payload.title ?? "Memory", childId: e.payload.child_id ?? "", memoryType: e.type })}
+                    className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
+                    <span className="text-lg shrink-0">{e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷"}</span>
+                    <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{e.payload.title ?? "Memory"}</p>
+                  </button>
+                ))}
+              </div>
+
+              {/* Next child button */}
+              {childAllDone && nextChild && (
+                <button
+                  onClick={() => setSelectedChild(nextChild.id)}
+                  className="w-full px-4 py-3 border-t border-[#e8e2d9] bg-[#e8f5ea] text-sm font-semibold text-[#3d5c42] hover:bg-[#d4ead4] transition-colors"
+                >
+                  Next: {toTitleCase(nextChild.name)} →
+                </button>
+              )}
+
+              {/* Unassigned lessons */}
+              {unassignedLessons.length > 0 && (
+                <div className="px-3 pb-3 space-y-2">
+                  <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest px-1">Unassigned</p>
+                  {unassignedLessons.map(lesson => (
+                    <TodayLessonCard key={lesson.id} lesson={lesson} childObj={undefined}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
+                  ))}
                 </div>
               )}
             </div>
