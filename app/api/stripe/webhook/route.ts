@@ -199,8 +199,134 @@ function foundingWelcomeHtml(firstName: string): string {
 </html>`
 }
 
+function standardWelcomeHtml(firstName: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to Rooted</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f8f7f4;font-family:'Georgia',serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f7f4;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="padding:0 0 32px 0;">
+              <div style="background-color:#3d5c42;border-radius:16px;padding:24px 32px;text-align:center;">
+                <div style="font-size:36px;margin-bottom:8px;">🌱</div>
+                <div style="color:#ffffff;font-size:24px;font-weight:bold;letter-spacing:-0.5px;">Rooted Homeschool</div>
+                <div style="color:#a8c5ad;font-size:14px;margin-top:4px;">You're in!</div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Main card -->
+          <tr>
+            <td style="background-color:#fefcf9;border-radius:16px;padding:40px;border:1px solid #e8e2d9;">
+
+              <p style="margin:0 0 8px 0;font-size:13px;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;">Welcome aboard</p>
+              <h1 style="margin:0 0 24px 0;font-size:28px;color:#2d2926;line-height:1.3;">
+                Hey ${firstName}, welcome to Rooted! 🌿
+              </h1>
+
+              <p style="margin:0 0 16px 0;font-size:16px;color:#3d3530;line-height:1.7;">
+                I'm Brittany — homeschool mom of 2 and the creator of Rooted. I built this because I needed something simpler, warmer, and more encouraging than a spreadsheet.
+              </p>
+
+              <p style="margin:0 0 16px 0;font-size:16px;color:#3d3530;line-height:1.7;">
+                You just signed up for <strong style="color:#3d5c42;">Rooted Standard ($59/yr)</strong> — and I'm so glad you're here.
+              </p>
+
+              <p style="margin:0 0 32px 0;font-size:16px;color:#3d3530;line-height:1.7;">
+                Everything is set up and ready to go. Here's how to make the most of your first week:
+              </p>
+
+              <!-- Get started steps -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+                <tr>
+                  <td style="padding:10px 0;border-bottom:1px solid #e8e2d9;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">1️⃣</td>
+                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Set up your curriculum</strong><br>Go to Plan → add your curriculum for each child. Rooted will auto-schedule lessons across your school week.</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 0;border-bottom:1px solid #e8e2d9;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">2️⃣</td>
+                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Check off your first lesson</strong><br>Open Today and tap the circle next to a lesson. Watch your Garden grow its first leaf. 🍃</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 0;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">3️⃣</td>
+                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Log a memory</strong><br>Tap + Log something to save a field trip, book, or moment. These are the things you'll want to look back on.</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA button -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+                <tr>
+                  <td align="center">
+                    <a href="https://rootedhomeschoolapp.com/dashboard"
+                       style="display:inline-block;background-color:#3d5c42;color:#ffffff;font-size:16px;font-weight:bold;padding:16px 40px;border-radius:12px;text-decoration:none;letter-spacing:0.3px;">
+                      Go to your dashboard →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Personal close -->
+              <div style="border-top:1px solid #e8e2d9;padding-top:24px;">
+                <p style="margin:0 0 12px 0;font-size:15px;color:#3d3530;line-height:1.7;">
+                  Hit reply anytime — I personally read every email.
+                </p>
+                <p style="margin:0;font-size:15px;color:#3d3530;line-height:1.7;">
+                  Welcome to the family. 🌿
+                </p>
+                <p style="margin:16px 0 0 0;font-size:15px;color:#5c7f63;font-weight:bold;">
+                  — Brittany, founder &amp; homeschool mom
+                </p>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:24px 0 0 0;">
+              <p style="margin:0;font-size:13px;color:#7a6f65;">Rooted Homeschool · rootedhomeschoolapp.com</p>
+              <p style="margin:4px 0 0 0;font-size:13px;color:#7a6f65;">Questions? Reply to this email or reach us at hello@rootedhomeschoolapp.com</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>`
+}
+
 // Helper: find user by email and activate their account
-async function activateByEmail(email: string, plan: string, stripeCustomerId: string, sessionId: string): Promise<{ userId: string; firstName: string } | null> {
+async function activateByEmail(email: string, plan: string, stripeCustomerId: string, sessionId: string): Promise<{ userId: string; firstName: string; wasAlreadyActive: boolean } | null> {
   console.log('[webhook] activateByEmail called — email:', email, 'plan:', plan, 'stripeCustomerId:', stripeCustomerId)
 
   // Find user by email — paginated search through auth users
@@ -227,6 +353,13 @@ async function activateByEmail(email: string, plan: string, stripeCustomerId: st
   }
 
   console.log('[webhook] Found user:', matchedUser.id, 'for email:', email)
+
+  // Check current status for idempotency — if already active, this is a retry
+  const { data: currentProfile } = await supabase.from('profiles').select('subscription_status').eq('id', matchedUser.id).maybeSingle()
+  const wasAlreadyActive = currentProfile?.subscription_status === 'active'
+  if (wasAlreadyActive) {
+    console.log('[webhook] profile already active for:', email, '— skipping activation (idempotent retry)')
+  }
 
   const updateData = {
     is_pro: true,
@@ -260,7 +393,7 @@ async function activateByEmail(email: string, plan: string, stripeCustomerId: st
   ).catch(err => console.error('[webhook] admin notify error:', err))
 
   const { data: profile } = await supabase.from('profiles').select('first_name').eq('id', matchedUser.id).maybeSingle()
-  return { userId: matchedUser.id, firstName: profile?.first_name ?? 'friend' }
+  return { userId: matchedUser.id, firstName: profile?.first_name ?? 'friend', wasAlreadyActive }
 }
 
 export async function POST(req: NextRequest) {
@@ -302,9 +435,17 @@ export async function POST(req: NextRequest) {
 
     let activated = false
     let firstName = 'friend'
+    let wasAlreadyActive = false
 
     // Path 1: use metadata userId
     if (metaUserId) {
+      // Idempotency check — read status BEFORE updating
+      const { data: existing } = await supabase.from('profiles').select('subscription_status, first_name').eq('id', metaUserId).maybeSingle()
+      wasAlreadyActive = existing?.subscription_status === 'active'
+      if (wasAlreadyActive) {
+        console.log('[webhook] profile already active for metaUserId:', metaUserId, '— idempotent retry, skipping welcome email')
+      }
+
       const updateData = {
         is_pro: true,
         subscription_status: 'active',
@@ -317,8 +458,7 @@ export async function POST(req: NextRequest) {
       } else {
         console.log('[webhook] metadata userId update succeeded for:', metaUserId)
         activated = true
-        const { data: p } = await supabase.from('profiles').select('first_name, display_name').eq('id', metaUserId).maybeSingle()
-        firstName = p?.first_name ?? 'friend'
+        firstName = existing?.first_name ?? 'friend'
       }
     }
 
@@ -328,6 +468,7 @@ export async function POST(req: NextRequest) {
       if (result) {
         activated = true
         firstName = result.firstName
+        wasAlreadyActive = result.wasAlreadyActive
       }
     }
 
@@ -335,37 +476,42 @@ export async function POST(req: NextRequest) {
       console.error('[webhook] CRITICAL: could not activate account — metaUserId:', metaUserId, 'email:', customerEmail, 'sessionId:', session.id)
     }
 
-    // Send emails regardless of activation path
+    // Send emails — but only welcome email on FIRST activation (idempotency)
     if (customerEmail && activated) {
       const { data: prof } = await supabase.from('profiles').select('display_name').eq('stripe_customer_id', stripeCustomerId).maybeSingle()
       const familyName = prof?.display_name ?? 'Unknown Family'
       const activeCount = await getActiveSubCount()
       const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })
-      const SIGNATURE = `— Brittany Waltrip\nFounder, Rooted Homeschool App\nhello@rootedhomeschoolapp.com\nrootedhomeschoolapp.com`
 
-      // Notify admin
+      // Always notify admin (idempotent — admin can de-dupe)
       await sendEmail(
         ADMIN_EMAIL,
         `🌱 New ${plan === 'founding_family' ? 'Founding Member' : 'Subscriber'}! ${familyName} just subscribed`,
         `New subscription on Rooted!\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(undefined)}\nTime: ${now}\nTotal active subscribers: ${activeCount}\n\nRooted is growing! 🌱`
-      ).catch((err) => console.error("Resend admin email error:", err))
+      ).catch((err) => console.error('[webhook] admin email error:', err))
 
-      // Welcome email
-      const isFounding = plan === 'founding_family'
-      const subjectLine = isFounding
-        ? `Welcome to the Rooted family, ${firstName}! 🌱`
-        : `Welcome to Rooted, ${firstName}! 🌱`
-      if (isFounding) {
-        await sendEmail(customerEmail, subjectLine,
-          `Hi ${firstName}, welcome to Rooted! You're a Founding Member — your $39/yr is locked forever. Open the app at rootedhomeschoolapp.com/dashboard. — Brittany`,
-          'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
-          foundingWelcomeHtml(firstName)
-        ).catch((err) => console.error("Resend welcome email error:", err))
+      // Welcome email — only on first activation, not retries
+      if (!wasAlreadyActive) {
+        const isFounding = plan === 'founding_family'
+        const subjectLine = isFounding
+          ? `Welcome to the Rooted family, ${firstName}! 🌱`
+          : `Welcome to Rooted, ${firstName}! 🌱`
+        if (isFounding) {
+          await sendEmail(customerEmail, subjectLine,
+            `Hi ${firstName}, welcome to Rooted! You're a Founding Member — your $39/yr is locked forever. Go to your dashboard: rootedhomeschoolapp.com/dashboard — Brittany`,
+            'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
+            foundingWelcomeHtml(firstName)
+          ).catch((err) => console.error('[webhook] welcome email FAILED for:', customerEmail, err))
+        } else {
+          await sendEmail(customerEmail, subjectLine,
+            `Hi ${firstName},\n\nThank you for subscribing to Rooted Standard ($59/yr) — welcome to the family! 🌱\n\nGo to your dashboard: rootedhomeschoolapp.com/dashboard\n\nHit reply anytime — I personally read every email.\n\nWelcome home. 🌿\n\n— Brittany Waltrip\nFounder, Rooted Homeschool App\nhello@rootedhomeschoolapp.com`,
+            'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
+            standardWelcomeHtml(firstName)
+          ).catch((err) => console.error('[webhook] welcome email FAILED for:', customerEmail, err))
+        }
+        console.log('[webhook] welcome email sent to', customerEmail)
       } else {
-        await sendEmail(customerEmail, subjectLine,
-          `Hi ${firstName},\n\nThank you so much for subscribing to Rooted — welcome to the family! 🌱\n\nFeel free to reply anytime. I personally read every response.\n\nThank you for being here. 🌱\n\n${SIGNATURE}`,
-          'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
-        ).catch((err) => console.error("Resend welcome email error:", err))
+        console.log('[webhook] skipped welcome email for', customerEmail, '— already active (retry)')
       }
     }
   }
