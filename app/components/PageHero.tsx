@@ -10,6 +10,8 @@ interface PageHeroProps {
   children?: React.ReactNode;
   /** Additional classes (no longer needed for -mx breakout, but kept for flexibility) */
   className?: string;
+  /** Override background color (e.g. vacation blue) */
+  bgColor?: string;
 }
 
 export default function PageHero({
@@ -18,11 +20,12 @@ export default function PageHero({
   subtitle,
   children,
   className = "",
+  bgColor,
 }: PageHeroProps) {
   return (
     <div
       className={`relative w-full rounded-b-[24px] px-6 pt-7 pb-8 overflow-hidden ${className}`}
-      style={{ background: "#3d5c42" }}
+      style={{ background: bgColor || "#3d5c42" }}
     >
       {/* Decorative background leaves */}
       <div

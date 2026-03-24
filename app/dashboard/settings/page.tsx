@@ -24,6 +24,7 @@ type Child = {
   sort_order: number | null;
   archived: boolean;
   graduated_at: string | null;
+  birthday: string | null;
 };
 
 // ─── Color palette ────────────────────────────────────────────────────────────
@@ -242,7 +243,7 @@ export default function SettingsPage() {
 
     const { data: kids } = await supabase
       .from("children")
-      .select("id, name, color, sort_order, archived, graduated_at")
+      .select("id, name, color, sort_order, archived, graduated_at, birthday")
       .eq("user_id", user.id)
       .eq("archived", false)
       .order("sort_order");
@@ -495,7 +496,7 @@ export default function SettingsPage() {
         sort_order: maxOrder + 1,
         name_key:   nameKey,
       })
-      .select("id, name, color, sort_order, archived, graduated_at")
+      .select("id, name, color, sort_order, archived, graduated_at, birthday")
       .single();
 
     if (error) {
@@ -956,6 +957,21 @@ export default function SettingsPage() {
                       </label>
                       <ColorPicker selected={editColor} onChange={setEditColor} />
                     </div>
+                    <div>
+                      <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
+                        Birthday <span className="text-[#b5aca4] font-normal">(optional)</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={(() => { const c = children.find(ch => ch.id === editingId); return c?.birthday ?? ""; })()}
+                        onChange={async (e) => {
+                          const val = e.target.value || null;
+                          await supabase.from("children").update({ birthday: val }).eq("id", editingId!);
+                          setChildren(prev => prev.map(c => c.id === editingId ? { ...c, birthday: val } : c));
+                        }}
+                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+                      />
+                    </div>
                     <div className="flex gap-2 pt-1">
                       <button
                         onClick={cancelEdit}
@@ -1011,9 +1027,14 @@ export default function SettingsPage() {
                       {child.name.charAt(0).toUpperCase()}
                     </div>
 
-                    <span className="flex-1 text-sm font-medium text-[#2d2926]">
-                      {child.name}
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-[#2d2926]">{child.name}</span>
+                      {child.birthday && (
+                        <p className="text-[10px] text-[#b5aca4]">
+                          🎂 {new Date(child.birthday + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </p>
+                      )}
+                    </div>
 
                     {/* Action buttons */}
                     <div className="flex items-center gap-1">

@@ -775,20 +775,7 @@ export default function PlanPage() {
     </PageHero>
     <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
 
-      {/* ── Plan tip banner ──────────────────────────────────── */}
-      {!tipDismissed && !isPartner && onboarded && curricGroups.length > 0 && (
-        <div className="relative flex items-start gap-3 rounded-2xl px-4 py-3.5 pr-10" style={{ background: "#eef4ee", border: "1.5px solid #c8dcc8" }}>
-          <span className="text-base shrink-0 mt-0.5">💡</span>
-          <p className="text-sm text-[#3d5c42] leading-snug">
-            <strong>Double-check your lesson count</strong> — tap <strong>Edit</strong> on any curriculum to confirm the number is right for your edition. Already started? Set &ldquo;Lessons Done&rdquo; too.
-          </p>
-          <button
-            onClick={() => { localStorage.setItem("rooted_plan_tip_dismissed", "1"); setTipDismissed(true); }}
-            aria-label="Dismiss"
-            className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#c8dcc8]/60 transition-colors text-lg leading-none"
-          >×</button>
-        </div>
-      )}
+      {/* Plan tip banner removed — no longer needed */}
 
       {/* ── Action bar ───────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-2 flex-wrap">

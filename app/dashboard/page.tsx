@@ -9,7 +9,7 @@ import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Child = { id: string; name: string; color: string | null };
+type Child = { id: string; name: string; color: string | null; birthday?: string | null };
 
 type Lesson = {
   id: string;
@@ -435,6 +435,7 @@ export default function TodayPage() {
   const [streak,                 setStreak]                 = useState(0);
   const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
   const [showFamilyUpdate,       setShowFamilyUpdate]       = useState(false);
+  const [daysLearning,           setDaysLearning]           = useState<number | null>(null);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
@@ -461,7 +462,7 @@ export default function TodayPage() {
     if (!effectiveUserId) return;
 
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
     ]);
@@ -475,6 +476,21 @@ export default function TodayPage() {
     if (schoolDays.length > 0) {
       const todayDayName = new Date().toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       setIsSchoolDay(schoolDays.includes(todayDayName));
+    }
+
+    // "Days learning together" milestone — 1st school day of each month
+    const schoolYearStart = (profile as { school_year_start?: string } | null)?.school_year_start;
+    if (schoolYearStart) {
+      const now = new Date();
+      const milestoneKey = `milestone_shown_${now.getFullYear()}_${now.getMonth()}`;
+      if (!localStorage.getItem(milestoneKey)) {
+        const startDate = new Date(schoolYearStart + "T00:00:00");
+        const diffDays = Math.floor((now.getTime() - startDate.getTime()) / 86400000);
+        if (diffDays > 0) {
+          setDaysLearning(diffDays);
+          localStorage.setItem(milestoneKey, "1");
+        }
+      }
     }
 
     // Streak + week dots: fetch recent completed lesson dates
@@ -567,7 +583,7 @@ export default function TodayPage() {
     }
 
     const { data: childrenData } = await supabase
-      .from("children").select("id, name, color")
+      .from("children").select("id, name, color, birthday")
       .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order");
     setChildren(childrenData ?? []);
 
@@ -898,7 +914,11 @@ export default function TodayPage() {
       {/* ── Hero Header ──────────────────────────────────────── */}
       <PageHero
         overline={formatDateHero(new Date())}
-        title={buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}
+        title={activeVacation
+          ? `${familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} are` : "You're"} away 🌴`
+          : buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}
+        subtitle={activeVacation ? `${activeVacation.name} · Back ${new Date(activeVacation.end_date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}` : undefined}
+        bgColor={activeVacation ? "#1a6b8a" : undefined}
       >
         {totalToday > 0 && isSchoolDay && !activeVacation && (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
@@ -914,6 +934,13 @@ export default function TodayPage() {
         {streak >= 2 && isSchoolDay && !activeVacation && (
           <p className="text-[11px] mt-2 text-center" style={{ color: "rgba(255,255,255,0.6)" }}>
             🌱 {streak} day streak
+          </p>
+        )}
+
+        {/* Days learning milestone — shows once per month */}
+        {daysLearning && !activeVacation && (
+          <p className="text-[11px] mt-1 text-center" style={{ color: "rgba(255,255,255,0.5)" }}>
+            {familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} family has` : "You've"} been learning together for {daysLearning} days 🌱
           </p>
         )}
       </PageHero>
@@ -1111,35 +1138,56 @@ export default function TodayPage() {
                 <p className="text-sm font-semibold text-[#7a4a1a]">🌴 <strong>{activeVacation.name}</strong> · No lessons today — enjoy your time off!</p>
               </div>
             );
-            if (!isSchoolDay) return (
-              <div className="py-8 flex flex-col items-center text-center">
-                <span className="text-[52px] block mb-2">🌿</span>
-                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
-                  No school today
-                </p>
-                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
-                  Enjoy your day off! Lessons will be here on your next school day.
-                </p>
-                {upcomingDay && (
-                  <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 w-full max-w-sm text-left">
-                    <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
-                      Coming up {new Date(upcomingDay.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" })}
-                    </p>
-                    <div className="space-y-1.5">
-                      {upcomingDay.lessons.slice(0, 4).map((l, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#5c7f63] shrink-0" />
-                          <span className="text-[#2d2926] truncate">{l.title}</span>
-                        </div>
-                      ))}
-                      {upcomingDay.lessons.length > 4 && (
-                        <p className="text-xs text-[#b5aca4]">+{upcomingDay.lessons.length - 4} more</p>
-                      )}
+            if (!isSchoolDay) {
+              const dow = new Date().getDay();
+              const isWeekend = dow === 0 || dow === 6;
+              return (
+                <div className="py-8 flex flex-col items-center text-center">
+                  {/* Leaf illustration */}
+                  <svg width="64" height="64" viewBox="0 0 64 64" className="mb-3 opacity-30">
+                    <path d="M32 8 C16 20, 8 36, 16 52 C24 48, 28 40, 32 32 C36 40, 40 48, 48 52 C56 36, 48 20, 32 8Z" fill="#5c7f63" />
+                    <line x1="32" y1="12" x2="32" y2="56" stroke="#3d5c42" strokeWidth="1.5" opacity="0.5" />
+                  </svg>
+                  <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
+                    {isWeekend ? "Rest day 🌿" : "No school today"}
+                  </p>
+                  <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
+                    {isWeekend ? "Your garden is still growing" : "Enjoy the slow morning"}
+                  </p>
+
+                  {/* Log memory prompt */}
+                  <button
+                    onClick={() => setShowLogModal(true)}
+                    className="w-full max-w-sm bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-[#5c7f63] hover:bg-[#faf8f5] transition-colors text-left mb-5"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0 text-lg">📸</div>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-[#2d2926]">Days off make the best memories</p>
+                      <p className="text-xs text-[#7a6f65]">Field trips, books, nature walks — log it →</p>
                     </div>
-                  </div>
-                )}
-              </div>
-            );
+                  </button>
+
+                  {upcomingDay && (
+                    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 w-full max-w-sm text-left">
+                      <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
+                        Coming up {new Date(upcomingDay.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" })}
+                      </p>
+                      <div className="space-y-1.5">
+                        {upcomingDay.lessons.slice(0, 4).map((l, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#5c7f63] shrink-0" />
+                            <span className="text-[#2d2926] truncate">{l.title}</span>
+                          </div>
+                        ))}
+                        {upcomingDay.lessons.length > 4 && (
+                          <p className="text-xs text-[#b5aca4]">+{upcomingDay.lessons.length - 4} more</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            }
             if (subjects.length === 0) return (
               <div className="py-8 flex flex-col items-center text-center">
                 <span className="text-[52px] block mb-2">🌿</span>
@@ -1174,6 +1222,11 @@ export default function TodayPage() {
                       </div>
                       <span className="text-xs font-bold tracking-widest uppercase" style={{ color: child.color ?? "#5c7f63" }}>
                         {toTitleCase(child.name)}
+                        {child.birthday && (() => {
+                          const bd = new Date(child.birthday + "T12:00:00");
+                          const now = new Date();
+                          return bd.getMonth() === now.getMonth() && bd.getDate() === now.getDate() ? " 🎂" : "";
+                        })()}
                       </span>
                       {total > 0 && <span className="text-[10px] text-[#b5aca4]">{done}/{total}</span>}
                     </div>
@@ -1331,12 +1384,6 @@ export default function TodayPage() {
           </div>
         );
       })()}
-
-      {/* ── Daily Quote ───────────────────────────────────── */}
-      <div className="bg-[#f5f2ec] rounded-xl px-4 py-3">
-        <p className="text-[13px] italic leading-relaxed border-l-2 border-[#e8e2d9] pl-3" style={{ color: "#9e958d" }}>&ldquo;{quote}&rdquo;</p>
-      </div>
-
 
       <div className="h-4" />
 

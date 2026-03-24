@@ -419,8 +419,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         {/* Menu sheet — slides up from bottom */}
         {menuSheet && (
           <>
-            <div className="md:hidden fixed inset-0 bg-black/30 z-[45]" onClick={() => setMenuSheet(false)} />
-            <div className="md:hidden fixed bottom-0 left-0 right-0 z-[46] bg-[#fefcf9] rounded-t-2xl border-t border-[#e8e2d9] shadow-xl" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="md:hidden fixed inset-0 bg-black/30 z-50" onClick={() => setMenuSheet(false)} />
+            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-2xl border-t border-[#e8e2d9] shadow-xl" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 3.75rem)" }}>
               {/* Handle */}
               <div className="flex justify-center pt-3 pb-2">
                 <div className="w-10 h-1 rounded-full bg-[#e8e2d9]" />

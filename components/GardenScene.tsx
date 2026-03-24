@@ -470,6 +470,36 @@ export default function GardenScene({
         </>
       )}
 
+      {/* Seasonal elements — one subtle touch per season */}
+      {!holiday && (() => {
+        const m = new Date().getMonth() + 1;
+        // Autumn: amber leaf drifts
+        if (m >= 9 && m <= 11 && stage < 9) return (
+          <span className="absolute text-lg pointer-events-none select-none" style={{
+            top: "15%", left: "35%",
+            animation: "seasonal-leaf 8s ease-in-out infinite",
+            opacity: 0.4,
+          }}>🍂</span>
+        );
+        // Winter: dusting
+        if (m === 12 || m <= 2) return (
+          <div className="absolute top-0 left-0 right-0 h-8 pointer-events-none" style={{
+            background: "linear-gradient(to bottom, rgba(255,255,255,0.15) 0%, transparent 100%)",
+          }} />
+        );
+        // Spring: blossom
+        if (m >= 3 && m <= 5 && stage >= 3) return (
+          <span className="absolute text-sm pointer-events-none select-none" style={{
+            bottom: "38%", left: "48%", opacity: 0.5,
+          }}>🌸</span>
+        );
+        // Summer: bigger sun + extra butterfly
+        if (m >= 6 && m <= 8) return (
+          <SceneButterfly x={38} y={18} delay={2.5} color="#87ceeb" />
+        );
+        return null;
+      })()}
+
       {/* Holiday overlays */}
       {holiday?.overlay === "snow"          && <SnowOverlay />}
       {holiday?.overlay === "hearts"        && <HeartsOverlay />}
