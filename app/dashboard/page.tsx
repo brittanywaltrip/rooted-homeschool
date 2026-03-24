@@ -910,32 +910,9 @@ export default function TodayPage() {
           </div>
         )}
 
-        {/* Week strip — Mon–Fri dots */}
-        {weekDots.length === 5 && isSchoolDay && !activeVacation && (
-          <div className="flex items-center justify-center gap-2 mt-2">
-            {["M", "T", "W", "T", "F"].map((label, i) => {
-              const todayDow = new Date().getDay();
-              const dotDow = i + 1; // 1=Mon … 5=Fri
-              const isToday = dotDow === todayDow;
-              const dot = weekDots[i];
-              const size = isToday ? "w-2.5 h-2.5" : "w-2 h-2";
-              const color =
-                dot === "done" ? "bg-[#a8d4aa]" :
-                dot === "partial" ? "border border-[#a8d4aa] bg-transparent" :
-                "bg-white/20";
-              return (
-                <div key={i} className="flex flex-col items-center gap-0.5">
-                  <div className={`rounded-full ${size} ${color}`} />
-                  <span className="text-[8px]" style={{ color: "rgba(255,255,255,0.4)" }}>{label}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
         {/* Streak */}
         {streak >= 2 && isSchoolDay && !activeVacation && (
-          <p className="text-[11px] mt-1.5 text-center" style={{ color: "rgba(255,255,255,0.6)" }}>
+          <p className="text-[11px] mt-2 text-center" style={{ color: "rgba(255,255,255,0.6)" }}>
             🌱 {streak} day streak
           </p>
         )}
@@ -1068,18 +1045,26 @@ export default function TodayPage() {
             }`}>
             All
           </button>
-          {children.map((child: any) => (
-            <button
-              key={child.id}
-              onClick={() => setSelectedChild(child.id === selectedChild ? null : child.id)}
-              className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors ${
-                selectedChild === child.id
-                  ? 'bg-[#3d5c42] text-white'
-                  : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
-              }`}>
-              {child.name}
-            </button>
-          ))}
+          {children.map((child) => {
+            const childLessons = lessons.filter(l => l.child_id === child.id);
+            const childDone = childLessons.length > 0 && childLessons.every(l => l.completed);
+            const isActive = selectedChild === child.id;
+            return (
+              <button
+                key={child.id}
+                onClick={() => setSelectedChild(child.id === selectedChild ? null : child.id)}
+                className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
+                  isActive
+                    ? 'bg-[#3d5c42] text-white'
+                    : childDone
+                    ? 'bg-[#e8f5ea] border border-[#b8d9bc] text-[#3d5c42]'
+                    : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
+                }`}>
+                {child.name}
+                {childDone && <span className="text-[11px]">✓</span>}
+              </button>
+            );
+          })}
         </div>
       )}
 

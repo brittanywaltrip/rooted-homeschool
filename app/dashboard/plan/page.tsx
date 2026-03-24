@@ -463,6 +463,7 @@ export default function PlanPage() {
   const [vacEnd,           setVacEnd]           = useState("");
   const [vacReschedule,    setVacReschedule]    = useState<"shift" | "leave">("shift");
   const [savingVac,        setSavingVac]        = useState(false);
+  const [profileSchoolDays, setProfileSchoolDays] = useState<string[]>([]);
 
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
@@ -479,7 +480,7 @@ export default function PlanPage() {
     we.setDate(we.getDate() + 6);
     const s = toDateStr(ws), e = toDateStr(we);
     const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }, { data: bySched }, { data: byDate }] = await Promise.all([
-      supabase.from("profiles").select("onboarded").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("onboarded, school_days").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days").eq("user_id", effectiveUserId).order("created_at"),
@@ -489,6 +490,7 @@ export default function PlanPage() {
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
+    setProfileSchoolDays((profile as { school_days?: string[] } | null)?.school_days ?? []);
     setChildren(kids ?? []);
     setSubjects((subs as Subject[]) ?? []);
     setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
@@ -812,6 +814,47 @@ export default function PlanPage() {
           </button>
         </div>
       </div>
+
+      {/* ── Week strip ────────────────────────────────────────── */}
+      {isCurrentWeek && (
+        <div className="flex items-stretch bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+          {["S", "M", "T", "W", "T", "F", "S"].map((label, i) => {
+            const d = new Date(weekStart);
+            d.setDate(weekStart.getDate() + ((i === 0 ? 6 : i - 1))); // Align S M T W T F S to Sun=0
+            // Actually we need Sun to be the start. weekStart is Monday. Let's compute correctly:
+            const dayDate = new Date(weekStart);
+            dayDate.setDate(weekStart.getDate() + i - 1); // i=0 → Sunday before Monday
+            // Fix: Sunday is day before Monday, then Mon(1) Tue(2) ... Sat(6)
+            const actualDate = new Date(weekStart);
+            actualDate.setDate(weekStart.getDate() - 1 + i); // 0=Sun, 1=Mon, ..., 6=Sat
+            const dateStr = toDateStr(actualDate);
+            const isToday = dateStr === todayStr;
+            const dayName = actualDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+            const isSchool = profileSchoolDays.length > 0 ? profileSchoolDays.includes(dayName) : (i >= 1 && i <= 5);
+            const dayLessons = lessons.filter(l => (l.scheduled_date ?? l.date) === dateStr);
+            const allDone = dayLessons.length > 0 && dayLessons.every(l => l.completed);
+            const hasSome = dayLessons.length > 0;
+
+            let dotColor = "bg-[#e8e2d9]"; // grey for non-school / no lessons
+            if (dateStr > todayStr) dotColor = "bg-[#e8e2d9]"; // future
+            else if (allDone && hasSome) dotColor = "bg-[#5c7f63]"; // done
+            else if (hasSome) dotColor = "border-2 border-[#5c7f63] bg-transparent"; // partial
+            else if (!isSchool) dotColor = "bg-[#e8e2d9]";
+
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center py-2.5 gap-1">
+                <span className="text-[10px] font-medium text-[#b5aca4]">{label}</span>
+                <div className={`flex items-center justify-center rounded-full ${
+                  isToday ? "w-8 h-8 bg-[#3d5c42] text-white text-xs font-bold" : "w-7 h-7 text-xs text-[#2d2926]"
+                }`}>
+                  {actualDate.getDate()}
+                </div>
+                <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Child Filter Pills ────────────────────────────────── */}
       {children.length > 1 && (
