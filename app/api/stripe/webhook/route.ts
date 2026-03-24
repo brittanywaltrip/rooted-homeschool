@@ -203,13 +203,19 @@ function foundingWelcomeHtml(firstName: string): string {
 async function activateByEmail(email: string, plan: string, stripeCustomerId: string, sessionId: string): Promise<{ userId: string; firstName: string } | null> {
   console.log('[webhook] activateByEmail called — email:', email, 'plan:', plan, 'stripeCustomerId:', stripeCustomerId)
 
-  // Try to find user by email in auth
-  const { data: { users }, error: listErr } = await supabase.auth.admin.listUsers()
-  if (listErr) {
-    console.error('[webhook] FAILED to list users:', listErr.message)
-    return null
+  // Find user by email — paginated search through auth users
+  let matchedUser: { id: string; email?: string } | undefined
+  let page = 1
+  const perPage = 200
+  while (true) {
+    const { data: { users }, error: listErr } = await supabase.auth.admin.listUsers({ page, perPage })
+    if (listErr) { console.error('[webhook] FAILED to list users page', page, ':', listErr.message); break }
+    if (!users || users.length === 0) break
+    const match = users.find(u => u.email?.toLowerCase() === email.toLowerCase())
+    if (match) { matchedUser = match; break }
+    if (users.length < perPage) break
+    page++
   }
-  const matchedUser = users?.find(u => u.email?.toLowerCase() === email.toLowerCase())
   if (!matchedUser) {
     console.error('[webhook] NO USER FOUND for email:', email, 'sessionId:', sessionId)
     await sendEmail(
@@ -224,7 +230,7 @@ async function activateByEmail(email: string, plan: string, stripeCustomerId: st
 
   const updateData = {
     is_pro: true,
-    subscription_status: plan === 'founding_family' ? 'founding' : 'standard',
+    subscription_status: 'active',
     plan_type: plan,
     stripe_customer_id: stripeCustomerId,
   }
@@ -245,6 +251,13 @@ async function activateByEmail(email: string, plan: string, stripeCustomerId: st
   // Verify the update stuck
   const { data: verify } = await supabase.from('profiles').select('is_pro, plan_type, subscription_status').eq('id', matchedUser.id).maybeSingle()
   console.log('[webhook] VERIFY after update — is_pro:', verify?.is_pro, 'plan_type:', verify?.plan_type, 'subscription_status:', verify?.subscription_status)
+
+  // Notify admin about fallback activation
+  await sendEmail(
+    ADMIN_EMAIL,
+    `🌱 New subscriber activated via email fallback`,
+    `New subscription on Rooted!\n\nEmail: ${email}\nPlan: ${plan}\nUserId: ${matchedUser.id}\nNote: matched via email fallback (no userId in metadata)\n\nRooted is growing! 🌱`
+  ).catch(err => console.error('[webhook] admin notify error:', err))
 
   const { data: profile } = await supabase.from('profiles').select('first_name').eq('id', matchedUser.id).maybeSingle()
   return { userId: matchedUser.id, firstName: profile?.first_name ?? 'friend' }
@@ -294,7 +307,7 @@ export async function POST(req: NextRequest) {
     if (metaUserId) {
       const updateData = {
         is_pro: true,
-        subscription_status: plan === 'founding_family' ? 'founding' : 'standard',
+        subscription_status: 'active',
         plan_type: plan,
         stripe_customer_id: stripeCustomerId,
       }
@@ -371,7 +384,7 @@ export async function POST(req: NextRequest) {
       if (existing) {
         await supabase.from('profiles').update({
           is_pro: true,
-          subscription_status: plan === 'founding_family' ? 'founding' : 'standard',
+          subscription_status: 'active',
           plan_type: plan,
         }).eq('id', existing.id)
         console.log('[webhook] subscription.created — updated existing profile:', existing.id)
@@ -443,7 +456,7 @@ export async function POST(req: NextRequest) {
 
     const updateData = {
       is_pro: isActive,
-      subscription_status: isActive ? (plan === 'founding_family' ? 'founding' : 'standard') : sub.status,
+      subscription_status: isActive ? 'active' : sub.status,
       plan_type: isActive ? plan : 'free',
     }
 
