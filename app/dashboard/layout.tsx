@@ -38,7 +38,7 @@ function NavLink({
       onClick={onClick}
       className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
         active
-          ? "bg-[#e8f0e9] text-[#3d5c42] shadow-sm"
+          ? "text-[#3d5c42]"
           : "text-[#7a6f65] hover:bg-[#f0ede8] hover:text-[#2d2926]"
       }`}
     >
@@ -49,9 +49,6 @@ function NavLink({
         )}
       </div>
       {label}
-      {active && (
-        <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#5c7f63]" />
-      )}
     </Link>
   );
 }
