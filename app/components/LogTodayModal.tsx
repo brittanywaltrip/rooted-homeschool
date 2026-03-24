@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -145,6 +145,9 @@ export default function LogTodayModal({
   // Photo fields
   const [photoTitle, setPhotoTitle] = useState("");
   const [photoChild, setPhotoChild] = useState(children.length === 1 ? children[0].id : "");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Reflection fields
   const [reflectionText, setReflectionText] = useState("");
@@ -207,7 +210,7 @@ export default function LogTodayModal({
         onSaved("activity", activityChild || undefined);
 
       } else if (mode === "photo") {
-        if (!photoTitle.trim()) { setError("Please enter a title."); setSaving(false); return; }
+        if (!photoFile) { setError("Please select a photo."); setSaving(false); return; }
 
         // Check photo limit for free users
         if (!isPro) {
@@ -226,10 +229,36 @@ export default function LogTodayModal({
           }
         }
 
+        // Upload photo to Supabase Storage
+        const ext = photoFile.name.split(".").pop() ?? "jpg";
+        const path = `${user.id}/${Date.now()}-${photoFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+        const { error: uploadErr } = await supabase.storage
+          .from("memory-photos")
+          .upload(path, photoFile, { contentType: photoFile.type, upsert: false });
+
+        if (uploadErr) {
+          console.error("[LogTodayModal] Photo upload error:", uploadErr);
+          setError(
+            uploadErr.message.includes("Bucket not found")
+              ? "Storage bucket 'memory-photos' not found. Create it in Supabase."
+              : `Upload failed: ${uploadErr.message}`
+          );
+          setSaving(false);
+          return;
+        }
+
+        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+        const publicUrl = urlData.publicUrl;
+
         await supabase.from("app_events").insert({
           user_id: user.id,
           type: "memory_photo",
-          payload: { title: photoTitle.trim(), date: dateOverride || saveDate, child_id: photoChild || undefined },
+          payload: {
+            title: photoTitle.trim() || "Photo",
+            photo_url: publicUrl,
+            date: dateOverride || saveDate,
+            child_id: photoChild || undefined,
+          },
         });
 
         // Increment photo count for free users
@@ -259,7 +288,7 @@ export default function LogTodayModal({
     (mode === "field_trip"  && fieldTripTitle.trim().length > 0) ||
     (mode === "project"     && projectTitle.trim().length > 0) ||
     (mode === "activity"    && activityTitle.trim().length > 0) ||
-    (mode === "photo"       && photoTitle.trim().length > 0) ||
+    (mode === "photo"       && !!photoFile) ||
     (mode === "reflection"  && reflectionText.trim().length > 0)
   );
 
@@ -411,18 +440,68 @@ export default function LogTodayModal({
 
             {mode === "photo" && (
               <div className="space-y-4 mt-4">
+                {/* Photo upload */}
                 <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What&apos;s this a photo of? *</label>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Photo *</label>
+                  {photoPreview ? (
+                    <div className="relative">
+                      <img src={photoPreview} alt="Preview" className="w-full h-48 object-cover rounded-xl border border-[#e8e2d9]" />
+                      <button
+                        type="button"
+                        onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                        className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 text-white flex items-center justify-center text-sm hover:bg-black/70 transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => photoInputRef.current?.click()}
+                      className="w-full flex flex-col items-center gap-2 py-8 rounded-xl border-2 border-dashed border-[#e8e2d9] bg-[#f8f7f4] hover:border-[#5c7f63] hover:bg-[#f0f7f0] transition-colors"
+                    >
+                      <span className="text-2xl">📷</span>
+                      <span className="text-sm font-medium text-[#7a6f65]">Tap to choose a photo</span>
+                      <span className="text-[11px] text-[#b5aca4]">JPG or PNG</span>
+                    </button>
+                  )}
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (file) {
+                        setPhotoFile(file);
+                        setPhotoPreview(URL.createObjectURL(file));
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* Caption */}
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Caption (optional)</label>
                   <input
                     value={photoTitle}
                     onChange={(e) => setPhotoTitle(e.target.value)}
                     placeholder="e.g. Art project, Science experiment"
-                    autoFocus
                     className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
                   />
                 </div>
+
                 <ChildPills children={children} value={photoChild} onChange={setPhotoChild} />
-                <p className="text-xs text-[#b5aca4]">📷 This logs the memory title — you can add the actual photo in Memories.</p>
+
+                {uploadError && (
+                  <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                    <span className="text-sm shrink-0">⚠️</span>
+                    <p className="text-xs text-amber-800">{uploadError}
+                      <Link href="/dashboard/pricing" className="ml-1 underline font-semibold">Upgrade →</Link>
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
