@@ -47,37 +47,40 @@ type ActivityItem = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const QUOTES = [
-  "Education is not the filling of a pail, but the lighting of a fire.",
-  "Every child is a different kind of flower, and together they make this world a beautiful garden.",
-  "The beautiful thing about learning is that no one can take it away from you.",
-  "Children learn more from what you are than what you teach.",
-  "The roots of education are bitter, but the fruit is sweet.",
-  "Play is the highest form of research.",
-  "It's not that I'm so smart. It's just that I stay with problems longer.",
-  "Every child is an artist. The problem is how to remain an artist once we grow up.",
-  "Wonder is the beginning of wisdom.",
-  "The mind is not a vessel to be filled, but a fire to be kindled.",
-  "Children are not things to be molded, but people to be unfolded.",
-  "To teach is to learn twice.",
-  "Curiosity is the wick in the candle of learning.",
-  "The whole art of teaching is only the art of awakening the natural curiosity of young minds.",
-  "Children learn as they play. Most importantly, in play children learn how to learn.",
-  "It is easier to build strong children than to repair broken adults.",
-  "Tell me and I forget. Teach me and I remember. Involve me and I learn.",
-  "A child who reads will be an adult who thinks.",
-  "The greatest gifts you can give your children are the roots of responsibility and the wings of independence.",
-  "Education is not preparation for life; education is life itself.",
-  "What we want is to see the child in pursuit of knowledge, not knowledge in pursuit of the child.",
-  "The more that you read, the more things you will know.",
-  "Learning is a treasure that will follow its owner everywhere.",
-  "Children need the freedom and time to play. Play is not a luxury. Play is a necessity.",
-  "A book is a gift you can open again and again.",
-  "The joy of learning is as indispensable in life as eating and breathing.",
-  "Nothing in life is to be feared, only to be understood.",
-  "Every student can learn, just not on the same day or in the same way.",
-  "It's not what you teach, it's what you ignite.",
-  "Home is where the learning is.",
+const DID_YOU_KNOW = [
+  "Homeschool students score 15–30% higher on standardized tests on average 📚",
+  "Kids retain 90% more when they teach what they've learned to someone else 🌱",
+  "There are over 3.3 million homeschool students in the US — and growing 🌿",
+  "The average homeschool family spends just 3–4 hours a day on structured learning 🕐",
+  "Homeschool graduates are more likely to be civically engaged as adults 🗳️",
+  "Kids who learn at their own pace show stronger long-term retention 📖",
+  "Many colleges actively recruit homeschool graduates for their self-motivation 🎓",
+  "Reading aloud to children of any age strengthens vocabulary and comprehension 📗",
+  "Nature-based learning improves focus and reduces anxiety in children 🌲",
+  "Children learn best when they feel emotionally safe and unhurried 🏡",
+  "Asking 'what do you think?' develops critical thinking more than giving answers 💬",
+  "Music education strengthens math skills — even informally 🎵",
+  "Siblings who learn together develop stronger communication and empathy 👫",
+  "Hands-on projects create memories that reinforce learning for years 🔬",
+  "The best curriculum is the one your child will actually engage with 🌟",
+  "You don't have to do it all. Consistency beats perfection every time 🌱",
+  "Octopuses have three hearts, blue blood, and can open jars. They'd ace science 🐙",
+  "A group of flamingos is called a 'flamboyance.' You're welcome 🦩",
+  "Honey never expires — archaeologists found 3,000-year-old honey in Egypt still good 🍯",
+  "The shortest war in history lasted 38–45 minutes. Someone surrendered fast ⚔️",
+  "Bananas are technically berries. Strawberries are not. Botany is wild 🍌",
+  "The entire internet weighs about the same as a strawberry — in electrons 🍓",
+  "A day on Venus is longer than a year on Venus. Time is a construct 🪐",
+  "Wombats produce cube-shaped poop. Scientists are genuinely studying why 🐨",
+  "Cleopatra lived closer in time to the Moon landing than to the pyramids being built 🏛️",
+  "The word 'nerd' was first used by Dr. Seuss in 1950. He invented the nerd 🤓",
+  "Crows can recognize human faces and hold grudges for years 🐦‍⬛",
+  "Nintendo was founded in 1889. They started as a playing card company 🃏",
+  "Scotland's national animal is the unicorn 🦄",
+  "There are more possible games of chess than atoms in the observable universe ♟️",
+  "A bolt of lightning is five times hotter than the surface of the sun ⚡",
+  "Sloths can hold their breath longer than dolphins — up to 40 minutes 🦥",
+  "The smell of rain has a name: petrichor. One of the best words in English 🌧️",
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -89,52 +92,43 @@ function formatDateHero(date: Date) {
 }
 
 function buildGreeting(firstName: string, opts: { allDone?: boolean; isSchoolDay?: boolean; streak?: number } = {}): string {
-  const now = new Date();
-  const h = now.getHours();
-  const dow = now.getDay();
-  const name = firstName ? ` ${firstName}` : "";
-  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000);
+  const hour = new Date().getHours();
+  const day = new Date().getDay();
+  const name = firstName || "";
 
-  // All done celebration
+  // All done state
   if (opts.allDone) {
-    const celebrations = [
-      `You did it${name}! 🎉`,
-      `Amazing day${name}! 🌟`,
-      `All done${name}! 🎉`,
-      `Crushed it${name}! ⭐`,
-    ];
-    return celebrations[dayOfYear % celebrations.length];
+    if (day === 5) return `You finished the week${name ? `, ${name}` : ""}! 🎉`;
+    return `You did it${name ? `, ${name}` : ""}! 🎉`;
   }
 
-  // Non-school day
-  if (!opts.isSchoolDay) {
-    const offDay = [
-      `Enjoy your day off${name}! 🌿`,
-      `No school today${name} — relax! 🌿`,
-      `Happy day off${name}! 🌿`,
-    ];
-    return offDay[dayOfYear % offDay.length];
+  // Weekend / non-school day
+  if (!opts.isSchoolDay || day === 0 || day === 6) {
+    return `Enjoy the rest${name ? `, ${name}` : ""} 🌿`;
   }
 
-  // School day greeting
-  const timeOfDay = h < 10 ? "Good morning" : h < 15 ? "Good afternoon" : "Good evening";
-  const dayFlavors: Record<number, string[]> = {
-    1: ["New week energy!", "Ready for the week?", "Let's start strong!"],
-    2: ["Keep it going!", "Tuesday focus time!", "You've got this!"],
-    3: ["Halfway there!", "Midweek momentum!", "Keep going strong!"],
-    4: ["Almost Friday!", "Thursday push!", "Nearly there!"],
-    5: ["Happy Friday!", "Last day of the week!", "Finish strong!"],
-  };
-  const flavors = dayFlavors[dow] ?? ["Let's learn something great!"];
-  const flavor = flavors[dayOfYear % flavors.length];
-
-  let greeting = `${timeOfDay}${name}! ${flavor}`;
-
-  if (opts.streak && opts.streak >= 5) {
-    greeting += ` 🔥 ${opts.streak} days strong`;
+  // Monday
+  if (day === 1) {
+    if (hour < 12) return `Ready for the week${name ? `, ${name}` : ""}? 🌱`;
+    if (hour < 17) return `Great start to the week${name ? `, ${name}` : ""} 🌱`;
+    return `You showed up today${name ? `, ${name}` : ""} 🌿`;
   }
 
-  return greeting;
+  // Tue–Thu
+  if (day >= 2 && day <= 4) {
+    if (hour < 12) return `Good morning${name ? `, ${name}` : ""} 🌿`;
+    if (hour < 17) return `Keep it going${name ? `, ${name}` : ""} 🌱`;
+    return `Good evening${name ? `, ${name}` : ""} 🌿`;
+  }
+
+  // Friday
+  if (day === 5) {
+    if (hour < 12) return `Last day of the week — finish strong${name ? `, ${name}` : ""}! 🌟`;
+    if (hour < 17) return `Almost there${name ? `, ${name}` : ""} 🌱`;
+    return `What a week${name ? `, ${name}` : ""} 🌿`;
+  }
+
+  return `Good day${name ? `, ${name}` : ""} 🌿`;
 }
 
 function toTitleCase(name: string) {
@@ -366,7 +360,7 @@ export default function TodayPage() {
   const today = new Date().toISOString().split("T")[0];
   const start = new Date(new Date().getFullYear(), 0, 0);
   const dayOfYear = Math.floor((Date.now() - start.getTime()) / 86400000);
-  const quote = QUOTES[dayOfYear % QUOTES.length];
+  const [factIndex, setFactIndex] = useState(dayOfYear % DID_YOU_KNOW.length);
   const { isPartner, effectiveUserId } = usePartner();
 
   const [familyName,      setFamilyName]      = useState("");
@@ -1324,7 +1318,7 @@ export default function TodayPage() {
         const fullLabel    = upcomingDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
         const msFromNow    = upcomingDate.getTime() - new Date().setHours(0, 0, 0, 0);
         const daysFromNow  = Math.round(msFromNow / 86400000);
-        const relLabel     = daysFromNow === 1 ? "tomorrow" : `in ${daysFromNow} days`;
+        const headerLabel  = daysFromNow === 1 ? "Tomorrow 🌱" : `Next school day · ${dayName} 🌱`;
 
         // Check if a vacation block starts on the upcoming day
         const vacOnDay = allVacationBlocks.find(
@@ -1351,12 +1345,9 @@ export default function TodayPage() {
 
         return (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
-            <div className="flex items-center justify-between mb-2.5">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4]">
-                Coming Up · {dayName.toUpperCase()}
-              </p>
-              <p className="text-[10px] text-[#c8bfb5]">{relLabel}</p>
-            </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4] mb-2.5">
+              {headerLabel}
+            </p>
             <div className="space-y-2">
               {Array.from(byChild.values()).map(({ childId, subjects }) => {
                 const child    = children.find((c) => c.id === childId);
@@ -1381,9 +1372,25 @@ export default function TodayPage() {
                 );
               })}
             </div>
+            <p className="text-[11px] text-[#b5aca4] mt-2">
+              {upcomingDay.lessons.length} lesson{upcomingDay.lessons.length !== 1 ? "s" : ""} across {byChild.size} kid{byChild.size !== 1 ? "s" : ""}
+            </p>
           </div>
         );
       })()}
+
+      {/* ── Did You Know card (school days only) ────────── */}
+      {isSchoolDay && !activeVacation && (
+        <button
+          onClick={() => setFactIndex((factIndex + 1) % DID_YOU_KNOW.length)}
+          className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 text-left hover:bg-[#faf8f5] transition-colors"
+        >
+          <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">Did you know?</p>
+          <p className="text-[13px] text-[#5c5248] leading-relaxed border-l-2 border-[#3d5c42] pl-3">
+            {DID_YOU_KNOW[factIndex]}
+          </p>
+        </button>
+      )}
 
       <div className="h-4" />
 

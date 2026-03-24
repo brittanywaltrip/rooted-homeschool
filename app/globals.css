@@ -165,6 +165,13 @@ input:-webkit-autofill:focus {
   user-select: none;
 }
 
+/* ─── Birthday confetti ──────────────────────────────────────────────────────── */
+
+@keyframes birthday-confetti {
+  0%   { transform: translateY(0) rotate(0deg); opacity: 0.7; }
+  100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
+}
+
 /* ─── Seasonal garden ────────────────────────────────────────────────────────── */
 
 @keyframes seasonal-leaf {

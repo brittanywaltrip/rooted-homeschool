@@ -15,7 +15,7 @@ function treeEmoji(leaves: number): string {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Child = { id: string; name: string; color: string | null };
+type Child = { id: string; name: string; color: string | null; birthday?: string | null };
 
 type LessonRow = {
   child_id: string;
@@ -219,7 +219,7 @@ export default function GardenPage() {
     async function load() {
       const { data: kids } = await supabase
         .from("children")
-        .select("id, name, color")
+        .select("id, name, color, birthday")
         .eq("user_id", effectiveUserId)
         .eq("archived", false)
         .order("sort_order");
@@ -373,12 +373,19 @@ export default function GardenPage() {
         <Butterfly x={72} y={24} delay={1.8} color="#fbbf24" />
         <Butterfly x={45} y={38} delay={3.2} color="#86efac" />
 
-        {/* Vacation palm tree + sign */}
+        {/* Vacation palm trees — flanking left and right */}
         {activeVacation && (
           <>
             <div
               className="absolute garden-sway"
-              style={{ bottom: "27%", left: "50%", transform: "translateX(-50%)", transformOrigin: "center bottom", fontSize: "clamp(36px, 8vw, 56px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
+              style={{ bottom: "27%", left: "12%", transformOrigin: "center bottom", fontSize: "clamp(30px, 6vw, 48px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
+              aria-hidden
+            >
+              🌴
+            </div>
+            <div
+              className="absolute garden-sway-alt"
+              style={{ bottom: "27%", right: "12%", transformOrigin: "center bottom", fontSize: "clamp(30px, 6vw, 48px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
               aria-hidden
             >
               🌴
@@ -388,7 +395,7 @@ export default function GardenPage() {
               style={{ background: "#fef3dc", border: "1.5px solid #f0dda8" }}
             >
               <p className="text-xs font-semibold text-[#7a4a1a] leading-snug">
-                {familyName ? `The ${familyName.replace(/^The\s+/i, "").trim() || familyName} Family` : "Your family"} is on vacation 🌴
+                {familyName ? `${familyName.replace(/^The\s+/i, "").trim() || familyName}` : "Family"} is away 🌴
               </p>
             </div>
           </>
@@ -523,9 +530,14 @@ export default function GardenPage() {
         >
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
-              <p className="text-xs font-semibold uppercase tracking-widest mb-0.5"
+              <p className="text-xs font-semibold uppercase tracking-widest mb-0.5 flex items-center gap-1"
                 style={{ color: selectedStage.text }}>
                 {selectedChild.name}
+                {selectedChild.birthday && (() => {
+                  const bd = new Date(selectedChild.birthday + "T12:00:00");
+                  const now = new Date();
+                  return bd.getMonth() === now.getMonth() && bd.getDate() === now.getDate() ? " 🎂" : "";
+                })()}
               </p>
               <h2 className="text-xl font-bold text-[#2d2926]">
                 {selectedStage.name}

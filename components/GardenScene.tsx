@@ -414,6 +414,8 @@ function EggsOverlay() {
 export interface GardenSceneProps {
   leafCount: number;
   childName?: string;
+  childColor?: string;
+  isBirthday?: boolean;
   compact?: boolean;
   showLabel?: boolean;
   className?: string;
@@ -423,6 +425,8 @@ export interface GardenSceneProps {
 export default function GardenScene({
   leafCount,
   childName,
+  childColor,
+  isBirthday = false,
   compact = false,
   showLabel = false,
   className = "",
@@ -547,11 +551,18 @@ export default function GardenScene({
         <GardenTreeSVG leafCount={leafCount} />
       </div>
 
-      {/* Child name label */}
+      {/* Child name label + birthday pennant */}
       {showLabel && childName && (
-        <div className="absolute bottom-2 left-0 right-0 flex justify-center pointer-events-none">
+        <div className="absolute bottom-2 left-0 right-0 flex justify-center items-center gap-1 pointer-events-none">
+          {isBirthday && (
+            <svg width="14" height="16" viewBox="0 0 14 16" className="shrink-0">
+              <polygon points="2,0 14,4 2,8" fill={childColor || "#5c7f63"} />
+              <line x1="2" y1="0" x2="2" y2="16" stroke={childColor || "#5c7f63"} strokeWidth="1.5" />
+              <polygon points="5,3 8,4 5,5" fill="#fef9c3" opacity="0.8" />
+            </svg>
+          )}
           <span className="text-[10px] font-semibold bg-white/75 backdrop-blur-sm text-[#2d2926] px-2.5 py-0.5 rounded-full shadow-sm">
-            {childName}
+            {childName}{isBirthday ? " 🎂" : ""}
           </span>
         </div>
       )}

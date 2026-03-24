@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Child = { id: string; name: string; color: string | null };
+type Child = { id: string; name: string; color: string | null; birthday?: string | null };
 
 // ─── Stage config ─────────────────────────────────────────────────────────────
 
@@ -138,7 +138,7 @@ export default function ChildPage() {
     const uid = session.user.id;
 
     const [{ data: kids }, { data: completed }, { data: bookEvents }] = await Promise.all([
-      supabase.from("children").select("id, name, color")
+      supabase.from("children").select("id, name, color, birthday")
         .eq("user_id", uid).eq("archived", false).order("sort_order"),
       supabase.from("lessons").select("child_id")
         .eq("user_id", uid).eq("completed", true),
@@ -288,12 +288,49 @@ export default function ChildPage() {
       {/* ── Main content area ─────────────────────────────────── */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 relative z-10">
 
+        {/* Birthday celebration */}
+        {child?.birthday && (() => {
+          const bd = new Date(child.birthday + "T12:00:00");
+          const now = new Date();
+          const isBirthday = bd.getMonth() === now.getMonth() && bd.getDate() === now.getDate();
+          if (!isBirthday) return null;
+          return (
+            <div className="text-center mb-4">
+              <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden" aria-hidden>
+                {Array.from({ length: 20 }).map((_, i) => (
+                  <span
+                    key={i}
+                    className="absolute rounded-full"
+                    style={{
+                      left: `${5 + Math.random() * 90}%`,
+                      top: `-5%`,
+                      width: 6 + Math.random() * 4,
+                      height: 6 + Math.random() * 4,
+                      background: ["#f9a8d4", "#fbbf24", "#86efac", "#93c5fd", "#c4b5fd"][i % 5],
+                      animation: `birthday-confetti ${3 + Math.random() * 2}s linear infinite`,
+                      animationDelay: `${Math.random() * 3}s`,
+                    }}
+                  />
+                ))}
+              </div>
+              <p className="text-sm text-white/80 font-medium">
+                Today is YOUR day, {child.name}! Let&apos;s celebrate by learning something amazing 🌱
+              </p>
+            </div>
+          );
+        })()}
+
         {/* Child name */}
         <div
           className="text-4xl sm:text-5xl font-black text-white drop-shadow-lg mb-1 text-center tracking-tight"
           style={{ textShadow: "0 3px 12px rgba(0,0,0,0.25)" }}
         >
           {child?.name}
+          {child?.birthday && (() => {
+            const bd = new Date(child.birthday + "T12:00:00");
+            const now = new Date();
+            return bd.getMonth() === now.getMonth() && bd.getDate() === now.getDate() ? " 🎂" : "";
+          })()}
         </div>
 
         {/* Stage badge */}

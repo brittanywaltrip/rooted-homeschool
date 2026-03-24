@@ -464,6 +464,7 @@ export default function PlanPage() {
   const [vacReschedule,    setVacReschedule]    = useState<"shift" | "leave">("shift");
   const [savingVac,        setSavingVac]        = useState(false);
   const [profileSchoolDays, setProfileSchoolDays] = useState<string[]>([]);
+  const [expandedCurricMenu, setExpandedCurricMenu] = useState<string | null>(null);
 
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
@@ -822,6 +823,8 @@ export default function PlanPage() {
             const allDone = dayLessons.length > 0 && dayLessons.every(l => l.completed);
             const hasSome = dayLessons.length > 0;
 
+            const isVacation = vacationBlocks.some(b => dateStr >= b.start_date && dateStr <= b.end_date);
+
             let dotColor = "bg-[#e8e2d9]"; // grey for non-school / no lessons
             if (dateStr > todayStr) dotColor = "bg-[#e8e2d9]"; // future
             else if (allDone && hasSome) dotColor = "bg-[#5c7f63]"; // done
@@ -829,8 +832,8 @@ export default function PlanPage() {
             else if (!isSchool) dotColor = "bg-[#e8e2d9]";
 
             return (
-              <div key={i} className="flex-1 flex flex-col items-center py-2.5 gap-1">
-                <span className="text-[10px] font-medium text-[#b5aca4]">{label}</span>
+              <div key={i} className={`flex-1 flex flex-col items-center py-2.5 gap-1 ${isVacation ? "bg-[#e8f4fa]" : ""}`}>
+                <span className="text-[10px] font-medium text-[#b5aca4]">{label}{isVacation ? " 🌴" : ""}</span>
                 <div className={`flex items-center justify-center rounded-full ${
                   isToday ? "w-8 h-8 bg-[#3d5c42] text-white text-xs font-bold" : "w-7 h-7 text-xs text-[#2d2926]"
                 }`}>
@@ -925,26 +928,36 @@ export default function PlanPage() {
                         </p>
                       </div>
 
-                      {/* Actions */}
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      {/* ··· Menu */}
+                      <div className="relative shrink-0">
                         <button
-                          onClick={() => setEditWizardData({
-                            goalId: group.goalId ?? undefined,
-                            childId: group.childId ?? "",
-                            curricName: group.curricName,
-                            subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
-                            totalLessons: group.goalData?.total_lessons ?? group.totalCount,
-                            currentLesson: group.goalData?.current_lesson ?? completedCount,
-                            targetDate: group.goalData?.target_date ?? "",
-                            schoolDays: group.goalData?.school_days ?? [],
-                          })}
-                          className="flex items-center gap-1 text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-2.5 py-1.5 rounded-xl transition-colors">
-                          ✏️ Edit
+                          onClick={(e) => { e.stopPropagation(); setExpandedCurricMenu(expandedCurricMenu === group.key ? null : group.key); }}
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors text-sm font-bold">
+                          ···
                         </button>
-                        <button onClick={() => setDeleteConfirmGroup(group)}
-                          className="flex items-center gap-1 text-xs font-semibold text-red-500 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-xl transition-colors">
-                          🗑️ Remove
-                        </button>
+                        {expandedCurricMenu === group.key && (
+                          <>
+                            <div className="fixed inset-0 z-20" onClick={() => setExpandedCurricMenu(null)} />
+                            <div className="absolute right-0 top-8 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[120px]">
+                              <button onClick={() => {
+                                setExpandedCurricMenu(null);
+                                setEditWizardData({
+                                  goalId: group.goalId ?? undefined,
+                                  childId: group.childId ?? "",
+                                  curricName: group.curricName,
+                                  subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
+                                  totalLessons: group.goalData?.total_lessons ?? group.totalCount,
+                                  currentLesson: group.goalData?.current_lesson ?? completedCount,
+                                  targetDate: group.goalData?.target_date ?? "",
+                                  schoolDays: group.goalData?.school_days ?? [],
+                                });
+                              }}
+                                className="w-full text-left px-3 py-2.5 text-xs text-[#2d2926] hover:bg-[#f8f7f4] transition-colors">✏️ Edit</button>
+                              <button onClick={() => { setExpandedCurricMenu(null); setDeleteConfirmGroup(group); }}
+                                className="w-full text-left px-3 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">🗑 Remove</button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
 
