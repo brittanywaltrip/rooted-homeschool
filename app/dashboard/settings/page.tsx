@@ -79,25 +79,25 @@ const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.co
 
 type AffiliateRow = { id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; user_id: string; clicks: number };
 
-function AffiliateStatCell({ couponId, field, prefix = "" }: { couponId: string; field: "totalRedemptions" | "payingCount" | "revenueDriven"; prefix?: string }) {
+function AffiliateStatCell({ couponId, code, field, prefix = "" }: { couponId: string; code: string; field: "totalRedemptions" | "payingCount" | "revenueDriven"; prefix?: string }) {
   const [val, setVal] = useState<number | null>(null);
   useEffect(() => {
-    fetch(`/api/stripe/affiliate-stats?coupon_id=${couponId}`)
+    fetch(`/api/stripe/affiliate-stats?coupon_id=${couponId}&code=${encodeURIComponent(code)}`)
       .then(r => r.json())
       .then(d => setVal(d[field] ?? 0))
       .catch(() => setVal(0));
-  }, [couponId, field]);
+  }, [couponId, code, field]);
   return <span className="text-[#2d2926] font-medium">{val === null ? "—" : `${prefix}${val}`}</span>;
 }
 
-function AffiliateStatsRow({ couponId }: { couponId: string }) {
+function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string }) {
   const [stats, setStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
   useEffect(() => {
-    fetch(`/api/stripe/affiliate-stats?coupon_id=${couponId}`)
+    fetch(`/api/stripe/affiliate-stats?coupon_id=${couponId}&code=${encodeURIComponent(code)}`)
       .then(r => r.json())
       .then(setStats)
       .catch(() => {});
-  }, [couponId]);
+  }, [couponId, code]);
   return (
     <div className="grid grid-cols-3 divide-x divide-[#c7d2fe] bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
       <div className="px-3 py-3 text-center">
@@ -199,7 +199,7 @@ export default function SettingsPage() {
   const [deleteError,      setDeleteError]      = useState("");
 
   // Affiliate / Ambassador
-  const [affiliateData, setAffiliateData] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string } | null>(null);
+  const [affiliateData, setAffiliateData] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number } | null>(null);
   const [affiliateStats, setAffiliateStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
   const [copiedToast, setCopiedToast] = useState<string | false>(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -253,10 +253,10 @@ export default function SettingsPage() {
     // Load affiliate data if exists
     const { data: affData } = await supabase
       .from("affiliates")
-      .select("code, stripe_coupon_id, is_active, created_at")
+      .select("code, stripe_coupon_id, is_active, created_at, clicks")
       .eq("user_id", user.id)
       .maybeSingle();
-    if (affData) setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string });
+    if (affData) setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
 
     // Admin: load all affiliates
     const admin = ADMIN_EMAILS.includes(user.email ?? "");
@@ -278,8 +278,8 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    if (affiliateData?.stripe_coupon_id) {
-      fetch(`/api/stripe/affiliate-stats?coupon_id=${affiliateData.stripe_coupon_id}`)
+    if (affiliateData?.stripe_coupon_id && affiliateData?.code) {
+      fetch(`/api/stripe/affiliate-stats?coupon_id=${affiliateData.stripe_coupon_id}&code=${encodeURIComponent(affiliateData.code)}`)
         .then(r => r.json())
         .then(setAffiliateStats)
         .catch(() => {});
@@ -1454,8 +1454,8 @@ export default function SettingsPage() {
                         </button>
                       </td>
                       <td className="px-4 py-3 text-right text-[#2d2926] font-medium">{aff.clicks ?? 0}</td>
-                      <td className="px-4 py-3 text-right"><AffiliateStatCell couponId={aff.stripe_coupon_id} field="totalRedemptions" /></td>
-                      <td className="px-4 py-3 text-right"><AffiliateStatCell couponId={aff.stripe_coupon_id} field="revenueDriven" prefix="$" /></td>
+                      <td className="px-4 py-3 text-right"><AffiliateStatCell couponId={aff.stripe_coupon_id} code={aff.code} field="totalRedemptions" /></td>
+                      <td className="px-4 py-3 text-right"><AffiliateStatCell couponId={aff.stripe_coupon_id} code={aff.code} field="revenueDriven" prefix="$" /></td>
                       <td className="px-4 py-3 text-center">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ${
                           aff.is_active ? "bg-green-100 text-green-800" : "bg-[#f0ede8] text-[#7a6f65]"
@@ -1561,16 +1561,20 @@ export default function SettingsPage() {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 divide-x divide-[#c7d2fe] bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
-              <div className="px-4 py-4 text-center">
+            <div className="grid grid-cols-4 divide-x divide-[#c7d2fe] bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
+              <div className="px-3 py-4 text-center">
+                <p className="text-2xl font-bold text-[#2d2926]">{affiliateData.clicks ?? 0}</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Link clicks</p>
+              </div>
+              <div className="px-3 py-4 text-center">
                 <p className="text-2xl font-bold text-[#2d2926]">{affiliateStats?.totalRedemptions ?? '—'}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Families reached</p>
               </div>
-              <div className="px-4 py-4 text-center">
+              <div className="px-3 py-4 text-center">
                 <p className="text-2xl font-bold text-[#3d5c42]">{affiliateStats?.payingCount ?? '—'}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
               </div>
-              <div className="px-4 py-4 text-center">
+              <div className="px-3 py-4 text-center">
                 <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats?.revenueDriven ?? '—'}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Revenue driven</p>
               </div>
