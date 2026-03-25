@@ -294,7 +294,7 @@ export default function MemoriesPage() {
                   return (
                     <button
                       key={m.id}
-                      className="relative aspect-square rounded-xl overflow-hidden group"
+                      className="relative w-full aspect-square max-h-40 md:max-h-52 rounded-xl overflow-hidden group"
                       onClick={() => isPhoto ? setLightboxUrl(m.payload.photo_url!) : undefined}
                     >
                       {isPhoto ? (
