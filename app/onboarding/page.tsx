@@ -1935,7 +1935,11 @@ export default function OnboardingPage() {
       body:    JSON.stringify(profilePatch),
     });
 
+    // Clear any cached partner context so the dashboard layout re-fetches fresh data
+    sessionStorage.removeItem("rooted_partner");
+
     router.push("/dashboard");
+    router.refresh(); // Bust Next.js router cache so dashboard loads fresh data
     setSaving(false);
   }, [children, userId, childSchedules, familyDisplayName, selectedState, router]);
 
