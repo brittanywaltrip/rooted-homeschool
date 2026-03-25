@@ -433,17 +433,26 @@ export default function PlanPage() {
             </div>
           </div>
         </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-[#e8e2d9] px-5 py-4">
-          <p className="text-sm text-[#7a6f65]">
-            Want to track your school year progress? Set your start and end dates in{' '}
-            <a href="/dashboard/settings?section=school" className="text-[#5c7f63] font-semibold hover:underline">Settings → School</a>.
-          </p>
-          <p className="text-xs text-[#b5aca4] mt-1">
-            Each curriculum shows a projected finish date based on your current pace.
-          </p>
-        </div>
-      )}
+      ) : curricGroups.length > 0 ? (() => {
+        // Find the latest projected finish across all curricula
+        const allFinishes = curricGroups.map((g) => {
+          const { projectedFinish } = calcPace(
+            g.remainingCount,
+            g.goalData?.school_days ?? (profileSchoolDays.length > 0 ? profileSchoolDays : null),
+            g.goalData?.target_date ?? null,
+          );
+          return projectedFinish;
+        }).filter(Boolean) as string[];
+        const latestFinish = allFinishes.sort().pop();
+        return latestFinish ? (
+          <div className="bg-white rounded-xl border border-[#e8e2d9] px-5 py-4">
+            <p className="text-sm text-[#7a6f65]">
+              At your current pace, your family finishes all curriculum around{' '}
+              <span className="font-semibold text-[#2d2926]">{formatDateLong(latestFinish)}</span>.
+            </p>
+          </div>
+        ) : null;
+      })() : null}
 
       {/* ── 3. Per-Child Curriculum Progress ────────────────── */}
       {loading ? (
@@ -471,8 +480,11 @@ export default function PlanPage() {
         <div className="space-y-6">
           {Array.from(childCurricMap.entries()).map(([childKey, groups]) => {
             const child = children.find((c) => c.id === childKey);
-            const childName = child?.name ?? "Unassigned";
-            const childColor = child?.color ?? "#7a6f65";
+            // Fall back to first child if unassigned and only one child exists
+            const fallbackChild = !child && children.length === 1 ? children[0] : null;
+            const effectiveChild = child ?? fallbackChild;
+            const childName = effectiveChild?.name ?? "General";
+            const childColor = effectiveChild?.color ?? "#7a6f65";
 
             return (
               <div key={childKey} className="space-y-3">
