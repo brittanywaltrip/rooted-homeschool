@@ -430,6 +430,8 @@ export default function TodayPage() {
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
   const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [memoryMoment, setMemoryMoment] = useState<{ kind: "on_this_day" | "recent" | "empty"; memory?: { id: string; title: string; photo_url: string | null; date: string; type: string }; yearsAgo?: number } | null>(null);
   const [streak,                 setStreak]                 = useState(0);
   const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
   const [showFamilyUpdate,       setShowFamilyUpdate]       = useState(false);
