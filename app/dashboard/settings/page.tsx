@@ -75,7 +75,7 @@ function ColorPicker({
 
 type SettingsTab = "family" | "kids" | "account" | "partners";
 
-const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"];
+const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
 type AffiliateRow = { id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; user_id: string; clicks: number };
 
@@ -615,7 +615,6 @@ export default function SettingsPage() {
     const data = await res.json();
     if (data.error === 'no_customer') {
       setPortalLoading(false);
-      alert('To manage your subscription please email hello.rootedapp@gmail.com');
       return;
     }
     window.location.href = data.url;
@@ -1262,7 +1261,7 @@ export default function SettingsPage() {
                 <p className="text-xs text-red-500 mt-1">Subscription cancelled</p>
               )}
             </div>
-            {isPro ? (
+            {(subscriptionStatus === 'active' || planType === 'founding_family' || planType === 'standard') ? (
               <button
                 onClick={handleManageSubscription}
                 disabled={portalLoading}
@@ -1270,12 +1269,14 @@ export default function SettingsPage() {
               >
                 {portalLoading ? 'Loading…' : 'Manage Subscription'}
               </button>
+            ) : ADMIN_EMAILS.includes(userEmail) ? (
+              <span className="text-xs text-[#9e958d] italic shrink-0">Admin — managed via Stripe dashboard</span>
             ) : (
               <a
-                href="/dashboard/pricing"
+                href="/upgrade"
                 className="shrink-0 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
               >
-                Upgrade
+                Upgrade to Founding Family →
               </a>
             )}
           </div>
