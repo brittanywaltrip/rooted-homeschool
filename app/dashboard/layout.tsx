@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, Camera, Calendar, Search, X } from "lucide-react";
+import { Sun, Leaf, Camera, Calendar, Search, Menu, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
@@ -17,13 +17,15 @@ const navItems = [
   { label: "Resources", href: "/dashboard/resources",  icon: Search   },
 ];
 
-// Primary tabs shown in mobile bottom nav (5 links)
+/* NAV ORDER — DO NOT CHANGE: Today → Plan → Garden → Memories → Resources → More
+   This order is intentional. Any reorder breaks mobile UX. Verify before merging. */
 const mobileBottomNav = [
   { label: "Today",     href: "/dashboard",            icon: Sun      },
   { label: "Plan",      href: "/dashboard/plan",       icon: Calendar },
   { label: "Garden",    href: "/dashboard/garden",     icon: Leaf     },
   { label: "Memories",  href: "/dashboard/memories",   icon: Camera   },
   { label: "Resources", href: "/dashboard/resources",  icon: Search   },
+  { label: "More",      href: "/dashboard/settings",   icon: Menu     },
 ];
 
 function NavLink({
@@ -398,12 +400,24 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         {/* Main */}
         <main className="flex-1 md:ml-52 flex flex-col min-h-screen">
           <UpgradeBanner />
-        {/* Mobile top bar — brand only */}
+        {/* Mobile top bar — brand + avatar */}
           <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9] sticky top-0 z-30">
             <div className="flex items-center gap-2">
               <span className="text-base">🌿</span>
               <span className="text-sm font-bold text-[#2d2926]">Rooted</span>
             </div>
+            <Link
+              href="/dashboard/settings"
+              className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
+            >
+              {profileData.family_photo_url ? (
+                <img src={profileData.family_photo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+              ) : profileData.first_name ? (
+                profileData.first_name.charAt(0).toUpperCase()
+              ) : displayName ? (
+                displayName.charAt(0).toUpperCase()
+              ) : '🌿'}
+            </Link>
           </div>
 
           {/* Partner banner */}
