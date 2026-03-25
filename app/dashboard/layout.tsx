@@ -419,7 +419,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                 </div>
                 <div>
                   <p className="text-sm font-bold text-[#2d2926]">{displayName || "Your Family"}</p>
-                  <p className="text-[11px] text-[#7a6f65]">Rooted Homeschool</p>
+                  <p className="text-[11px] text-[#7a6f65]">Rooted</p>
                 </div>
               </div>
 
