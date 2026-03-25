@@ -6,7 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Pencil, Trash2, Check, X, Plus, ChevronDown, ChevronUp, ExternalLink, ArrowLeft, Eye, EyeOff } from "lucide-react";
 
-const ADMIN_EMAIL = "hello.rootedapp@gmail.com";
+const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
 const CATEGORIES = [
   { id: "discounts",    label: "💰 Discounts"    },
@@ -14,6 +14,7 @@ const CATEGORIES = [
   { id: "printables",   label: "🖨️ Printables"  },
   { id: "science",      label: "🔬 Science"      },
   { id: "weekly_picks", label: "⭐ Free Picks"   },
+  { id: "easy_win",     label: "⚡ Easy Wins"    },
 ] as const;
 
 type CategoryId = typeof CATEGORIES[number]["id"];
@@ -241,7 +242,7 @@ export default function AdminResourcesPage() {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'INITIAL_SESSION') {
-        if (!session || !["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"].includes(session.user.email ?? '')) {
+        if (!session || !ADMIN_EMAILS.includes(session.user.email ?? '')) {
           router.replace('/dashboard');
           return;
         }

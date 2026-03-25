@@ -75,7 +75,7 @@ function ColorPicker({
 
 type SettingsTab = "family" | "kids" | "account" | "partners";
 
-const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"];
+const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
 type AffiliateRow = { id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; user_id: string; clicks: number };
 

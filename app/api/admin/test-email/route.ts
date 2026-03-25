@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 
-const ADMIN_EMAIL = "hello.rootedapp@gmail.com";
+const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,14 +16,14 @@ export async function GET(req: Request) {
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(token);
-  if (authErr || !user || user.email !== ADMIN_EMAIL) {
+  if (authErr || !user || !ADMIN_EMAILS.includes(user.email ?? "")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   const result = await resend.emails.send({
     from: "Rooted <hello@rootedhomeschoolapp.com>",
-    to: ADMIN_EMAIL,
+    to: user.email!,
     subject: "✅ Rooted test email",
     text: `This is a test email from the Rooted admin panel.\n\nIf you're reading this, Resend is working correctly.\n\nSent at: ${new Date().toISOString()}`,
   });

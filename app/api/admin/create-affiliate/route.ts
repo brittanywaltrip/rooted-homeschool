@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const ADMIN_EMAIL = 'hello.rootedapp@gmail.com'
+const ADMIN_EMAILS = ['garfieldbrittany@gmail.com', 'christopherwaltrip@gmail.com', 'hello@rootedhomeschoolapp.com']
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-  if (authError || !user || user.email !== ADMIN_EMAIL) {
+  if (authError || !user || !ADMIN_EMAILS.includes(user.email ?? '')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

@@ -430,9 +430,21 @@ export default function ResourcesPage() {
       }))
     : getFreshDrops();
   const dayIdx     = new Date().getDay();
-  const validWins = EASY_WINS.filter((w) => w.title && w.desc);
-  const todayWin1 = validWins[dayIdx % validWins.length];
-  const todayWin2 = validWins[(dayIdx + 1) % validWins.length];
+  // Use DB easy wins if available, otherwise fall back to hardcoded
+  const dbEasyWins = dbResources.filter((r) => r.category === "easy_win");
+  const easyWinPool: EasyWin[] = dbEasyWins.length > 0
+    ? dbEasyWins.map((r) => ({
+        emoji: r.badge_text?.slice(0, 2) || "⚡",
+        title: r.title,
+        desc: r.description,
+        time: r.grade_level || "",
+        grade: r.grade_level || "All Ages",
+        url: r.url,
+      }))
+    : EASY_WINS;
+  const validWins = easyWinPool.filter((w) => w.title && w.desc);
+  const todayWin1 = validWins.length > 0 ? validWins[dayIdx % validWins.length] : null;
+  const todayWin2 = validWins.length > 1 ? validWins[(dayIdx + 1) % validWins.length] : null;
   const restWins  = validWins.filter((w) => w !== todayWin1 && w !== todayWin2);
 
   function getEmbedUrl(url: string): string {
@@ -629,7 +641,8 @@ export default function ResourcesPage() {
 
         {/* Today's 2 featured activities */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-          {[todayWin1, todayWin2].map((win, i) => {
+          {[todayWin1, todayWin2].filter(Boolean).map((win, i) => {
+            if (!win) return null;
             const col = EASY_WIN_COLORS[(dayIdx + i) % EASY_WIN_COLORS.length];
             return (
               <div
