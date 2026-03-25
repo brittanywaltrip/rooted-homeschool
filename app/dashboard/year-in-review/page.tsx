@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import type { YearStats, YearReviewResponse } from "@/app/api/year-in-review/route";
-import PaywallCard from "@/components/PaywallCard";
+import UpgradePrompt from "@/components/UpgradePrompt";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -230,10 +230,15 @@ export default function YearInReviewPage() {
 
   if (!isPro) {
     return (
-      <div className="max-w-3xl px-4 py-7">
-        <PaywallCard
-          feature="Year in Review"
-          description="Unlock your personalized homeschool year in review — a beautiful summary of your family's learning journey."
+      <div className="max-w-3xl px-4 py-7 space-y-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">Your Family&apos;s</p>
+          <h1 className="text-2xl font-bold text-[#2d2926]">Year in Review ✨</h1>
+        </div>
+        <UpgradePrompt
+          inline
+          feature="AI Year in Review"
+          valueProp="Get a beautiful AI-written summary of your family's entire homeschool year — lessons, books, milestones, and memories."
         />
       </div>
     );

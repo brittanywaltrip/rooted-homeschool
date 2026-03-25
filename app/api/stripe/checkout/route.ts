@@ -9,6 +9,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 const PRICE_IDS: Record<string, string> = {
   founding: process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID!,
   standard: process.env.STRIPE_STANDARD_PRICE_ID!,
+  monthly: process.env.STRIPE_MONTHLY_PRICE_ID!,
 }
 
 export async function POST(req: NextRequest) {

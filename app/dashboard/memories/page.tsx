@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
+import UpgradePrompt from "@/components/UpgradePrompt";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -414,14 +415,11 @@ export default function MemoriesPage() {
 
       {/* Free user upgrade banner */}
       {!isPro && !loading && (
-        <div className="flex items-center justify-between bg-[#fafdf8] border border-[#c8dcc9] rounded-2xl px-4 py-3">
-          <p className="text-xs text-[#5c7f63] leading-snug">
-            📖 Showing your last 30 days — upgrade to unlock your full family story
-          </p>
-          <Link href="/dashboard/pricing" className="text-xs font-semibold text-[#3d5c42] underline underline-offset-2 shrink-0 ml-3">
-            Upgrade
-          </Link>
-        </div>
+        <UpgradePrompt
+          inline
+          feature="Full Memory History"
+          valueProp="You're seeing your last 30 days. Upgrade to keep every photo, book, and milestone — your full family story, always."
+        />
       )}
 
       {/* ── Reflections section (when filter = all, show recent) ── */}

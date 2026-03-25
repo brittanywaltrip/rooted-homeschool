@@ -15,11 +15,12 @@ export default function UpgradePage() {
 function UpgradePageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [loadingPlan, setLoadingPlan] = useState<'founding' | 'standard' | null>(null)
+  const [loadingPlan, setLoadingPlan] = useState<'founding' | 'standard' | 'monthly' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
   const [foundingCount, setFoundingCount] = useState<number | null>(null)
+  const [countdown, setCountdown] = useState('')
   const refCode = searchParams.get('ref')
 
   useEffect(() => {
@@ -36,7 +37,8 @@ function UpgradePageInner() {
       if (
         profile?.is_pro ||
         profile?.plan_type === 'founding_family' ||
-        profile?.plan_type === 'standard'
+        profile?.plan_type === 'standard' ||
+        profile?.plan_type === 'monthly'
       ) {
         setIsPaying(true)
         setPlanType(profile.plan_type ?? null)
@@ -63,7 +65,21 @@ function UpgradePageInner() {
     }
   }, [refCode])
 
-  async function handleClick(plan: 'founding' | 'standard') {
+  useEffect(() => {
+    const deadline = new Date('2026-04-30T00:00:00').getTime()
+    function tick() {
+      const diff = deadline - Date.now()
+      if (diff <= 0) { setCountdown('Offer ended'); return }
+      const d = Math.floor(diff / 86400000)
+      const h = Math.floor((diff % 86400000) / 3600000)
+      setCountdown(`${d} day${d !== 1 ? 's' : ''}, ${h} hr${h !== 1 ? 's' : ''} left`)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  async function handleClick(plan: 'founding' | 'standard' | 'monthly') {
     setError(null)
     setLoadingPlan(plan)
 
@@ -133,7 +149,7 @@ function UpgradePageInner() {
         )}
 
         {/* 3-tier pricing cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10">
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 flex flex-col">
@@ -192,7 +208,11 @@ function UpgradePageInner() {
               <p className="text-sm text-[#3d5c42] leading-relaxed">
                 For the first 200 families who believe in where this is going
               </p>
-              <p className="text-xs text-[#5c7f63] font-semibold mt-2">🕐 Ends April 30</p>
+              {countdown && (
+                <p className="text-xs font-semibold mt-2 text-[#a08040]">
+                  ⏳ {countdown}
+                </p>
+              )}
             </div>
 
             <ul className="space-y-2 mb-6 flex-1">
@@ -296,6 +316,66 @@ function UpgradePageInner() {
                   </>
                 ) : (
                   'Subscribe — $59/yr →'
+                )}
+              </button>
+            )}
+          </div>
+
+          {/* Monthly */}
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 flex flex-col">
+            <div className="mb-5">
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-base font-bold text-[#2d2926]">Monthly</p>
+                {planType === 'monthly' && (
+                  <span className="text-[10px] font-semibold bg-[#5c7f63] text-white px-2 py-0.5 rounded-full uppercase tracking-wide">
+                    ✓ Your Plan
+                  </span>
+                )}
+              </div>
+              <div className="flex items-baseline gap-1 my-3">
+                <span className="text-3xl font-bold text-[#2d2926]">$6.99</span>
+                <span className="text-sm text-[#b5aca4]">/mo</span>
+              </div>
+              <p className="text-sm text-[#7a6f65]">Pay as you go · ≈ $83.88/year</p>
+            </div>
+            <ul className="space-y-2 mb-6 flex-1">
+              {[
+                { label: 'Unlimited children' },
+                { label: 'Memories & photo log' },
+                { label: 'Insights & learning streaks' },
+                { label: 'Progress reports & transcripts' },
+                { label: 'AI-written family updates' },
+                { label: 'Shareable family updates', sub: 'Share your homeschool story with family' },
+              ].map(({ label, sub }) => (
+                <li key={label} className="flex items-start gap-2 text-sm text-[#7a6f65]">
+                  <span className="text-[#5c7f63] shrink-0 mt-0.5">✓</span>
+                  <span>
+                    {label}
+                    {sub && <span className="block text-xs text-[#b5aca4] font-normal">{sub}</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {isPaying ? (
+              <Link
+                href="/dashboard"
+                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-3 rounded-xl transition-colors text-sm text-center block"
+              >
+                ✓ You&apos;re already a member — Go to app →
+              </Link>
+            ) : (
+              <button
+                onClick={() => handleClick('monthly')}
+                disabled={loadingPlan !== null}
+                className="w-full bg-[#2d2926] hover:bg-[#1a1714] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
+              >
+                {loadingPlan === 'monthly' ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Start Monthly →'
                 )}
               </button>
             )}

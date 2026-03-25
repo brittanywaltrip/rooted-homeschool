@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { usePartner } from '@/lib/partner-context'
 import Link from 'next/link'
-import { Copy, Check, Sparkles, ArrowLeft } from 'lucide-react'
+import { Copy, Check, Sparkles, ArrowLeft, Lock } from 'lucide-react'
+import UpgradePrompt from '@/components/UpgradePrompt'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ type Stats = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toISO(d: Date) {
-  return d.toISOString().split('T')[0]
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function presetDates(preset: DatePreset): { from: string; to: string } {
@@ -173,7 +174,7 @@ export default function FamilyUpdatePage() {
 
       // Record usage for free user monthly limit
       if (!userIsPro) {
-        await supabase.from('profiles').update({ ai_update_last_generated: new Date().toISOString().split('T')[0] }).eq('id', session.user.id)
+        await supabase.from('profiles').update({ ai_update_last_generated: toISO(new Date()) }).eq('id', session.user.id)
         setUsedThisMonth(true)
         const nextMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
         setResetDate(nextMonth.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }))
@@ -285,9 +286,19 @@ export default function FamilyUpdatePage() {
 
       {/* Generate button */}
       {!userIsPro && usedThisMonth && !narrative ? (
-        <div className="w-full bg-[#fef9e8] border border-[#f0dda8] rounded-xl px-4 py-3 text-center">
-          <p className="text-sm font-medium text-[#7a4a1a]">Used this month</p>
-          <p className="text-xs text-[#a08040] mt-0.5">Resets {resetDate} · <Link href="/dashboard/pricing" className="underline font-semibold text-[#5c7f63]">Upgrade for unlimited</Link></p>
+        <div className="space-y-3">
+          <button
+            disabled
+            className="w-full flex items-center justify-center gap-2 bg-[#e8e2d9] text-[#7a6f65] font-bold py-3.5 rounded-xl opacity-60 cursor-not-allowed"
+          >
+            <Lock size={16} />
+            Used this month — resets {resetDate}
+          </button>
+          <UpgradePrompt
+            inline
+            feature="Unlimited AI Updates"
+            valueProp="Generate shareable family updates anytime — weekly, monthly, or after any special moment."
+          />
         </div>
       ) : (
         <button
@@ -300,7 +311,7 @@ export default function FamilyUpdatePage() {
         </button>
       )}
       {!userIsPro && !usedThisMonth && (
-        <p className="text-[10px] text-[#b5aca4] text-center">Free plan: 1 update per month · <Link href="/dashboard/pricing" className="underline">Upgrade for unlimited</Link></p>
+        <p className="text-[10px] text-[#b5aca4] text-center">Free plan: 1 update per month · <Link href="/upgrade" className="underline font-semibold text-[#5c7f63]">Claim Founding Price — $39/yr</Link></p>
       )}
 
       {genError && (
