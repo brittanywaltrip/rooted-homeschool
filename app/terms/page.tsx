@@ -36,7 +36,7 @@ export default function TermsPage() {
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
               <li><strong>Billing:</strong> You will be charged the annual subscription fee at the time of purchase. All payments are processed securely by Stripe.</li>
               <li><strong>Auto-Renewal:</strong> Your subscription renews automatically each year on your billing anniversary date. We will send you a reminder email 7 days before your renewal date. You may cancel at any time in your account Settings before the renewal date to avoid being charged.</li>
-              <li><strong>Refunds:</strong> Annual subscriptions are refundable within 14 days of the original purchase date. After 14 days, no refunds will be issued for the current subscription period. To request a refund within the 14-day window, contact us at <a href="mailto:hello.rootedapp@gmail.com" className="text-[#5c7f63] hover:underline">hello.rootedapp@gmail.com</a>.</li>
+              <li><strong>Refunds:</strong> Annual subscriptions are refundable within 14 days of the original purchase date. After 14 days, no refunds will be issued for the current subscription period. To request a refund within the 14-day window, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</li>
               <li><strong>Cancellation:</strong> Canceling your subscription stops future renewals. You retain access to Pro features through the end of your current paid period.</li>
             </ul>
           </section>
@@ -68,12 +68,12 @@ export default function TermsPage() {
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">9. Contact</h2>
-            <p className="leading-relaxed">For questions about these Terms, contact us at <a href="mailto:hello.rootedapp@gmail.com" className="text-[#5c7f63] hover:underline">hello.rootedapp@gmail.com</a>.</p>
+            <p className="leading-relaxed">For questions about these Terms, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</p>
           </section>
         </div>
 
         <div className="mt-12 pt-8 border-t border-[#e8e2d9] text-center">
-          <p className="text-sm text-[#7a6f65]">Questions? <a href="/contact" className="text-[#5c7f63] hover:underline">Contact us</a> or email <a href="mailto:hello.rootedapp@gmail.com" className="text-[#5c7f63] hover:underline">hello.rootedapp@gmail.com</a></p>
+          <p className="text-sm text-[#7a6f65]">Questions? <a href="/contact" className="text-[#5c7f63] hover:underline">Contact us</a> or email <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a></p>
         </div>
       </div>
     </main>

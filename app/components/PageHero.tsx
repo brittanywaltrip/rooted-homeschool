@@ -46,12 +46,12 @@ export default function PageHero({
         🌱
       </div>
 
-      <div className={photoUrl ? "flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4" : ""}>
+      <div className={photoUrl ? "flex items-center gap-3" : ""}>
         {photoUrl && (
           <img
             src={photoUrl}
             alt=""
-            className="w-14 h-14 rounded-full object-cover border-2 border-white shadow-md shrink-0"
+            className="w-10 h-10 rounded-full object-cover border-2 border-white/80 shadow-md shrink-0 md:hidden"
           />
         )}
         <div>

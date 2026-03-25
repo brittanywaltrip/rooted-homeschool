@@ -1139,17 +1139,7 @@ export default function TodayPage() {
               <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
               <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
             </div>
-            <button
-              onClick={() => setShowLogModal(true)}
-              className="mb-4 w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-[#5c7f63] hover:bg-[#faf8f5] transition-colors text-left"
-            >
-              <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0 text-lg">📸</div>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-[#2d2926]">Capture today&apos;s memory</p>
-                <p className="text-xs text-[#7a6f65]">What did you do today? Add a photo, book, or note.</p>
-              </div>
-              <span className="text-[#c8bfb5] text-lg">›</span>
-            </button>
+            {/* Capture card removed — replaced by floating camera FAB on Memories page */}
           </>
         )}
         {(() => {
@@ -1452,16 +1442,7 @@ export default function TodayPage() {
 
       <div className="h-4" />
 
-      {/* ── Floating Log Today Button ─────────────────────── */}
-      {!isPartner && !showLogModal && (
-        <button
-          onClick={() => setShowLogModal(true)}
-          className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 rounded-full bg-[#5c7f63] hover:bg-[#3d5c42] active:scale-95 text-white shadow-lg flex items-center gap-2 px-4 py-3 transition-all"
-          aria-label="Log today"
-        >
-          <span className="text-sm font-semibold">+ Log something</span>
-        </button>
-      )}
+      {/* Floating log button removed — logging happens on Memories page */}
 
       {/* ── Book modal ────────────────────────────────────── */}
       {showBookModal && (

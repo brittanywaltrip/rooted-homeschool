@@ -225,10 +225,10 @@ export default function FAQPage() {
             </Link>{" "}
             or email{" "}
             <a
-              href="mailto:hello.rootedapp@gmail.com"
+              href="mailto:hello@rootedhomeschoolapp.com"
               className="text-[#5c7f63] hover:underline"
             >
-              hello.rootedapp@gmail.com
+              hello@rootedhomeschoolapp.com
             </a>
           </p>
           <p className="text-xs text-[#b5aca4]">We&apos;re a small team and respond to every message personally.</p>

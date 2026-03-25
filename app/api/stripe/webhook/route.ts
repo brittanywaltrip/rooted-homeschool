@@ -11,7 +11,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const ADMIN_EMAIL = 'hello.rootedapp@gmail.com'
+const ADMIN_EMAIL = 'hello@rootedhomeschoolapp.com'
 const FOUNDING_PRICE_ID = process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID
 const STANDARD_PRICE_ID = process.env.STRIPE_STANDARD_PRICE_ID
 
@@ -345,7 +345,7 @@ async function activateByEmail(email: string, plan: string, stripeCustomerId: st
   if (!matchedUser) {
     console.error('[webhook] NO USER FOUND for email:', email, 'sessionId:', sessionId)
     await sendEmail(
-      'hello.rootedapp@gmail.com',
+      'hello@rootedhomeschoolapp.com',
       '⚠️ Payment received but no matching user found',
       `A payment was received but could not be matched to a user.\n\nEmail: ${email}\nSession/Sub: ${sessionId}\n\nPlease manually update this account in Supabase.`
     ).catch(() => {})

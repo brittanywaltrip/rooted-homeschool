@@ -622,7 +622,7 @@ export default function SettingsPage() {
     const data = await res.json();
     if (data.error === 'no_customer') {
       setPortalLoading(false);
-      alert('To manage your subscription please email hello.rootedapp@gmail.com');
+      alert('To manage your subscription please email hello@rootedhomeschoolapp.com');
       return;
     }
     window.location.href = data.url;
@@ -1415,7 +1415,7 @@ export default function SettingsPage() {
 
         {/* Contact */}
         <p className="text-xs text-[#b5aca4] text-center">
-          Questions? Email <span className="text-[#5c7f63] font-medium">hello.rootedapp@gmail.com</span>
+          Questions? Email <span className="text-[#5c7f63] font-medium">hello@rootedhomeschoolapp.com</span>
         </p>
       </section>}
 
@@ -1666,7 +1666,7 @@ export default function SettingsPage() {
           {[
             { label: "What's new",      href: "/dashboard/more/whats-new", sub: "Latest updates" },
             { label: "FAQ",             href: "/faq",                       sub: "Common questions" },
-            { label: "Contact us",      href: "/contact",                   sub: "hello.rootedapp@gmail.com" },
+            { label: "Contact us",      href: "/contact",                   sub: "hello@rootedhomeschoolapp.com" },
           ].map(item => (
             <Link
               key={item.href}

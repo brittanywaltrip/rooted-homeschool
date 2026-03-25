@@ -29,7 +29,7 @@ export default function PrivacyPage() {
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
               <li>We collect only children&apos;s first names, entered by a parent or guardian. We do not collect last names, birthdates, photos of children, or any other identifying information about minors.</li>
               <li>We do not knowingly collect personal information directly from children under 13. All data about children is entered and controlled exclusively by the parent or guardian account holder.</li>
-              <li>Parents and guardians may review, update, or permanently delete all information about their children at any time through the Settings page or by contacting us at <a href="mailto:hello.rootedapp@gmail.com" className="text-[#5c7f63] hover:underline">hello.rootedapp@gmail.com</a>.</li>
+              <li>Parents and guardians may review, update, or permanently delete all information about their children at any time through the Settings page or by contacting us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</li>
             </ul>
           </section>
 
@@ -52,7 +52,7 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">7. Data Retention and Deletion</h2>
-            <p className="leading-relaxed">You may delete your account and all associated data at any time by contacting us at <a href="mailto:hello.rootedapp@gmail.com" className="text-[#5c7f63] hover:underline">hello.rootedapp@gmail.com</a>. We will process deletion requests within 30 days. Some information may be retained in encrypted backups for up to 90 days after deletion, after which it is permanently purged.</p>
+            <p className="leading-relaxed">You may delete your account and all associated data at any time by contacting us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>. We will process deletion requests within 30 days. Some information may be retained in encrypted backups for up to 90 days after deletion, after which it is permanently purged.</p>
           </section>
 
           <section>
@@ -74,17 +74,17 @@ export default function PrivacyPage() {
               <li><strong>Right to Delete:</strong> You may request that we delete your personal information, subject to certain exceptions.</li>
               <li><strong>Right to Opt Out of Sale:</strong> We do not sell your personal information to third parties, and we never will.</li>
             </ul>
-            <p className="leading-relaxed mt-3">To exercise any of these rights, contact us at <a href="mailto:hello.rootedapp@gmail.com" className="text-[#5c7f63] hover:underline">hello.rootedapp@gmail.com</a>. We will respond within 45 days.</p>
+            <p className="leading-relaxed mt-3">To exercise any of these rights, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>. We will respond within 45 days.</p>
           </section>
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">10. Contact Us</h2>
-            <p className="leading-relaxed">If you have questions about this Privacy Policy or your data, please contact us at <a href="mailto:hello.rootedapp@gmail.com" className="text-[#5c7f63] hover:underline">hello.rootedapp@gmail.com</a>. We are a small, family-run company and will respond personally to every inquiry.</p>
+            <p className="leading-relaxed">If you have questions about this Privacy Policy or your data, please contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>. We are a small, family-run company and will respond personally to every inquiry.</p>
           </section>
         </div>
 
         <div className="mt-12 pt-8 border-t border-[#e8e2d9] text-center">
-          <p className="text-sm text-[#7a6f65]">Questions? <a href="/contact" className="text-[#5c7f63] hover:underline">Contact us</a> or email <a href="mailto:hello.rootedapp@gmail.com" className="text-[#5c7f63] hover:underline">hello.rootedapp@gmail.com</a></p>
+          <p className="text-sm text-[#7a6f65]">Questions? <a href="/contact" className="text-[#5c7f63] hover:underline">Contact us</a> or email <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a></p>
         </div>
       </div>
     </main>
