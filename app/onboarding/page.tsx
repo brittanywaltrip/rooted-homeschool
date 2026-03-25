@@ -175,7 +175,7 @@ function BackBtn({ onClick }: { onClick: () => void }) {
 function ProgressDots({ step }: { step: number }) {
   return (
     <div className="flex items-center justify-center gap-2 mb-8">
-      {[1,2,3,4,5,6,7].map((s) => (
+      {[1,2,3,4,5,6].map((s) => (
         <div
           key={s}
           className="rounded-full transition-all duration-300"
@@ -238,58 +238,7 @@ function Confetti() {
 
 // ─── Step 1 — Welcome ─────────────────────────────────────────────────────────
 
-function StepWelcome({ firstName, onNext }: { firstName: string; onNext: () => void }) {
-  return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-6 relative overflow-hidden"
-      style={{ background: "linear-gradient(155deg, #1a3d24 0%, #2a5533 45%, #3d7a50 80%, #4d8f63 100%)" }}
-    >
-      <div className="absolute inset-0 opacity-[0.07]"
-        style={{ backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
-
-      <ProgressDots step={1} />
-
-      <div className="relative z-10 flex flex-col items-center text-center max-w-sm w-full animate-[fadeUp_0.7s_ease-out_forwards]">
-        <style>{`
-          @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-          @keyframes logoIn { from { opacity:0; transform:scale(0.8); } to { opacity:1; transform:scale(1); } }
-        `}</style>
-
-        <img
-          src="/icon-192.png"
-          alt="Rooted"
-          width={88}
-          height={88}
-          className="mb-8 rounded-2xl shadow-lg"
-          style={{ opacity: 0, animation: "logoIn 0.5s ease-out 0.4s forwards" }}
-        />
-
-        <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#a0cc9a] mb-4">
-          Welcome to Rooted
-        </p>
-        <h1
-          className="text-4xl sm:text-5xl font-bold text-white mb-4 leading-tight"
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          {firstName ? `Hello, ${firstName}! 🌿` : "Welcome! 🌿"}
-        </h1>
-        <p className="text-[#c8ddb8] text-base sm:text-lg leading-relaxed mb-2 max-w-xs">
-          Your homeschool, finally organized.
-        </p>
-        <p className="text-[#a0cc9a] text-sm leading-relaxed mb-10 max-w-xs">
-          Let&apos;s get everything set up.
-        </p>
-
-        <button
-          onClick={onNext}
-          className="flex items-center gap-2.5 px-9 py-4 rounded-2xl bg-white text-[#2d5c38] font-semibold text-lg hover:bg-[#f5fbf5] transition-all shadow-2xl hover:scale-105 active:scale-100"
-        >
-          Let&apos;s Go →
-        </button>
-      </div>
-    </div>
-  );
-}
+// StepWelcome removed — replaced by StepWhy emotional opening
 
 // ─── Step 2 — Family Name ─────────────────────────────────────────────────────
 
@@ -1619,15 +1568,14 @@ function StepWhy({ onNext }: { onNext: () => void }) {
       style={{ background: "linear-gradient(155deg, #1a3d24 0%, #2a5533 45%, #3d7a50 80%, #4d8f63 100%)" }}
     >
       <div className="flex flex-col items-center text-center max-w-sm w-full">
-        <span className="text-5xl mb-8">🌱</span>
         <h1
-          className="text-3xl sm:text-[2.25rem] font-bold text-white mb-5 leading-snug"
-          style={{ fontFamily: "var(--font-display)" }}
+          className="text-3xl sm:text-[2.5rem] font-bold text-white mb-5 leading-snug"
+          style={{ fontFamily: "'Lora', var(--font-display), serif" }}
         >
           The homeschool years go by so fast.
         </h1>
-        <p className="text-[#c8ddb8] text-base leading-relaxed mb-10 max-w-xs">
-          Rooted helps you plan your days, capture the moments, and remember it all.
+        <p className="text-[#c8ddb8] text-base leading-relaxed mb-12 max-w-xs">
+          Rooted helps you plan your days, capture the moments, and hold onto it all.
         </p>
         <button
           type="button"
@@ -1661,7 +1609,7 @@ function StepFounder({ saving, onDone }: { saving: boolean; onDone: () => void }
         >
           &ldquo;I built Rooted for families exactly like yours. If you ever have a question — just reply to any email from me. I read every one.&rdquo;
         </p>
-        <p className="text-[#a0cc9a] text-sm font-semibold mb-10">Brittany, founder 🌱</p>
+        <p className="text-[#a0cc9a] text-sm font-semibold mb-10">— Brittany, founder 🌱</p>
 
         <button
           type="button"
@@ -1675,7 +1623,7 @@ function StepFounder({ saving, onDone }: { saving: boolean; onDone: () => void }
               Setting up your space…
             </span>
           ) : (
-            "Take me to my dashboard →"
+            "Go to your dashboard →"
           )}
         </button>
       </div>
@@ -1833,16 +1781,15 @@ export default function OnboardingPage() {
 
   // ── Step 4 → 5: initialize only on first entry ────────────────────────────
 
-  function goToStep5() {
+  function goToCurriculum() {
     const validKids = children.filter((c) => c.name.trim());
     if (validKids.length === 0) return;
-    // Only reset draft on first entry (curricChildUid === 0 means never been to step 5)
     if (curricChildUid === 0) {
       const firstChild = validKids[0];
       setCurricChildUid(firstChild.uid);
       setCurricDraft(freshDraft(firstChild.uid));
     }
-    setStep(5);
+    setStep(4);
   }
 
   // ── Child tab/row switch — preserve & restore drafts ─────────────────────
@@ -1874,12 +1821,11 @@ export default function OnboardingPage() {
   // ── Step 6 gating: skip if no schedules were built ────────────────────────
 
   function handleDoneAll(hasAnySchedule: boolean) {
-    // Also check existing childSchedules in case React batched the update
     if (hasAnySchedule || childSchedules.length > 0) {
-      setStep(6);
+      setStep(5);
     } else {
       setNoCurriculumNote(true);
-      setStep(7);
+      setStep(6);
     }
   }
 
@@ -2043,36 +1989,34 @@ export default function OnboardingPage() {
 
   if (step === 0) return <StepWhy onNext={() => setStep(1)} />;
 
-  if (step === 1) return <StepWelcome firstName={firstName} onNext={() => setStep(2)} />;
-
-  if (step === 2) return (
+  if (step === 1) return (
     <StepFamilyName
       value={familyDisplayName} onChange={setFamilyDisplayName}
-      onNext={() => setStep(3)}
+      onNext={() => setStep(2)}
+      onBack={() => setStep(0)}
+    />
+  );
+
+  if (step === 2) return (
+    <StepState
+      value={selectedState} onChange={setSelectedState}
+      onNext={() => setStep(3)} onSkip={() => setStep(3)}
       onBack={() => setStep(1)}
     />
   );
 
   if (step === 3) return (
-    <StepState
-      value={selectedState} onChange={setSelectedState}
-      onNext={() => setStep(4)} onSkip={() => setStep(4)}
-      onBack={() => setStep(2)}
-    />
-  );
-
-  if (step === 4) return (
     <StepChildren
       children={children}
       onChange={updateChild}
       onAdd={() => setChildren((p) => [...p, mkChild(p.length)])}
       onRemove={removeChild}
-      onNext={goToStep5}
-      onBack={() => setStep(3)}
+      onNext={goToCurriculum}
+      onBack={() => setStep(2)}
     />
   );
 
-  if (step === 5) {
+  if (step === 4) {
     const validKids = children.filter((c) => c.name.trim());
     return (
       <StepCurriculum
@@ -2089,32 +2033,32 @@ export default function OnboardingPage() {
         onConfirmChild={handleConfirmChild}
         onDoneAll={handleDoneAll}
         onSkipChild={handleSkipChild}
-        onSkipAll={() => { setNoCurriculumNote(true); setStep(7); }}
-        onBack={() => setStep(4)}
+        onSkipAll={() => { setNoCurriculumNote(true); setStep(6); }}
+        onBack={() => setStep(3)}
       />
     );
   }
 
-  if (step === 6) return (
+  if (step === 5) return (
     <StepTodayPreview
       childSchedules={childSchedules}
       children={children}
       displayName={familyDisplayName || firstName}
       isPro={isPro}
-      onNext={() => setStep(7)}
-      onBack={() => setStep(5)}
+      onNext={() => setStep(6)}
+      onBack={() => setStep(4)}
     />
   );
 
   return (
     <>
-      {step === 8 ? (
+      {step === 7 ? (
         <StepFounder saving={saving} onDone={complete} />
       ) : (
         <StepAddToHomeScreen
           saving={saving}
-          onDone={() => setStep(8)}
-          onSkip={() => setStep(8)}
+          onDone={() => setStep(7)}
+          onSkip={() => setStep(7)}
           noCurriculumNote={noCurriculumNote}
         />
       )}
