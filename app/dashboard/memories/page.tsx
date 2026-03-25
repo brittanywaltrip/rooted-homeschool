@@ -186,7 +186,12 @@ export default function MemoriesPage() {
     setLoading(false);
   }, [effectiveUserId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [load]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -475,11 +480,32 @@ export default function MemoriesPage() {
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#f8f6f3] to-[#ece8e2]">
-                  <span className="text-3xl mb-1">{TYPE_EMOJI[m.type] ?? "📷"}</span>
-                  <p className="text-[11px] font-semibold text-[#7a6f65] px-2 text-center line-clamp-2">
-                    {m.title ?? TYPE_LABEL[m.type] ?? "Memory"}
-                  </p>
+                <div className={`w-full h-full flex flex-col items-center justify-center px-3 ${
+                  m.type === "book"
+                    ? "bg-[#FDF3E3]"
+                    : m.type === "quote"
+                    ? "bg-[#F5EFF8]"
+                    : "bg-[#EAF6EE]"
+                }`}>
+                  {m.type === "book" ? (
+                    <>
+                      <span className="text-4xl mb-1.5">📖</span>
+                      <p className="text-[11px] font-semibold text-[#7a4f1a] text-center line-clamp-2">{m.title ?? "Book"}</p>
+                      {m.caption && <p className="text-[10px] italic text-[#c8a96e] text-center line-clamp-1 mt-0.5">{m.caption}</p>}
+                    </>
+                  ) : m.type === "quote" ? (
+                    <>
+                      <span className="text-5xl leading-none font-serif text-[#c49edd] mb-1">&ldquo;</span>
+                      <p className="text-[10px] italic text-[#4a2d6a] text-center line-clamp-2">{m.title ?? "Quote"}</p>
+                      {m.child_id && <p className="text-[9px] text-[#a07ab8] mt-1">{childName(m.child_id)}</p>}
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-4xl mb-1.5">{TYPE_EMOJI[m.type] ?? "📷"}</span>
+                      <p className="text-[11px] font-semibold text-[#1a4d2e] text-center line-clamp-2">{m.title ?? TYPE_LABEL[m.type] ?? "Memory"}</p>
+                      <p className="text-[9px] text-[#4a8c65] mt-0.5">{TYPE_LABEL[m.type] ?? "Memory"}</p>
+                    </>
+                  )}
                 </div>
               )}
 

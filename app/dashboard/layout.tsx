@@ -83,6 +83,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [fabChildId, setFabChildId] = useState("");
   const [fabSaving, setFabSaving] = useState(false);
   const [fabToast, setFabToast] = useState<string | null>(null);
+  const [leafBurst, setLeafBurst] = useState(false);
 
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
     isPartner: false,
@@ -214,7 +215,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     });
     await supabase.rpc("increment_photo_count", { p_user_id: user.id });
     setFabSaving(false); closeFabSheet();
-    setFabToast("Saved to Memories 🌱"); setTimeout(() => setFabToast(null), 2500);
+    setLeafBurst(true); setTimeout(() => setLeafBurst(false), 1200);
+    setFabToast("Memory saved 🌿"); setTimeout(() => setFabToast(null), 2000);
   }
 
   if (checking) {
@@ -318,10 +320,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         <Link
           href="/dashboard/settings"
           onClick={() => setMenuOpen(false)}
-          className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
+          className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
         >
           {profileData.family_photo_url ? (
-            <img src={profileData.family_photo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+            <img src={profileData.family_photo_url} alt="" className="w-10 h-10 rounded-full object-cover" />
           ) : profileData.first_name ? (
             profileData.first_name.charAt(0).toUpperCase()
           ) : displayName ? (
@@ -408,10 +410,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             </div>
             <Link
               href="/dashboard/settings"
-              className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
+              className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
             >
               {profileData.family_photo_url ? (
-                <img src={profileData.family_photo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                <img src={profileData.family_photo_url} alt="" className="w-10 h-10 rounded-full object-cover" />
               ) : profileData.first_name ? (
                 profileData.first_name.charAt(0).toUpperCase()
               ) : displayName ? (
@@ -506,6 +508,34 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                   {fabSaving ? "Saving..." : "Save 🌱"}
                 </button>
               </div>
+            </div>
+          </>
+        )}
+
+        {/* Leaf burst animation */}
+        {leafBurst && (
+          <>
+            <style>{`
+              @keyframes leafBurst {
+                0% { opacity: 1; transform: translate(0, 0) scale(1); }
+                100% { opacity: 0; transform: translate(var(--lx), var(--ly)) scale(0.6); }
+              }
+            `}</style>
+            <div className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-[70] pointer-events-none">
+              {[
+                { lx: "-24px", ly: "-36px" }, { lx: "20px", ly: "-40px" }, { lx: "-32px", ly: "-12px" },
+                { lx: "28px", ly: "-16px" }, { lx: "-8px", ly: "-48px" }, { lx: "12px", ly: "-28px" },
+              ].map((pos, i) => (
+                <span
+                  key={i}
+                  className="absolute text-lg"
+                  style={{
+                    ["--lx" as string]: pos.lx,
+                    ["--ly" as string]: pos.ly,
+                    animation: `leafBurst 1.2s ${i * 0.05}s ease-out forwards`,
+                  }}
+                >🌿</span>
+              ))}
             </div>
           </>
         )}
