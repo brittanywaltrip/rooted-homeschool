@@ -772,19 +772,18 @@ export default function TodayPage() {
 
       if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
         const { data: goalRow } = await supabase
-          .from("curriculum_goals").select("id, curriculum_name, current_lesson, total_lessons")
-          .eq("id", lesson.curriculum_goal_id).single();
-        if (goalRow && lesson.lesson_number > goalRow.current_lesson) {
-          const newCurrent = lesson.lesson_number;
-          if (newCurrent >= goalRow.total_lessons) {
-            // Curriculum complete — mark done, don't schedule next
-            await supabase.from("curriculum_goals")
-              .update({ current_lesson: newCurrent, completed: true })
-              .eq("id", lesson.curriculum_goal_id);
-          } else {
-            // Advance current_lesson and schedule the next lesson
-            await supabase.from("curriculum_goals")
-              .update({ current_lesson: newCurrent })
+          .from("curriculum_goals")
+          .select("current_lesson, total_lessons, curriculum_name, child_id")
+          .eq("id", lesson.curriculum_goal_id)
+          .single();
+
+        if (goalRow) {
+          if (goalRow.current_lesson < goalRow.total_lessons) {
+            const newLessonNum = goalRow.current_lesson + 1;
+
+            await supabase
+              .from("curriculum_goals")
+              .update({ current_lesson: newLessonNum })
               .eq("id", lesson.curriculum_goal_id);
 
             // Find next school day
@@ -799,20 +798,26 @@ export default function TodayPage() {
             }
             const nextDateStr = localDateStr(nextDate);
 
-            const { data: { user: authUser } } = await supabase.auth.getUser();
-            if (authUser) {
-              await supabase.from("lessons").insert({
-                user_id: authUser.id,
-                child_id: lesson.child_id,
-                curriculum_goal_id: lesson.curriculum_goal_id,
-                title: goalRow.curriculum_name || lesson.title,
-                lesson_number: newCurrent + 1,
-                scheduled_date: nextDateStr,
-                completed: false,
-              });
-            }
+            await supabase.from("lessons").insert({
+              user_id: effectiveUserId,
+              child_id: goalRow.child_id,
+              curriculum_goal_id: lesson.curriculum_goal_id,
+              title: `${goalRow.curriculum_name} — Lesson ${newLessonNum}`,
+              lesson_number: newLessonNum,
+              scheduled_date: nextDateStr,
+              completed: false,
+              created_at: new Date().toISOString(),
+            });
+          } else if (goalRow.current_lesson === goalRow.total_lessons) {
+            await supabase
+              .from("curriculum_goals")
+              .update({ completed: true })
+              .eq("id", lesson.curriculum_goal_id);
           }
         }
+
+        // Refresh today's lessons so the UI stays current
+        await loadData();
       }
 
       if (lesson?.goal_id) {
@@ -1162,7 +1167,7 @@ export default function TodayPage() {
 
       {/* ── Today's Sections ─────────────────────────────── */}
       <div>
-        {allDoneBanner && (
+        {allDoneBanner && lessons.length > 0 && lessons.every(l => l.completed) && (
           <>
             <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
               <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
@@ -1180,6 +1185,7 @@ export default function TodayPage() {
               <span className="text-[#c8bfb5] text-lg">›</span>
             </button>
           </>
+
         )}
         {(() => {
           const childIds = new Set(children.map((c) => c.id));
