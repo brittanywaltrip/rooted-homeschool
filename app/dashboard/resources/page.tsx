@@ -707,27 +707,7 @@ export default function ResourcesPage() {
 
       {/* ── 5. Category Tabs ────────────────────────────────────── */}
 
-      {/* Grade Filter */}
-      {activeTab !== "states" && activeTab !== "saved" && (
-        <div className="flex gap-1.5 flex-wrap items-center">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mr-1">Grade:</span>
-          <button
-            onClick={() => setGradeFilter("")}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${gradeFilter === "" ? "bg-[#4a7c59] text-white" : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#4a7c59]"}`}
-          >
-            All Grades
-          </button>
-          {GRADE_TAGS.map((g) => (
-            <button
-              key={g}
-              onClick={() => setGradeFilter(gradeFilter === g ? "" : g)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${gradeFilter === g ? "bg-[#4a7c59] text-white" : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#4a7c59]"}`}
-            >
-              {g}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Grade Filter — hidden for now, will bring back later */}
 
       {/* Tab Bar */}
       <div className="flex gap-2 flex-wrap">
