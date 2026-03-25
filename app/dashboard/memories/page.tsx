@@ -364,6 +364,24 @@ export default function MemoriesPage() {
         </div>
       </Link>
 
+      {/* Yearbook CTA */}
+      <Link
+        href="/dashboard/yearbook"
+        className="block bg-gradient-to-br from-[#fef5e4] to-[#fef0d0] border border-[#f0dda8] rounded-2xl p-5 hover:from-[#fef0d0] hover:to-[#fee8b8] transition-colors"
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-[#8b6820] flex items-center justify-center shrink-0 text-white text-base">
+            {"\uD83D\uDCD6"}
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold text-[#2d2926] text-sm mb-0.5">Create Yearbook {"\uD83D\uDCD6"}</h3>
+            <p className="text-xs text-[#7a6f65] leading-relaxed">
+              Turn this year&apos;s memories, lessons, and milestones into a beautiful family yearbook.
+            </p>
+          </div>
+        </div>
+      </Link>
+
       {/* Family Update CTA */}
       <Link
         href="/dashboard/family-update"
