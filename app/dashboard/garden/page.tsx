@@ -286,7 +286,7 @@ function Butterfly({ x, y, delay = 0, color = "#f9a8d4" }: { x: number; y: numbe
 
 function getTreeX(index: number, total: number): number {
   if (total === 1) return 50;
-  const margin = 16;
+  const margin = 12;
   const spread = 100 - 2 * margin;
   return margin + (spread / (total - 1)) * index;
 }
@@ -451,8 +451,8 @@ export default function GardenPage() {
         className="relative w-full overflow-hidden rounded-3xl shadow-md"
         style={{
           background: "linear-gradient(180deg, #a8c8e8 0%, #c4dff0 30%, #deeef8 60%, #e8f4e8 80%, #7ab87a 100%)",
-          aspectRatio: "16/9",
-          minHeight: 200,
+          aspectRatio: "4/3",
+          minHeight: 240,
         }}
       >
         {/* Sun */}
@@ -534,20 +534,36 @@ export default function GardenPage() {
         ) : (
           children.map((child, i) => {
             const leaves   = leafCounts[child.id] ?? 0;
+            const stage    = getStageFromLeaves(leaves);
             const x        = getTreeX(i, children.length);
             const isActive = child.id === selectedId;
             const swayClass = i % 2 === 0 ? "garden-sway" : "garden-sway-alt";
 
+            // Scale tree size by stage: seed=28px, majestic=80px
+            const treeSizes: Record<number, { w: number; h: number }> = {
+              1: { w: 28, h: 34 },
+              2: { w: 34, h: 40 },
+              3: { w: 38, h: 46 },
+              4: { w: 44, h: 52 },
+              5: { w: 50, h: 58 },
+              6: { w: 56, h: 64 },
+              7: { w: 60, h: 70 },
+              8: { w: 64, h: 74 },
+              9: { w: 70, h: 78 },
+              10: { w: 76, h: 84 },
+            };
+            const size = treeSizes[stage] ?? treeSizes[5];
+
             return (
               <div
                 key={child.id}
-                className="absolute cursor-pointer"
-                style={{ bottom: "28%", left: `${x}%`, transform: "translateX(-50%)" }}
+                className="absolute cursor-pointer flex flex-col items-center"
+                style={{ bottom: "26%", left: `${x}%`, transform: "translateX(-50%)" }}
                 onClick={() => setSelectedId(child.id)}
               >
                 {/* Tree */}
                 <div
-                  className={`${swayClass} relative flex items-end justify-center`}
+                  className={`${swayClass} relative`}
                   style={{
                     transformOrigin: "center bottom",
                     animationDelay: `${i * 0.7}s`,
@@ -555,14 +571,14 @@ export default function GardenPage() {
                 >
                   <div
                     style={{
-                      width: "clamp(44px, 11vw, 72px)",
-                      height: "clamp(52px, 13vw, 86px)",
-                      filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.2))",
+                      width: size.w,
+                      height: size.h,
+                      filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.18))",
                       userSelect: "none",
                     }}
                     aria-hidden
                   >
-                    <TreeSVG stage={getStageFromLeaves(leaves)} color={STAGE_INFO[getStageFromLeaves(leaves) - 1]?.color ?? "#5c7f63"} />
+                    <TreeSVG stage={stage} color={STAGE_INFO[stage - 1]?.color ?? "#5c7f63"} />
                   </div>
 
                   {/* Leaf count badge */}
@@ -572,20 +588,12 @@ export default function GardenPage() {
                   >
                     {leaves > 99 ? "99+" : leaves}
                   </div>
-
-                  {/* Active ring */}
-                  {isActive && (
-                    <div
-                      className="absolute inset-0 rounded-full border-2 border-white/60 pointer-events-none"
-                      style={{ margin: "-4px" }}
-                    />
-                  )}
                 </div>
 
-                {/* Child name */}
-                <div className="mt-1 text-center">
+                {/* Child name — always below tree with gap */}
+                <div className="mt-2 text-center">
                   <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shadow-sm ${
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap ${
                       isActive ? "bg-white text-[#2d2926]" : "bg-white/70 text-[#2d2926]/80"
                     }`}
                   >
