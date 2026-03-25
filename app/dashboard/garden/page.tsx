@@ -24,6 +24,13 @@ type LessonRow = {
   hours: number | null;
 };
 
+// ─── Tree sizes per stage ────────────────────────────────────────────────────
+
+const TREE_SIZE: Record<number, number> = {
+  1: 40, 2: 50, 3: 60, 4: 70, 5: 80,
+  6: 90, 7: 100, 8: 110, 9: 116, 10: 124,
+};
+
 type VacationBlock = { start_date: string; end_date: string; name: string };
 
 // ─── Stats helpers ────────────────────────────────────────────────────────────
@@ -99,7 +106,7 @@ const BADGES = [
 
 function Sun() {
   return (
-    <div className="absolute top-4 right-5 sun-glow" style={{ width: 56, height: 56 }}>
+    <div className="absolute top-4 right-5 sun-glow" style={{ width: 44, height: 44 }}>
       <svg viewBox="0 0 56 56" className="w-full h-full" overflow="visible">
         {/* Soft radial glow behind sun */}
         <circle cx="28" cy="28" r="32" fill="#fff3a0" opacity="0.3" />
@@ -160,7 +167,7 @@ function Flower({ x, color = "#ff9ec4" }: { x: number; color?: string }) {
 function Butterfly({ x, y, delay = 0, color = "#f9a8d4" }: { x: number; y: number; delay?: number; color?: string }) {
   return (
     <div className="absolute butterfly" style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${delay}s` }}>
-      <svg viewBox="0 0 30 22" width="26" height="19">
+      <svg viewBox="0 0 30 22" width="24" height="17">
         {/* Upper wings */}
         <path d="M15 11 Q8 3 3 5 Q0 9 3 13 Q7 16 12 13 Q14 12 15 11" fill={color} opacity="0.92" />
         <path d="M15 11 Q22 3 27 5 Q30 9 27 13 Q23 16 18 13 Q16 12 15 11" fill={color} opacity="0.92" />
@@ -357,7 +364,7 @@ export default function GardenPage() {
         style={{
           background: "linear-gradient(180deg, #a8c8e8 0%, #c4dff0 30%, #deeef8 60%, #e8f4e8 80%, #7ab87a 100%)",
           aspectRatio: "16/9",
-          minHeight: 200,
+          minHeight: 340,
         }}
       >
         {/* Sun */}
@@ -444,8 +451,8 @@ export default function GardenPage() {
             return (
               <div
                 key={child.id}
-                className="absolute cursor-pointer"
-                style={{ bottom: "28%", left: `${x}%`, transform: "translateX(-50%)" }}
+                className="absolute cursor-pointer flex flex-col items-center"
+                style={{ bottom: "28%", left: `${x}%`, transform: "translateX(-50%)", alignItems: "flex-end" }}
                 onClick={() => setSelectedId(child.id)}
               >
                 {/* Tree */}
@@ -458,7 +465,7 @@ export default function GardenPage() {
                 >
                   <span
                     style={{
-                      fontSize: "clamp(44px, 11vw, 72px)",
+                      fontSize: TREE_SIZE[getStageFromLeaves(leaves)] ?? 40,
                       lineHeight: 1,
                       display: "block",
                       filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.2))",
@@ -469,30 +476,17 @@ export default function GardenPage() {
                     {treeEmoji(leaves)}
                   </span>
 
-                  {/* Leaf count badge */}
-                  <div
-                    className="absolute -top-1 -right-2 w-5 h-5 rounded-full text-white text-[9px] font-bold flex items-center justify-center shadow-sm"
-                    style={{ backgroundColor: child.color ?? "#5c7f63" }}
-                  >
-                    {leaves > 99 ? "99+" : leaves}
-                  </div>
-
-                  {/* Active ring */}
-                  {isActive && (
-                    <div
-                      className="absolute inset-0 rounded-full border-2 border-white/60 pointer-events-none"
-                      style={{ margin: "-4px" }}
-                    />
-                  )}
                 </div>
 
-                {/* Child name */}
+                {/* Leaf count pill */}
+                <div className="mt-1 flex items-center gap-0.5 shadow-sm" style={{ background: "#ffffff", borderRadius: 12, padding: "3px 8px" }}>
+                  <span style={{ fontSize: 11 }}>🍃</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#2d5a3d" }}>{leaves}</span>
+                </div>
+
+                {/* Name tag */}
                 <div className="mt-1 text-center">
-                  <span
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shadow-sm ${
-                      isActive ? "bg-white text-[#2d2926]" : "bg-white/70 text-[#2d2926]/80"
-                    }`}
-                  >
+                  <span className="font-semibold shadow-sm whitespace-nowrap" style={{ fontSize: 12, background: "rgba(0,0,0,0.3)", color: "#ffffff", borderRadius: 10, padding: "3px 10px" }}>
                     {child.name}
                   </span>
                 </div>
@@ -567,9 +561,9 @@ export default function GardenPage() {
             </div>
 
             {/* Big tree preview */}
-            <div style={{ width: 80, height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 56, height: 56, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <span
-                style={{ fontSize: 64, lineHeight: 1, filter: "drop-shadow(0 6px 16px rgba(0,0,0,0.2))", userSelect: "none" }}
+                style={{ fontSize: 44, lineHeight: 1, filter: "drop-shadow(0 6px 16px rgba(0,0,0,0.2))", userSelect: "none" }}
                 aria-hidden
               >
                 {treeEmoji(selectedLeaves)}
