@@ -14,16 +14,19 @@ const supabase = createClient(
 const ADMIN_EMAIL = 'hello@rootedhomeschoolapp.com'
 const FOUNDING_PRICE_ID = process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID
 const STANDARD_PRICE_ID = process.env.STRIPE_STANDARD_PRICE_ID
+const MONTHLY_PRICE_ID  = process.env.STRIPE_MONTHLY_PRICE_ID
 
 function planLabel(priceId: string | undefined): string {
   if (priceId === FOUNDING_PRICE_ID) return 'Founding Family ($39/yr)'
   if (priceId === STANDARD_PRICE_ID) return 'Standard ($59/yr)'
+  if (priceId === MONTHLY_PRICE_ID)  return 'Monthly ($6.99/mo)'
   return 'Unknown plan'
 }
 
 function planType(priceId: string | undefined): string {
   if (priceId === FOUNDING_PRICE_ID) return 'founding_family'
   if (priceId === STANDARD_PRICE_ID) return 'standard'
+  if (priceId === MONTHLY_PRICE_ID)  return 'monthly'
   return 'free'
 }
 
