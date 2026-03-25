@@ -16,16 +16,16 @@ type VacationBlock = { start_date: string; end_date: string; name: string };
 // ─── Emoji tree by stage ──────────────────────────────────────────────────────
 
 const TREE_EMOJI: Record<number, { emoji: string; size: number }> = {
-  1:  { emoji: "\uD83C\uDF31", size: 14 },  // 🌱
-  2:  { emoji: "\uD83C\uDF31", size: 20 },
-  3:  { emoji: "\uD83C\uDF3F", size: 26 },  // 🌿
-  4:  { emoji: "\uD83E\uDEB4", size: 32 },  // 🪴
-  5:  { emoji: "\uD83E\uDEB4", size: 38 },
-  6:  { emoji: "\uD83C\uDF32", size: 44 },  // 🌲
-  7:  { emoji: "\uD83C\uDF32", size: 52 },
-  8:  { emoji: "\uD83C\uDF38", size: 58 },  // 🌸
-  9:  { emoji: "\uD83C\uDF33", size: 64 },  // 🌳
-  10: { emoji: "\uD83C\uDF33", size: 72 },
+  1:  { emoji: "\uD83C\uDF31", size: 28 },  // 🌱
+  2:  { emoji: "\uD83C\uDF31", size: 36 },
+  3:  { emoji: "\uD83C\uDF3F", size: 44 },  // 🌿
+  4:  { emoji: "\uD83E\uDEB4", size: 52 },  // 🪴
+  5:  { emoji: "\uD83E\uDEB4", size: 58 },
+  6:  { emoji: "\uD83C\uDF32", size: 64 },  // 🌲
+  7:  { emoji: "\uD83C\uDF32", size: 72 },
+  8:  { emoji: "\uD83C\uDF38", size: 80 },  // 🌸
+  9:  { emoji: "\uD83C\uDF33", size: 88 },  // 🌳
+  10: { emoji: "\uD83C\uDF33", size: 96 },
 };
 
 // ─── Stage journey chips ──────────────────────────────────────────────────────
@@ -195,7 +195,7 @@ export default function GardenPage() {
         style={{
           background: "linear-gradient(180deg, #87ceeb 0%, #b8dff0 40%, #d4eef4 65%, #c4e8c0 85%, #7ab87a 100%)",
           aspectRatio: "4/3",
-          minHeight: 240,
+          minHeight: 280,
         }}
       >
         {/* Animated sun */}
@@ -293,7 +293,7 @@ export default function GardenPage() {
           >
             {/* Header */}
             <div className="flex items-center gap-3">
-              <span style={{ fontSize: 28 }}>{tree.emoji}</span>
+              <span style={{ fontSize: 40 }}>{tree.emoji}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-[#2d2926]">{child.name}</p>
                 <p className="text-xs text-[#7a6f65]">{stageInfo.name} · {leaves} {leaves === 1 ? "leaf" : "leaves"}</p>
