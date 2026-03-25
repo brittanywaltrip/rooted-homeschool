@@ -411,7 +411,7 @@ export default function Home() {
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
-            Built for families who take homeschooling seriously. 🌱
+            The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all.
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
@@ -436,61 +436,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 3. SOCIAL PROOF STRIP ──────────────────────────────────────────── */}
-      <section className="bg-[#fefcf9] border-b border-[#e8e2d9]">
-        <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
-            {[
-              { number: "For You",  label: "Built for Families Like Yours", icon: "🌱" },
-              { number: "5",       label: "Sections, All-in-One", icon: "✨" },
-              { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
-              { number: "1-Click", label: "Progress Reports",  icon: "📋" },
-            ].map(({ number, label, icon }) => (
-              <div key={label} className="py-9 px-4 text-center">
-                <div className="text-xl mb-2">{icon}</div>
-                <div
-                  className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-1 leading-none"
-                  style={{ fontFamily: "var(--font-display)" }}
-                >
-                  {number}
-                </div>
-                <div className="text-xs text-[#7a6f65] leading-snug mt-1">{label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── 3b. CURRICULUM CLARIFIER ─────────────────────────────────────────── */}
-      <section className="bg-[#fefcf9] border-b border-[#e8e2d9] py-6 px-6">
-        <div className="max-w-3xl mx-auto text-center">
-          <p className="text-sm sm:text-base text-[#7a6f65] leading-relaxed">
-            <span className="font-semibold text-[#2d2926]">Rooted isn&apos;t a curriculum</span>
-            {" "}— it&apos;s the calm companion that works{" "}
-            <em className="not-italic font-semibold text-[#5c7f63]">alongside</em>
-            {" "}the one you already love. 🌿
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
-            {[
-              "Charlotte Mason",
-              "The Good and the Beautiful",
-              "Classical",
-              "Sonlight",
-              "Unit Studies",
-              "Unschooling",
-              "Any approach ✨",
-            ].map((c) => (
-              <span
-                key={c}
-                className="text-xs bg-[#e8f0e9] text-[#5c7f63] px-3 py-1.5 rounded-full border border-[#c2dbc5] font-medium"
-              >
-                {c}
-              </span>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* ── 4. APP PREVIEW ─────────────────────────────────────────────────── */}
       <section id="features" className="px-6 sm:px-8 py-20 max-w-5xl mx-auto">
         <div className="text-center mb-14">
@@ -505,22 +450,17 @@ export default function Home() {
           </h2>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 sm:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 sm:gap-6 max-w-3xl mx-auto">
           {[
             {
               mockup: <TodayMockup />,
               title: "Daily Lesson Tracking",
-              desc: "See today's lessons at a glance. Log completions and watch the growth tree fill with leaves in real time.",
+              desc: "See today's lessons at a glance. Check off completions and watch your family's garden grow with every lesson.",
             },
             {
               mockup: <GardenMockup />,
               title: "The Family Garden",
-              desc: "Every lesson earns a leaf. Each child's tree blooms through five stages — from Seed all the way to Thriving.",
-            },
-            {
-              mockup: <ReportMockup />,
-              title: "Print-Ready Reports",
-              desc: "Generate clean, professional progress reports for your family records. Configure, preview, and print in one click.",
+              desc: "Every lesson earns a leaf. Each child's tree blooms through stages — from Seed all the way to Majestic.",
             },
           ].map(({ mockup, title, desc }) => (
             <div key={title} className="mockup-card flex flex-col gap-5 cursor-default">
@@ -539,85 +479,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 5. FEATURES (FIVE PILLARS) ──────────────────────────────────────── */}
-      <section className="bg-[#fefcf9] border-y border-[#e8e2d9]">
-        <div className="max-w-5xl mx-auto px-6 sm:px-8 py-20">
-          <div className="text-center mb-12">
-            <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-              Everything you need
-            </p>
-            <h2
-              className="text-3xl sm:text-4xl font-bold text-[#2d2926]"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              Everything you need to homeschool with confidence
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {[
-              {
-                emoji: "🗓️",
-                title: "Plan Your Days",
-                color: "#e8f0e9",
-                border: "#b8d9bc",
-                desc: "Schedule lessons, see what\u2019s up today, and keep the whole family on track.",
-              },
-              {
-                emoji: "🌱",
-                title: "Watch Them Grow",
-                color: "#f0f7e0",
-                border: "#c8d8a0",
-                desc: "Every lesson earns a leaf. Watch each child\u2019s tree bloom through five stages.",
-              },
-              {
-                emoji: "📚",
-                title: "Curated Resources",
-                color: "#e8f4f8",
-                border: "#a8d0e0",
-                desc: "Discounts, field trips, printables, science projects, and state homeschool information \u2014 curated for you.",
-              },
-              {
-                emoji: "📸",
-                title: "Capture Memories",
-                color: "#fef3e0",
-                border: "#f0d090",
-                desc: "Photos, little quotes, field trips, books they loved — saved as it happens. Because these years go by so fast.",
-              },
-              {
-                emoji: "📋",
-                title: "Generate Reports",
-                color: "#f5ede0",
-                border: "#d4b896",
-                desc: "See exactly how much your kids have learned — then print it, share it with grandparents, or save it forever.",
-              },
-              {
-                emoji: "💡",
-                title: "Insights & Streaks",
-                color: "#f0e8f8",
-                border: "#c8a8e0",
-                desc: "See streaks, active days, and how this week compares to last.",
-              },
-            ].map((f) => (
-              <div
-                key={f.title}
-                className="rounded-2xl p-6 border transition-all duration-200 hover:shadow-lg hover:scale-[1.02] cursor-default"
-                style={{ backgroundColor: f.color, borderColor: f.border }}
-              >
-                <div className="text-3xl mb-3">{f.emoji}</div>
-                <h3
-                  className="font-bold text-[#2d2926] mb-2 text-base"
-                  style={{ fontFamily: "var(--font-display)" }}
-                >
-                  {f.title}
-                </h3>
-                <p className="text-sm text-[#7a6f65] leading-relaxed">{f.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* ── 6. MEMORIES ───────────────────────────────────────────────────────── */}
       <section
         className="px-6 sm:px-8 py-24"
@@ -627,7 +488,7 @@ export default function Home() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-                The part moms love most
+                The part families love most
               </p>
               <h2
                 className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
@@ -706,8 +567,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 6b. PRINTABLES & REPORTS ──────────────────────────────────────────── */}
-      <section className="bg-[#fefcf9] border-y border-[#e8e2d9] px-6 sm:px-8 py-20">
+      {/* section 6b removed */}
+      {false && <section className="hidden">
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
 
@@ -802,7 +663,7 @@ export default function Home() {
             </div>
           </div>
         </div>
-      </section>
+      </section>}
 
       {/* ── 7. FOUNDER QUOTE ───────────────────────────────────────────────── */}
       <section className="bg-[#fefcf9] border-y border-[#e8e2d9]">
