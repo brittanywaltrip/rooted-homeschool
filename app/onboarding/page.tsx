@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Plus, X } from "lucide-react";
+import { Camera, Check, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -10,18 +10,6 @@ import { supabase } from "@/lib/supabase";
 const CHILD_COLORS = [
   "#5c7f63", "#7a9e7e", "#4a7a8a",
   "#5a5c8a", "#c4956a", "#c4697a",
-];
-
-const US_STATES = [
-  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut",
-  "Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa",
-  "Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan",
-  "Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada",
-  "New Hampshire","New Jersey","New Mexico","New York","North Carolina",
-  "North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island",
-  "South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont",
-  "Virginia","Washington","West Virginia","Wisconsin","Wyoming",
-  "Outside the US",
 ];
 
 const GRADE_OPTIONS = [
@@ -32,7 +20,6 @@ const GRADE_OPTIONS = [
 ];
 
 const SUBJECT_CHIPS = ["Math", "Reading", "Language Arts", "Science", "History", "Art", "Other"];
-const CORE_CHIPS = SUBJECT_CHIPS.slice(0, -1); // all except "Other"
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -49,9 +36,7 @@ type CurriculumDraft = {
   curricName: string;
   subjects: string[];
   totalLessons: number;
-  lessonsDone: number;  // lessons already completed before starting (0 = from beginning)
-  schoolDays: boolean[]; // Mon–Sun
-  finishDate: string;
+  schoolDays: boolean[];
   childUid: number;
 };
 
@@ -69,9 +54,9 @@ const mkChild = (index = 0): ChildDraft => ({
 });
 
 const freshDraft = (childUid: number): CurriculumDraft => ({
-  curricName: "", subjects: [], totalLessons: 0, lessonsDone: 0,
+  curricName: "", subjects: [], totalLessons: 0,
   schoolDays: [true, true, true, true, true, false, false],
-  finishDate: "", childUid,
+  childUid,
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -82,9 +67,10 @@ function toDateStr(d: Date) {
 
 function generateSchedule(draft: CurriculumDraft): ScheduleRow[] {
   const rows: ScheduleRow[] = [];
+  if (!draft.totalLessons || draft.totalLessons <= 0) return rows;
   const cursor = new Date();
   cursor.setHours(0, 0, 0, 0);
-  let lessonNum = (draft.lessonsDone ?? 0) + 1;
+  let lessonNum = 1;
   let safety = 0;
   while (lessonNum <= draft.totalLessons && safety < 3650) {
     const dayIdx = (cursor.getDay() + 6) % 7;
@@ -96,17 +82,6 @@ function generateSchedule(draft: CurriculumDraft): ScheduleRow[] {
     safety++;
   }
   return rows;
-}
-
-function getNextSchoolDay(schoolDays: boolean[]): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  let safety = 0;
-  do {
-    d.setDate(d.getDate() + 1);
-    safety++;
-  } while (!schoolDays[(d.getDay() + 6) % 7] && safety < 14);
-  return d;
 }
 
 // ─── Shared layout ────────────────────────────────────────────────────────────
@@ -146,18 +121,6 @@ function ContinueBtn({ label = "Continue →", onClick, disabled = false }: { la
   );
 }
 
-function SkipLink({ label = "Skip for now →", onClick }: { label?: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="block w-full text-center text-sm text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-3 py-1"
-    >
-      {label}
-    </button>
-  );
-}
-
 function BackBtn({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -170,21 +133,16 @@ function BackBtn({ onClick }: { onClick: () => void }) {
   );
 }
 
-// ─── Progress dots ────────────────────────────────────────────────────────────
-
-function ProgressDots({ step }: { step: number }) {
+function ProgressDots({ step, total = 5 }: { step: number; total?: number }) {
   return (
     <div className="flex items-center justify-center gap-2 mb-8">
-      {[1,2,3,4,5,6,7].map((s) => (
+      {Array.from({ length: total }, (_, i) => i + 1).map((s) => (
         <div
           key={s}
           className="rounded-full transition-all duration-300"
           style={{
-            width: 8,
-            height: 8,
-            backgroundColor:
-              s < step  ? "#5c7f63" :
-              s === step ? "#3d5c42" : "#e8e2d9",
+            width: 8, height: 8,
+            backgroundColor: s < step ? "#5c7f63" : s === step ? "#3d5c42" : "#e8e2d9",
           }}
         />
       ))}
@@ -200,12 +158,12 @@ function Confetti() {
   const pieces = useRef(
     Array.from({ length: 50 }, (_, i) => ({
       id: i,
-      left:     Math.random() * 100,
-      delay:    Math.random() * 2,
+      left: Math.random() * 100,
+      delay: Math.random() * 2,
       duration: 2.5 + Math.random() * 2.5,
-      color:    CONF_COLORS[Math.floor(Math.random() * CONF_COLORS.length)],
-      w:        6 + Math.random() * 7,
-      rotate:   Math.random() * 360,
+      color: CONF_COLORS[Math.floor(Math.random() * CONF_COLORS.length)],
+      w: 6 + Math.random() * 7,
+      rotate: Math.random() * 360,
     }))
   ).current;
 
@@ -216,11 +174,8 @@ function Confetti() {
           key={p.id}
           className="absolute top-0 rounded-sm"
           style={{
-            left: `${p.left}%`,
-            width: p.w,
-            height: p.w * 0.5,
-            backgroundColor: p.color,
-            opacity: 0,
+            left: `${p.left}%`, width: p.w, height: p.w * 0.5,
+            backgroundColor: p.color, opacity: 0,
             animation: `confFall ${p.duration}s ${p.delay}s ease-in infinite`,
             transform: `rotate(${p.rotate}deg)`,
           }}
@@ -236,149 +191,7 @@ function Confetti() {
   );
 }
 
-// ─── Step 1 — Welcome ─────────────────────────────────────────────────────────
-
-function StepWelcome({ firstName, onNext }: { firstName: string; onNext: () => void }) {
-  return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-6 relative overflow-hidden"
-      style={{ background: "linear-gradient(155deg, #1a3d24 0%, #2a5533 45%, #3d7a50 80%, #4d8f63 100%)" }}
-    >
-      <div className="absolute inset-0 opacity-[0.07]"
-        style={{ backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
-
-      <ProgressDots step={1} />
-
-      <div className="relative z-10 flex flex-col items-center text-center max-w-sm w-full animate-[fadeUp_0.7s_ease-out_forwards]">
-        <style>{`
-          @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-          @keyframes drawStem { from { stroke-dashoffset: 90; } to { stroke-dashoffset: 0; } }
-          @keyframes popLeaf { from { opacity:0; transform:scale(0) rotate(-15deg); } to { opacity:1; transform:scale(1) rotate(0deg); } }
-          @keyframes popLeafR { from { opacity:0; transform:scale(0) rotate(15deg); } to { opacity:1; transform:scale(1) rotate(0deg); } }
-          @keyframes popBud { from { opacity:0; transform:scale(0); } to { opacity:1; transform:scale(1); } }
-        `}</style>
-
-        <svg width="110" height="130" viewBox="0 0 110 130" className="mb-8" aria-hidden>
-          <ellipse cx="55" cy="118" rx="30" ry="8" fill="#1a3d24" opacity="0.4" />
-          <path d="M55 115 Q55 80 55 40"
-            stroke="#7aaa78" strokeWidth="4" strokeLinecap="round" fill="none"
-            style={{ strokeDasharray: 90, strokeDashoffset: 90, animation: "drawStem 1s ease-out 0.4s forwards" }} />
-          <ellipse cx="38" cy="80" rx="20" ry="9"
-            fill="#5c9460" transform="rotate(-35, 38, 80)"
-            style={{ transformOrigin: "55px 80px", opacity: 0, animation: "popLeaf 0.45s ease-out 1.1s forwards" }} />
-          <ellipse cx="72" cy="64" rx="20" ry="9"
-            fill="#7aaa78" transform="rotate(25, 72, 64)"
-            style={{ transformOrigin: "55px 64px", opacity: 0, animation: "popLeafR 0.45s ease-out 1.3s forwards" }} />
-          <ellipse cx="34" cy="52" rx="14" ry="7"
-            fill="#4a8055" transform="rotate(-25, 34, 52)"
-            style={{ transformOrigin: "55px 52px", opacity: 0, animation: "popLeaf 0.4s ease-out 1.5s forwards" }} />
-          <circle cx="55" cy="38" r="9" fill="#a0cc9a"
-            style={{ transformOrigin: "55px 38px", opacity: 0, animation: "popBud 0.4s ease-out 1.7s forwards" }} />
-          <circle cx="55" cy="38" r="5" fill="#c8e8c0"
-            style={{ transformOrigin: "55px 38px", opacity: 0, animation: "popBud 0.4s ease-out 1.9s forwards" }} />
-        </svg>
-
-        <p className="text-xs font-semibold tracking-[0.3em] uppercase text-[#a0cc9a] mb-4">
-          Welcome to Rooted
-        </p>
-        <h1
-          className="text-4xl sm:text-5xl font-bold text-white mb-4 leading-tight"
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          {firstName ? `Hello, ${firstName}! 🌿` : "Welcome! 🌿"}
-        </h1>
-        <p className="text-[#c8ddb8] text-base sm:text-lg leading-relaxed mb-2 max-w-xs">
-          Your homeschool, finally organized.
-        </p>
-        <p className="text-[#a0cc9a] text-sm leading-relaxed mb-10 max-w-xs">
-          Let&apos;s get everything set up.
-        </p>
-
-        <button
-          onClick={onNext}
-          className="flex items-center gap-2.5 px-9 py-4 rounded-2xl bg-white text-[#2d5c38] font-semibold text-lg hover:bg-[#f5fbf5] transition-all shadow-2xl hover:scale-105 active:scale-100"
-        >
-          Let&apos;s Go →
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Step 2 — Family Name ─────────────────────────────────────────────────────
-
-function StepFamilyName({
-  value, onChange, onNext, onBack,
-}: {
-  value: string;
-  onChange: (s: string) => void;
-  onNext: () => void;
-  onBack: () => void;
-}) {
-  return (
-    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
-      <BackBtn onClick={onBack} />
-      <ProgressDots step={2} />
-      <Card>
-        <StepHeading eyebrow="Step 2 of 7" title="What should we call your family?" />
-        <div className="mb-6">
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onBlur={(e) => onChange(e.target.value.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "))}
-            placeholder="e.g. The Smith Family"
-            autoFocus
-            style={{ textTransform: "capitalize" }}
-            className="w-full px-4 py-3.5 rounded-2xl border border-[#e8e2d9] bg-white text-[#2d2926] text-sm focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-          />
-        </div>
-        <ContinueBtn onClick={onNext} disabled={!value.trim()} />
-      </Card>
-    </div>
-  );
-}
-
-// ─── Step 3 — State ───────────────────────────────────────────────────────────
-
-function StepState({
-  value, onChange, onNext, onSkip, onBack,
-}: {
-  value: string;
-  onChange: (s: string) => void;
-  onNext: () => void;
-  onSkip: () => void;
-  onBack: () => void;
-}) {
-  return (
-    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
-      <BackBtn onClick={onBack} />
-      <ProgressDots step={3} />
-      <Card>
-        <StepHeading
-          eyebrow="Step 3 of 7"
-          title="Where do you homeschool?"
-          sub="Helps us give you relevant tips and resources."
-        />
-        <div className="mb-6">
-          <select
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            className="w-full px-4 py-3.5 rounded-2xl border border-[#e8e2d9] bg-white text-[#2d2926] text-sm focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition appearance-none"
-            style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237a6f65' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 16px center" }}
-          >
-            <option value="">Select your state…</option>
-            {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <ContinueBtn onClick={onNext} disabled={!value} label={value ? "Continue →" : "Select a state to continue"} />
-        <SkipLink onClick={onSkip} />
-      </Card>
-    </div>
-  );
-}
-
-// ─── Step 4 — Children ────────────────────────────────────────────────────────
+// ─── Step 1 — Family Name + Children ─────────────────────────────────────────
 
 function ChildRow({
   child, onChange, onRemove, showRemove,
@@ -421,7 +234,7 @@ function ChildRow({
           className="flex-1 px-3 pr-8 py-2 rounded-xl border border-[#e8e2d9] bg-white text-xs text-[#2d2926] focus:outline-none focus:border-[#5c7f63] transition appearance-none"
           style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237a6f65' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 10px center" }}
         >
-          <option value="">Grade</option>
+          <option value="">Grade (optional)</option>
           {GRADE_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -440,15 +253,18 @@ function ChildRow({
   );
 }
 
-function StepChildren({
-  children, onChange, onAdd, onRemove, onNext, onBack,
+function StepFamilyAndKids({
+  familyName, onFamilyNameChange,
+  children, onChildChange, onAddChild, onRemoveChild,
+  onNext,
 }: {
+  familyName: string;
+  onFamilyNameChange: (v: string) => void;
   children: ChildDraft[];
-  onChange: (uid: number, patch: Partial<ChildDraft>) => void;
-  onAdd: () => void;
-  onRemove: (uid: number) => void;
+  onChildChange: (uid: number, patch: Partial<ChildDraft>) => void;
+  onAddChild: () => void;
+  onRemoveChild: (uid: number) => void;
   onNext: () => void;
-  onBack: () => void;
 }) {
   const [showError, setShowError] = useState(false);
   const hasValid = children.some((c) => c.name.trim().length > 0);
@@ -460,1240 +276,547 @@ function StepChildren({
 
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
-      <BackBtn onClick={onBack} />
-      <ProgressDots step={4} />
+      <ProgressDots step={1} />
       <Card>
         <StepHeading
-          eyebrow="Step 4 of 7"
-          title="Who are you homeschooling?"
-          sub="Add your children to get started. You can always add more in Settings."
+          eyebrow="Step 1 of 5"
+          title="Tell us about your family"
+          sub="We'll use this to personalize your experience."
         />
+
+        {/* Family name */}
+        <div className="mb-6">
+          <label className="text-xs font-medium text-[#7a6f65] block mb-2">Family name (optional)</label>
+          <input
+            type="text"
+            value={familyName}
+            onChange={(e) => onFamilyNameChange(e.target.value)}
+            placeholder="e.g. The Smith Family"
+            className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+          />
+        </div>
+
+        {/* Children */}
+        <label className="text-xs font-medium text-[#7a6f65] block mb-2">Your children</label>
         <div className="space-y-3 mb-4">
           {children.map((child) => (
             <ChildRow
               key={child.uid}
               child={child}
-              onChange={(patch) => onChange(child.uid, patch)}
-              onRemove={() => onRemove(child.uid)}
+              onChange={(patch) => onChildChange(child.uid, patch)}
+              onRemove={() => onRemoveChild(child.uid)}
               showRemove={children.length > 1}
             />
           ))}
         </div>
+
         {showError && !hasValid && (
           <p className="text-sm text-red-500 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3">
             Please add at least one child to continue.
           </p>
         )}
-        {children.length < 8 ? (
+
+        {children.length < 8 && (
           <button
             type="button"
-            onClick={onAdd}
+            onClick={onAddChild}
             className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-dashed border-[#c8ddb8] bg-[#f0f7f0] hover:bg-[#e8f2e8] text-sm font-medium text-[#5c7f63] transition-colors mb-6"
           >
             <Plus size={15} /> Add another child
           </button>
-        ) : (
-          <p className="text-xs text-[#b5aca4] text-center mb-6">
-            You&apos;ve added 8 children — add more in Settings after setup.
-          </p>
         )}
+
         <ContinueBtn onClick={handleNext} />
       </Card>
     </div>
   );
 }
 
-// ─── Curriculum Library ───────────────────────────────────────────────────────
+// ─── Step 2 — First Memory Photo ─────────────────────────────────────────────
 
-type LibraryCurric = {
-  name: string;
-  subject: string; // must match one of FILTER_SUBJECTS (except "All")
-  lessons: number;
-  days: boolean[]; // Mon–Sun
-};
+function StepFirstMemory({
+  onNext, onSkip, onBack, userId,
+}: {
+  onNext: () => void;
+  onSkip: () => void;
+  onBack: () => void;
+  userId: string;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-const MF   : boolean[] = [true,true,true,true,true,false,false];   // Mon–Fri
-const MWF  : boolean[] = [true,false,true,false,true,false,false]; // Mon/Wed/Fri
-const MTTF : boolean[] = [true,true,true,true,false,false,false];  // Mon–Thu
+  async function handleFile(file: File) {
+    setPhotoFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+
+    // Upload immediately
+    setSaving(true);
+    const path = `${userId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+    const { error } = await supabase.storage
+      .from("memory-photos")
+      .upload(path, file, { contentType: file.type, upsert: false });
+
+    if (!error) {
+      const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+      const today = new Date().toISOString().split("T")[0];
+      await supabase.from("app_events").insert({
+        user_id: userId,
+        type: "memory_photo",
+        payload: {
+          photo_url: urlData.publicUrl,
+          title: "Our first memory",
+          date: today,
+        },
+      });
+      setSaved(true);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
+      <BackBtn onClick={onBack} />
+      <ProgressDots step={2} />
+      <Card>
+        <StepHeading
+          eyebrow="Step 2 of 5"
+          title="Capture your first memory 📸"
+          sub="A photo of your setup, a project, anything from your homeschool. It only takes a second."
+        />
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (e.target) e.target.value = "";
+            if (f) handleFile(f);
+          }}
+        />
+
+        {!previewUrl ? (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="w-full flex flex-col items-center justify-center gap-3 py-12 rounded-2xl border-2 border-dashed border-[#c8ddb8] bg-[#f0f7f0] hover:bg-[#e8f2e8] hover:border-[#5c7f63] transition-all mb-6"
+          >
+            <div className="w-16 h-16 rounded-full bg-[#5c7f63] flex items-center justify-center shadow-lg">
+              <Camera size={28} className="text-white" />
+            </div>
+            <span className="text-base font-semibold text-[#5c7f63]">Take or choose a photo</span>
+            <span className="text-xs text-[#7a6f65]">Tap to open your camera or photo library</span>
+          </button>
+        ) : (
+          <div className="mb-6 space-y-4">
+            <div className="relative rounded-2xl overflow-hidden">
+              <img src={previewUrl} alt="Your first memory" className="w-full max-h-64 object-cover" />
+              {saving && (
+                <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                  <div className="w-6 h-6 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                </div>
+              )}
+              {!saving && (
+                <button
+                  onClick={() => { setPhotoFile(null); setPreviewUrl(null); setSaved(false); }}
+                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            {saved && (
+              <div className="bg-[#e8f0e9] border border-[#c8ddb8] rounded-2xl px-4 py-3 text-center">
+                <p className="text-sm font-semibold text-[#3d5c42]">
+                  Beautiful! Your story starts here. 🌱
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {saved ? (
+          <ContinueBtn label="Next →" onClick={onNext} />
+        ) : (
+          <button
+            type="button"
+            onClick={onSkip}
+            className="w-full text-center text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors py-3 font-medium"
+          >
+            Skip for now →
+          </button>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ─── Step 3 — School Days ────────────────────────────────────────────────────
+
+function StepSchoolDays({
+  schoolDays, onChange, onNext, onBack,
+}: {
+  schoolDays: boolean[];
+  onChange: (days: boolean[]) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  function toggleDay(idx: number) {
+    const next = [...schoolDays];
+    next[idx] = !next[idx];
+    onChange(next);
+  }
+
+  return (
+    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
+      <BackBtn onClick={onBack} />
+      <ProgressDots step={3} />
+      <Card>
+        <StepHeading
+          eyebrow="Step 3 of 5"
+          title="Which days do you do school?"
+          sub="This helps us schedule your lessons automatically."
+        />
+
+        <div className="grid grid-cols-7 gap-2 mb-8">
+          {DAY_LABELS.map((label, i) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => toggleDay(i)}
+              className={`flex flex-col items-center gap-1 py-3 rounded-xl border-2 transition-all ${
+                schoolDays[i]
+                  ? "border-[#5c7f63] bg-[#e8f0e9]"
+                  : "border-[#e8e2d9] bg-white hover:border-[#c8bfb5]"
+              }`}
+            >
+              <span className={`text-xs font-bold ${schoolDays[i] ? "text-[#3d5c42]" : "text-[#b5aca4]"}`}>
+                {label}
+              </span>
+              {schoolDays[i] && (
+                <div className="w-4 h-4 rounded-full bg-[#5c7f63] flex items-center justify-center">
+                  <Check size={10} className="text-white" strokeWidth={3} />
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <ContinueBtn onClick={onNext} />
+      </Card>
+    </div>
+  );
+}
+
+// ─── Curriculum Library (simplified) ─────────────────────────────────────────
+
+type LibraryCurric = { name: string; subject: string; lessons: number; days: boolean[] };
+
+const MF: boolean[] = [true,true,true,true,true,false,false];
+const MWF: boolean[] = [true,false,true,false,true,false,false];
+const MTTF: boolean[] = [true,true,true,true,false,false,false];
 
 const FILTER_SUBJECTS = ["All","Math","Reading","Language Arts","Science","History","Bible"];
 
 const CURRICULUM_LIBRARY: LibraryCurric[] = [
-  // ── Math ──────────────────────────────────────────────────────────────────
-  { name: "Saxon Math",                             subject: "Math",          lessons: 120, days: MF   },
-  { name: "Math-U-See",                             subject: "Math",          lessons: 120, days: MF   },
-  { name: "The Good and the Beautiful Math",        subject: "Math",          lessons: 120, days: MF   },
-  { name: "Singapore Math",                         subject: "Math",          lessons:  90, days: MF   },
-  { name: "RightStart Mathematics",                 subject: "Math",          lessons: 120, days: MTTF },
-  { name: "Teaching Textbooks",                     subject: "Math",          lessons: 120, days: MF   },
-  { name: "Beast Academy",                          subject: "Math",          lessons:  80, days: MF   },
-  { name: "Horizons Math",                          subject: "Math",          lessons: 160, days: MF   },
-  { name: "Abeka Math",                             subject: "Math",          lessons: 170, days: MF   },
-  { name: "Life of Fred",                           subject: "Math",          lessons:  60, days: MWF  },
-  { name: "CTCMath",                                subject: "Math",          lessons: 100, days: MF   },
-  { name: "Math Mammoth",                           subject: "Math",          lessons: 100, days: MF   },
-  { name: "Shiller Math",                           subject: "Math",          lessons:  80, days: MF   },
-  // ── Reading ───────────────────────────────────────────────────────────────
-  { name: "All About Reading",                      subject: "Reading",       lessons:  60, days: MTTF },
-  { name: "The Good and the Beautiful Reading",     subject: "Reading",       lessons: 120, days: MF   },
-  { name: "Explode the Code",                       subject: "Reading",       lessons:  80, days: MF   },
-  { name: "Teach Your Child to Read in 100 Easy Lessons", subject: "Reading", lessons: 100, days: MF  },
-  { name: "Bob Books",                              subject: "Reading",       lessons:  60, days: MTTF },
-  { name: "Sonlight Reading",                       subject: "Reading",       lessons:  36, days: MF   },
-  { name: "Progressive Phonics",                    subject: "Reading",       lessons:  60, days: MF   },
-  { name: "Pathway Readers",                        subject: "Reading",       lessons: 160, days: MF   },
-  { name: "Logic of English Foundations",           subject: "Reading",       lessons:  40, days: MF   },
-  { name: "Reading Eggs",                           subject: "Reading",       lessons: 100, days: MF   },
-  // ── Language Arts ─────────────────────────────────────────────────────────
-  { name: "All About Spelling",                     subject: "Language Arts", lessons:  48, days: MTTF },
-  { name: "The Good and the Beautiful Language Arts", subject: "Language Arts", lessons: 120, days: MF },
-  { name: "First Language Lessons",                 subject: "Language Arts", lessons: 100, days: MF   },
-  { name: "Easy Grammar",                           subject: "Language Arts", lessons: 140, days: MF   },
-  { name: "IEW",                                    subject: "Language Arts", lessons:  30, days: MWF  },
-  { name: "Writing With Ease",                      subject: "Language Arts", lessons:  36, days: MF   },
-  { name: "Rod and Staff English",                  subject: "Language Arts", lessons: 170, days: MF   },
-  { name: "Writing & Rhetoric",                     subject: "Language Arts", lessons:  30, days: MWF  },
-  { name: "Brave Writer",                           subject: "Language Arts", lessons:  36, days: MF   },
-  { name: "Classical Writing",                      subject: "Language Arts", lessons:  30, days: MWF  },
-  { name: "Spelling You See",                       subject: "Language Arts", lessons:  36, days: MF   },
-  { name: "Sequential Spelling",                    subject: "Language Arts", lessons: 180, days: MF   },
-  // ── Science ───────────────────────────────────────────────────────────────
-  { name: "Apologia Science",                       subject: "Science",       lessons:  96, days: MF   },
-  { name: "Elemental Science",                      subject: "Science",       lessons:  36, days: MF   },
-  { name: "Real Science Odyssey",                   subject: "Science",       lessons:  36, days: MF   },
-  { name: "Mystery Science",                        subject: "Science",       lessons:  40, days: MF   },
-  { name: "God's Design for Science",               subject: "Science",       lessons:  96, days: MF   },
-  { name: "Noeo Science",                           subject: "Science",       lessons:  36, days: MF   },
-  { name: "The Good and the Beautiful Science",     subject: "Science",       lessons: 120, days: MF   },
-  { name: "Building Foundations of Scientific Understanding", subject: "Science", lessons: 100, days: MF },
-  { name: "Supercharged Science",                   subject: "Science",       lessons:  50, days: MF   },
-  { name: "Nancy Larson Science",                   subject: "Science",       lessons:  60, days: MF   },
-  // ── History ───────────────────────────────────────────────────────────────
-  { name: "Story of the World",                     subject: "History",       lessons:  42, days: MF   },
-  { name: "Sonlight History",                       subject: "History",       lessons:  36, days: MF   },
-  { name: "Mystery of History",                     subject: "History",       lessons:  84, days: MF   },
-  { name: "Beautiful Feet Books",                   subject: "History",       lessons:  30, days: MF   },
-  { name: "The Good and the Beautiful History",     subject: "History",       lessons: 120, days: MF   },
-  { name: "Tapestry of Grace",                      subject: "History",       lessons: 180, days: MF   },
-  { name: "Veritas Press History",                  subject: "History",       lessons: 160, days: MF   },
-  { name: "Trail Guide to Learning",                subject: "History",       lessons:  36, days: MF   },
-  { name: "A History of US",                        subject: "History",       lessons:  50, days: MF   },
-  { name: "Notgrass History",                       subject: "History",       lessons:  90, days: MF   },
-  // ── Bible ─────────────────────────────────────────────────────────────────
-  { name: "Grapevine Studies",                      subject: "Bible",         lessons:  30, days: MF   },
-  { name: "Apologia Who Is God?",                   subject: "Bible",         lessons:  30, days: MF   },
-  { name: "The Good and the Beautiful Bible",       subject: "Bible",         lessons: 120, days: MF   },
-  { name: "Bible Study Guide for All Ages",         subject: "Bible",         lessons: 160, days: MF   },
-  { name: "Positive Action Bible",                  subject: "Bible",         lessons:  36, days: MF   },
-  { name: "Veritas Press Bible",                    subject: "Bible",         lessons: 160, days: MF   },
-  { name: "Heart of Wisdom",                        subject: "Bible",         lessons:  36, days: MF   },
-  { name: "Abeka Bible",                            subject: "Bible",         lessons: 170, days: MF   },
-  { name: "Memoria Press Bible",                    subject: "Bible",         lessons:  30, days: MWF  },
+  { name: "Saxon Math",                              subject: "Math",          lessons: 120, days: MF   },
+  { name: "Math-U-See",                              subject: "Math",          lessons: 120, days: MF   },
+  { name: "The Good and the Beautiful Math",          subject: "Math",          lessons: 120, days: MF   },
+  { name: "Singapore Math",                           subject: "Math",          lessons:  90, days: MF   },
+  { name: "RightStart Mathematics",                   subject: "Math",          lessons: 120, days: MTTF },
+  { name: "Teaching Textbooks",                       subject: "Math",          lessons: 120, days: MF   },
+  { name: "Beast Academy",                            subject: "Math",          lessons:  80, days: MF   },
+  { name: "Horizons Math",                            subject: "Math",          lessons: 160, days: MF   },
+  { name: "Abeka Math",                               subject: "Math",          lessons: 170, days: MF   },
+  { name: "Life of Fred",                             subject: "Math",          lessons:  60, days: MWF  },
+  { name: "CTCMath",                                  subject: "Math",          lessons: 100, days: MF   },
+  { name: "Math Mammoth",                             subject: "Math",          lessons: 100, days: MF   },
+  { name: "Shiller Math",                             subject: "Math",          lessons:  80, days: MF   },
+  { name: "All About Reading",                        subject: "Reading",       lessons:  60, days: MTTF },
+  { name: "The Good and the Beautiful Reading",       subject: "Reading",       lessons: 120, days: MF   },
+  { name: "Explode the Code",                         subject: "Reading",       lessons:  80, days: MF   },
+  { name: "Teach Your Child to Read in 100 Easy Lessons", subject: "Reading", lessons: 100, days: MF   },
+  { name: "Bob Books",                                subject: "Reading",       lessons:  60, days: MTTF },
+  { name: "Sonlight Reading",                         subject: "Reading",       lessons:  36, days: MF   },
+  { name: "All About Spelling",                       subject: "Language Arts", lessons:  48, days: MTTF },
+  { name: "The Good and the Beautiful Language Arts",  subject: "Language Arts", lessons: 120, days: MF   },
+  { name: "First Language Lessons",                   subject: "Language Arts", lessons: 100, days: MF   },
+  { name: "Easy Grammar",                             subject: "Language Arts", lessons: 140, days: MF   },
+  { name: "IEW",                                      subject: "Language Arts", lessons:  30, days: MWF  },
+  { name: "Apologia Science",                         subject: "Science",       lessons:  96, days: MF   },
+  { name: "Elemental Science",                        subject: "Science",       lessons:  36, days: MF   },
+  { name: "Mystery Science",                          subject: "Science",       lessons:  40, days: MF   },
+  { name: "The Good and the Beautiful Science",       subject: "Science",       lessons: 120, days: MF   },
+  { name: "Story of the World",                       subject: "History",       lessons:  42, days: MF   },
+  { name: "Sonlight History",                         subject: "History",       lessons:  36, days: MF   },
+  { name: "Mystery of History",                       subject: "History",       lessons:  84, days: MF   },
+  { name: "The Good and the Beautiful History",       subject: "History",       lessons: 120, days: MF   },
+  { name: "Grapevine Studies",                        subject: "Bible",         lessons:  30, days: MF   },
+  { name: "The Good and the Beautiful Bible",         subject: "Bible",         lessons: 120, days: MF   },
 ];
 
-// ─── Step 5 — Curriculum ──────────────────────────────────────────────────────
+// ─── Step 4 — Curriculum (Optional) ──────────────────────────────────────────
 
 function StepCurriculum({
-  validChildren,
-  curricChildUid,
-  draft,
-  childSchedules,
-  completedChildUids,
-  skippedChildUids,
-  confirmedChildUids,
-  onChange,
-  onChangeChild,
-  onBuildChild,
-  onConfirmChild,
-  onDoneAll,
-  onSkipChild,
-  onSkipAll,
-  onBack,
+  schoolDays, validChildren,
+  onAddCurriculum, onSkip, onBack,
 }: {
+  schoolDays: boolean[];
   validChildren: ChildDraft[];
-  curricChildUid: number;
-  draft: CurriculumDraft;
-  childSchedules: ChildSchedule[];
-  completedChildUids: Set<number>;
-  skippedChildUids: Set<number>;
-  confirmedChildUids: Set<number>;
-  onChange: (patch: Partial<CurriculumDraft>) => void;
-  onChangeChild: (uid: number) => void;
-  onBuildChild: (uid: number, draft: CurriculumDraft, rows: ScheduleRow[]) => void;
-  onConfirmChild: (uid: number) => void;
-  onDoneAll: (hasAnySchedule: boolean) => void;
-  onSkipChild: (uid: number) => void;
-  onSkipAll: () => void;
+  onAddCurriculum: (draft: CurriculumDraft, schedule: ScheduleRow[]) => void;
+  onSkip: () => void;
   onBack: () => void;
 }) {
-  const [showConfirmation, setShowConfirmation] = useState(false);
-  const [lastBuiltName, setLastBuiltName] = useState("");
-
-  // Screen A (picker) state
-  const [screen, setScreen] = useState<"picker" | "manual">("picker");
-  const [search, setSearch] = useState("");
+  const [mode, setMode] = useState<"pick" | "form">("pick");
   const [filterSubject, setFilterSubject] = useState("All");
-  const [selectedCard, setSelectedCard] = useState<LibraryCurric | null>(null);
-  const [hintVisible, setHintVisible] = useState(false);
-  const [alreadyStarted, setAlreadyStarted] = useState(false);
-  const [startingLesson, setStartingLesson] = useState<number | "">("");
+  const [search, setSearch] = useState("");
 
-  // Screen B (manual) state
-  const [otherSubject, setOtherSubject] = useState("");
-  const [otherPillActive, setOtherPillActive] = useState(
-    () => draft.subjects.some((s) => !CORE_CHIPS.includes(s))
-  );
-  const touchMoved = useRef(false);
-  const touchStartY = useRef(0);
+  // Form state
+  const [curricName, setCurricName] = useState("");
+  const [subject, setSubject] = useState("");
+  const [totalLessons, setTotalLessons] = useState("");
+  const [childUid, setChildUid] = useState(validChildren[0]?.uid ?? 0);
+  const [added, setAdded] = useState<string[]>([]);
 
-  // 15s hint timer — only ticks on Screen A, resets when returning to picker
-  useEffect(() => {
-    if (screen !== "picker") return;
-    const t = setTimeout(() => setHintVisible(true), 15000);
-    return () => clearTimeout(t);
-  }, [screen]);
-
-  // Sync state when active child changes
-  useEffect(() => {
-    const hasOther = draft.subjects.some((s) => !CORE_CHIPS.includes(s));
-    setOtherPillActive(hasOther);
-    setOtherSubject(draft.subjects.find((s) => !CORE_CHIPS.includes(s)) ?? "");
-    setScreen("picker");
-    setSelectedCard(null);
-    setSearch("");
-    setFilterSubject("All");
-    setHintVisible(false);
-    setAlreadyStarted(false);
-    setStartingLesson("");
-    setShowConfirmation(false);
-    setLastBuiltName("");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curricChildUid]);
-
-  const useProgressLayout = validChildren.length >= 4;
-  const singleChild      = validChildren.length === 1;
-  const currentChild     = validChildren.find((c) => c.uid === curricChildUid) ?? validChildren[0];
-  const currentIdx       = validChildren.findIndex((c) => c.uid === curricChildUid);
-  const isFirstChild     = currentIdx === 0;
-
-  const heading = singleChild || useProgressLayout
-    ? `What are you teaching ${currentChild?.name ?? "your child"}?`
-    : "Set up your first curriculum";
-
-  // Copy-from-sibling: find the nearest previous child (by index) with built curricula
-  const prevChildWithCurric = validChildren
-    .slice(0, currentIdx)
-    .reverse()
-    .find((c) => childSchedules.some((cs) => cs.childUid === c.uid)) ?? null;
-  const siblingCurricula = prevChildWithCurric
-    ? childSchedules.filter((cs) => cs.childUid === prevChildWithCurric.uid)
-    : [];
-
-  // Library filtering
-  const filteredLib = CURRICULUM_LIBRARY.filter((c) => {
-    const matchFilter = filterSubject === "All" || c.subject === filterSubject;
-    const matchSearch = !search.trim() || c.name.toLowerCase().includes(search.toLowerCase().trim());
-    return matchFilter && matchSearch;
-  });
-
-  // Estimated finish date from days + lessons
-  function calcFinishPreview(schoolDays: boolean[], lessons: number): string {
-    if (lessons <= 0 || !schoolDays.some(Boolean)) return "";
-    const daysPerWeek = schoolDays.filter(Boolean).length;
-    const weeksNeeded = Math.ceil(lessons / daysPerWeek);
-    const finish = new Date();
-    finish.setDate(finish.getDate() + weeksNeeded * 7);
-    return finish.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  }
-
-  // Select a library card → populate draft
-  function handleSelectCard(card: LibraryCurric) {
-    setSelectedCard(card);
-    onChange({
-      curricName:   card.name,
-      totalLessons: card.lessons,
-      subjects:     [card.subject],
-      schoolDays:   [...card.days],
-    });
-  }
-
-  function toggleDay(i: number) {
-    const days = [...draft.schoolDays];
-    days[i] = !days[i];
-    onChange({ schoolDays: days });
-  }
-
-  // Subject helpers (Screen B)
-  function toggleSubject(s: string) {
-    if (s === "Other") {
-      if (otherPillActive) {
-        setOtherPillActive(false);
-        setOtherSubject("");
-        onChange({ subjects: draft.subjects.filter((x) => CORE_CHIPS.includes(x)) });
-      } else {
-        setOtherPillActive(true);
-        setOtherSubject("");
-      }
-    } else {
-      const cur = draft.subjects.filter((x) => CORE_CHIPS.includes(x));
-      onChange({ subjects: cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s] });
+  const filtered = useMemo(() => {
+    let list = CURRICULUM_LIBRARY;
+    if (filterSubject !== "All") list = list.filter((c) => c.subject === filterSubject);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter((c) => c.name.toLowerCase().includes(q));
     }
+    return list;
+  }, [filterSubject, search]);
+
+  function pickFromLibrary(item: LibraryCurric) {
+    setCurricName(item.name);
+    setSubject(item.subject);
+    setTotalLessons(String(item.lessons));
+    setMode("form");
   }
 
-  function handleOtherInput(val: string) {
-    setOtherSubject(val);
-    const coreSelected = draft.subjects.filter((x) => CORE_CHIPS.includes(x));
-    onChange({ subjects: val.trim() ? [...coreSelected, val.trim()] : coreSelected });
+  function handleAdd() {
+    if (!curricName.trim()) return;
+    const draft: CurriculumDraft = {
+      curricName: curricName.trim(),
+      subjects: subject ? [subject] : [],
+      totalLessons: parseInt(totalLessons) || 0,
+      schoolDays,
+      childUid,
+    };
+    const schedule = generateSchedule(draft);
+    onAddCurriculum(draft, schedule);
+    setAdded((prev) => [...prev, curricName.trim()]);
+    // Reset for next
+    setCurricName("");
+    setSubject("");
+    setTotalLessons("");
+    setMode("pick");
   }
-
-  // ── Chaining logic ────────────────────────────────────────────────────────
-
-  function handleBuildClick() {
-    const lessonsDone = alreadyStarted && typeof startingLesson === "number" && startingLesson >= 2
-      ? startingLesson - 1
-      : 0;
-    const buildDraft = { ...draft, lessonsDone };
-    const rows = generateSchedule(buildDraft);
-    const finishDate = rows[rows.length - 1]?.date ?? "";
-    const finalDraft = { ...buildDraft, finishDate };
-    onChange({ lessonsDone, finishDate });
-    onBuildChild(curricChildUid, finalDraft, rows);
-    setLastBuiltName(finalDraft.curricName.trim());
-    setShowConfirmation(true);
-  }
-
-  function handleAddAnother() {
-    setShowConfirmation(false);
-    setSelectedCard(null);
-    setSearch("");
-    setFilterSubject("All");
-    setHintVisible(false);
-    setAlreadyStarted(false);
-    setStartingLesson("");
-    setScreen("picker");
-    onChange({
-      curricName: "", subjects: [], totalLessons: 0, lessonsDone: 0,
-      schoolDays: [true, true, true, true, true, false, false],
-      finishDate: "",
-    });
-  }
-
-  function handleConfirmDone() {
-    onConfirmChild(curricChildUid);
-    const newConfirmed = new Set([...confirmedChildUids, curricChildUid]);
-    const exclude      = new Set([...newConfirmed, ...skippedChildUids]);
-    const remaining    = validChildren.filter((c) => !exclude.has(c.uid));
-    if (remaining.length > 0) {
-      onChangeChild(remaining[0].uid);
-      setShowConfirmation(false);
-    } else {
-      onDoneAll(true);
-    }
-  }
-
-  function handleSkipCurrentChild() {
-    onSkipChild(curricChildUid);
-    const newSkipped = new Set([...skippedChildUids, curricChildUid]);
-    const exclude    = new Set([...confirmedChildUids, ...newSkipped]);
-    const remaining  = validChildren.filter((c) => !exclude.has(c.uid));
-    if (remaining.length > 0) {
-      onChangeChild(remaining[0].uid);
-    } else {
-      onDoneAll(completedChildUids.size > 0);
-    }
-  }
-
-  function handleCopyFromSibling(cs: ChildSchedule) {
-    setAlreadyStarted(false);
-    setStartingLesson("");
-    onChange({
-      curricName:   cs.draft.curricName,
-      totalLessons: cs.draft.totalLessons,
-      subjects:     cs.draft.subjects,
-      schoolDays:   [...cs.draft.schoolDays],
-      lessonsDone:  0,
-      finishDate:   "",
-    });
-
-    const isInLibrary = CURRICULUM_LIBRARY.some((lib) => lib.name === cs.draft.curricName);
-
-    if (isInLibrary) {
-      // Library curriculum — open Screen A with card pre-selected
-      setSelectedCard({
-        name:    cs.draft.curricName,
-        subject: cs.draft.subjects[0] ?? "Other",
-        lessons: cs.draft.totalLessons,
-        days:    [...cs.draft.schoolDays],
-      });
-      setSearch("");
-      setFilterSubject("All");
-      setScreen("picker");
-    } else {
-      // Manually entered curriculum — open Screen B pre-filled
-      setScreen("manual");
-      setSelectedCard(null);
-      const otherSub = cs.draft.subjects.find((s) => !CORE_CHIPS.includes(s)) ?? "";
-      setOtherPillActive(!!otherSub);
-      setOtherSubject(otherSub);
-    }
-  }
-
-  // ── Shared skip footer ────────────────────────────────────────────────────
-
-  const hasBuiltForCurrentChild = childSchedules.some((cs) => cs.childUid === curricChildUid);
-
-  const SkipFooter = () => {
-    if (hasBuiltForCurrentChild) {
-      return <SkipLink label={`Done with ${currentChild?.name} →`} onClick={handleConfirmDone} />;
-    }
-    return isFirstChild ? (
-      <div className="mt-4 text-center">
-        <p className="text-xs text-[#9e958d] leading-relaxed mb-2">
-          Set up at least one curriculum so Rooted can build your schedule.
-        </p>
-        <button
-          type="button"
-          onClick={onSkipAll}
-          className="text-xs text-[#c8bfb5] hover:text-[#9e958d] transition-colors py-1"
-        >
-          Skip all curriculum setup →
-        </button>
-      </div>
-    ) : (
-      <SkipLink label="Skip for now →" onClick={handleSkipCurrentChild} />
-    );
-  };
-
-  // ── Schedule preview body (shared between desktop inline + mobile panel) ──
-
-  const schedulePreviewBody = (
-    <>
-      {/* Editable lesson count */}
-      <div className="mb-3">
-        <label className="block text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-1.5">
-          Lessons
-        </label>
-        <input
-          type="number"
-          min={1}
-          value={draft.totalLessons || ""}
-          onChange={(e) => onChange({ totalLessons: Math.max(1, parseInt(e.target.value) || 0) })}
-          onWheel={(e) => e.currentTarget.blur()}
-          className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-        />
-        <p className="mt-1 text-xs text-[#7a6f65] italic">Lesson count is estimated · adjust if needed</p>
-      </div>
-
-      {/* Where are you starting? */}
-      <div className="mb-3">
-        <label className="block text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-1.5">
-          Where Are You Starting?
-        </label>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => { setAlreadyStarted(false); setStartingLesson(""); }}
-            className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
-            style={{
-              backgroundColor: !alreadyStarted ? "#5c7f63" : "#f8f5f0",
-              color:           !alreadyStarted ? "white" : "#9e958d",
-              borderColor:     !alreadyStarted ? "#5c7f63" : "#e8e2d9",
-            }}
-          >
-            From the beginning
-          </button>
-          <button
-            type="button"
-            onClick={() => setAlreadyStarted(true)}
-            className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
-            style={{
-              backgroundColor: alreadyStarted ? "#5c7f63" : "#f8f5f0",
-              color:           alreadyStarted ? "white" : "#9e958d",
-              borderColor:     alreadyStarted ? "#5c7f63" : "#e8e2d9",
-            }}
-          >
-            Already started
-          </button>
-        </div>
-        {alreadyStarted && (
-          <div className="mt-2">
-            <label className="block text-xs text-[#5c7f63] mb-1">Starting at lesson</label>
-            <input
-              type="number"
-              min={2}
-              value={startingLesson}
-              onChange={(e) => setStartingLesson(e.target.value === "" ? "" : parseInt(e.target.value) || "")}
-              onWheel={(e) => e.currentTarget.blur()}
-              placeholder="e.g. 47"
-              className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-            />
-            {typeof startingLesson === "number" && startingLesson >= 2 && (
-              <p className="mt-1 text-xs text-[#7a6f65] italic">
-                Lessons 1–{startingLesson - 1} will be marked as already done
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Day pills */}
-      <div
-        className="flex gap-1.5 mb-2"
-        onTouchStart={(e) => { touchMoved.current = false; touchStartY.current = e.touches[0].clientY; }}
-        onTouchMove={(e) => { if (Math.abs(e.touches[0].clientY - touchStartY.current) > 5) touchMoved.current = true; }}
-      >
-        {DAY_LABELS.map((d, i) => (
-          <button
-            key={d} type="button"
-            onClick={() => { if (touchMoved.current) return; toggleDay(i); }}
-            className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
-            style={{
-              backgroundColor: draft.schoolDays[i] ? "#5c7f63" : "#f8f5f0",
-              color:           draft.schoolDays[i] ? "white" : "#9e958d",
-              borderColor:     draft.schoolDays[i] ? "#5c7f63" : "#e8e2d9",
-            }}
-          >
-            {d.charAt(0)}
-          </button>
-        ))}
-      </div>
-
-      {(() => {
-        const done = alreadyStarted && typeof startingLesson === "number" && startingLesson >= 2
-          ? startingLesson - 1 : 0;
-        const remaining = Math.max(0, draft.totalLessons - done);
-        const preview = calcFinishPreview(draft.schoolDays, remaining);
-        return preview ? (
-          <p className="text-xs text-[#5c7f63] font-medium">~Finishes {preview}</p>
-        ) : null;
-      })()}
-    </>
-  );
-
-  // ── Main render ───────────────────────────────────────────────────────────
 
   return (
-    <div className={`min-h-screen bg-[#faf8f4] flex flex-col items-center justify-start px-5 py-10 overflow-y-auto${screen === "picker" && !showConfirmation ? " pb-[276px] md:pb-0" : ""}`}>
-      <BackBtn onClick={showConfirmation ? () => setShowConfirmation(false) : screen === "manual" ? () => setScreen("picker") : onBack} />
-      <ProgressDots step={5} />
+    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
+      <BackBtn onClick={onBack} />
+      <ProgressDots step={4} />
+      <Card className="!max-w-lg">
+        <StepHeading
+          eyebrow="Step 4 of 5"
+          title="Want to add your curriculum now?"
+          sub="You can always do this later from your Plan page."
+        />
 
-      <div className="w-full max-w-md mx-auto">
+        {/* Added curricula badges */}
+        {added.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {added.map((name) => (
+              <span key={name} className="text-xs font-medium bg-[#e8f0e9] text-[#3d5c42] px-3 py-1.5 rounded-full">
+                ✓ {name}
+              </span>
+            ))}
+          </div>
+        )}
 
-        {/* Heading */}
-        <div className="text-center mb-5">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#7a9e7e] mb-2">Step 5 of 7</p>
-          <h2
-            className="text-2xl sm:text-3xl font-bold text-[#2d2926] leading-snug"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            {heading}
-          </h2>
-        </div>
+        {mode === "pick" ? (
+          <>
+            {/* Search */}
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search curricula..."
+              className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] mb-3"
+            />
 
-        {/* Tab selector: 2–3 children */}
-        {!singleChild && !useProgressLayout && (
-          <div className="flex gap-2 mb-4 flex-wrap">
-            {validChildren.map((c) => {
-              const isActive   = c.uid === curricChildUid;
-              const isDone     = completedChildUids.has(c.uid);
-              const curricCount = childSchedules.filter((cs) => cs.childUid === c.uid).length;
-              return (
-                <button
-                  key={c.uid} type="button" onClick={() => onChangeChild(c.uid)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
-                  style={{
-                    backgroundColor: isActive ? c.color : "#f8f5f0",
-                    color:           isActive ? "white" : "#5c5248",
-                    borderColor:     isActive ? c.color : "#e8e2d9",
-                  }}
-                >
-                  {isDone && <Check size={10} strokeWidth={3} />}
-                  {c.name}
-                  {curricCount > 1 && (
-                    <span
-                      className="inline-flex items-center justify-center rounded-full text-[9px] font-bold leading-none"
-                      style={{
-                        width: 14, height: 14,
-                        backgroundColor: isActive ? "rgba(255,255,255,0.3)" : c.color,
-                        color: "white",
-                      }}
-                    >
-                      {curricCount}
-                    </span>
-                  )}
+            {/* Subject filters */}
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {FILTER_SUBJECTS.map((s) => (
+                <button key={s} type="button" onClick={() => setFilterSubject(s)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    filterSubject === s ? "bg-[#5c7f63] text-white" : "bg-[#f0ede8] text-[#7a6f65] hover:bg-[#e8e2d9]"
+                  }`}>
+                  {s}
                 </button>
-              );
-            })}
-          </div>
-        )}
+              ))}
+            </div>
 
-        {/* Progress layout: 4+ children */}
-        {useProgressLayout && (
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                  style={{ backgroundColor: currentChild?.color ?? "#5c7f63" }}
+            {/* Library list */}
+            <div className="max-h-48 overflow-y-auto space-y-1.5 mb-4 border border-[#e8e2d9] rounded-xl p-2">
+              {filtered.map((item) => (
+                <button
+                  key={item.name}
+                  type="button"
+                  onClick={() => pickFromLibrary(item)}
+                  disabled={added.includes(item.name)}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                    added.includes(item.name)
+                      ? "bg-[#e8f0e9] text-[#5c7f63] opacity-60"
+                      : "hover:bg-[#f0f7f0] text-[#2d2926]"
+                  }`}
                 >
-                  {(currentChild?.name ?? "?").charAt(0).toUpperCase()}
-                </div>
-                <span className="text-sm font-semibold text-[#2d2926]">{currentChild?.name ?? "—"}</span>
-              </div>
-              <span className="text-xs text-[#b5aca4]">{currentIdx + 1} of {validChildren.length} children</span>
-            </div>
-            <div className="space-y-0.5 bg-[#f8f5f0] rounded-2xl p-3 border border-[#ede8de]">
-              {validChildren.map((c) => {
-                const isDone      = completedChildUids.has(c.uid);
-                const isSkipped   = skippedChildUids.has(c.uid);
-                const isCurrent   = c.uid === curricChildUid;
-                const curricCount = childSchedules.filter((cs) => cs.childUid === c.uid).length;
-                const displayName = c.name.length > 8 ? c.name.slice(0, 7) + "…" : c.name;
-                const fillPct   = isDone || isSkipped ? "100%" : isCurrent ? "33%" : "0%";
-                const fillColor = isDone ? "#3d5c42" : isSkipped ? "#c8bfb5" : "#3d5c42";
-                const icon      = isDone && curricCount > 1 ? `✓${curricCount}` : isDone ? "✓" : isSkipped ? "–" : isCurrent ? "···" : "—";
-                const iconColor = isDone ? "#3d5c42" : isSkipped ? "#c8bfb5" : isCurrent ? "#5c7f63" : "#e0d8d0";
-                return (
-                  <button
-                    key={c.uid} type="button" onClick={() => onChangeChild(c.uid)}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl transition-colors text-left"
-                    style={{ backgroundColor: isCurrent ? "#e8f0e9" : "transparent" }}
-                  >
-                    <span className="text-xs shrink-0 truncate" style={{ width: "5rem", fontWeight: isCurrent ? 600 : 400, color: isCurrent ? "#2d2926" : "#7a6f65" }}>
-                      {displayName}
-                    </span>
-                    <div className="flex-1 relative rounded-full overflow-hidden" style={{ height: 3, backgroundColor: "#e8e2d9" }}>
-                      <div className="absolute left-0 top-0 h-full rounded-full" style={{ width: fillPct, backgroundColor: fillColor }} />
-                    </div>
-                    <span className="text-xs shrink-0 font-mono" style={{ color: iconColor, width: "1.25rem", textAlign: "center" }}>
-                      {icon}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {showConfirmation ? (
-
-          /* ── Confirmation panel ───────────────────────────────────────────── */
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl border border-[#f0ede8] p-5 sm:p-8 mb-6">
-            {/* Success header */}
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-9 h-9 rounded-full bg-[#f0f7f0] border border-[#c8ddb8] flex items-center justify-center shrink-0">
-                <Check size={16} className="text-[#5c7f63]" strokeWidth={2.5} />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-[#2d2926]">{lastBuiltName} added</p>
-                <p className="text-xs text-[#7a6f65]">{currentChild?.name}&apos;s schedule is ready 🌱</p>
-              </div>
+                  <span className="font-medium">{item.name}</span>
+                  <span className="text-[10px] text-[#b5aca4] ml-2">{item.subject} · {item.lessons} lessons</span>
+                </button>
+              ))}
             </div>
 
-            {/* List of curricula added for this child */}
-            <div className="space-y-1.5 mb-5">
-              {childSchedules
-                .filter((cs) => cs.childUid === curricChildUid)
-                .map((cs, i) => (
-                  <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#f8f5f0] text-xs">
-                    <Check size={10} className="text-[#5c7f63] shrink-0" strokeWidth={3} />
-                    <span className="text-[#2d2926] font-medium">{cs.draft.curricName}</span>
-                    <span className="text-[#c8bfb5]">·</span>
-                    <span className="text-[#7a6f65]">{cs.schedule.length} lessons</span>
-                  </div>
-                ))}
-            </div>
-
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={handleAddAnother}
-                className="w-full py-3 rounded-2xl border border-[#5c7f63] text-[#5c7f63] font-semibold text-sm transition-all hover:bg-[#f0f7f0] active:scale-[0.98]"
-              >
-                + Add another subject for {currentChild?.name}
-              </button>
-              <ContinueBtn
-                label={`Done with ${currentChild?.name} →`}
-                onClick={handleConfirmDone}
+            {/* Manual entry link */}
+            <button
+              type="button"
+              onClick={() => setMode("form")}
+              className="w-full text-center text-sm text-[#5c7f63] hover:text-[#3d5c42] font-medium mb-6 py-2"
+            >
+              + Add something not listed
+            </button>
+          </>
+        ) : (
+          /* Manual / pre-filled form */
+          <div className="space-y-4 mb-6">
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1">Curriculum name</label>
+              <input
+                type="text" value={curricName} onChange={(e) => setCurricName(e.target.value)}
+                placeholder="e.g. Saxon Math"
+                className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63]"
               />
             </div>
-          </div>
-
-        ) : screen === "picker" ? (
-
-          /* ── Screen A: Curriculum picker ─────────────────────────────────── */
-          <><div className="bg-[#fefcf9] rounded-3xl shadow-xl border border-[#f0ede8] p-5 mb-6">
-
-            {/* Copy-from-sibling pills */}
-            {siblingCurricula.length > 0 && (
-              <div className="mb-4">
-                <p className="text-xs text-[#9e958d] mb-1.5">Copy from {prevChildWithCurric?.name}:</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {siblingCurricula.map((cs, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => handleCopyFromSibling(cs)}
-                      className="px-3 py-1.5 rounded-full text-xs font-semibold border border-[#e8e2d9] bg-white text-[#5c5248] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-all"
-                    >
-                      {cs.draft.curricName}
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1">Subject</label>
+              <div className="flex flex-wrap gap-2">
+                {SUBJECT_CHIPS.map((s) => (
+                  <button key={s} type="button" onClick={() => setSubject(s === subject ? "" : s)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                      subject === s ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"
+                    }`}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1">Total lessons (optional)</label>
+              <input
+                type="number" value={totalLessons} onChange={(e) => setTotalLessons(e.target.value)}
+                placeholder="e.g. 120"
+                className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63]"
+              />
+            </div>
+            {validChildren.length > 1 && (
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1">For which child?</label>
+                <div className="flex flex-wrap gap-2">
+                  {validChildren.map((c) => (
+                    <button key={c.uid} type="button" onClick={() => setChildUid(c.uid)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        childUid === c.uid ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"
+                      }`}>
+                      {c.name}
                     </button>
                   ))}
                 </div>
               </div>
             )}
-
-            {/* Search */}
-            <div className="relative mb-3">
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search curricula…"
-                className="w-full pl-9 pr-4 py-2.5 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-              />
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c8bfb5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-              </svg>
-            </div>
-
-            {/* Filter pills */}
-            <div className="relative mb-4">
-              <div className="chips-row flex gap-1.5 pb-1 overflow-x-auto md:flex-wrap md:overflow-visible" style={{ scrollbarWidth: "none" }}>
-                {FILTER_SUBJECTS.map((s) => (
-                  <button
-                    key={s} type="button"
-                    onClick={() => setFilterSubject(s)}
-                    className="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
-                    style={{
-                      backgroundColor: filterSubject === s ? "#5c7f63" : "#f8f5f0",
-                      color:           filterSubject === s ? "white" : "#5c5248",
-                      borderColor:     filterSubject === s ? "#5c7f63" : "#e8e2d9",
-                    }}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-              {/* Right-fade gradient hint for mobile */}
-              <div className="pointer-events-none absolute right-0 top-0 bottom-1 w-10 bg-gradient-to-l from-[#fefcf9] to-transparent md:hidden" />
-            </div>
-
-            {/* Card list */}
-            <div className="space-y-1.5 max-h-56 overflow-y-auto mb-4 pr-0.5">
-              {filteredLib.length === 0 ? (
-                <div className="text-center py-6">
-                  <p className="text-sm text-[#9e958d] mb-2">No curricula found.</p>
-                  <button type="button" onClick={() => setScreen("manual")}
-                    className="text-sm text-[#5c7f63] font-medium hover:underline">
-                    Add yours manually →
-                  </button>
-                </div>
-              ) : filteredLib.map((c) => {
-                const isSelected = selectedCard?.name === c.name && selectedCard?.subject === c.subject;
-                return (
-                  <button
-                    key={`${c.subject}-${c.name}`} type="button"
-                    onClick={() => handleSelectCard(c)}
-                    className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl border text-left transition-all"
-                    style={{
-                      backgroundColor: isSelected ? "#f0f7f0" : "#fefcf9",
-                      borderColor:     isSelected ? "#5c7f63" : "#e8e2d9",
-                    }}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-[#2d2926] leading-tight">{c.name}</p>
-                      <p className="text-xs text-[#9e958d] mt-0.5">{c.subject} · ~{c.lessons} lessons</p>
-                    </div>
-                    {isSelected && <Check size={16} className="text-[#5c7f63] shrink-0" strokeWidth={2.5} />}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Desktop: schedule preview + build + hint (inline) */}
-            <div className="hidden md:block">
-              {selectedCard && (
-                <div className="bg-[#f0f7f0] border border-[#c8ddb8] rounded-2xl p-4 mb-4">
-                  <p className="text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-3">Schedule Preview</p>
-                  {schedulePreviewBody}
-                </div>
-              )}
-              <ContinueBtn
-                onClick={handleBuildClick}
-                disabled={!selectedCard || draft.totalLessons <= 0}
-                label={selectedCard
-                  ? `Build ${currentChild?.name ?? "their"}'s schedule →`
-                  : "Select a curriculum above"}
-              />
-              <p className="text-xs text-[#7a6f65] italic text-center mt-1.5">
-                Not sure about the count? Just tap Build — you can adjust lessons and pace in Plan anytime.
-              </p>
-            </div>
-
-            {/* Add my own link — hint appears after 15s (all screens) */}
-            <div className="mt-4 text-center">
-              {hintVisible && (
-                <p className="text-xs text-[#9e958d] mb-1">Don&apos;t see yours?</p>
-              )}
-              <button
-                type="button"
-                onClick={() => setScreen("manual")}
-                className="text-xs text-[#b5aca4] hover:text-[#5c7f63] transition-colors font-medium"
-              >
-                Add my own curriculum →
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setMode("pick")}
+                className="flex-1 py-3 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
+                ← Back
+              </button>
+              <button type="button" onClick={handleAdd} disabled={!curricName.trim()}
+                className="flex-1 py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white text-sm font-semibold transition-colors">
+                Add curriculum
               </button>
             </div>
-
-            <SkipFooter />
           </div>
-
-          {/* Mobile: sticky bottom schedule panel */}
-          <div
-            className="fixed bottom-0 left-0 right-0 z-[50] md:hidden transition-transform duration-300 ease-out"
-            style={{ transform: selectedCard ? "translateY(0)" : "translateY(calc(100% - 32px))" }}
-          >
-            <div className="bg-white rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.10)] px-5 pt-3 pb-8">
-              {/* Pull handle */}
-              <div className="flex justify-center mb-2">
-                <div className="w-8 h-1 bg-[#e8e2d9] rounded-full" />
-              </div>
-              {!selectedCard ? (
-                <p className="text-xs text-center text-[#b5aca4] py-1">Select a curriculum above</p>
-              ) : (
-                <>
-                  <p className="text-xs font-semibold text-[#5c7f63] uppercase tracking-wider mb-3">Schedule Preview</p>
-                  {schedulePreviewBody}
-                  <div className="mt-3">
-                    <ContinueBtn
-                      onClick={handleBuildClick}
-                      disabled={draft.totalLessons <= 0}
-                      label={`Build ${currentChild?.name ?? "their"}'s schedule →`}
-                    />
-                    <p className="text-xs text-[#7a6f65] italic text-center mt-1.5">
-                      Not sure? Just tap Build — adjust pace anytime in Plan.
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-          </div></>
-
-        ) : (
-
-          /* ── Screen B: Manual entry ───────────────────────────────────────── */
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl border border-[#f0ede8] p-5 sm:p-8 mb-6">
-
-            <button
-              type="button"
-              onClick={() => setScreen("picker")}
-              className="flex items-center gap-1.5 text-sm text-[#5c7f63] font-medium hover:underline mb-5"
-            >
-              ← Back to library
-            </button>
-
-            {/* Curriculum name */}
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
-                Curriculum Name
-              </label>
-              <input
-                type="text"
-                value={draft.curricName}
-                onChange={(e) => onChange({ curricName: e.target.value })}
-                onBlur={(e) => onChange({ curricName: e.target.value.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") })}
-                placeholder="e.g. Math with Saxon, All About Reading…"
-                autoFocus
-                style={{ textTransform: "capitalize" }}
-                className="w-full px-4 py-3 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-              />
-            </div>
-
-            {/* Subjects */}
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
-                Subject(s) <span className="font-normal normal-case text-[#b5aca4]">(optional)</span>
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {SUBJECT_CHIPS.map((s) => {
-                  const sel = s === "Other" ? otherPillActive : draft.subjects.includes(s);
-                  return (
-                    <button
-                      key={s} type="button" onClick={() => toggleSubject(s)}
-                      className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
-                      style={{
-                        backgroundColor: sel ? "#5c7f63" : "#f8f5f0",
-                        color:           sel ? "white" : "#5c5248",
-                        borderColor:     sel ? "#5c7f63" : "#e8e2d9",
-                      }}
-                    >
-                      {s}
-                    </button>
-                  );
-                })}
-              </div>
-              {otherPillActive && (
-                <input
-                  type="text"
-                  value={otherSubject}
-                  onChange={(e) => handleOtherInput(e.target.value)}
-                  placeholder="e.g. Bible, Latin, Music…"
-                  autoFocus
-                  style={{ textTransform: "capitalize" }}
-                  className="mt-2 w-full px-4 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-                />
-              )}
-            </div>
-
-            {/* Total lessons */}
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
-                Total Lessons
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={500}
-                value={draft.totalLessons || ""}
-                onChange={(e) => onChange({ totalLessons: Math.max(1, parseInt(e.target.value) || 0) })}
-                onWheel={(e) => e.currentTarget.blur()}
-                placeholder="e.g. 36"
-                className="w-full px-4 py-3 rounded-2xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-              />
-            </div>
-
-            {/* Where are you starting? */}
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
-                Where Are You Starting?
-              </label>
-              <div
-                className="flex gap-2 mb-2"
-                onTouchStart={(e) => { touchMoved.current = false; touchStartY.current = e.touches[0].clientY; }}
-                onTouchMove={(e) => { if (Math.abs(e.touches[0].clientY - touchStartY.current) > 5) touchMoved.current = true; }}
-              >
-                <button
-                  type="button"
-                  onClick={() => { if (touchMoved.current) return; setAlreadyStarted(false); }}
-                  className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
-                  style={{
-                    backgroundColor: !alreadyStarted ? "#5c7f63" : "#f8f5f0",
-                    color:           !alreadyStarted ? "white" : "#9e958d",
-                    borderColor:     !alreadyStarted ? "#5c7f63" : "#e8e2d9",
-                  }}
-                >
-                  From the beginning
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { if (touchMoved.current) return; setAlreadyStarted(true); }}
-                  className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-all"
-                  style={{
-                    backgroundColor: alreadyStarted ? "#5c7f63" : "#f8f5f0",
-                    color:           alreadyStarted ? "white" : "#9e958d",
-                    borderColor:     alreadyStarted ? "#5c7f63" : "#e8e2d9",
-                  }}
-                >
-                  Already started
-                </button>
-              </div>
-              {alreadyStarted && (
-                <div className="mt-2">
-                  <label className="block text-xs text-[#5c7f63] mb-1">Starting at lesson</label>
-                  <input
-                    type="number"
-                    min={2}
-                    value={startingLesson}
-                    onChange={(e) => setStartingLesson(e.target.value === "" ? "" : parseInt(e.target.value) || "")}
-                    onWheel={(e) => e.currentTarget.blur()}
-                    placeholder="e.g. 47"
-                    className="w-full px-4 py-2.5 rounded-2xl border border-[#c8ddb8] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
-                  />
-                  {typeof startingLesson === "number" && startingLesson >= 2 && (
-                    <p className="mt-1 text-xs text-[#7a6f65] italic">
-                      Lessons 1–{startingLesson - 1} will be marked as already done
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* School days */}
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-[#7a6f65] mb-2 uppercase tracking-wider">
-                School Days
-              </label>
-              <div
-                className="flex gap-2"
-                onTouchStart={(e) => { touchMoved.current = false; touchStartY.current = e.touches[0].clientY; }}
-                onTouchMove={(e) => { if (Math.abs(e.touches[0].clientY - touchStartY.current) > 5) touchMoved.current = true; }}
-              >
-                {DAY_LABELS.map((d, i) => (
-                  <button
-                    key={d} type="button"
-                    onClick={() => { if (touchMoved.current) return; toggleDay(i); }}
-                    className="flex-1 py-2.5 rounded-xl text-xs font-semibold border transition-all"
-                    style={{
-                      backgroundColor: draft.schoolDays[i] ? "#5c7f63" : "#f8f5f0",
-                      color:           draft.schoolDays[i] ? "white" : "#9e958d",
-                      borderColor:     draft.schoolDays[i] ? "#5c7f63" : "#e8e2d9",
-                    }}
-                  >
-                    {d.charAt(0)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Smart preview line */}
-            {draft.curricName.trim() && draft.totalLessons > 0 && draft.schoolDays.some(Boolean) && (
-              <div className="mb-4 px-4 py-3 bg-[#f0f7f0] border border-[#c8ddb8] rounded-2xl">
-                <p className="text-xs text-[#5c7f63] font-medium">
-                  ~Finishes {calcFinishPreview(draft.schoolDays, Math.max(0, draft.totalLessons - (alreadyStarted && typeof startingLesson === "number" && startingLesson >= 2 ? startingLesson - 1 : 0)))}
-                </p>
-              </div>
-            )}
-
-            {/* Build button */}
-            <ContinueBtn
-              onClick={handleBuildClick}
-              disabled={!draft.curricName.trim() || draft.totalLessons <= 0}
-              label={draft.curricName.trim() && draft.totalLessons > 0
-                ? `Build ${currentChild?.name ?? "their"}'s schedule →`
-                : "Fill in the fields above"}
-            />
-            <p className="text-xs text-[#7a6f65] italic text-center mt-1.5">
-              Not sure about the count? Just tap Build — you can adjust lessons and pace in Plan anytime.
-            </p>
-
-            <SkipFooter />
-          </div>
-
         )}
-      </div>
-    </div>
-  );
-}
 
-// ─── Step 6 — Today Preview ────────────────────────────────────────────────────
-
-function StepTodayPreview({
-  childSchedules,
-  children,
-  displayName,
-  isPro,
-  onNext,
-  onBack,
-}: {
-  childSchedules: ChildSchedule[];
-  children: ChildDraft[];
-  displayName: string;
-  isPro: boolean;
-  onNext: () => void;
-  onBack: () => void;
-}) {
-  const showUpgrade = !isPro && new Date() < new Date("2026-04-30");
-
-  const todayDow = new Date().getDay();
-  const isFriOrWeekend = todayDow === 5 || todayDow === 6 || todayDow === 0;
-  const heading = isFriOrWeekend
-    ? "Here's what Monday looks like 🌿"
-    : "Here's what tomorrow looks like 🌿";
-
-  const firstSchedule = childSchedules[0];
-  const nextDay = firstSchedule
-    ? getNextSchoolDay(firstSchedule.draft.schoolDays)
-    : getNextSchoolDay([true, true, true, true, true, false, false]);
-  const previewDateStr = nextDay
-    .toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
-    .toUpperCase();
-
-  const previewItems = childSchedules
-    .map((cs) => ({
-      child: children.find((c) => c.uid === cs.childUid),
-      lesson: cs.schedule[0],
-      draft: cs.draft,
-    }))
-    .filter((item) => item.child && item.lesson);
-
-  return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-5 py-12 relative overflow-hidden"
-      style={{ background: "linear-gradient(155deg, #faf8f4 0%, #f0f7f0 50%, #e8f2e8 100%)" }}
-    >
-      <Confetti />
-      <BackBtn onClick={onBack} />
-      <ProgressDots step={6} />
-
-      <div className="relative z-10 w-full max-w-md mx-auto">
-        <div className="text-center mb-6">
-          <p className="text-xs font-semibold tracking-[0.25em] uppercase text-[#7a9e7e] mb-2">Step 6 of 7</p>
-          <h2 className="text-3xl font-bold text-[#2d2926] leading-snug mb-2" style={{ fontFamily: "var(--font-display)" }}>
-            {heading}
-          </h2>
-          <p className="text-sm text-[#7a6f65]">Your first lesson is scheduled. Let&apos;s grow! 🌱</p>
-        </div>
-
-        <div className="bg-[#fefcf9] rounded-3xl border border-[#e8e2d9] overflow-hidden mb-4 shadow-lg">
-          <div className="px-5 pt-4 pb-3 border-b border-[#f0ede8]">
-            <p className="text-[10px] font-semibold tracking-[0.18em] text-[#b5aca4] uppercase mb-1">
-              {previewDateStr}
-            </p>
-            <p className="text-base font-semibold text-[#2d2926]">
-              Good morning{displayName ? `, ${displayName.replace(/^The\s+/i, "").trim() || displayName}` : ""}! 🌤️
-            </p>
-          </div>
-          {previewItems.length > 0 ? (
-            <div className="divide-y divide-[#f0ede8]">
-              {previewItems.map(({ child, lesson }, idx) => (
-                <div key={idx} className="flex items-center gap-3 px-5 py-3">
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                    style={{ backgroundColor: child!.color }}
-                  >
-                    {child!.name.charAt(0).toUpperCase()}
-                  </div>
-                  <p className="flex-1 text-sm text-[#2d2926] truncate">{lesson!.title}</p>
-                  <div className="w-5 h-5 rounded-full border-2 border-[#c8bfb5] shrink-0" />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="px-5 py-4 text-sm text-[#9e958d]">Your lessons will appear here each day.</div>
+        {/* Two equal buttons */}
+        <div className="space-y-3">
+          {added.length > 0 && (
+            <ContinueBtn label={`Done — ${added.length} added →`} onClick={onSkip} />
           )}
-          <div className="px-5 py-3 border-t border-[#f0ede8]">
-            <p className="text-xs text-[#b5aca4]">🌱 Your garden grows with every lesson.</p>
-          </div>
-        </div>
-
-        {childSchedules.length > 0 && (
-          <div className="space-y-1 mb-5">
-            {children
-              .map((child) => ({
-                child,
-                schedules: childSchedules.filter((cs) => cs.childUid === child.uid),
-              }))
-              .filter(({ schedules }) => schedules.length > 0)
-              .map(({ child, schedules }) => {
-                const totalLessons = schedules.reduce((sum, cs) => sum + cs.schedule.length, 0);
-                const subjects = [...new Set(schedules.flatMap((cs) => cs.draft.subjects))];
-                const subStr = subjects.join(", ");
-                return (
-                  <p key={child.uid} className="text-xs text-[#7a6f65] text-center">
-                    <span className="font-semibold" style={{ color: child.color }}>{child.name}</span>
-                    {": "}
-                    {totalLessons} lessons scheduled
-                    {subStr ? ` · ${subStr}` : ""}
-                  </p>
-                );
-              })}
-          </div>
-        )}
-
-        {showUpgrade ? (
-          <>
-            <button
-              type="button"
-              onClick={() => window.open("/upgrade", "_blank")}
-              className="w-full py-4 rounded-2xl bg-[#3d5c42] hover:bg-[#2d4a30] text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98]"
-            >
-              Join as a Founding Family — $39/yr →
-            </button>
-            <p className="text-xs text-[#5c7f63] text-center mt-1">
-              Locks in Memories, Reports, AI Year in Review &amp; more — forever
-            </p>
-            <button
-              type="button"
-              onClick={onNext}
-              className="block w-full text-center text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors py-1 mt-2"
-            >
-              Continue with Free — upgrade anytime before April 30
-            </button>
-          </>
-        ) : (
           <button
             type="button"
-            onClick={onNext}
-            className="w-full py-4 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98]"
+            onClick={onSkip}
+            className="w-full py-4 rounded-2xl bg-[#e8f0e9] hover:bg-[#d4ead6] text-[#3d5c42] font-semibold text-base transition-all active:scale-[0.98]"
           >
-            Looks great! Let&apos;s go →
+            {added.length > 0 ? "Skip adding more →" : "Go to my dashboard →"}
           </button>
-        )}
-      </div>
+        </div>
+      </Card>
     </div>
   );
 }
 
-// ─── Step 7 — Add to Home Screen ──────────────────────────────────────────────
+// ─── Step 5 — Done ───────────────────────────────────────────────────────────
 
-function StepAddToHomeScreen({
-  saving, onDone, onSkip, noCurriculumNote = false,
+function StepDone({
+  saving, onDone, noCurriculumNote,
 }: {
   saving: boolean;
   onDone: () => void;
-  onSkip: () => void;
-  noCurriculumNote?: boolean;
+  noCurriculumNote: boolean;
 }) {
   return (
-    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
-      <ProgressDots step={7} />
-      <Card>
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-6 relative overflow-hidden"
+      style={{ background: "linear-gradient(155deg, #1a3d24 0%, #2a5533 45%, #3d7a50 80%, #4d8f63 100%)" }}
+    >
+      <Confetti />
+      <div className="relative z-10 flex flex-col items-center text-center max-w-sm w-full">
+        <span className="text-6xl mb-6">🌱</span>
+        <h1
+          className="text-3xl sm:text-4xl font-bold text-white mb-4 leading-tight"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          You&apos;re all set!
+        </h1>
+        <p className="text-[#c8ddb8] text-base leading-relaxed mb-3 max-w-xs">
+          Your homeschool is officially rooted. Time to watch it grow.
+        </p>
         {noCurriculumNote && (
-          <div className="bg-[#f0f7f0] border border-[#c8ddb8] rounded-2xl px-4 py-3 mb-6 text-center">
-            <p className="text-sm text-[#5c7f63]">
-              No worries — you can set up your curriculum any time in Plan. 🌱
-            </p>
-          </div>
+          <p className="text-[#a0cc9a] text-sm mb-6 max-w-xs">
+            You can add your curriculum anytime from the Plan page. 🌿
+          </p>
         )}
-        <StepHeading
-          eyebrow="One last thing 🌿"
-          title="Add Rooted to your home screen"
-          sub="Add Rooted to your home screen for quick daily access."
-        />
-        <div className="grid grid-cols-2 gap-3 mb-8">
-          <div className="bg-[#f8f5f0] rounded-2xl p-4 border border-[#ede8de]">
-            <p className="text-lg mb-2">🍎</p>
-            <p className="text-xs font-bold text-[#2d2926] mb-2">iPhone</p>
-            <ol className="text-xs text-[#7a6f65] space-y-1 leading-relaxed">
-              <li>Open in <span className="font-medium text-[#2d2926]">Safari</span></li>
-              <li>Tap the Share button <span className="font-medium">⬆️</span></li>
-              <li>Tap <span className="font-medium text-[#2d2926]">&quot;Add to Home Screen&quot;</span></li>
-              <li>Tap <span className="font-medium text-[#2d2926]">Add</span></li>
-            </ol>
-          </div>
-          <div className="bg-[#f8f5f0] rounded-2xl p-4 border border-[#ede8de]">
-            <p className="text-lg mb-2">🤖</p>
-            <p className="text-xs font-bold text-[#2d2926] mb-2">Android</p>
-            <ol className="text-xs text-[#7a6f65] space-y-1 leading-relaxed">
-              <li>Open in <span className="font-medium text-[#2d2926]">Chrome</span></li>
-              <li>Tap the menu <span className="font-medium">⋮</span></li>
-              <li>Tap <span className="font-medium text-[#2d2926]">&quot;Add to Home Screen&quot;</span></li>
-              <li>Tap <span className="font-medium text-[#2d2926]">Add</span></li>
-            </ol>
-          </div>
-        </div>
         <button
           type="button"
           onClick={onDone}
           disabled={saving}
-          className="w-full py-4 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98]"
+          className="flex items-center gap-2.5 px-9 py-4 rounded-2xl bg-white text-[#2d5c38] font-semibold text-lg hover:bg-[#f5fbf5] transition-all shadow-2xl hover:scale-105 active:scale-100 disabled:opacity-60 mt-4"
         >
           {saving ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-              Setting up your space…
+            <span className="flex items-center gap-2">
+              <span className="w-4 h-4 rounded-full border-2 border-[#2d5c38] border-t-transparent animate-spin" />
+              Setting up...
             </span>
-          ) : "Done — let's grow! →"}
+          ) : (
+            "Go to your dashboard →"
+          )}
         </button>
-        <button
-          type="button"
-          onClick={onSkip}
-          disabled={saving}
-          className="block w-full text-center text-sm text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-3 py-1 disabled:opacity-40"
-        >
-          Maybe later
-        </button>
-      </Card>
+      </div>
     </div>
   );
 }
@@ -1702,35 +825,25 @@ function StepAddToHomeScreen({
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const [ready,   setReady]   = useState(false);
-  const [step,    setStep]    = useState(1);
-  const [userId,  setUserId]  = useState("");
-  const [saving,  setSaving]  = useState(false);
-  const [isPro,   setIsPro]   = useState(false);
-  const [noCurriculumNote, setNoCurriculumNote] = useState(false);
-  const [saveError,        setSaveError]        = useState("");
+  const [ready, setReady] = useState(false);
+  const [step, setStep] = useState(1);
+  const [userId, setUserId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   // Auth-sourced
   const [firstName, setFirstName] = useState("");
-  const [lastName,  setLastName]  = useState("");
 
-  // Per-step state
+  // Step 1 state
   const [familyDisplayName, setFamilyDisplayName] = useState("");
-  const [selectedState,     setSelectedState]     = useState("");
-  const [children,          setChildren]          = useState<ChildDraft[]>([mkChild()]);
+  const [children, setChildren] = useState<ChildDraft[]>([mkChild()]);
 
-  // Curriculum — multi-child
-  const [childSchedules,      setChildSchedules]      = useState<ChildSchedule[]>([]);
-  const [curricChildUid,      setCurricChildUid]      = useState(0);
-  const [curricDraft,         setCurricDraft]         = useState<CurriculumDraft>(freshDraft(0));
-  const [curricDraftsByChild, setCurricDraftsByChild] = useState<Record<number, CurriculumDraft>>({});
-  const [skippedChildUids,    setSkippedChildUids]    = useState<Set<number>>(new Set());
-  const [confirmedChildUids,  setConfirmedChildUids]  = useState<Set<number>>(new Set());
+  // Step 3 state
+  const [schoolDays, setSchoolDays] = useState<boolean[]>([true, true, true, true, true, false, false]);
 
-  const completedChildUids = useMemo(
-    () => new Set(childSchedules.map((cs) => cs.childUid)),
-    [childSchedules],
-  );
+  // Step 4 state (curriculum)
+  const [childSchedules, setChildSchedules] = useState<ChildSchedule[]>([]);
+  const [noCurriculumNote, setNoCurriculumNote] = useState(false);
 
   // ── Auth + onboarded check ────────────────────────────────────────────────
 
@@ -1740,7 +853,7 @@ export default function OnboardingPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, onboarded, is_pro")
+        .select("display_name, onboarded")
         .eq("id", user.id)
         .maybeSingle();
 
@@ -1751,12 +864,9 @@ export default function OnboardingPage() {
 
       const fn = user.user_metadata?.first_name ?? "";
       const rawLn = user.user_metadata?.last_name ?? "";
-      // Capitalize before constructing the family display name
       const ln = rawLn ? rawLn.charAt(0).toUpperCase() + rawLn.slice(1).toLowerCase() : "";
       setFirstName(fn);
-      setLastName(ln);
       setFamilyDisplayName(profile?.display_name ?? (ln ? `The ${ln} Family` : ""));
-      setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setUserId(user.id);
       setReady(true);
     });
@@ -1772,56 +882,10 @@ export default function OnboardingPage() {
     setChildren((prev) => prev.filter((c) => c.uid !== uid));
   }, []);
 
-  // ── Step 4 → 5: initialize only on first entry ────────────────────────────
+  // ── Curriculum handler ────────────────────────────────────────────────────
 
-  function goToStep5() {
-    const validKids = children.filter((c) => c.name.trim());
-    if (validKids.length === 0) return;
-    // Only reset draft on first entry (curricChildUid === 0 means never been to step 5)
-    if (curricChildUid === 0) {
-      const firstChild = validKids[0];
-      setCurricChildUid(firstChild.uid);
-      setCurricDraft(freshDraft(firstChild.uid));
-    }
-    setStep(5);
-  }
-
-  // ── Child tab/row switch — preserve & restore drafts ─────────────────────
-
-  function handleChangeChild(uid: number) {
-    const snapshot = curricDraft;
-    setCurricDraftsByChild((prev) => ({ ...prev, [curricChildUid]: snapshot }));
-    const saved = curricDraftsByChild[uid] ?? freshDraft(uid);
-    setCurricDraft(saved);
-    setCurricChildUid(uid);
-  }
-
-  // ── Build & store one child's schedule ───────────────────────────────────
-
-  function handleBuildChild(uid: number, draft: CurriculumDraft, rows: ScheduleRow[]) {
-    setChildSchedules((prev) => [...prev, { childUid: uid, draft, schedule: rows }]);
-  }
-
-  function handleConfirmChild(uid: number) {
-    setConfirmedChildUids((prev) => new Set([...prev, uid]));
-  }
-
-  // ── Mark a child as skipped ───────────────────────────────────────────────
-
-  function handleSkipChild(uid: number) {
-    setSkippedChildUids((prev) => new Set([...prev, uid]));
-  }
-
-  // ── Step 6 gating: skip if no schedules were built ────────────────────────
-
-  function handleDoneAll(hasAnySchedule: boolean) {
-    // Also check existing childSchedules in case React batched the update
-    if (hasAnySchedule || childSchedules.length > 0) {
-      setStep(6);
-    } else {
-      setNoCurriculumNote(true);
-      setStep(7);
-    }
+  function handleAddCurriculum(draft: CurriculumDraft, schedule: ScheduleRow[]) {
+    setChildSchedules((prev) => [...prev, { childUid: draft.childUid, draft, schedule }]);
   }
 
   // ── Complete onboarding ───────────────────────────────────────────────────
@@ -1832,11 +896,9 @@ export default function OnboardingPage() {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token ?? "";
 
-    // Guard: verify the current auth user matches the user who started onboarding
     const { data: { user: currentUser } } = await supabase.auth.getUser();
     if (!currentUser || currentUser.id !== userId) {
-      console.error("[onboarding] auth mismatch — expected", userId, "got", currentUser?.id ?? "null");
-      setSaveError("Something went wrong saving your schedule. Please try again.");
+      setSaveError("Something went wrong. Please try again.");
       setSaving(false);
       return;
     }
@@ -1848,19 +910,19 @@ export default function OnboardingPage() {
       const { data: inserted } = await supabase
         .from("children")
         .insert({
-          user_id:    userId,
-          name:       child.name.trim(),
-          color:      child.color,
+          user_id: userId,
+          name: child.name.trim(),
+          color: child.color,
           sort_order: i + 1,
-          archived:   false,
-          name_key:   child.name.trim().toLowerCase().replace(/\s+/g, "_"),
+          archived: false,
+          name_key: child.name.trim().toLowerCase().replace(/\s+/g, "_"),
         })
         .select("id")
         .single();
       if (inserted) insertedChildren.push({ uid: child.uid, id: (inserted as { id: string }).id });
     }
 
-    // Save curriculum goals + lessons for each child
+    // Save curriculum goals + lessons
     for (const cs of childSchedules) {
       if (cs.schedule.length === 0 || !cs.draft.curricName.trim()) continue;
       const targetChild = insertedChildren.find((c) => c.uid === cs.childUid) ?? insertedChildren[0];
@@ -1870,92 +932,76 @@ export default function OnboardingPage() {
       if (cs.draft.subjects.length > 0) {
         const subjectName = cs.draft.subjects[0];
         const { data: existingSub } = await supabase
-          .from("subjects")
-          .select("id")
-          .eq("user_id", userId)
-          .eq("name", subjectName)
-          .maybeSingle();
+          .from("subjects").select("id").eq("user_id", userId).eq("name", subjectName).maybeSingle();
         if (existingSub) {
           subjectId = (existingSub as { id: string }).id;
         } else {
           const { data: newSub } = await supabase
-            .from("subjects")
-            .insert({ user_id: userId, name: subjectName })
-            .select("id")
-            .single();
+            .from("subjects").insert({ user_id: userId, name: subjectName }).select("id").single();
           subjectId = newSub ? (newSub as { id: string }).id : null;
         }
       }
 
       const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
       const schoolDayNames = dayNames.filter((_, i) => cs.draft.schoolDays[i]);
-
-      // total_lessons must be the FULL curriculum count (e.g. 120), not remaining (e.g. 106).
-      // Derive it from the built schedule — lessonsDone + schedule.length always equals the
-      // original totalLessons regardless of any stale draft state at build time.
-      const totalLessons = (cs.draft.lessonsDone ?? 0) + cs.schedule.length;
+      const totalLessons = cs.schedule.length;
 
       const { data: goal, error: goalErr } = await supabase
         .from("curriculum_goals")
         .insert({
-          user_id:         userId,
-          child_id:        childId,
+          user_id: userId,
+          child_id: childId,
           curriculum_name: cs.draft.curricName.trim(),
-          subject_label:   cs.draft.subjects[0] ?? null,
-          total_lessons:   totalLessons,
-          current_lesson:  cs.draft.lessonsDone ?? 0,
-          target_date:     cs.draft.finishDate || null,
-          school_days:     schoolDayNames,
+          subject_label: cs.draft.subjects[0] ?? null,
+          total_lessons: totalLessons,
+          current_lesson: 0,
+          target_date: null,
+          school_days: schoolDayNames,
         })
         .select("id")
         .single();
 
-      if (goalErr || !goal) {
-        console.error("[onboarding] curriculum_goals insert failed:", goalErr, {
-          curricName: cs.draft.curricName,
-          lessonsDone: cs.draft.lessonsDone,
-          totalLessons: cs.draft.totalLessons,
-          finishDate: cs.draft.finishDate,
-        });
-        continue;
-      }
+      if (goalErr || !goal) continue;
 
       const rows = cs.schedule.map((row, idx) => ({
-        user_id:            userId,
-        child_id:           childId,
-        subject_id:         subjectId,
-        title:              row.title,
-        date:               row.date,
-        scheduled_date:     row.date,
-        completed:          false,
-        hours:              0,
+        user_id: userId,
+        child_id: childId,
+        subject_id: subjectId,
+        title: row.title,
+        date: row.date,
+        scheduled_date: row.date,
+        completed: false,
+        hours: 0,
         curriculum_goal_id: (goal as { id: string }).id,
-        lesson_number:      (cs.draft.lessonsDone ?? 0) + idx + 1,
+        lesson_number: idx + 1,
       }));
       for (let i = 0; i < rows.length; i += 100) {
-        const { error: lessonsErr } = await supabase.from("lessons").insert(rows.slice(i, i + 100));
-        if (lessonsErr) console.error("[onboarding] lessons insert failed (batch", i, "):", lessonsErr);
+        await supabase.from("lessons").insert(rows.slice(i, i + 100));
       }
     }
 
+    // Save school days to profile
+    const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const schoolDayNames = dayNames.filter((_, i) => schoolDays[i]);
+
     // Update profile
-    const profilePatch: Record<string, unknown> = { onboarded: true };
+    const profilePatch: Record<string, unknown> = {
+      onboarded: true,
+      school_days: schoolDayNames,
+    };
     if (familyDisplayName.trim()) profilePatch.display_name = familyDisplayName.trim();
-    if (selectedState)            profilePatch.state         = selectedState;
 
     await fetch("/api/profile/update", {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-      body:    JSON.stringify(profilePatch),
+      body: JSON.stringify(profilePatch),
     });
 
     router.push("/dashboard");
     setSaving(false);
-  }, [children, userId, childSchedules, familyDisplayName, selectedState, router]);
+  }, [children, userId, childSchedules, familyDisplayName, schoolDays, router]);
 
-  // ─────────────────────────────────────────────────────────────────────────
-
-  void lastName;
+  // ── Render ────────────────────────────────────────────────────────────────
 
   if (!ready) {
     return (
@@ -1965,86 +1011,65 @@ export default function OnboardingPage() {
     );
   }
 
-  if (step === 1) return <StepWelcome firstName={firstName} onNext={() => setStep(2)} />;
+  if (step === 1) return (
+    <StepFamilyAndKids
+      familyName={familyDisplayName}
+      onFamilyNameChange={setFamilyDisplayName}
+      children={children}
+      onChildChange={updateChild}
+      onAddChild={() => setChildren((p) => [...p, mkChild(p.length)])}
+      onRemoveChild={removeChild}
+      onNext={() => setStep(2)}
+    />
+  );
 
   if (step === 2) return (
-    <StepFamilyName
-      value={familyDisplayName} onChange={setFamilyDisplayName}
+    <StepFirstMemory
       onNext={() => setStep(3)}
+      onSkip={() => setStep(3)}
       onBack={() => setStep(1)}
+      userId={userId}
     />
   );
 
   if (step === 3) return (
-    <StepState
-      value={selectedState} onChange={setSelectedState}
-      onNext={() => setStep(4)} onSkip={() => setStep(4)}
+    <StepSchoolDays
+      schoolDays={schoolDays}
+      onChange={setSchoolDays}
+      onNext={() => setStep(4)}
       onBack={() => setStep(2)}
     />
   );
 
-  if (step === 4) return (
-    <StepChildren
-      children={children}
-      onChange={updateChild}
-      onAdd={() => setChildren((p) => [...p, mkChild(p.length)])}
-      onRemove={removeChild}
-      onNext={goToStep5}
-      onBack={() => setStep(3)}
-    />
-  );
-
-  if (step === 5) {
+  if (step === 4) {
     const validKids = children.filter((c) => c.name.trim());
     return (
       <StepCurriculum
+        schoolDays={schoolDays}
         validChildren={validKids}
-        curricChildUid={curricChildUid}
-        draft={curricDraft}
-        childSchedules={childSchedules}
-        completedChildUids={completedChildUids}
-        skippedChildUids={skippedChildUids}
-        confirmedChildUids={confirmedChildUids}
-        onChange={(patch) => setCurricDraft((prev) => ({ ...prev, ...patch }))}
-        onChangeChild={handleChangeChild}
-        onBuildChild={handleBuildChild}
-        onConfirmChild={handleConfirmChild}
-        onDoneAll={handleDoneAll}
-        onSkipChild={handleSkipChild}
-        onSkipAll={() => { setNoCurriculumNote(true); setStep(7); }}
-        onBack={() => setStep(4)}
+        onAddCurriculum={handleAddCurriculum}
+        onSkip={() => {
+          if (childSchedules.length === 0) setNoCurriculumNote(true);
+          setStep(5);
+        }}
+        onBack={() => setStep(3)}
       />
     );
   }
 
-  if (step === 6) return (
-    <StepTodayPreview
-      childSchedules={childSchedules}
-      children={children}
-      displayName={familyDisplayName || firstName}
-      isPro={isPro}
-      onNext={() => setStep(7)}
-      onBack={() => setStep(5)}
-    />
-  );
-
   return (
     <>
-      <StepAddToHomeScreen
+      <StepDone
         saving={saving}
         onDone={complete}
-        onSkip={complete}
         noCurriculumNote={noCurriculumNote}
       />
       {saveError && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2.5rem)] max-w-sm">
           <div className="bg-red-600 text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-lg flex items-center justify-between gap-3">
             <span>{saveError}</span>
-            <button
-              type="button"
-              onClick={() => setSaveError("")}
-              className="shrink-0 text-white/80 hover:text-white transition-colors"
-            >
+            <button type="button" onClick={() => setSaveError("")}
+              className="shrink-0 text-white/80 hover:text-white transition-colors">
               ✕
             </button>
           </div>
