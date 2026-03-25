@@ -393,6 +393,8 @@ export default function TodayPage() {
   const [savingBook,        setSavingBook]        = useState(false);
 
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [welcomePhoto, setWelcomePhoto] = useState<{ url: string; title: string } | null>(null);
   useEffect(() => {
     if (sessionStorage.getItem("setup-banner-dismissed") === "1") setBannerDismissed(true);
   }, []);
@@ -710,6 +712,28 @@ export default function TodayPage() {
     }
 
     setLoading(false);
+
+    // First-time welcome check
+    if (typeof window !== "undefined" && !localStorage.getItem("rooted_welcomed")) {
+      const isNew = (profile as { onboarded?: boolean } | null)?.onboarded === true && (totalLessons ?? 0) === 0;
+      if (isNew) {
+        setShowWelcome(true);
+        // Try to find the onboarding photo (last 30 minutes)
+        const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+        const { data: recentPhoto } = await supabase
+          .from("app_events")
+          .select("payload")
+          .eq("user_id", effectiveUserId)
+          .eq("type", "memory_photo")
+          .gte("created_at", thirtyMinsAgo)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        if (recentPhoto?.[0]?.payload?.photo_url) {
+          setWelcomePhoto({ url: recentPhoto[0].payload.photo_url, title: recentPhoto[0].payload.title ?? "Our first day" });
+        }
+        localStorage.setItem("rooted_welcomed", "1");
+      }
+    }
   }, [today, effectiveUserId]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -998,6 +1022,85 @@ export default function TodayPage() {
 
   return (
     <>
+      {/* ── First-time welcome experience ─────────────────────── */}
+      {showWelcome && (
+        <div className="space-y-0">
+          {/* Photo hero or gradient */}
+          <div className="relative w-full overflow-hidden" style={{ height: 220 }}>
+            {welcomePhoto ? (
+              <>
+                <img src={welcomePhoto.url} alt="" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+                <div className="absolute bottom-4 left-5">
+                  <span className="text-[10px] font-semibold bg-white/20 text-white px-2 py-0.5 rounded-full backdrop-blur-sm">
+                    {"\uD83D\uDCF8"} Your first memory
+                  </span>
+                  <p className="text-base font-bold text-white mt-1.5">{welcomePhoto.title} {"\uD83C\uDF31"}</p>
+                  <p className="text-xs text-white/60">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
+                </div>
+              </>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #1a3d24 0%, #2d5a3d 100%)" }}>
+                <span className="text-6xl">{"\uD83C\uDF31"}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="px-5 space-y-4 pt-4 pb-2">
+            {/* Founder card */}
+            <div className="bg-[#e8f0e9] rounded-2xl p-4 flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-[#3d5c42] flex items-center justify-center text-white text-sm font-bold shrink-0">B</div>
+              <div>
+                <p className="text-xs font-semibold text-[#2d2926]">Brittany, founder</p>
+                <p className="text-sm text-[#3d5c42] italic leading-relaxed mt-0.5">
+                  Welcome to your family&apos;s story. Every day from here builds something beautiful. {"\uD83C\uDF3F"}
+                </p>
+              </div>
+            </div>
+
+            {/* Garden strip */}
+            {children.length > 0 && (
+              <Link href="/dashboard/garden" className="block bg-[#2d5a3d] rounded-2xl px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-white/50 mb-2">Your garden is growing</p>
+                <div className="flex items-center gap-4">
+                  {children.map((c) => {
+                    const stage = Math.min(10, Math.max(1, (leafCounts[c.id] ?? 0) > 0 ? 2 : 1));
+                    const emoji = stage <= 2 ? "\uD83C\uDF31" : stage <= 5 ? "\uD83E\uDEB4" : "\uD83C\uDF33";
+                    return (
+                      <div key={c.id} className="flex flex-col items-center gap-1">
+                        <span className="text-2xl">{emoji}</span>
+                        <span className="text-[10px] font-medium text-white/80">{c.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Link>
+            )}
+
+            {/* Quick links */}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { emoji: "\uD83D\uDCF8", label: "Memories", href: "/dashboard/memories" },
+                { emoji: "\uD83D\uDCCB", label: "Add curriculum", href: "/dashboard/plan" },
+                { emoji: "\uD83D\uDCDA", label: "Resources", href: "/dashboard/resources" },
+              ].map((link) => (
+                <Link
+                  key={link.label}
+                  href={link.href}
+                  className="flex flex-col items-center gap-1.5 bg-white border border-[#e8e2d9] rounded-xl py-3 hover:border-[#5c7f63] transition-colors"
+                >
+                  <span className="text-lg">{link.emoji}</span>
+                  <span className="text-[10px] font-medium text-[#7a6f65]">{link.label}</span>
+                </Link>
+              ))}
+            </div>
+
+            {/* Divider */}
+            <div className="h-px bg-[#e8e2d9]" />
+          </div>
+        </div>
+      )}
+
       {/* ── Hero Header ──────────────────────────────────────── */}
       <PageHero
         overline={formatDateHero(new Date())}
