@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Sparkles, Download, X, ArrowRight, MoreHorizontal, Trash2, Pencil } from "lucide-react";
+import { Sparkles, Download, X, ArrowRight, MoreHorizontal, Trash2, Pencil, Heart } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
@@ -106,6 +106,7 @@ export default function MemoriesPage() {
 
   // Detail / lightbox
   const [selectedMemory, setSelectedMemory] = useState<MemoryRow | null>(null);
+  const [hearted, setHearted] = useState<Set<string>>(new Set());
 
   // Menu
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -202,6 +203,17 @@ export default function MemoriesPage() {
 
   const formatDate = (d: string) =>
     new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  const formatMonth = (d: string) =>
+    new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  function toggleHeart(id: string) {
+    setHearted((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   // ── Filter ──────────────────────────────────────────────────────────────────
 
@@ -377,7 +389,7 @@ export default function MemoriesPage() {
       </Link>
 
       {/* ── Child filter bar ─────────────────────────────────── */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex items-center gap-2.5 flex-wrap">
         <button
           onClick={() => setFilter("all")}
           className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
@@ -388,32 +400,17 @@ export default function MemoriesPage() {
         >
           All
         </button>
-        <button
-          onClick={() => setFilter("family")}
-          className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
-            filter === "family"
-              ? "bg-[#5c7f63] text-white"
-              : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
-          }`}
-        >
-          👨‍👩‍👧‍👦 Family
-        </button>
         {children.map((c) => (
           <button
             key={c.id}
             onClick={() => setFilter(c.id)}
-            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5 ${
-              filter === c.id
-                ? "text-white"
-                : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+            className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-sm font-semibold text-white transition-all ${
+              filter === c.id ? "ring-2 ring-offset-2 ring-[#5c7f63]" : "opacity-70 hover:opacity-100"
             }`}
-            style={filter === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : {}}
+            style={{ backgroundColor: c.color ?? "#5c7f63" }}
+            title={c.name}
           >
-            <span
-              className="w-2.5 h-2.5 rounded-full shrink-0"
-              style={{ backgroundColor: c.color ?? "#5c7f63", ...(filter === c.id ? { border: "1.5px solid rgba(255,255,255,0.6)" } : {}) }}
-            />
-            {c.name}
+            {c.name.charAt(0).toUpperCase()}
           </button>
         ))}
       </div>
@@ -465,100 +462,97 @@ export default function MemoriesPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2.5">
-          {filtered.map((m) => (
-            <button
-              key={m.id}
-              className="group relative rounded-2xl overflow-hidden aspect-square bg-[#f0ede8] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] text-left"
-              onClick={() => setSelectedMemory(m)}
-            >
-              {/* Photo or type placeholder */}
-              {m.photo_url ? (
-                <img
-                  src={m.photo_url}
-                  alt={m.title ?? "Memory"}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className={`w-full h-full flex flex-col items-center justify-center px-3 ${
-                  m.type === "book"
-                    ? "bg-[#FDF3E3]"
-                    : m.type === "quote"
-                    ? "bg-[#F5EFF8]"
-                    : "bg-[#EAF6EE]"
-                }`}>
-                  {m.type === "book" ? (
-                    <>
-                      <span className="text-4xl mb-1.5">📖</span>
-                      <p className="text-[11px] font-semibold text-[#7a4f1a] text-center line-clamp-2">{m.title ?? "Book"}</p>
-                      {m.caption && <p className="text-[10px] italic text-[#c8a96e] text-center line-clamp-1 mt-0.5">{m.caption}</p>}
-                    </>
-                  ) : m.type === "quote" ? (
-                    <>
-                      <span className="text-5xl leading-none font-serif text-[#c49edd] mb-1">&ldquo;</span>
-                      <p className="text-[10px] italic text-[#4a2d6a] text-center line-clamp-2">{m.title ?? "Quote"}</p>
-                      {m.child_id && <p className="text-[9px] text-[#a07ab8] mt-1">{childName(m.child_id)}</p>}
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-4xl mb-1.5">{TYPE_EMOJI[m.type] ?? "📷"}</span>
-                      <p className="text-[11px] font-semibold text-[#1a4d2e] text-center line-clamp-2">{m.title ?? TYPE_LABEL[m.type] ?? "Memory"}</p>
-                      <p className="text-[9px] text-[#4a8c65] mt-0.5">{TYPE_LABEL[m.type] ?? "Memory"}</p>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Child color dot */}
-              <div
-                className="absolute top-2 left-2 w-4 h-4 rounded-full border-2 border-white shadow-sm flex items-center justify-center"
-                style={{ backgroundColor: m.child_id ? childColor(m.child_id) : "transparent" }}
-              >
-                {!m.child_id && (
-                  <span className="text-[7px] leading-none">👨‍👩‍👧‍👦</span>
+        <div className="grid grid-cols-3 gap-[2px] rounded-2xl overflow-hidden">
+          {(() => {
+            let lastMonth = "";
+            return filtered.map((m) => {
+              const month = m.date.slice(0, 7); // "YYYY-MM"
+              const showHeader = month !== lastMonth;
+              lastMonth = month;
+              return (
+                <>{showHeader && (
+                  <div key={`h-${month}`} className="col-span-3 bg-[#faf8f4] py-2 px-1">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">{formatMonth(m.date)}</p>
+                  </div>
                 )}
-              </div>
-
-              {/* ··· menu button */}
-              {!isPartner && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); setMenuId(menuId === m.id ? null : m.id); }}
-                  className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 sm:opacity-0 active:opacity-100 transition-opacity"
-                  aria-label="More options"
+                  key={m.id}
+                  className="group relative aspect-square bg-[#f0ede8] focus:outline-none text-left overflow-hidden"
+                  onClick={() => setSelectedMemory(m)}
                 >
-                  <MoreHorizontal size={14} className="text-white" />
-                </button>
-              )}
+                  {/* Photo or type tile */}
+                  {m.photo_url ? (
+                    <img src={m.photo_url} alt={m.title ?? "Memory"} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className={`w-full h-full flex flex-col items-center justify-center px-2 ${
+                      m.type === "book" ? "bg-[#FDF3E3]"
+                        : m.type === "quote" ? "bg-[#F5EFF8]"
+                        : "bg-[#EAF6EE]"
+                    }`}>
+                      {m.type === "book" ? (
+                        <>
+                          <span className="text-4xl mb-1">📖</span>
+                          <p className="text-[11px] font-semibold text-[#7a4f1a] text-center line-clamp-2">{m.title ?? "Book"}</p>
+                          {m.caption && <p className="text-[10px] italic text-[#c8a96e] text-center line-clamp-1 mt-0.5">{m.caption}</p>}
+                        </>
+                      ) : m.type === "quote" ? (
+                        <>
+                          <span className="text-5xl leading-none font-serif text-[#c49edd]">&ldquo;</span>
+                          <p className="text-[10px] italic text-[#4a2d6a] text-center line-clamp-3">{m.title ?? "Quote"}</p>
+                          {m.child_id && <p className="text-[9px] text-[#a07ab8] mt-1">{childName(m.child_id)}</p>}
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-4xl mb-1">{TYPE_EMOJI[m.type] ?? "📷"}</span>
+                          <p className="text-[11px] font-semibold text-[#1a4d2e] text-center line-clamp-2">{m.title ?? TYPE_LABEL[m.type] ?? "Memory"}</p>
+                          <p className="text-[9px] italic text-[#4a8c65] mt-0.5">{TYPE_LABEL[m.type] ?? "Memory"}</p>
+                        </>
+                      )}
+                    </div>
+                  )}
 
-              {/* Dropdown menu */}
-              {menuId === m.id && (
-                <div
-                  className="absolute top-9 right-2 bg-white rounded-xl shadow-lg border border-[#e8e2d9] z-20 overflow-hidden"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    onClick={() => openEdit(m)}
-                    className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f6f3] transition-colors"
+                  {/* Child color dot */}
+                  <div
+                    className="absolute top-1.5 left-1.5 w-3.5 h-3.5 rounded-full border-[1.5px] border-white shadow-sm flex items-center justify-center"
+                    style={{ backgroundColor: m.child_id ? childColor(m.child_id) : "transparent" }}
                   >
-                    <Pencil size={14} className="text-[#7a6f65]" /> Edit
-                  </button>
-                  <button
-                    onClick={() => openDelete(m)}
-                    className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
-                  >
-                    <Trash2 size={14} /> Delete
-                  </button>
-                </div>
-              )}
+                    {!m.child_id && <span className="text-[6px] leading-none">👨‍👩‍👧‍👦</span>}
+                  </div>
 
-              {/* Date label at bottom */}
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent px-2.5 pb-2 pt-6">
-                <p className="text-[11px] text-white/90 font-medium">
-                  {formatDate(m.date)}
-                </p>
-              </div>
-            </button>
-          ))}
+                  {/* ··· menu button */}
+                  {!isPartner && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setMenuId(menuId === m.id ? null : m.id); }}
+                      className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity"
+                      aria-label="More options"
+                    >
+                      <MoreHorizontal size={12} className="text-white" />
+                    </button>
+                  )}
+
+                  {/* Dropdown menu */}
+                  {menuId === m.id && (
+                    <div
+                      className="absolute top-7 right-1.5 bg-white rounded-xl shadow-lg border border-[#e8e2d9] z-20 overflow-hidden"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button onClick={() => openEdit(m)} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#2d2926] hover:bg-[#f8f6f3] transition-colors">
+                        <Pencil size={12} className="text-[#7a6f65]" /> Edit
+                      </button>
+                      <button onClick={() => openDelete(m)} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-red-500 hover:bg-red-50 transition-colors">
+                        <Trash2 size={12} /> Delete
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Date label at bottom */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent px-1.5 pb-1.5 pt-5">
+                    <p className="text-[10px] text-white/90 font-medium">{formatDate(m.date)}</p>
+                  </div>
+                </button></>
+              );
+            });
+          })()}
         </div>
       )}
 
@@ -572,26 +566,47 @@ export default function MemoriesPage() {
             className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {selectedMemory.photo_url && (
+            {/* Hero: photo or styled tile */}
+            {selectedMemory.photo_url ? (
               <img
                 src={selectedMemory.photo_url}
                 alt={selectedMemory.title ?? "Memory"}
                 className="w-full rounded-t-3xl object-cover max-h-[50vh]"
               />
+            ) : (
+              <div className={`w-full h-48 rounded-t-3xl flex flex-col items-center justify-center ${
+                selectedMemory.type === "book" ? "bg-[#FDF3E3]"
+                  : selectedMemory.type === "quote" ? "bg-[#F5EFF8]"
+                  : "bg-[#EAF6EE]"
+              }`}>
+                {selectedMemory.type === "book" ? (
+                  <span className="text-6xl">📖</span>
+                ) : selectedMemory.type === "quote" ? (
+                  <span className="text-7xl font-serif text-[#c49edd] leading-none">&ldquo;</span>
+                ) : (
+                  <span className="text-6xl">{TYPE_EMOJI[selectedMemory.type] ?? "📷"}</span>
+                )}
+              </div>
             )}
 
             <div className="p-5 space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-base">{TYPE_EMOJI[selectedMemory.type] ?? "📷"}</span>
-                    <span className="text-[11px] font-medium text-[#b5aca4] uppercase tracking-wider">
-                      {TYPE_LABEL[selectedMemory.type] ?? "Memory"}
-                    </span>
+              {/* Child avatar + name + date row */}
+              <div className="flex items-center gap-2.5">
+                {selectedMemory.child_id ? (
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0"
+                    style={{ backgroundColor: childColor(selectedMemory.child_id) }}
+                  >
+                    {childName(selectedMemory.child_id).charAt(0).toUpperCase()}
                   </div>
-                  {selectedMemory.title && (
-                    <p className="font-semibold text-[#2d2926] text-base">{selectedMemory.title}</p>
-                  )}
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-[#f0ede8] flex items-center justify-center text-xs shrink-0">👨‍👩‍👧‍👦</div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-[#2d2926]">
+                    {selectedMemory.child_id ? childName(selectedMemory.child_id) : "Everyone"}
+                  </p>
+                  <p className="text-[11px] text-[#b5aca4]">{formatDate(selectedMemory.date)}</p>
                 </div>
                 <button
                   onClick={() => { setSelectedMemory(null); setMenuId(null); }}
@@ -601,30 +616,38 @@ export default function MemoriesPage() {
                 </button>
               </div>
 
+              {/* Title */}
+              {selectedMemory.title && (
+                <p className="font-semibold text-[#2d2926] text-base">{selectedMemory.title}</p>
+              )}
+
+              {/* Caption */}
               {selectedMemory.caption && (
                 <p className="text-sm text-[#7a6f65] leading-relaxed">{selectedMemory.caption}</p>
               )}
 
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-[#b5aca4]">{formatDate(selectedMemory.date)}</span>
-                {selectedMemory.child_id ? (
-                  <span
-                    className="text-[11px] font-medium px-2.5 py-0.5 rounded-full text-white"
-                    style={{ backgroundColor: childColor(selectedMemory.child_id) }}
-                  >
-                    {childName(selectedMemory.child_id)}
+              {/* Heart + share teaser */}
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  onClick={() => toggleHeart(selectedMemory.id)}
+                  className="flex items-center gap-1.5 text-sm transition-colors"
+                >
+                  <Heart
+                    size={18}
+                    className={hearted.has(selectedMemory.id) ? "text-red-400 fill-red-400" : "text-[#c8bfb5]"}
+                  />
+                  <span className={`text-xs font-medium ${hearted.has(selectedMemory.id) ? "text-red-400" : "text-[#b5aca4]"}`}>
+                    {hearted.has(selectedMemory.id) ? "1" : "Be the first"}
                   </span>
-                ) : (
-                  <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-[#f0ede8] text-[#7a6f65]">
-                    👨‍👩‍👧‍👦 Everyone
-                  </span>
-                )}
-                {selectedMemory.include_in_book && (
-                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#5c7f63]">
-                    ☑ In yearbook
-                  </span>
-                )}
+                </button>
+                <span className="text-[10px] text-[#b5aca4]">Share with family — coming soon</span>
               </div>
+
+              {selectedMemory.include_in_book && (
+                <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#5c7f63]">
+                  ☑ In yearbook
+                </span>
+              )}
 
               {!isPartner && (
                 <div className="flex gap-2 pt-1">
