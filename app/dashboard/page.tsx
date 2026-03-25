@@ -386,6 +386,7 @@ export default function TodayPage() {
   const [todayMemoryEvents, setTodayMemoryEvents] = useState<TodayEvent[]>([]);
   const [todayBooks,        setTodayBooks]        = useState<BookLog[]>([]);
   const [showBookModal,     setShowBookModal]     = useState(false);
+  const [showLogModal,      setShowLogModal]      = useState(false);
   const [bookTitle,         setBookTitle]         = useState("");
   const [bookChild,         setBookChild]         = useState("");
   const [savingBook,        setSavingBook]        = useState(false);
