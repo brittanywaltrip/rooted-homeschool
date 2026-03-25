@@ -340,6 +340,9 @@ export default function ResourcesPage() {
   const [activeTab,     setActiveTab]     = useState("discounts");
   const [selectedTour,  setSelectedTour]  = useState<{ title: string; url: string } | null>(null);
   const [gradeFilter,   setGradeFilter]   = useState<GradeTag | "">("");
+  const [stateExpanded, setStateExpanded] = useState(false);
+  const [showAllWins,   setShowAllWins]   = useState(false);
+  const [expandedCats,  setExpandedCats]  = useState<Set<string>>(new Set());
   const [stateSearch,   setStateSearch]   = useState("");
   const [selectedLevel, setSelectedLevel] = useState<RegLevel | "all">("all");
   const [expandedState, setExpandedState] = useState<string | null>(null);
@@ -353,6 +356,8 @@ export default function ResourcesPage() {
   const stateRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Load DB resources
+  useEffect(() => { localStorage.setItem("rooted_visited_resources", "true"); }, []);
+
   useEffect(() => {
     supabase
       .from("resources")
@@ -419,11 +424,33 @@ export default function ResourcesPage() {
     }
   }, [effectiveUserId, savedMap]);
 
-  const freshDrops = getFreshDrops();
+  // Use DB weekly picks if available, otherwise fall back to hardcoded rotation
+  const dbWeeklyPicks = dbResources.filter((r) => r.category === "weekly_picks");
+  const freshDrops: FreshDrop[] = dbWeeklyPicks.length > 0
+    ? dbWeeklyPicks.slice(0, 3).map((r) => ({
+        name: r.title, desc: r.description, url: r.url,
+        grade: (r.grade_level as FreshDrop["grade"]) || "All Ages",
+        type: r.badge_text || "Free Pick",
+        emoji: "⭐",
+      }))
+    : getFreshDrops();
   const dayIdx     = new Date().getDay();
-  const todayWin1 = EASY_WINS[dayIdx % 6];
-  const todayWin2 = EASY_WINS[(dayIdx + 1) % 6];
-  const restWins  = EASY_WINS.filter((_, i) => i !== dayIdx % 6 && i !== (dayIdx + 1) % 6);
+  // Use DB easy wins if available, otherwise fall back to hardcoded
+  const dbEasyWins = dbResources.filter((r) => r.category === "easy_win");
+  const easyWinPool: EasyWin[] = dbEasyWins.length > 0
+    ? dbEasyWins.map((r) => ({
+        emoji: r.badge_text?.slice(0, 2) || "⚡",
+        title: r.title,
+        desc: r.description,
+        time: r.grade_level || "",
+        grade: r.grade_level || "All Ages",
+        url: r.url,
+      }))
+    : EASY_WINS;
+  const validWins = easyWinPool.filter((w) => w.title && w.desc);
+  const todayWin1 = validWins.length > 0 ? validWins[dayIdx % validWins.length] : null;
+  const todayWin2 = validWins.length > 1 ? validWins[(dayIdx + 1) % validWins.length] : null;
+  const restWins  = validWins.filter((w) => w !== todayWin1 && w !== todayWin2);
 
   function getEmbedUrl(url: string): string {
     const match = url.match(/[?&]v=([^&]+)/);
@@ -461,85 +488,168 @@ export default function ResourcesPage() {
 
   return (
     <>
-    <PageHero overline="Discover" title="Resources" subtitle="Everything homeschool, in one place." />
-    <div className="max-w-3xl px-4 py-6 space-y-8">
+    <div className="max-w-3xl px-4 pt-6 pb-8 space-y-8" style={{ background: "#faf9f6" }}>
 
-      {/* ── 2. Personalized State Banner ───────────────────────── */}
+      {/* ── 1. Header ──────────────────────────────────────────── */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Discover</p>
+        <h1 className="text-3xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>Resources {"\uD83C\uDF3F"}</h1>
+        <p className="text-sm text-[#7a6f65] mt-1">Curated for your homeschool, updated weekly.</p>
+        <p className="text-[10px] text-[#b5aca4] mt-0.5">Updated every Monday</p>
+      </div>
+
+      {/* ── 2. This Week's Free Picks ───────────────────────────── */}
+      <div>
+        <h2 className="text-lg font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>This Week&apos;s Free Picks {"\u2B50"}</h2>
+        <p className="text-xs text-[#7a6f65] mb-4">Exclusive finds — updated every week</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {filteredFreshDrops.map((drop, i) => {
+            const col = PICK_CARD_COLORS[i % PICK_CARD_COLORS.length];
+            const id = dropId(drop.name);
+            return (
+              <div key={drop.name} className="rounded-2xl overflow-hidden border border-white/80 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all" style={{ background: col.bg }}>
+                <a href={drop.url} target="_blank" rel="noopener noreferrer" className="block p-5">
+                  <div className="text-4xl mb-2">{drop.emoji}</div>
+                  <div className="flex items-start justify-between gap-1 mb-1.5">
+                    <p className="text-sm font-bold text-[#2d2926] leading-snug">{drop.name} {"\u2197"}</p>
+                    <BookmarkBtn id={id} savedMap={savedMap} onToggle={toggleSave} />
+                  </div>
+                  <p className="text-[11px] text-[#5c5550] leading-snug mb-2">{drop.desc}</p>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <GradePill grade={drop.grade} />
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `${col.accent}22`, color: col.accent }}>{drop.type}</span>
+                  </div>
+                </a>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── 3. Today's Easy Win ─────────────────────────────────── */}
+      {validWins.length > 0 && (() => {
+        const todayIdx = new Date().getDate() % validWins.length;
+        const win = validWins[todayIdx];
+        return (
+          <div className="space-y-2">
+            <div className="rounded-2xl p-5 text-white" style={{ background: "linear-gradient(135deg, #2d5a3d 0%, #3d7a50 100%)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/70">{"\u26A1"} Today&apos;s easy win</span>
+                <span className="text-[10px] text-white/40">{"\u21BB"} New idea tomorrow</span>
+              </div>
+              <div className="text-3xl mb-2">{win.emoji}</div>
+              <h3 className="text-lg font-bold mb-1">{win.title}</h3>
+              <p className="text-sm text-white/80 leading-relaxed mb-3">{win.desc}</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {win.time && <span className="text-[10px] font-medium bg-white/15 px-2 py-0.5 rounded-full">{"\u23F1"} {win.time}</span>}
+                {win.grade && <span className="text-[10px] font-medium bg-white/15 px-2 py-0.5 rounded-full">{win.grade}</span>}
+                {win.url && (
+                  <a href={win.url} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs font-semibold bg-white text-[#3d5c42] px-3 py-1 rounded-lg hover:bg-white/90 transition-colors">
+                    Try it {"\u2192"}
+                  </a>
+                )}
+              </div>
+            </div>
+            <button onClick={() => setShowAllWins(!showAllWins)} className="text-xs text-[#5c7f63] font-medium hover:underline">
+              {showAllWins ? "Hide ideas" : `See all ${validWins.length} ideas \u2192`}
+            </button>
+            {showAllWins && (
+              <div className="grid grid-cols-2 gap-2">
+                {validWins.filter((_, i) => i !== todayIdx).map((w) => (
+                  <a key={w.title} href={w.url} target="_blank" rel="noopener noreferrer" className="bg-white border border-[#e8e2d9] rounded-xl p-3 hover:border-[#5c7f63] transition-colors">
+                    <div className="text-xl mb-1">{w.emoji}</div>
+                    <p className="text-xs font-semibold text-[#2d2926] mb-0.5">{w.title}</p>
+                    <p className="text-[10px] text-[#7a6f65]">{w.time}</p>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── 3b. Personalized State Banner (collapsed) ──────────── */}
       {stateLoaded && userState && userState !== "Outside the US" && STATE_INFO[userState] ? (() => {
         const info = STATE_INFO[userState];
         const badge = REG_BADGE[info.regulation];
         return (
           <div className="rounded-2xl border border-[#b8d4be] overflow-hidden" style={{ background: "linear-gradient(135deg, #eef5ec 0%, #f5fbf0 100%)" }}>
-            {/* Header */}
-            <div className="px-5 pt-5 pb-4 border-b border-[#d4e8d8] flex items-center justify-between gap-3 flex-wrap">
+            {/* Collapsed header — always visible */}
+            <button
+              onClick={() => setStateExpanded(!stateExpanded)}
+              className="w-full px-5 py-4 flex items-center justify-between gap-3 text-left"
+            >
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#4a7c59] flex items-center justify-center shrink-0">
-                  <MapPin size={15} className="text-white" />
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-[#4a7c59]">Know Your State</p>
-                  <p className="text-lg font-bold text-[#2d2926] leading-tight">{userState}</p>
-                </div>
+                <span className="text-base">{"\uD83D\uDCCB"}</span>
+                <span className="text-sm font-semibold text-[#2d2926]">{userState}</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: badge.bg, color: badge.color }}>
+                  {info.regulation}
+                </span>
               </div>
-              <span className="text-xs font-bold px-3 py-1 rounded-full" style={{ backgroundColor: badge.bg, color: badge.color }}>
-                {info.regulation} Regulation
-              </span>
-            </div>
-            {/* Info grid */}
-            <div className="px-5 py-4 space-y-3">
-              <div className="flex gap-3">
-                <span className="text-base shrink-0 mt-0.5">📋</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Required Subjects</p>
-                  <p className="text-xs text-[#5c5550] leading-relaxed">{info.requiredSubjects.join(", ")}</p>
+              <svg
+                width="14" height="14" viewBox="0 0 14 14" fill="none"
+                className="shrink-0 text-[#7a6f65] transition-transform duration-200"
+                style={{ transform: stateExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
+              >
+                <path d="M3 5.5L7 9.5L11 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            {/* Expanded details */}
+            {stateExpanded && (
+              <>
+                <div className="border-t border-[#d4e8d8] px-5 py-4 space-y-3">
+                  <div className="flex gap-3">
+                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDCCB"}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Required Subjects</p>
+                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.requiredSubjects.join(", ")}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-base shrink-0 mt-0.5">{"\uD83C\uDFDB\uFE0F"}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Notice Required</p>
+                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.notice}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDCCA"}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Attendance / Days</p>
+                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.attendance}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDCDD"}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Testing</p>
+                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.testing}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDDC2\uFE0F"}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Portfolio / Records</p>
+                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.portfolios}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-3">
-                <span className="text-base shrink-0 mt-0.5">🏛️</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Notice Required</p>
-                  <p className="text-xs text-[#5c5550] leading-relaxed">{info.notice}</p>
+                <div className="px-5 pb-4 flex gap-2 flex-wrap">
+                  <a href={info.hsldaUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
+                    HSLDA State Page {"\u2192"}
+                  </a>
+                  <a href={info.localGroupUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#4a7c59] border border-[#b8d4be] bg-white hover:bg-[#f0f8f0] px-3 py-1.5 rounded-lg transition-colors">
+                    Local Association {"\u2192"}
+                  </a>
                 </div>
-              </div>
-              <div className="flex gap-3">
-                <span className="text-base shrink-0 mt-0.5">📊</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Attendance / Days</p>
-                  <p className="text-xs text-[#5c5550] leading-relaxed">{info.attendance}</p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <span className="text-base shrink-0 mt-0.5">📝</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Testing</p>
-                  <p className="text-xs text-[#5c5550] leading-relaxed">{info.testing}</p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <span className="text-base shrink-0 mt-0.5">🗂️</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Portfolio / Records</p>
-                  <p className="text-xs text-[#5c5550] leading-relaxed">{info.portfolios}</p>
-                </div>
-              </div>
-            </div>
-            {/* Buttons */}
-            <div className="px-5 pb-4 flex gap-2 flex-wrap">
-              <a href={info.hsldaUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
-                HSLDA State Page →
-              </a>
-              <a href={info.localGroupUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-[#4a7c59] border border-[#b8d4be] bg-white hover:bg-[#f0f8f0] px-3 py-1.5 rounded-lg transition-colors">
-                Local Association →
-              </a>
-            </div>
-            <p className="px-5 pb-4 text-[10px] text-[#8aaa90] italic leading-relaxed">
-              Laws change — always verify requirements with your state homeschool association or HSLDA.org before making legal decisions.
-            </p>
-            <p className="text-[10px] text-[#7a6f65] italic mt-2 px-1">
-              Rooted provides this as helpful information only. For legal questions about homeschooling in your state, consult HSLDA or a local homeschool association.
-            </p>
+                <p className="px-5 pb-4 text-[10px] text-[#8aaa90] italic leading-relaxed">
+                  Laws change — always verify with your state homeschool association or HSLDA.org.
+                </p>
+              </>
+            )}
           </div>
         );
       })() : stateLoaded && userState === "Outside the US" ? (
@@ -562,54 +672,10 @@ export default function ResourcesPage() {
         </Link>
       ) : null}
 
-      {/* ── 3. This Week's Free Picks ───────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <div className="mb-1">
-              <h2 className="text-xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-                This Week&apos;s Free Picks ⭐
-              </h2>
-            </div>
-            <p className="text-xs text-[#7a6f65]">Exclusive finds — updated every week</p>
-          </div>
-        </div>
+      {/* Old Free Picks section moved to top */}
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {filteredFreshDrops.map((drop, i) => {
-            const col = PICK_CARD_COLORS[i % PICK_CARD_COLORS.length];
-            const id  = dropId(drop.name);
-            return (
-              <div
-                key={drop.name}
-                className="rounded-2xl overflow-hidden border border-white/80 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
-                style={{ background: col.bg }}
-              >
-                <a href={drop.url} target="_blank" rel="noopener noreferrer" className="block p-5">
-                  <div className="text-5xl mb-3">{drop.emoji}</div>
-                  <div className="flex items-start justify-between gap-1 mb-2">
-                    <p className="text-sm font-bold text-[#2d2926] leading-snug hover:underline">{drop.name} ↗</p>
-                    <BookmarkBtn id={id} savedMap={savedMap} onToggle={toggleSave} />
-                  </div>
-                  <p className="text-[11px] text-[#5c5550] leading-snug mb-3">{drop.desc}</p>
-                  <div className="flex gap-1.5 flex-wrap">
-                    <GradePill grade={drop.grade} />
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `${col.accent}22`, color: col.accent }}>
-                      {drop.type}
-                    </span>
-                  </div>
-                </a>
-              </div>
-            );
-          })}
-          {filteredFreshDrops.length === 0 && (
-            <p className="col-span-3 text-sm text-[#b5aca4] text-center py-6">No picks match that grade filter.</p>
-          )}
-        </div>
-      </div>
-
-      {/* ── 4. Easy Win Today ───────────────────────────────────── */}
-      <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #fef9e8 0%, #fef3d0 100%)" }}>
+      {/* Old Easy Win section moved to top as daily card */}
+      {false && <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #fef9e8 0%, #fef3d0 100%)" }}>
         <div className="mb-5">
           <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
             Easy Win Today ⚡
@@ -619,7 +685,8 @@ export default function ResourcesPage() {
 
         {/* Today's 2 featured activities */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-          {[todayWin1, todayWin2].map((win, i) => {
+          {[todayWin1, todayWin2].filter(Boolean).map((win, i) => {
+            if (!win) return null;
             const col = EASY_WIN_COLORS[(dayIdx + i) % EASY_WIN_COLORS.length];
             return (
               <div
@@ -680,31 +747,12 @@ export default function ResourcesPage() {
         <p className="text-[11px] text-[#b5aca4] mt-4 text-center italic">
           Some days just showing up is the lesson. You&apos;re doing great. 🌿
         </p>
-      </div>
+      </div>}
 
-      {/* ── 5. Category Tabs ────────────────────────────────────── */}
+      {/* ── 5. Browse Everything — Category Tabs ──────────────── */}
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-[#a09890]">Browse Everything</p>
 
-      {/* Grade Filter */}
-      {activeTab !== "states" && activeTab !== "saved" && (
-        <div className="flex gap-1.5 flex-wrap items-center">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mr-1">Grade:</span>
-          <button
-            onClick={() => setGradeFilter("")}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${gradeFilter === "" ? "bg-[#4a7c59] text-white" : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#4a7c59]"}`}
-          >
-            All Grades
-          </button>
-          {GRADE_TAGS.map((g) => (
-            <button
-              key={g}
-              onClick={() => setGradeFilter(gradeFilter === g ? "" : g)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${gradeFilter === g ? "bg-[#4a7c59] text-white" : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#4a7c59]"}`}
-            >
-              {g}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Grade Filter — hidden for now, will bring back later */}
 
       {/* Tab Bar */}
       <div className="flex gap-2 flex-wrap">

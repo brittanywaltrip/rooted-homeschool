@@ -8,7 +8,7 @@ import Stripe from "stripe";
 // update plan_type to 'refunded', subscription_status to 'refunded'.
 // Webhook handles all future paying members automatically.
 
-const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"];
+const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

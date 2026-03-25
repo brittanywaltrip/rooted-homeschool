@@ -9,6 +9,9 @@ export async function POST(req: NextRequest) {
   try {
     const { priceId, userId, email } = await req.json()
 
+    // Idempotency key: same user + plan + day = same session
+    const idempotencyKey = `checkout-${userId}-${priceId}-${new Date().toDateString()}`
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'subscription',
@@ -17,7 +20,7 @@ export async function POST(req: NextRequest) {
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/upgrade`,
       customer_email: email,
       metadata: { userId },
-    })
+    }, { idempotencyKey })
 
     return NextResponse.json({ url: session.url })
   } catch (err) {

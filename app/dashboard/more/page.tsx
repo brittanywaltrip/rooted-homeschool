@@ -117,7 +117,7 @@ const FEATURE_ITEMS: CardItem[] = [
 
 const HELP_ITEMS: CardItem[] = [
   { icon: HelpCircle, label: "FAQ",        sub: "Answers to common questions",  href: "/faq" },
-  { icon: Mail,       label: "Contact Us", sub: "hello.rootedapp@gmail.com",    mailto: "hello.rootedapp@gmail.com" },
+  { icon: Mail,       label: "Contact Us", sub: "hello@rootedhomeschoolapp.com",    mailto: "hello@rootedhomeschoolapp.com" },
 ];
 
 // Most recent update date as ISO string (first of the month)

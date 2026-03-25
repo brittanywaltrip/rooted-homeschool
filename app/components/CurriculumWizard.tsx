@@ -252,7 +252,7 @@ export default function CurriculumWizard({
         subject_label: effectiveSub || null,
         total_lessons: totalNum,
         current_lesson: startNum - 1,
-        target_date: targetDate || undefined,
+        target_date: targetDate || null,
         school_days: booleanToDays(schoolDays),
         updated_at: new Date().toISOString(),
       })
@@ -348,7 +348,7 @@ export default function CurriculumWizard({
           subject_label: effectiveSub || null,
           total_lessons: totalNum,
           current_lesson: parseInt(startLesson) || 0,
-          target_date: targetDate || undefined,
+          target_date: targetDate || null,
           school_days: booleanToDays(schoolDays),
           updated_at: new Date().toISOString(),
         })
@@ -365,7 +365,7 @@ export default function CurriculumWizard({
           subject_label: effectiveSub || null,
           total_lessons: totalNum,
           current_lesson: parseInt(startLesson) || 0,
-          target_date: targetDate || undefined,
+          target_date: targetDate || null,
           school_days: booleanToDays(schoolDays),
           updated_at: new Date().toISOString(),
         })

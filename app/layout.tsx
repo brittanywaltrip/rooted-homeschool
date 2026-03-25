@@ -22,10 +22,22 @@ const lora = Lora({
 });
 
 export const metadata: Metadata = {
-  title: "Rooted Homeschool",
-  description: "A simple homeschool planner to track lessons, monitor progress, and create peaceful structure for your family.",
+  title: "Rooted",
+  description: "The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all. Free to start.",
   manifest: '/manifest.json',
   themeColor: '#5c7f63',
+  openGraph: {
+    title: "Rooted",
+    description: "The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all. Free to start.",
+    url: "https://rootedhomeschoolapp.com",
+    siteName: "Rooted",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Rooted",
+    description: "The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all. Free to start.",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',

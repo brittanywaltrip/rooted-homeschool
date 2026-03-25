@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
-const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"];
+const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
 const TEST_EMAILS_PATTERNS = ["rooted.", "test", "finalpass", "mobiletest", "finaltest"];
 const TEST_EMAILS_EXACT = [
@@ -157,6 +157,10 @@ export default function AdminPage() {
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [showTestSection, setShowTestSection] = useState(false);
   const [affiliates, setAffiliates] = useState<{ id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; profiles: { display_name: string | null; first_name: string | null; last_name: string | null } | null }[]>([]);
+  const [foundingByDay, setFoundingByDay] = useState<{ date: string; count: number }[]>([]);
+  const [partnerApps, setPartnerApps] = useState<{ id: string; first_name: string; last_name: string; email: string; platforms: string[]; platform_sizes: Record<string, string>; used_rooted: string; status: string; created_at: string; about_journey: string; paypal_email: string }[]>([]);
+  const [appFilter, setAppFilter] = useState<"pending" | "approved" | "declined">("pending");
+  const [appProcessing, setAppProcessing] = useState<string | null>(null);
 
   const fetchData = async (accessToken: string) => {
     setRefreshing(true);
@@ -177,6 +181,41 @@ export default function AdminPage() {
       .select("id, name, code, stripe_coupon_id, is_active, created_at, profiles(display_name, first_name, last_name)")
       .order("created_at", { ascending: false });
     if (affRows) setAffiliates(affRows as unknown as typeof affiliates);
+
+    // Load partner applications
+    const { data: appRows } = await supabase
+      .from("partner_applications")
+      .select("id, first_name, last_name, email, platforms, platform_sizes, used_rooted, status, created_at, about_journey, paypal_email")
+      .order("created_at", { ascending: false });
+    if (appRows) setPartnerApps(appRows as unknown as typeof partnerApps);
+
+    // Founding members by day — last 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    const { data: foundingRows } = await supabase
+      .from("profiles")
+      .select("created_at")
+      .eq("plan_type", "founding_family")
+      .gte("created_at", sevenDaysAgo.toISOString())
+      .order("created_at", { ascending: false });
+    if (foundingRows) {
+      const counts: Record<string, number> = {};
+      for (let i = 0; i < 7; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        counts[d.toISOString().split("T")[0]] = 0;
+      }
+      foundingRows.forEach((r) => {
+        const day = (r as { created_at: string }).created_at.split("T")[0];
+        if (counts[day] !== undefined) counts[day]++;
+      });
+      setFoundingByDay(
+        Object.entries(counts)
+          .sort(([a], [b]) => b.localeCompare(a))
+          .map(([date, count]) => ({ date, count }))
+      );
+    }
 
     setRefreshing(false);
   };
@@ -642,6 +681,45 @@ export default function AdminPage() {
           </div>
         </section>
 
+        {/* ── Founding Members by Day ─────────────────────────────────── */}
+        {foundingByDay.length > 0 && (
+          <section>
+            <SectionHeader emoji="📈" title="Founding Members by Day" />
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-xs text-[#7a6f65]">Last 7 days</p>
+                <p className="text-sm font-semibold text-[#2d2926]">
+                  This week: {foundingByDay.reduce((sum, d) => sum + d.count, 0)}
+                </p>
+              </div>
+              <div className="space-y-2">
+                {foundingByDay.map(({ date, count }) => {
+                  const maxCount = Math.max(...foundingByDay.map(d => d.count), 1);
+                  const label = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+                    weekday: "short", month: "short", day: "numeric",
+                  });
+                  return (
+                    <div key={date} className="flex items-center gap-3">
+                      <span className="text-xs text-[#7a6f65] w-24 shrink-0">{label}</span>
+                      <div className="flex-1 h-5 bg-[#f0ede8] rounded-full overflow-hidden">
+                        {count > 0 && (
+                          <div
+                            className="h-full bg-[#5c7f63] rounded-full transition-all"
+                            style={{ width: `${Math.max((count / maxCount) * 100, 8)}%` }}
+                          />
+                        )}
+                      </div>
+                      <span className={`text-sm font-semibold w-6 text-right ${count > 0 ? "text-[#2d2926]" : "text-[#d4d0c8]"}`}>
+                        {count}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* ── Affiliates / Ambassadors ────────────────────────────────── */}
         {affiliates.length > 0 && (
           <section>
@@ -677,6 +755,90 @@ export default function AdminPage() {
             </div>
           </section>
         )}
+
+        {/* ── Affiliate Applications ─────────────────────────── */}
+        <section>
+          <SectionHeader emoji={"\uD83E\uDD1D"} title={`Affiliate Applications (${partnerApps.filter(a => a.status === "pending").length} pending)`} />
+
+          <div className="flex gap-1.5 mb-4">
+            {(["pending", "approved", "declined"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setAppFilter(s)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  appFilter === s ? "bg-[#3d5c42] text-white" : "bg-white text-[#7a6f65] border border-[#e8e2d9]"
+                }`}
+              >
+                {s.charAt(0).toUpperCase() + s.slice(1)} ({partnerApps.filter(a => a.status === s).length})
+              </button>
+            ))}
+          </div>
+
+          {partnerApps.filter(a => a.status === appFilter).length === 0 ? (
+            <p className="text-sm text-[#b5aca4] text-center py-6">No {appFilter} applications</p>
+          ) : (
+            <div className="space-y-3">
+              {partnerApps.filter(a => a.status === appFilter).map((app) => (
+                <div key={app.id} className="bg-white border border-[#e8e2d9] rounded-xl p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[#2d2926]">{app.first_name} {app.last_name}</p>
+                      <p className="text-xs text-[#7a6f65]">{app.email}</p>
+                    </div>
+                    <span className="text-[10px] text-[#b5aca4]">
+                      {new Date(app.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {(app.platforms ?? []).map((p) => (
+                      <span key={p} className="text-[10px] bg-[#f0ede8] text-[#5c5248] px-2 py-0.5 rounded-full">
+                        {p} {app.platform_sizes?.[p] ? `(${app.platform_sizes[p]})` : ""}
+                      </span>
+                    ))}
+                  </div>
+
+                  {app.used_rooted && (
+                    <p className="text-xs text-[#7a6f65]"><span className="font-medium">Used Rooted:</span> {app.used_rooted}</p>
+                  )}
+
+                  {app.about_journey && (
+                    <p className="text-xs text-[#5c5248] leading-relaxed line-clamp-3">{app.about_journey}</p>
+                  )}
+
+                  {appFilter === "pending" && (
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        disabled={appProcessing === app.id}
+                        onClick={async () => {
+                          setAppProcessing(app.id);
+                          await supabase.from("partner_applications").update({ status: "approved" }).eq("id", app.id);
+                          setPartnerApps((prev) => prev.map((a) => a.id === app.id ? { ...a, status: "approved" } : a));
+                          setAppProcessing(null);
+                        }}
+                        className="flex-1 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white text-xs font-semibold transition-colors"
+                      >
+                        {appProcessing === app.id ? "..." : "Approve \u2192"}
+                      </button>
+                      <button
+                        disabled={appProcessing === app.id}
+                        onClick={async () => {
+                          setAppProcessing(app.id);
+                          await supabase.from("partner_applications").update({ status: "declined" }).eq("id", app.id);
+                          setPartnerApps((prev) => prev.map((a) => a.id === app.id ? { ...a, status: "declined" } : a));
+                          setAppProcessing(null);
+                        }}
+                        className="px-4 py-2 rounded-xl border border-[#e8e2d9] text-xs font-medium text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
       </div>
     </div>

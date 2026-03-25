@@ -227,11 +227,16 @@ function UpgradePageInner() {
               <button
                 onClick={() => handleClick('founding')}
                 disabled={loadingPlan !== null}
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm"
+                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm flex items-center justify-center gap-2"
               >
-                {loadingPlan === 'founding'
-                  ? 'Redirecting to checkout…'
-                  : 'Become a Founding Member → $39/yr'}
+                {loadingPlan === 'founding' ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Become a Founding Member → $39/yr'
+                )}
               </button>
             )}
           </div>
@@ -282,16 +287,29 @@ function UpgradePageInner() {
               <button
                 onClick={() => handleClick('standard')}
                 disabled={loadingPlan !== null}
-                className="w-full bg-[#2d2926] hover:bg-[#1a1714] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm"
+                className="w-full bg-[#2d2926] hover:bg-[#1a1714] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
               >
-                {loadingPlan === 'standard'
-                  ? 'Redirecting to checkout…'
-                  : 'Subscribe — $59/yr →'}
+                {loadingPlan === 'standard' ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Subscribe — $59/yr →'
+                )}
               </button>
             )}
           </div>
 
         </div>
+
+        {/* Payment processing warning */}
+        {loadingPlan !== null && (
+          <div className="mb-6 bg-[#fef9e8] border border-[#f0dda8] text-[#7a4a1a] text-sm rounded-xl px-4 py-3 max-w-lg mx-auto text-center">
+            <p className="font-semibold">Please don&apos;t close this page or click back</p>
+            <p className="text-xs mt-1 text-[#a08040]">Your payment is being processed. This may take a few seconds.</p>
+          </div>
+        )}
 
         {/* Vision section */}
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-7 mb-8 text-center max-w-xl mx-auto">
