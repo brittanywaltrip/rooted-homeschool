@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 function confirmationHtml(firstName: string): string {
   return `<!DOCTYPE html>
@@ -102,6 +108,21 @@ export async function POST(req: NextRequest) {
   }).join('\n')
 
   try {
+    // Save to database
+    await supabase.from('partner_applications').insert({
+      first_name: firstName,
+      last_name: lastName,
+      email,
+      platforms,
+      platform_links: platformLinks ?? {},
+      platform_sizes: platformSizes ?? {},
+      about_journey: story,
+      what_share: whatToShare ?? '',
+      used_rooted: usedRooted ?? '',
+      post_frequency: postFrequency ?? '',
+      paypal_email: paypalEmail ?? '',
+    })
+
     const { Resend } = await import('resend')
     const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -109,8 +130,8 @@ export async function POST(req: NextRequest) {
     await resend.emails.send({
       from: 'Rooted Partners <hello@rootedhomeschoolapp.com>',
       to: 'hello@rootedhomeschoolapp.com',
-      subject: `🤝 New Partner Application — ${firstName} ${lastName}`,
-      text: `New partner application!\n\nName: ${firstName} ${lastName}\nEmail: ${email}\nPayPal: ${paypalEmail || 'not provided'}\n\nPlatforms:\n${platformSummary}\n\nPost frequency: ${postFrequency || 'not specified'}\nUsed Rooted: ${usedRooted || 'not specified'}\n\nTheir story:\n${story}\n\nWhat they want to share:\n${whatToShare || 'not specified'}`
+      subject: `🌱 New partner application — ${firstName} ${lastName}`,
+      text: `Name: ${firstName} ${lastName}\nEmail: ${email}\nPlatforms: ${(platforms as string[]).join(', ')}\nUsed Rooted: ${usedRooted || 'not specified'}\nAbout their journey: ${story}\nWhat they'd share: ${whatToShare || 'not specified'}\nPost frequency: ${postFrequency || 'not specified'}\nPayPal: ${paypalEmail || 'not provided'}\n\nPlatform details:\n${platformSummary}\n\nReview it here: https://www.rootedhomeschoolapp.com/admin`,
     })
 
     // Confirmation email to applicant
