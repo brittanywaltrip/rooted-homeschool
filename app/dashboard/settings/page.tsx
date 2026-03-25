@@ -1658,6 +1658,38 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {/* How to share */}
+            <div className="bg-[#e8f0e9] border border-[#b8d9bc] rounded-xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-[#3d5c42] uppercase tracking-widest">How to share</p>
+              <p className="text-sm text-[#2d2926] leading-relaxed">
+                Your referral link gives followers 15% off automatically. Share it in your bio, stories, or posts.
+              </p>
+              <div className="bg-white border border-[#b8d9bc] rounded-lg px-3 py-2">
+                <p className="text-xs text-[#7a6f65] font-mono break-all">
+                  https://rootedhomeschoolapp.com?ref={affiliateData.code}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`https://rootedhomeschoolapp.com?ref=${affiliateData.code}`);
+                  showCopiedToast("Link copied!");
+                }}
+                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors"
+              >
+                Copy link
+              </button>
+            </div>
+
+            {/* Payout info */}
+            <div className="px-1 space-y-1">
+              <p className="text-xs text-[#b5aca4] leading-relaxed">
+                Commissions are 20% of each sale. Paid to your PayPal on the 1st of every month.
+              </p>
+              <p className="text-xs text-[#b5aca4]">
+                Minimum payout: $10
+              </p>
+            </div>
+
             {/* Partner since */}
             <p className="text-xs text-[#6366f1] text-center">
               Partner since {new Date(affiliateData.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
