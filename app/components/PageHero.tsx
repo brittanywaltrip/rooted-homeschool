@@ -12,6 +12,8 @@ interface PageHeroProps {
   className?: string;
   /** Override background color (e.g. vacation blue) */
   bgColor?: string;
+  /** Optional family photo URL — shows as small circle left of greeting */
+  photoUrl?: string | null;
 }
 
 export default function PageHero({
@@ -21,6 +23,7 @@ export default function PageHero({
   children,
   className = "",
   bgColor,
+  photoUrl,
 }: PageHeroProps) {
   return (
     <div
@@ -43,23 +46,34 @@ export default function PageHero({
         🌱
       </div>
 
-      <p
-        className="text-[11px] font-semibold tracking-widest uppercase mb-1"
-        style={{ color: "#8cba8e" }}
-      >
-        {overline}
-      </p>
-      <h1
-        className="text-[22px] sm:text-[26px] font-bold leading-tight"
-        style={{ color: "#fefcf9", fontFamily: "var(--font-display)" }}
-      >
-        {title}
-      </h1>
-      {subtitle && (
-        <p className="text-[14px] mt-1" style={{ color: "rgba(255,255,255,0.70)" }}>
-          {subtitle}
-        </p>
-      )}
+      <div className={photoUrl ? "flex items-center gap-3" : ""}>
+        {photoUrl && (
+          <img
+            src={photoUrl}
+            alt=""
+            className="w-10 h-10 rounded-full object-cover border-2 border-white/80 shadow-md shrink-0"
+          />
+        )}
+        <div>
+          <p
+            className="text-[11px] font-semibold tracking-widest uppercase mb-1"
+            style={{ color: "#8cba8e" }}
+          >
+            {overline}
+          </p>
+          <h1
+            className="text-[22px] sm:text-[26px] font-bold leading-tight"
+            style={{ color: "#fefcf9", fontFamily: "var(--font-display)" }}
+          >
+            {title}
+          </h1>
+          {subtitle && (
+            <p className="text-[14px] mt-1" style={{ color: "rgba(255,255,255,0.70)" }}>
+              {subtitle}
+            </p>
+          )}
+        </div>
+      </div>
       {children}
     </div>
   );

@@ -431,6 +431,11 @@ export default function TodayPage() {
 
   const [showLogModal,           setShowLogModal]           = useState(false);
   const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
+  const [memoryMoment,           setMemoryMoment]           = useState<{
+    kind: "on_this_day" | "recent" | "empty";
+    memory?: { id: string; title: string; photo_url: string | null; date: string; type: string };
+    yearsAgo?: number;
+  } | null>(null);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
@@ -978,6 +983,7 @@ export default function TodayPage() {
           : buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}
         subtitle={activeVacation ? `Back ${new Date(activeVacation.end_date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}` : undefined}
         bgColor={activeVacation ? "#1a6b8a" : undefined}
+        photoUrl={familyPhotoUrl}
       >
         {totalToday > 0 && isSchoolDay && !activeVacation && (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
