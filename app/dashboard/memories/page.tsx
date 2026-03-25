@@ -327,20 +327,7 @@ export default function MemoriesPage() {
     <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Capture photos, projects, and books." />
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
-      {/* Add memory */}
-      {!isPartner && (
-        <button
-          onClick={() => setShowLogModal(true)}
-          className="w-full flex items-center gap-4 bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#f8f5f0] rounded-2xl px-5 py-4 transition-colors"
-        >
-          <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0 text-lg">📸</div>
-          <div className="flex-1 text-left">
-            <p className="text-sm font-semibold text-[#2d2926]">+ Log a Memory</p>
-            <p className="text-xs text-[#7a6f65]">Photo, project, book, or anything you want to remember</p>
-          </div>
-          <span className="text-[#c8bfb5] text-lg leading-none">›</span>
-        </button>
-      )}
+      {/* Log a Memory button removed — replaced by persistent camera FAB in layout */}
 
       {/* AI Year in Review */}
       <Link
