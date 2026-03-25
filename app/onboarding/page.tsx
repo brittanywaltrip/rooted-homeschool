@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Camera, Check, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -259,56 +258,26 @@ function ChildRow({
 function StepOpening({ onNext }: { onNext: () => void }) {
   return (
     <div
-      className="min-h-screen flex flex-col justify-between"
-      style={{ backgroundColor: "#1a3d24", padding: "60px 40px 56px" }}
+      className="min-h-screen flex flex-col items-center justify-center px-6"
+      style={{ background: "linear-gradient(155deg, #1a3d24 0%, #2a5533 45%, #3d7a50 80%, #4d8f63 100%)" }}
     >
-      {/* TOP */}
-      <div>
-        <p style={{ fontSize: 12, letterSpacing: "0.12em", color: "rgba(255,255,255,0.45)" }} className="uppercase font-medium mb-4">
-          ROOTED
-        </p>
-        <div style={{ width: 40, height: 1, backgroundColor: "rgba(255,255,255,0.15)" }} className="mb-8" />
+      <div className="flex flex-col items-center text-center max-w-sm w-full">
         <h1
-          style={{
-            fontFamily: "var(--font-display)",
-            fontWeight: 400,
-            fontSize: 42,
-            lineHeight: 1.15,
-            letterSpacing: "-0.5px",
-            color: "#ffffff",
-          }}
-          className="mb-5"
+          className="text-3xl sm:text-[2.5rem] font-bold text-white mb-5 leading-snug"
+          style={{ fontFamily: "'Lora', var(--font-display), serif" }}
         >
-          The homeschool years go&nbsp;by so&nbsp;fast.
+          The homeschool years go by so fast.
         </h1>
-        <p style={{ fontSize: 16, lineHeight: 1.65, color: "rgba(255,255,255,0.55)" }} className="max-w-sm">
-          Rooted helps you plan your days, capture the moments, and hold onto it&nbsp;all.
+        <p className="text-[#c8ddb8] text-base leading-relaxed mb-12 max-w-xs">
+          Rooted helps you plan your days, capture the moments, and hold onto it all.
         </p>
-      </div>
-
-      {/* BOTTOM */}
-      <div>
         <button
           type="button"
           onClick={onNext}
-          className="w-full font-semibold transition-all active:scale-[0.98]"
-          style={{
-            backgroundColor: "#ffffff",
-            color: "#1a3d24",
-            fontSize: 16,
-            fontWeight: 600,
-            padding: 18,
-            borderRadius: 14,
-          }}
+          className="px-9 py-4 rounded-2xl bg-[#5c7f63] hover:bg-[#4d6e54] text-white font-semibold text-lg transition-all shadow-2xl hover:scale-105 active:scale-100"
         >
           Let&apos;s get started →
         </button>
-        <p className="text-center mt-4" style={{ fontSize: 13, color: "rgba(255,255,255,0.3)" }}>
-          Already have an account?{" "}
-          <Link href="/login" className="underline underline-offset-2 hover:text-white/50 transition-colors">
-            Log in
-          </Link>
-        </p>
       </div>
     </div>
   );
@@ -860,15 +829,33 @@ function StepDone({
           Your homeschool is officially rooted. Time to watch it grow.
         </p>
         {noCurriculumNote && (
-          <p className="text-[#a0cc9a] text-sm mb-6 max-w-xs">
+          <p className="text-[#a0cc9a] text-sm mb-4 max-w-xs">
             You can add your curriculum anytime from the Plan page. 🌿
           </p>
         )}
+
+        {/* Founder closing moment */}
+        <div className="mt-4 mb-8 flex flex-col items-center">
+          <div
+            className="w-14 h-14 rounded-full bg-[#2d5c38] flex items-center justify-center text-white text-xl font-bold shadow-lg mb-4"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            B
+          </div>
+          <p
+            className="text-white/85 text-sm leading-relaxed italic mb-2 max-w-[280px]"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            &ldquo;I built Rooted for families exactly like yours. If you ever have a question — just reply to any email from me. I read every one.&rdquo;
+          </p>
+          <p className="text-[#a0cc9a] text-xs font-semibold">— Brittany, founder 🌱</p>
+        </div>
+
         <button
           type="button"
           onClick={onDone}
           disabled={saving}
-          className="flex items-center gap-2.5 px-9 py-4 rounded-2xl bg-white text-[#2d5c38] font-semibold text-lg hover:bg-[#f5fbf5] transition-all shadow-2xl hover:scale-105 active:scale-100 disabled:opacity-60 mt-4"
+          className="flex items-center gap-2.5 px-9 py-4 rounded-2xl bg-white text-[#2d5c38] font-semibold text-lg hover:bg-[#f5fbf5] transition-all shadow-2xl hover:scale-105 active:scale-100 disabled:opacity-60"
         >
           {saving ? (
             <span className="flex items-center gap-2">
