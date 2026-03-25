@@ -331,12 +331,11 @@ export default function SettingsPage() {
 
   async function saveFamilyName() {
     const nameToSave = familyName.trim();
-    console.log("[Settings] saveFamilyName() called — familyName state value:", JSON.stringify(nameToSave));
     setSavingFamily(true);
 
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
-    if (!token) { setSavingFamily(false); console.log("[Settings] saveFamilyName: no token, aborting"); return; }
+    if (!token) { setSavingFamily(false); return; }
 
     // Primary: API route (uses service role key, bypasses RLS)
     const res = await fetch("/api/profile/update", {
@@ -344,19 +343,16 @@ export default function SettingsPage() {
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
       body: JSON.stringify({ display_name: nameToSave }),
     });
-    const resBody = await res.json().catch(() => ({}));
-    console.log("[Settings] API route response:", res.status, JSON.stringify(resBody));
+    await res.json().catch(() => ({}));
 
     // Fallback: direct Supabase client update in case API route failed
     if (!res.ok) {
-      console.log("[Settings] API route failed — attempting direct Supabase fallback");
       const userId = session.user.id;
-      const { data: fallbackData, error: fallbackErr } = await supabase
+      await supabase
         .from("profiles")
         .update({ display_name: nameToSave })
         .eq("id", userId)
         .select();
-      console.log("[Settings] direct Supabase fallback result — data:", JSON.stringify(fallbackData), "error:", fallbackErr?.message ?? null);
     }
 
     setSavingFamily(false);
