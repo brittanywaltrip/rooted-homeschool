@@ -407,13 +407,6 @@ export default function TodayPage() {
     if (udDate === new Date().toISOString().split("T")[0]) setUpgradeDismissed(true);
   }, []);
 
-  const [showPwaBanner, setShowPwaBanner] = useState(false);
-  const [showPwaModal,  setShowPwaModal]  = useState(false);
-  useEffect(() => {
-    const dismissed  = localStorage.getItem("pwa-banner-dismissed") === "true";
-    const standalone = window.matchMedia("(display-mode: standalone)").matches;
-    if (!dismissed && !standalone) setShowPwaBanner(true);
-  }, []);
 
   const [subjects,     setSubjects]     = useState<Subject[]>([]);
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
@@ -1704,38 +1697,6 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── PWA Install Banner ────────────────────────────── */}
-      {showPwaBanner && (
-        <div className="sm:hidden fixed bottom-20 left-4 right-4 z-50 bg-[#2d2926] text-white rounded-2xl shadow-xl px-4 py-3 flex items-center gap-3">
-          <span className="text-xl shrink-0">🌿</span>
-          <p className="flex-1 text-sm font-medium leading-tight">Add Rooted to your home screen</p>
-          <button onClick={() => setShowPwaModal(true)} className="shrink-0 text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg transition-colors">How?</button>
-          <button onClick={() => { localStorage.setItem("pwa-banner-dismissed", "true"); setShowPwaBanner(false); }} aria-label="Dismiss" className="shrink-0 text-white/60 hover:text-white text-lg leading-none transition-colors">×</button>
-        </div>
-      )}
-
-      {/* ── PWA Install Modal ─────────────────────────────── */}
-      {showPwaModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold text-[#2d2926]">🌿 Add to Home Screen</h2>
-              <button onClick={() => setShowPwaModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
-            </div>
-            <div className="space-y-3">
-              <div className="bg-[#f8f5f0] rounded-xl p-4 space-y-1">
-                <p className="text-xs font-bold text-[#2d2926] uppercase tracking-wide">🍎 iPhone</p>
-                <p className="text-sm text-[#5c5248] leading-relaxed">Safari → tap the <span className="font-semibold">Share</span> button → <span className="font-semibold">Add to Home Screen</span></p>
-              </div>
-              <div className="bg-[#f8f5f0] rounded-xl p-4 space-y-1">
-                <p className="text-xs font-bold text-[#2d2926] uppercase tracking-wide">🤖 Android</p>
-                <p className="text-sm text-[#5c5248] leading-relaxed">Chrome → tap the <span className="font-semibold">Menu (⋮)</span> → <span className="font-semibold">Add to Home Screen</span></p>
-              </div>
-            </div>
-            <button onClick={() => setShowPwaModal(false)} className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors">Got it!</button>
-          </div>
-        </div>
-      )}
 
       <FloatingLeaves active={celebrating} />
 
