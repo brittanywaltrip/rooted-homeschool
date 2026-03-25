@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Camera, BookOpen, FolderOpen, Sparkles, Download, X, ImageIcon, ArrowRight } from "lucide-react";
+import { Camera, BookOpen, FolderOpen, Sparkles, Download, X, ImageIcon, ArrowRight, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
@@ -13,16 +13,17 @@ import PageHero from "@/app/components/PageHero";
 
 type Memory = {
   id: string;
+  user_id: string;
+  child_id: string | null;
+  date: string;
   type: string;
-  payload: {
-    title?: string;
-    description?: string;
-    photo_url?: string;
-    child_id?: string;
-    date?: string;
-    author?: string;
-  };
+  title: string;
+  caption: string | null;
+  photo_url: string | null;
+  include_in_book: boolean;
+  page_order: number | null;
   created_at: string;
+  updated_at: string;
 };
 
 type Reflection = {
@@ -39,10 +40,10 @@ type Child = { id: string; name: string; color: string | null };
 
 const MEMORY_TYPES = [
   { id: "all",        label: "All",         emoji: "✨" },
-  { id: "photo",      label: "Photos",      emoji: "📷" },
-  { id: "field_trip", label: "Field Trips", emoji: "🗺️"  },
-  { id: "project",    label: "Projects",    emoji: "📁" },
-  { id: "book",       label: "Books",       emoji: "📖" },
+  { id: "memory_photo",      label: "Photos",      emoji: "📷" },
+  { id: "memory_field_trip", label: "Field Trips", emoji: "🗺️"  },
+  { id: "memory_project",    label: "Projects",    emoji: "📁" },
+  { id: "memory_book",       label: "Books",       emoji: "📖" },
   { id: "reflection", label: "Reflections", emoji: "📝" },
 ];
 
@@ -54,6 +55,7 @@ export default function MemoriesPage() {
   const [reflections,  setReflections] = useState<Reflection[]>([]);
   const [children,     setChildren]    = useState<Child[]>([]);
   const [activeType,   setActiveType]  = useState("all");
+  const [activeChild,  setActiveChild] = useState("all");      // "all" | "family" | child id
   const [loading,      setLoading]     = useState(true);
   const [isPro,        setIsPro]       = useState<boolean | null>(null);
   const [showModal,    setShowModal]   = useState(false);
@@ -72,6 +74,17 @@ export default function MemoriesPage() {
   const [previewUrl,  setPreviewUrl]  = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [saving,      setSaving]      = useState(false);
+
+  // Edit state
+  const [editingMemory,     setEditingMemory]     = useState<Memory | null>(null);
+  const [editTitle,         setEditTitle]         = useState("");
+  const [editCaption,       setEditCaption]       = useState("");
+  const [editChild,         setEditChild]         = useState("");
+  const [editDate,          setEditDate]          = useState("");
+  const [savingEdit,        setSavingEdit]        = useState(false);
+
+  // Delete state
+  const [deletingMemoryId,  setDeletingMemoryId]  = useState<string | null>(null);
 
   // Reflection view/edit state
   const [viewingReflection,       setViewingReflection]       = useState<Reflection | null>(null);
@@ -93,7 +106,7 @@ export default function MemoriesPage() {
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [{ data: kids }, { data: events }, { data: reflData }] = await Promise.all([
+    const [{ data: kids }, { data: memRows }, { data: reflData }] = await Promise.all([
       supabase
         .from("children")
         .select("id, name, color")
@@ -101,10 +114,9 @@ export default function MemoriesPage() {
         .eq("archived", false)
         .order("sort_order"),
       supabase
-        .from("app_events")
-        .select("id, type, payload, created_at")
+        .from("memories")
+        .select("*")
         .eq("user_id", effectiveUserId)
-        .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"])
         .gte("created_at", userIsPro ? "2020-01-01" : thirtyDaysAgo)
         .order("created_at", { ascending: false }),
       supabase
@@ -115,7 +127,7 @@ export default function MemoriesPage() {
     ]);
 
     setChildren(kids ?? []);
-    setMemories((events as unknown as Memory[]) ?? []);
+    setMemories((memRows as unknown as Memory[]) ?? []);
     setIsPro(userIsPro);
     setReflections((reflData as unknown as Reflection[]) ?? []);
 
@@ -127,12 +139,11 @@ export default function MemoriesPage() {
     monday.setHours(0, 0, 0, 0);
     const mondayStr = monday.toISOString();
     const { data: weekEvents } = await supabase
-      .from("app_events")
+      .from("memories")
       .select("created_at")
       .eq("user_id", effectiveUserId)
-      .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"])
       .gte("created_at", mondayStr);
-    const uniqueDays = new Set((weekEvents ?? []).map(e => e.created_at?.split("T")[0]));
+    const uniqueDays = new Set((weekEvents ?? []).map(e => (e as { created_at: string }).created_at?.split("T")[0]));
     setMemoryDaysThisWeek(uniqueDays.size);
 
     setLoading(false);
@@ -142,10 +153,10 @@ export default function MemoriesPage() {
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
-  const childName = (id?: string) =>
+  const childName = (id?: string | null) =>
     id ? (children.find((c) => c.id === id)?.name ?? "") : "";
 
-  const childColor = (id?: string) =>
+  const childColor = (id?: string | null) =>
     id ? (children.find((c) => c.id === id)?.color ?? "#5c7f63") : "#5c7f63";
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -182,6 +193,52 @@ export default function MemoriesPage() {
     setEditingReflection(false);
     setReflectionDeleteConfirm(false);
   }
+
+  // ── Edit memory ────────────────────────────────────────────────────────────
+
+  function openEditMemory(m: Memory) {
+    setEditingMemory(m);
+    setEditTitle(m.title);
+    setEditCaption(m.caption ?? "");
+    setEditChild(m.child_id ?? "");
+    setEditDate(m.date);
+  }
+
+  function closeEditMemory() {
+    setEditingMemory(null);
+  }
+
+  async function saveMemoryEdit() {
+    if (!editingMemory) return;
+    setSavingEdit(true);
+    const { data } = await supabase
+      .from("memories")
+      .update({
+        title: editTitle.trim() || editingMemory.title,
+        caption: editCaption.trim() || null,
+        child_id: editChild || null,
+        date: editDate,
+      })
+      .eq("id", editingMemory.id)
+      .select()
+      .single();
+    if (data) {
+      const updated = data as unknown as Memory;
+      setMemories((prev) => prev.map((m) => m.id === updated.id ? updated : m));
+    }
+    setSavingEdit(false);
+    closeEditMemory();
+  }
+
+  // ── Delete memory ──────────────────────────────────────────────────────────
+
+  async function deleteMemory(id: string) {
+    await supabase.from("memories").delete().eq("id", id);
+    setMemories((prev) => prev.filter((m) => m.id !== id));
+    setDeletingMemoryId(null);
+  }
+
+  // ── Reflection edit/delete ─────────────────────────────────────────────────
 
   async function saveReflectionEdit() {
     if (!viewingReflection || !reflectionEditText.trim()) return;
@@ -238,7 +295,7 @@ export default function MemoriesPage() {
     }
 
     // Upload photo if provided
-    let photoUrl: string | undefined;
+    let photoUrl: string | null = null;
     if (modalType === "photo" && formFile) {
       const ext = formFile.name.split(".").pop() ?? "jpg";
       const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
@@ -261,18 +318,17 @@ export default function MemoriesPage() {
       photoUrl = urlData.publicUrl;
     }
 
-    const payload: Memory["payload"] = {
-      title:     formTitle.trim() || (formFile?.name ?? "Photo"),
-      date:      formDate,
-      child_id:  formChild || undefined,
-      photo_url: photoUrl,
-    };
-    if (formDesc)   payload.description = formDesc;
-    if (formAuthor) payload.author      = formAuthor;
-
     const { data } = await supabase
-      .from("app_events")
-      .insert({ user_id: user.id, type: `memory_${modalType}`, payload })
+      .from("memories")
+      .insert({
+        user_id: user.id,
+        type: `memory_${modalType}`,
+        title: formTitle.trim() || (formFile?.name ?? "Photo"),
+        caption: formDesc.trim() || null,
+        child_id: formChild || null,
+        date: formDate,
+        photo_url: photoUrl,
+      })
       .select()
       .single();
 
@@ -289,16 +345,44 @@ export default function MemoriesPage() {
 
   // ── Derived state ────────────────────────────────────────────────────────────
 
-  const filteredMemories = memories.filter((m) =>
-    activeType === "all" ? true : m.type === `memory_${activeType}`
-  );
+  const filteredMemories = memories.filter((m) => {
+    // Type filter
+    if (activeType !== "all" && activeType !== "reflection" && m.type !== activeType) return false;
+    // Child filter
+    if (activeChild === "family") return !m.child_id;
+    if (activeChild !== "all") return m.child_id === activeChild;
+    return true;
+  });
 
-  const gridPhotos = filteredMemories.filter(
-    (m) => m.type === "memory_photo" && m.payload.photo_url
-  );
-  const listItems = filteredMemories.filter(
-    (m) => !(m.type === "memory_photo" && m.payload.photo_url)
-  );
+  // Type-specific helpers
+  function memoryEmoji(type: string) {
+    if (type === "memory_photo") return "📷";
+    if (type === "memory_project") return "📁";
+    if (type === "memory_book") return "📖";
+    if (type === "memory_field_trip") return "🗺️";
+    if (type === "memory_activity") return "🎵";
+    if (type === "book_read") return "📖";
+    return "✨";
+  }
+
+  function memoryLabel(type: string) {
+    if (type === "memory_photo") return "Photo";
+    if (type === "memory_project") return "Project";
+    if (type === "memory_book") return "Book";
+    if (type === "memory_field_trip") return "Field Trip";
+    if (type === "memory_activity") return "Activity";
+    if (type === "book_read") return "Book";
+    return "Memory";
+  }
+
+  function memoryBg(type: string) {
+    if (type === "memory_photo") return "#f0f4ff";
+    if (type === "memory_project") return "#f5ede0";
+    if (type === "memory_book" || type === "book_read") return "#e8f0e9";
+    if (type === "memory_field_trip") return "#fff8e8";
+    if (type === "memory_activity") return "#f0e8f5";
+    return "#f0ede8";
+  }
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -375,6 +459,46 @@ export default function MemoriesPage() {
         </div>
         <span className="text-[#5c7f63] text-lg shrink-0">→</span>
       </Link>
+
+      {/* ── Child filter bar ─────────────────────────────────── */}
+      {children.length > 0 && (
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setActiveChild("all")}
+            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              activeChild === "all"
+                ? "bg-[#2d2926] text-white"
+                : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#2d2926]"
+            }`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setActiveChild("family")}
+            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              activeChild === "family"
+                ? "bg-[#2d2926] text-white"
+                : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#2d2926]"
+            }`}
+          >
+            👨‍👩‍👧‍👦 Family
+          </button>
+          {children.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setActiveChild(c.id)}
+              className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                activeChild === c.id
+                  ? "text-white"
+                  : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+              }`}
+              style={activeChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : undefined}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Type filter tabs */}
       <div className="flex gap-2 flex-wrap">
@@ -462,126 +586,95 @@ export default function MemoriesPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-6">
+          /* ── 2-column photo grid ─────────────────────────── */
+          <div className="grid grid-cols-2 gap-3">
+            {filteredMemories.map((m) => {
+              const hasPhoto = !!m.photo_url;
+              const dateLabel = m.date
+                ? new Date(m.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                : new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
-            {/* Photo grid */}
-            {gridPhotos.length > 0 && (
-              <div>
-                {activeType === "all" && (
-                  <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-                    Photos
-                  </p>
-                )}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {gridPhotos.map((m) => (
+              return (
+                <div
+                  key={m.id}
+                  className="group relative rounded-2xl overflow-hidden bg-[#f0ede8] flex flex-col"
+                >
+                  {/* Photo or placeholder */}
+                  {hasPhoto ? (
                     <button
-                      key={m.id}
-                      onClick={() => setLightboxUrl(m.payload.photo_url!)}
-                      className="group relative rounded-2xl overflow-hidden aspect-square bg-[#f0ede8] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]"
+                      onClick={() => setLightboxUrl(m.photo_url!)}
+                      className="aspect-square w-full focus:outline-none"
                     >
-                      {/* Photo */}
                       <img
-                        src={m.payload.photo_url}
-                        alt={m.payload.title ?? "Memory photo"}
+                        src={m.photo_url!}
+                        alt={m.title ?? "Memory"}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
-                      {/* Hover overlay */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
-                      {/* Caption on hover */}
-                      <div className="absolute bottom-0 left-0 right-0 p-3 translate-y-1 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-200">
-                        {m.payload.title && (
-                          <p className="text-white text-xs font-semibold leading-snug line-clamp-2">
-                            {m.payload.title}
-                          </p>
-                        )}
-                        {m.payload.child_id && (
-                          <span
-                            className="inline-block mt-1 text-[10px] font-medium px-2 py-0.5 rounded-full text-white"
-                            style={{ backgroundColor: childColor(m.payload.child_id) + "cc" }}
-                          >
-                            {childName(m.payload.child_id)}
-                          </span>
-                        )}
-                      </div>
-                      {/* Date badge */}
-                      {m.payload.date && (
-                        <div className="absolute top-2 right-2 bg-black/40 text-white text-[10px] px-1.5 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                          {new Date(m.payload.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        </div>
-                      )}
                     </button>
-                  ))}
-                </div>
-              </div>
-            )}
+                  ) : (
+                    <div
+                      className="aspect-square w-full flex items-center justify-center"
+                      style={{ backgroundColor: memoryBg(m.type) }}
+                    >
+                      <span className="text-4xl">{memoryEmoji(m.type)}</span>
+                    </div>
+                  )}
 
-            {/* List items (projects, books, photos without url) */}
-            {listItems.length > 0 && (
-              <div>
-                {activeType === "all" && gridPhotos.length > 0 && (
-                  <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-                    Memories
-                  </p>
-                )}
-                <div className="space-y-2.5">
-                  {listItems.map((m) => {
-                    const isPhoto     = m.type === "memory_photo";
-                    const isProject   = m.type === "memory_project";
-                    const isBook      = m.type === "memory_book";
-                    const isFieldTrip = m.type === "memory_field_trip";
-                    const isActivity  = m.type === "memory_activity";
-                    const emoji = isPhoto ? "📷" : isProject ? "📁" : isBook ? "📖" : isFieldTrip ? "🗺️" : "🎵";
-                    const bg    = isPhoto ? "#f0f4ff" : isProject ? "#f5ede0" : isBook ? "#e8f0e9" : isFieldTrip ? "#fff8e8" : "#f0e8f5";
-                    const label = isPhoto ? "Photo" : isProject ? "Project" : isBook ? "Book" : isFieldTrip ? "Field Trip" : "Activity";
-                    const p = m.payload;
-                    return (
-                      <div
-                        key={m.id}
-                        className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 flex gap-3"
-                      >
-                        <div
-                          className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
-                          style={{ backgroundColor: bg }}
+                  {/* Bottom info bar */}
+                  <div className="bg-[#fefcf9] px-3 py-2.5 flex-1 min-h-0">
+                    <p className="text-xs font-semibold text-[#2d2926] line-clamp-2 leading-snug">
+                      {m.title || "Untitled"}
+                    </p>
+                    {m.caption && (
+                      <p className="text-[11px] text-[#7a6f65] mt-0.5 line-clamp-1">{m.caption}</p>
+                    )}
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      <span className="text-[10px] text-[#b5aca4]">{dateLabel}</span>
+                      <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-1.5 py-0.5 rounded-full">
+                        {memoryLabel(m.type)}
+                      </span>
+                      {m.child_id && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full text-white"
+                          style={{ backgroundColor: childColor(m.child_id) }}
                         >
-                          {emoji}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="font-medium text-sm text-[#2d2926] truncate">
-                              {p.title ?? "Untitled"}
-                            </p>
-                            <span className="text-[10px] text-[#b5aca4] shrink-0">
-                              {p.date
-                                ? new Date(p.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                                : new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                            </span>
-                          </div>
-                          {p.description && (
-                            <p className="text-xs text-[#7a6f65] mt-0.5 line-clamp-2">{p.description}</p>
-                          )}
-                          <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                            <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">
-                              {label}
-                            </span>
-                            {p.child_id && (
-                              <span
-                                className="text-[10px] px-2 py-0.5 rounded-full text-white"
-                                style={{ backgroundColor: childColor(p.child_id) }}
-                              >
-                                {childName(p.child_id)}
-                              </span>
-                            )}
-                            {p.author && (
-                              <span className="text-[10px] text-[#b5aca4]">by {p.author}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                          {childName(m.child_id)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Edit / Delete overlay — visible on hover */}
+                  {!isPartner && (
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openEditMemory(m); }}
+                        className="w-7 h-7 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors"
+                        aria-label="Edit memory"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      {deletingMemoryId === m.id ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteMemory(m.id); }}
+                          className="h-7 px-2 rounded-full bg-red-500 hover:bg-red-600 text-white text-[10px] font-semibold flex items-center justify-center transition-colors"
+                        >
+                          Confirm
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeletingMemoryId(m.id); }}
+                          className="w-7 h-7 rounded-full bg-black/50 hover:bg-red-500 text-white flex items-center justify-center transition-colors"
+                          aria-label="Delete memory"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })}
           </div>
         )
       )}
@@ -605,6 +698,86 @@ export default function MemoriesPage() {
             className="max-w-full max-h-[90vh] rounded-2xl object-contain shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
+        </div>
+      )}
+
+      {/* ── Edit Memory Modal ──────────────────────────────── */}
+      {editingMemory && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-[#2d2926]">✏️ Edit Memory</h2>
+              <button onClick={closeEditMemory} className="text-[#b5aca4] hover:text-[#7a6f65]">
+                <X size={18} />
+              </button>
+            </div>
+
+            {editingMemory.photo_url && (
+              <img src={editingMemory.photo_url} alt="" className="w-full rounded-xl max-h-40 object-cover" />
+            )}
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Title</label>
+                <input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Caption</label>
+                <textarea
+                  value={editCaption}
+                  onChange={(e) => setEditCaption(e.target.value)}
+                  rows={2}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Date</label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                  />
+                </div>
+                {children.length > 0 && (
+                  <div>
+                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                    <select
+                      value={editChild}
+                      onChange={(e) => setEditChild(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                    >
+                      <option value="">All children</option>
+                      {children.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={closeEditMemory}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveMemoryEdit}
+                disabled={savingEdit}
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              >
+                {savingEdit ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
