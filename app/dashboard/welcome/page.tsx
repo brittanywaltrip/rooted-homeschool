@@ -25,10 +25,16 @@ export default function WelcomePage() {
       if (!session) { router.push('/login'); return }
       const { data: profile } = await supabase
         .from('profiles')
-        .select('display_name')
+        .select('display_name, first_name, last_name')
         .eq('id', session.user.id)
         .maybeSingle()
-      setFamilyName(profile?.display_name || session.user.user_metadata?.family_name || '')
+      const p = profile as { display_name?: string; first_name?: string; last_name?: string } | null
+      const name = p?.display_name
+        || (p?.first_name && p?.last_name ? `${p.first_name} ${p.last_name}` : null)
+        || p?.first_name
+        || session.user.user_metadata?.family_name
+        || ''
+      setFamilyName(name)
     })
 
     // Stagger content in
@@ -98,7 +104,7 @@ export default function WelcomePage() {
         {/* Welcome heading */}
         <div className="mb-2">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5c7f63] mb-2">So glad you&apos;re here</p>
-          <h1 className="text-4xl font-bold text-[#2d2926] leading-tight mb-1">
+          <h1 className="text-4xl font-bold text-[#2d2926] leading-tight mb-1" style={{ fontFamily: 'var(--font-display)' }}>
             {displayName}
           </h1>
           <p className="text-lg text-[#5c7f63] font-medium">You&apos;re officially Rooted. 🌿</p>

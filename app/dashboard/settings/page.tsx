@@ -1241,44 +1241,65 @@ export default function SettingsPage() {
           <span className="h-px flex-1 bg-[#e8e2d9]" />
         </div>
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-[#2d2926]">
-                {planType === 'founding_family'
-                  ? '🌱 Founding Family — $39/yr locked forever'
-                  : planType === 'standard'
-                  ? '🌿 Standard — $59/yr'
-                  : '🪴 Free Plan'}
-              </p>
-              {currentPeriodEnd && subscriptionStatus === 'active' && (
-                <p className="text-xs text-[#7a6f65] mt-1">
-                  Next billing:{' '}
-                  {new Date(currentPeriodEnd).toLocaleDateString('en-US', {
-                    month: 'long', day: 'numeric', year: 'numeric',
-                  })}
-                </p>
-              )}
-              {subscriptionStatus === 'cancelled' && (
-                <p className="text-xs text-red-500 mt-1">Subscription cancelled</p>
-              )}
-            </div>
-            {isPro ? (
-              <button
-                onClick={handleManageSubscription}
-                disabled={portalLoading}
-                className="shrink-0 px-4 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
-              >
-                {portalLoading ? 'Loading…' : 'Manage Subscription'}
-              </button>
-            ) : (
-              <a
-                href="/dashboard/pricing"
-                className="shrink-0 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
-              >
-                Upgrade
-              </a>
-            )}
-          </div>
+          {(() => {
+            const isActivePaid = isPro || subscriptionStatus === 'active' || planType === 'founding_family' || planType === 'standard';
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-[#2d2926]">
+                      {planType === 'founding_family'
+                        ? '🌱 Founding Family — $39/yr locked forever'
+                        : planType === 'standard'
+                        ? '🌿 Standard — $59/yr'
+                        : '🪴 Free Plan'}
+                    </p>
+                    {currentPeriodEnd && subscriptionStatus === 'active' && (
+                      <p className="text-xs text-[#7a6f65] mt-1">
+                        Next billing:{' '}
+                        {new Date(currentPeriodEnd).toLocaleDateString('en-US', {
+                          month: 'long', day: 'numeric', year: 'numeric',
+                        })}
+                      </p>
+                    )}
+                    {subscriptionStatus === 'cancelled' && (
+                      <p className="text-xs text-red-500 mt-1">Subscription cancelled — access continues until end of billing period</p>
+                    )}
+                  </div>
+                  {isActivePaid ? (
+                    <button
+                      onClick={handleManageSubscription}
+                      disabled={portalLoading}
+                      className="shrink-0 px-4 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
+                    >
+                      {portalLoading ? 'Loading…' : 'Manage Subscription'}
+                    </button>
+                  ) : (
+                    <a
+                      href="/dashboard/pricing"
+                      className="shrink-0 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+                    >
+                      Upgrade
+                    </a>
+                  )}
+                </div>
+
+                {/* Cancel subscription */}
+                {subscriptionStatus === 'active' && isActivePaid && (
+                  <button
+                    onClick={() => {
+                      if (confirm('Your access continues until the end of your billing period. Are you sure you want to cancel?')) {
+                        handleManageSubscription();
+                      }
+                    }}
+                    className="text-xs text-[#b5aca4] hover:text-red-400 transition-colors"
+                  >
+                    Cancel subscription
+                  </button>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </section>}
 

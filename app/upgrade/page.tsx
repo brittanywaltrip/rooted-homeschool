@@ -303,6 +303,14 @@ function UpgradePageInner() {
 
         </div>
 
+        {/* Payment processing warning */}
+        {loadingPlan !== null && (
+          <div className="mb-6 bg-[#fef9e8] border border-[#f0dda8] text-[#7a4a1a] text-sm rounded-xl px-4 py-3 max-w-lg mx-auto text-center">
+            <p className="font-semibold">Please don&apos;t close this page or click back</p>
+            <p className="text-xs mt-1 text-[#a08040]">Your payment is being processed. This may take a few seconds.</p>
+          </div>
+        )}
+
         {/* Vision section */}
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-7 mb-8 text-center max-w-xl mx-auto">
           <h2 className="text-lg font-bold text-[#2d2926] mb-3" style={{ fontFamily: 'var(--font-display)' }}>
