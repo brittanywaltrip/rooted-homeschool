@@ -235,9 +235,10 @@ export default function GardenPage() {
       setChildren(kids_);
       if (kids_.length > 0) setSelectedId(kids_[0].id);
 
-      const [{ data: completed }, { data: bookEvents }, { data: vacBlocks }, { data: profile }] = await Promise.all([
+      const [{ data: completed }, { data: activityEvents }, { data: memoryRows }, { data: vacBlocks }, { data: profile }] = await Promise.all([
         supabase.from("lessons").select("child_id, date, scheduled_date, hours").eq("user_id", effectiveUserId).eq("completed", true),
-        supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+        supabase.from("app_events").select("type, payload").eq("user_id", effectiveUserId).in("type", ["book_read", "memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"]),
+        supabase.from("memories").select("child_id").eq("user_id", effectiveUserId),
         supabase.from("vacation_blocks").select("start_date, end_date, name").eq("user_id", effectiveUserId),
         supabase.from("profiles").select("display_name, plan_type, subscription_status").eq("id", effectiveUserId).maybeSingle(),
       ]);
@@ -259,9 +260,12 @@ export default function GardenPage() {
       completed?.forEach((l) => {
         counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
       });
-      bookEvents?.forEach((e) => {
+      activityEvents?.forEach((e) => {
         const cid = e.payload?.child_id;
         if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
+      });
+      memoryRows?.forEach((m: { child_id: string | null }) => {
+        if (m.child_id) counts[m.child_id] = (counts[m.child_id] ?? 0) + 1;
       });
 
       setLeafCounts(counts);
