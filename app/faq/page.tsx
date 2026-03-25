@@ -24,8 +24,8 @@ const sections = [
         a: 'Go to Plan → Curriculum in your dashboard. Add curriculum items (subjects, courses, or books) and set a goal for how many lessons you want to complete. Rooted will spread those lessons across your school days and track your progress automatically. You can edit, pause, or adjust any curriculum item at any time.',
       },
       {
-        q: "What is the Finish Line / curriculum planner?",
-        a: "The Finish Line is your curriculum goal tracker. For each curriculum item, you set a total lesson count (your \"finish line\"). As you log lessons linked to that curriculum, Rooted calculates your pace and shows you whether you're on track to finish by your target date. It's a gentle way to stay intentional without rigid day-by-day scheduling.",
+        q: "What is the curriculum planner?",
+        a: "The curriculum planner is your pacing tracker. For each curriculum item, you set a total lesson count. As you log lessons linked to that curriculum, Rooted calculates your pace and shows you whether you're on track. It's a gentle way to stay intentional without rigid day-by-day scheduling.",
       },
     ],
   },
@@ -39,7 +39,7 @@ const sections = [
       },
       {
         q: "What happens when I check off a lesson?",
-        a: "When you complete a lesson, it's recorded in your progress log and counts toward your curriculum Finish Line goals. If the lesson is tied to a curriculum item, Rooted updates your pacing automatically. Your child's Garden tree also grows a little — it's a small celebration of every learning moment.",
+        a: "When you complete a lesson, it's recorded in your progress log and counts toward your curriculum goals. If the lesson is tied to a curriculum item, Rooted updates your pacing automatically. Your child's Garden tree also grows a little — it's a small celebration of every learning moment.",
       },
       {
         q: "What if we skip a school day?",
@@ -104,7 +104,7 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, field trips, activities, books, reflections, and basic progress view. You also get 50 photos and your last 30 days of memories. Pro unlocks unlimited photos, your full memory history, AI Year in Review, progress reports, curriculum pacing, and priority support.",
+        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, curated resources, and 1 AI Family Update per month. You also get 50 photos, your last 30 days of memories, and a yearbook preview. Pro unlocks unlimited photos, your full memory history, unlimited AI Family Updates, yearbook PDF download, progress reports, and curriculum pacing.",
       },
       {
         q: "What is the Founding Family price?",
@@ -112,7 +112,7 @@ const sections = [
       },
       {
         q: "When does the founding price end?",
-        a: "The Founding Family pricing ($39/year) is available during our early access period. Once we exit early access and launch publicly, the standard price will be $79/year. Founding Families who subscribe before then keep their $39/year rate permanently — even as we add more features.",
+        a: "The Founding Family pricing ($39/year) is available during our early access period. The standard annual price is $59/year. Founding Families keep their $39/year rate permanently — even as we add more features and the price increases.",
       },
       {
         q: "How do I upgrade to Pro?",
@@ -126,15 +126,15 @@ const sections = [
     items: [
       {
         q: "What AI features does Rooted have?",
-        a: "Rooted has three AI-powered features: Family Update (generates a warm narrative summary of your recent school weeks), Graduation Letter (writes a personalized, heartfelt letter for your graduating homeschooler), and Year in Review (creates a beautiful annual summary with highlights and a narrative you'll want to save forever).",
+        a: "Rooted's AI-powered Family Update generates a warm narrative summary of your recent school weeks — perfect for sharing with grandparents or keeping as a journal entry. Pro users get unlimited updates; free users get 1 per month.",
       },
       {
         q: "Why can't I access AI features on the free plan?",
         a: "AI generation costs real money to run — every narrative requires a call to a large language model, and those costs add up. Keeping AI features Pro-only lets us keep the free plan genuinely free for families who don't need them, while making sure the features are sustainable for those who do. Rooted Pro is $39/year — less than one curriculum book.",
       },
       {
-        q: "How many AI generations do I get per month?",
-        a: "Pro users get 50 AI generations per month, which resets on the first of each month. That's more than enough for regular use of Family Updates, Graduation Letters, and Year in Review. If you hit the limit and need more, reach out to us — we're happy to help.",
+        q: "How many AI generations do I get?",
+        a: "Free users get 1 AI Family Update per month. Pro users get unlimited AI Family Updates. If you ever run into any issues, reach out to us at hello@rootedhomeschoolapp.com — we're happy to help.",
       },
     ],
   },
