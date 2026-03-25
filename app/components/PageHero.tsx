@@ -51,7 +51,7 @@ export default function PageHero({
           <img
             src={photoUrl}
             alt=""
-            className="w-10 h-10 rounded-full object-cover border-2 border-white/80 shadow-md shrink-0 md:hidden"
+            className="w-20 h-20 rounded-full object-cover border-[3px] border-white/80 shadow-md shrink-0 md:hidden"
           />
         )}
         <div>
