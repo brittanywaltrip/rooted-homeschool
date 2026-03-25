@@ -17,11 +17,15 @@ const sections = [
       },
       {
         q: "Is Rooted really free to start?",
-        a: "Yes! The free plan gives you full access to daily lesson logging, your family's Garden, the basic progress tracker, and progress reports. No credit card required. You can use Rooted free for as long as you like — Pro is available when you're ready for extra features.",
+        a: "Yes! The free plan gives you daily lesson tracking, your family's Garden, curated resources, 30 days of memories, and 1 AI Family Update per month. No credit card required. You can use Rooted free for as long as you like — upgrade when you're ready for unlimited photos, full memory history, yearbook PDF download, and more.",
       },
       {
         q: "How do I set up my curriculum?",
         a: 'Go to Plan → Curriculum in your dashboard. Add curriculum items (subjects, courses, or books) and set a goal for how many lessons you want to complete. Rooted will spread those lessons across your school days and track your progress automatically. You can edit, pause, or adjust any curriculum item at any time.',
+      },
+      {
+        q: "Can I skip the curriculum setup?",
+        a: "Yes! Curriculum is completely optional in Rooted. You can start capturing memories and tracking lessons right away, and add your curriculum anytime from the Plan page.",
       },
       {
         q: "What is the curriculum planner?",
@@ -130,7 +134,7 @@ const sections = [
       },
       {
         q: "Why can't I access AI features on the free plan?",
-        a: "AI generation costs real money to run — every narrative requires a call to a large language model, and those costs add up. Keeping AI features Pro-only lets us keep the free plan genuinely free for families who don't need them, while making sure the features are sustainable for those who do. Rooted Pro is $39/year — less than one curriculum book.",
+        a: "Free users get 1 AI Family Update per month, which is enough to try it out. Unlimited updates are a Pro feature because AI generation costs real money to run — every narrative requires a call to a large language model, and those costs add up. Rooted Pro is $39/year — less than one curriculum book.",
       },
       {
         q: "How many AI generations do I get?",
