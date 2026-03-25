@@ -1903,7 +1903,7 @@ export default function OnboardingPage() {
           subject_label:   cs.draft.subjects[0] ?? null,
           total_lessons:   totalLessons,
           current_lesson:  cs.draft.lessonsDone ?? 0,
-          target_date:     cs.draft.finishDate || null,
+          target_date:     null, // Don't auto-set deadline — let user set it explicitly if they want pace tracking
           school_days:     schoolDayNames,
         })
         .select("id")
