@@ -23,12 +23,12 @@ const lora = Lora({
 
 export const metadata: Metadata = {
   title: "Rooted Homeschool",
-  description: "The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all.",
+  description: "The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all. Free to start.",
   manifest: '/manifest.json',
   themeColor: '#5c7f63',
   openGraph: {
     title: "Rooted Homeschool",
-    description: "The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all.",
+    description: "The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all. Free to start.",
     url: "https://rootedhomeschoolapp.com",
     siteName: "Rooted Homeschool",
     type: "website",
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Rooted Homeschool",
-    description: "The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all.",
+    description: "The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all. Free to start.",
   },
   appleWebApp: {
     capable: true,

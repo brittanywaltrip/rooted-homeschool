@@ -283,6 +283,22 @@ export default function PartnersPage() {
         </div>
       </section>
 
+      {/* ── SECTION 2b — What your followers get ──────────────────────── */}
+      <section className="px-6 sm:px-8 py-12 bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border-t border-b border-[#b8d9bc]">
+        <div className="max-w-3xl mx-auto text-center">
+          <p className="text-xs font-semibold text-[#3d5c42] uppercase tracking-[0.2em] mb-3">What your followers get</p>
+          <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
+            Founding Family — $39/yr, locked forever
+          </h2>
+          <p className="text-sm text-[#3d5c42] leading-relaxed mb-4 max-w-lg mx-auto">
+            Your code gives them 15% off the Founding Family plan — $39/yr locked in forever, no matter how much Rooted grows. This offer ends April 30.
+          </p>
+          <div className="inline-flex items-center gap-2 bg-white/70 border border-[#b8d9bc] rounded-xl px-4 py-2 text-sm text-[#2d2926] font-medium">
+            {"\uD83C\uDF81"} Your code: 15% off {"\u00B7"} Their price: locked forever
+          </div>
+        </div>
+      </section>
+
       {/* ── SECTION 3 — How it works ───────────────────────────────────── */}
       <section className="px-6 sm:px-8 py-20 bg-[#fefcf9] border-t border-b border-[#e8e2d9]">
         <div className="max-w-3xl mx-auto">
@@ -750,6 +766,21 @@ export default function PartnersPage() {
               Apply to Partner →
             </a>
           </div>
+        </div>
+      </section>
+
+      {/* ── Personal note from Brittany ─────────────────────────────── */}
+      <section className="px-6 sm:px-8 py-12 bg-[#fefcf9] border-t border-[#e8e2d9]">
+        <div className="max-w-xl mx-auto text-center">
+          <div className="w-12 h-12 rounded-full bg-[#5c7f63] flex items-center justify-center text-white font-bold text-lg mx-auto mb-4">B</div>
+          <p className="text-sm text-[#5c5248] leading-relaxed italic mb-4">
+            &ldquo;I review every partner application personally. This isn&apos;t about big numbers — it&apos;s about real homeschool families helping other families find something that works. If that sounds like you, I&apos;d love to hear from you.&rdquo;
+          </p>
+          <p className="text-sm font-semibold text-[#3d5c42]">— Brittany, Founder</p>
+          <p className="text-xs text-[#7a6f65] mt-2">
+            Questions? Email{' '}
+            <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>
+          </p>
         </div>
       </section>
 
