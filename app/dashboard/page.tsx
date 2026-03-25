@@ -87,6 +87,11 @@ const DID_YOU_KNOW = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Local-time YYYY-MM-DD — avoids the UTC shift that toISOString causes. */
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function formatDateHero(date: Date) {
   const weekday = date.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
   const rest    = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }).toUpperCase();
@@ -362,7 +367,7 @@ function TodayLessonCard({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TodayPage() {
-  const today = new Date().toISOString().split("T")[0];
+  const today = localDateStr(new Date());
   const start = new Date(new Date().getFullYear(), 0, 0);
   const dayOfYear = Math.floor((Date.now() - start.getTime()) / 86400000);
   const [factIndex, setFactIndex] = useState(dayOfYear % DID_YOU_KNOW.length);
@@ -386,6 +391,7 @@ export default function TodayPage() {
   const [todayMemoryEvents, setTodayMemoryEvents] = useState<TodayEvent[]>([]);
   const [todayBooks,        setTodayBooks]        = useState<BookLog[]>([]);
   const [showBookModal,     setShowBookModal]     = useState(false);
+  const [showLogModal,      setShowLogModal]      = useState(false);
   const [bookTitle,         setBookTitle]         = useState("");
   const [bookChild,         setBookChild]         = useState("");
   const [savingBook,        setSavingBook]        = useState(false);
@@ -401,7 +407,7 @@ export default function TodayPage() {
   useEffect(() => {
     if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") setNudgeDismissed(true);
     const udDate = localStorage.getItem("rooted_upgrade_dismissed");
-    if (udDate === new Date().toISOString().split("T")[0]) setUpgradeDismissed(true);
+    if (udDate === localDateStr(new Date())) setUpgradeDismissed(true);
   }, []);
 
   const [showPwaBanner, setShowPwaBanner] = useState(false);
@@ -500,7 +506,7 @@ export default function TodayPage() {
     // Streak + week dots: fetch recent completed lesson dates
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0];
+    const thirtyDaysAgoStr = localDateStr(thirtyDaysAgo);
     const { data: recentLessons } = await supabase
       .from("lessons")
       .select("date, scheduled_date, completed")
@@ -523,7 +529,7 @@ export default function TodayPage() {
     const cursor = new Date();
     cursor.setDate(cursor.getDate() - 1); // start from yesterday
     for (let i = 0; i < 60; i++) {
-      const dateStr = cursor.toISOString().split("T")[0];
+      const dateStr = localDateStr(cursor);
       const dayName = cursor.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       if (schoolDays.length > 0 && !schoolDays.includes(dayName)) {
         cursor.setDate(cursor.getDate() - 1);
@@ -551,7 +557,7 @@ export default function TodayPage() {
     for (let i = 0; i < 5; i++) {
       const d = new Date(monday);
       d.setDate(d.getDate() + i);
-      const dateStr = d.toISOString().split("T")[0];
+      const dateStr = localDateStr(d);
       const dayName = d.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       if (dateStr > today) {
         dots.push("future");
@@ -791,7 +797,7 @@ export default function TodayPage() {
               const dayName = nextDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
               if (days.includes(dayName)) break;
             }
-            const nextDateStr = nextDate.toISOString().split("T")[0];
+            const nextDateStr = localDateStr(nextDate);
 
             const { data: { user: authUser } } = await supabase.auth.getUser();
             if (authUser) {

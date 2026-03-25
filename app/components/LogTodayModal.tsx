@@ -120,8 +120,10 @@ export default function LogTodayModal({
     });
   }, []);
 
-  const todayStr = new Date().toISOString().split("T")[0];
-  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+  const _now = new Date();
+  const todayStr = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, "0")}-${String(_now.getDate()).padStart(2, "0")}`;
+  const _yd = new Date(_now); _yd.setDate(_yd.getDate() - 1);
+  const yesterdayStr = `${_yd.getFullYear()}-${String(_yd.getMonth() + 1).padStart(2, "0")}-${String(_yd.getDate()).padStart(2, "0")}`;
   const effectiveDate = dateOverride || saveDate;
 
   async function handleSave() {
