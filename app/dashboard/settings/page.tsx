@@ -1292,17 +1292,21 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                {/* Cancel subscription */}
+                {/* Billing info */}
+                {isActivePaid && subscriptionStatus !== 'cancelled' && (
+                  <p className="text-[11px] text-[#b5aca4] leading-relaxed">
+                    Your access continues until the end of your billing period after cancellation.
+                  </p>
+                )}
+
+                {/* Cancel subscription — FTC click-to-cancel compliance */}
                 {subscriptionStatus === 'active' && isActivePaid && (
                   <button
-                    onClick={() => {
-                      if (confirm('Your access continues until the end of your billing period. Are you sure you want to cancel?')) {
-                        handleManageSubscription();
-                      }
-                    }}
-                    className="text-xs text-[#b5aca4] hover:text-red-400 transition-colors"
+                    onClick={handleManageSubscription}
+                    disabled={portalLoading}
+                    className="text-xs text-[#7a6f65] hover:text-red-500 transition-colors disabled:opacity-40"
                   >
-                    Cancel subscription
+                    Need to cancel? <span className="underline">Cancel your subscription →</span>
                   </button>
                 )}
               </div>
