@@ -21,6 +21,20 @@ const GRADE_OPTIONS = [
 
 const SUBJECT_CHIPS = ["Math", "Reading", "Language Arts", "Science", "History", "Art", "Other"];
 
+const SUBJECT_TILES: { name: string; emoji: string }[] = [
+  { name: "Math",              emoji: "🔢" },
+  { name: "Reading",           emoji: "📖" },
+  { name: "Language Arts",     emoji: "✏️" },
+  { name: "Science",           emoji: "🔬" },
+  { name: "History",           emoji: "🏛️" },
+  { name: "Art",               emoji: "🎨" },
+  { name: "Music",             emoji: "🎵" },
+  { name: "PE",                emoji: "⚽" },
+  { name: "Bible / Faith",     emoji: "📿" },
+  { name: "Writing",           emoji: "📝" },
+  { name: "Foreign Language",  emoji: "🌍" },
+];
+
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -133,7 +147,7 @@ function BackBtn({ onClick }: { onClick: () => void }) {
   );
 }
 
-function ProgressDots({ step, total = 5 }: { step: number; total?: number }) {
+function ProgressDots({ step, total = 6 }: { step: number; total?: number }) {
   return (
     <div className="flex items-center justify-center gap-2 mb-8">
       {Array.from({ length: total }, (_, i) => i + 1).map((s) => (
@@ -315,7 +329,7 @@ function StepFamilyAndKids({
       <ProgressDots step={1} />
       <Card>
         <StepHeading
-          eyebrow="Step 1 of 5"
+          eyebrow="Step 1 of 6"
           title="Tell us about your family"
           sub="We'll use this to personalize your experience."
         />
@@ -418,7 +432,7 @@ function StepFirstMemory({
       <ProgressDots step={2} />
       <Card>
         <StepHeading
-          eyebrow="Step 2 of 5"
+          eyebrow="Step 2 of 6"
           title="Capture your first memory 📸"
           sub="A photo of your setup, a project, anything from your homeschool. It only takes a second."
         />
@@ -513,7 +527,7 @@ function StepSchoolDays({
       <ProgressDots step={3} />
       <Card>
         <StepHeading
-          eyebrow="Step 3 of 5"
+          eyebrow="Step 3 of 6"
           title="Which days do you do school?"
           sub="This helps us schedule your lessons automatically."
         />
@@ -543,6 +557,130 @@ function StepSchoolDays({
         </div>
 
         <ContinueBtn onClick={onNext} />
+      </Card>
+    </div>
+  );
+}
+
+// ─── Step 4 — Subjects ──────────────────────────────────────────────────────
+
+function StepSubjects({
+  childNames, selectedSubjects, onChange, onNext, onSkip, onBack,
+}: {
+  childNames: string[];
+  selectedSubjects: string[];
+  onChange: (subjects: string[]) => void;
+  onNext: () => void;
+  onSkip: () => void;
+  onBack: () => void;
+}) {
+  const [customSubject, setCustomSubject] = useState("");
+
+  function toggle(name: string) {
+    onChange(
+      selectedSubjects.includes(name)
+        ? selectedSubjects.filter((s) => s !== name)
+        : [...selectedSubjects, name]
+    );
+  }
+
+  function addCustom() {
+    const trimmed = customSubject.trim();
+    if (trimmed && !selectedSubjects.includes(trimmed)) {
+      onChange([...selectedSubjects, trimmed]);
+    }
+    setCustomSubject("");
+  }
+
+  const prompt = childNames.length === 1
+    ? `What does ${childNames[0]} study?`
+    : "What subjects does your family study?";
+
+  return (
+    <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
+      <BackBtn onClick={onBack} />
+      <ProgressDots step={4} total={6} />
+      <Card>
+        <StepHeading
+          eyebrow="Step 4 of 6"
+          title={prompt}
+          sub="Tap all that apply — you can change these later."
+        />
+
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {SUBJECT_TILES.map((tile) => {
+            const active = selectedSubjects.includes(tile.name);
+            return (
+              <button
+                key={tile.name}
+                type="button"
+                onClick={() => toggle(tile.name)}
+                className={`flex flex-col items-center gap-1.5 py-3.5 px-2 rounded-2xl border-2 transition-all text-center ${
+                  active
+                    ? "border-[#5c7f63] bg-[#e8f0e9]"
+                    : "border-[#e8e2d9] bg-white hover:border-[#c8bfb5]"
+                }`}
+              >
+                <span className="text-xl">{tile.emoji}</span>
+                <span className={`text-[11px] font-medium leading-tight ${active ? "text-[#3d5c42]" : "text-[#7a6f65]"}`}>
+                  {tile.name}
+                </span>
+                {active && (
+                  <div className="w-4 h-4 rounded-full bg-[#5c7f63] flex items-center justify-center">
+                    <Check size={10} className="text-white" strokeWidth={3} />
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Add your own */}
+        <div className="flex gap-2 mb-6">
+          <input
+            type="text"
+            value={customSubject}
+            onChange={(e) => setCustomSubject(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+            placeholder="Add your own..."
+            className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+          />
+          <button
+            type="button"
+            onClick={addCustom}
+            disabled={!customSubject.trim()}
+            className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white text-sm font-semibold transition-colors"
+          >
+            <Plus size={16} />
+          </button>
+        </div>
+
+        {/* Custom subject pills */}
+        {selectedSubjects.filter((s) => !SUBJECT_TILES.some((t) => t.name === s)).length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {selectedSubjects.filter((s) => !SUBJECT_TILES.some((t) => t.name === s)).map((s) => (
+              <span key={s} className="text-xs font-medium bg-[#e8f0e9] text-[#3d5c42] px-3 py-1.5 rounded-full flex items-center gap-1.5">
+                {s}
+                <button type="button" onClick={() => toggle(s)} className="hover:text-red-500 transition-colors">
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <ContinueBtn
+          onClick={onNext}
+          disabled={selectedSubjects.length === 0}
+          label={`Continue with ${selectedSubjects.length} subject${selectedSubjects.length !== 1 ? "s" : ""} →`}
+        />
+        <button
+          type="button"
+          onClick={onSkip}
+          className="w-full text-center text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors py-3 mt-2 font-medium"
+        >
+          Skip for now →
+        </button>
       </Card>
     </div>
   );
@@ -657,10 +795,10 @@ function StepCurriculum({
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
       <BackBtn onClick={onBack} />
-      <ProgressDots step={4} />
+      <ProgressDots step={5} />
       <Card className="!max-w-lg">
         <StepHeading
-          eyebrow="Step 4 of 5"
+          eyebrow="Step 5 of 6"
           title="Want to add your curriculum now?"
           sub="You can always do this later from your Plan page."
         />
@@ -895,7 +1033,11 @@ export default function OnboardingPage() {
   // Step 3 state
   const [schoolDays, setSchoolDays] = useState<boolean[]>([true, true, true, true, true, false, false]);
 
-  // Step 4 state (curriculum)
+  // Step 4 state (subjects)
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+  const [skippedSubjects, setSkippedSubjects] = useState(false);
+
+  // Step 5 state (curriculum)
   const [childSchedules, setChildSchedules] = useState<ChildSchedule[]>([]);
   const [noCurriculumNote, setNoCurriculumNote] = useState(false);
 
@@ -976,6 +1118,17 @@ export default function OnboardingPage() {
       if (inserted) insertedChildren.push({ uid: child.uid, id: (inserted as { id: string }).id });
     }
 
+    // Save subjects (from Step 4)
+    if (selectedSubjects.length > 0) {
+      for (const subjectName of selectedSubjects) {
+        const { data: existing } = await supabase
+          .from("subjects").select("id").eq("user_id", userId).eq("name", subjectName).maybeSingle();
+        if (!existing) {
+          await supabase.from("subjects").insert({ user_id: userId, name: subjectName });
+        }
+      }
+    }
+
     // Save curriculum goals + lessons
     for (const cs of childSchedules) {
       if (cs.schedule.length === 0 || !cs.draft.curricName.trim()) continue;
@@ -1053,7 +1206,7 @@ export default function OnboardingPage() {
 
     router.push("/dashboard");
     setSaving(false);
-  }, [children, userId, childSchedules, familyDisplayName, schoolDays, router]);
+  }, [children, userId, childSchedules, selectedSubjects, familyDisplayName, schoolDays, router]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1099,6 +1252,21 @@ export default function OnboardingPage() {
 
   if (step === 4) {
     const validKids = children.filter((c) => c.name.trim());
+    const childNames = validKids.map((c) => c.name.trim());
+    return (
+      <StepSubjects
+        childNames={childNames}
+        selectedSubjects={selectedSubjects}
+        onChange={setSelectedSubjects}
+        onNext={() => setStep(5)}
+        onSkip={() => { setSkippedSubjects(true); setStep(5); }}
+        onBack={() => setStep(3)}
+      />
+    );
+  }
+
+  if (step === 5) {
+    const validKids = children.filter((c) => c.name.trim());
     return (
       <StepCurriculum
         schoolDays={schoolDays}
@@ -1106,9 +1274,9 @@ export default function OnboardingPage() {
         onAddCurriculum={handleAddCurriculum}
         onSkip={() => {
           if (childSchedules.length === 0) setNoCurriculumNote(true);
-          setStep(5);
+          setStep(6);
         }}
-        onBack={() => setStep(3)}
+        onBack={() => setStep(4)}
       />
     );
   }
