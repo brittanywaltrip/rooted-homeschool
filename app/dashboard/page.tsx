@@ -361,6 +361,7 @@ export default function TodayPage() {
   const start = new Date(new Date().getFullYear(), 0, 0);
   const dayOfYear = Math.floor((Date.now() - start.getTime()) / 86400000);
   const [factIndex, setFactIndex] = useState(dayOfYear % DID_YOU_KNOW.length);
+  const [factFade, setFactFade] = useState(true);
   const { isPartner, effectiveUserId } = usePartner();
 
   const [familyName,      setFamilyName]      = useState("");
@@ -682,6 +683,18 @@ export default function TodayPage() {
   }, [today, effectiveUserId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ── Auto-rotate Did You Know quotes ─────────────────────────────────────
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFactFade(false);
+      setTimeout(() => {
+        setFactIndex((prev) => (prev + 1) % DID_YOU_KNOW.length);
+        setFactFade(true);
+      }, 300);
+    }, 8000);
+    return () => clearInterval(interval);
+  }, []);
 
   // ── Lesson actions ────────────────────────────────────────────────────────
 
@@ -1401,11 +1414,20 @@ export default function TodayPage() {
       {/* ── Did You Know card (school days only) ────────── */}
       {isSchoolDay && !activeVacation && (
         <button
-          onClick={() => setFactIndex((factIndex + 1) % DID_YOU_KNOW.length)}
+          onClick={() => {
+            setFactFade(false);
+            setTimeout(() => {
+              setFactIndex((prev) => (prev + 1) % DID_YOU_KNOW.length);
+              setFactFade(true);
+            }, 200);
+          }}
           className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 text-left hover:bg-[#faf8f5] transition-colors"
         >
           <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">Did you know?</p>
-          <p className="text-[13px] text-[#5c5248] leading-relaxed border-l-2 border-[#3d5c42] pl-3">
+          <p
+            className="text-[13px] text-[#5c5248] leading-relaxed border-l-2 border-[#3d5c42] pl-3 transition-opacity duration-300"
+            style={{ opacity: factFade ? 1 : 0 }}
+          >
             {DID_YOU_KNOW[factIndex]}
           </p>
         </button>

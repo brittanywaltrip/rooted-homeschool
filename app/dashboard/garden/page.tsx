@@ -252,16 +252,14 @@ export default function GardenPage() {
                   {tree.emoji}
                 </span>
 
-                {/* Leaf count bubble */}
-                <div
-                  className="leaf-pulse -mt-1 w-5 h-5 rounded-full text-white text-[9px] font-bold flex items-center justify-center shadow-sm"
-                  style={{ backgroundColor: child.color ?? "#5c7f63" }}
-                >
-                  {leaves > 99 ? "99+" : leaves}
+                {/* Leaf count pill */}
+                <div className="mt-1 bg-white/90 rounded-full px-1.5 py-0.5 flex items-center gap-0.5 shadow-sm">
+                  <span className="text-[9px]">{"\uD83C\uDF43"}</span>
+                  <span className="text-[9px] font-bold text-[#3d5c42]">{leaves}</span>
                 </div>
 
                 {/* Name tag */}
-                <div className="mt-1.5 text-center">
+                <div className="mt-1 text-center">
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap ${
                     isActive ? "bg-white text-[#2d2926]" : "bg-white/70 text-[#2d2926]/80"
                   }`}>
