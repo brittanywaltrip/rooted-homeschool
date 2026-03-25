@@ -1831,7 +1831,7 @@ export default function OnboardingPage() {
     const validKids = children.filter((c) => c.name.trim().length > 0);
     const insertedChildren: { uid: number; id: string }[] = [];
     for (const [i, child] of validKids.entries()) {
-      const { data: inserted } = await supabase
+      const { data: inserted, error: childErr } = await supabase
         .from("children")
         .insert({
           user_id:    userId,
@@ -1843,7 +1843,20 @@ export default function OnboardingPage() {
         })
         .select("id")
         .single();
-      if (inserted) insertedChildren.push({ uid: child.uid, id: (inserted as { id: string }).id });
+      if (childErr || !inserted) {
+        console.error("[onboarding] failed to insert child:", child.name, childErr?.message ?? "no data returned", childErr?.code);
+        setSaveError(`Failed to save "${child.name}". ${childErr?.message ?? "Please try again."}`);
+        setSaving(false);
+        return;
+      }
+      insertedChildren.push({ uid: child.uid, id: (inserted as { id: string }).id });
+    }
+
+    if (validKids.length > 0 && insertedChildren.length === 0) {
+      console.error("[onboarding] all children inserts failed — aborting");
+      setSaveError("Failed to save your children. Please try again or contact support.");
+      setSaving(false);
+      return;
     }
 
     // Save curriculum goals + lessons for each child
