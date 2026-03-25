@@ -1090,12 +1090,8 @@ export default function TodayPage() {
           const hasAnyContent     = childrenWithLessons.length > 0 || unassignedLessons.length > 0;
 
           if (!hasAnyContent) {
-            // Priority: vacation > non-school-day > no content
-            if (activeVacation) return (
-              <div className="rounded-2xl px-4 py-3" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
-                <p className="text-sm font-semibold text-[#7a4a1a]">🌴 <strong>{activeVacation.name}</strong> · No lessons today — enjoy your time off!</p>
-              </div>
-            );
+            // Priority: vacation (banner already shown above) > non-school-day > no content
+            if (activeVacation) return null;
             if (!isSchoolDay) {
               const dow = new Date().getDay();
               const isWeekend = dow === 0 || dow === 6;

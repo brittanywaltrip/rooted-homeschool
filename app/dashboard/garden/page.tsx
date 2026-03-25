@@ -7,10 +7,105 @@ import { usePartner } from "@/lib/partner-context";
 import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
 import PageHero from "@/app/components/PageHero";
 
-function treeEmoji(leaves: number): string {
-  const s = getStageFromLeaves(leaves);
-  const map: Record<number, string> = { 1:"🟤", 2:"🌱", 3:"🌿", 4:"🪴", 5:"🌳", 6:"🌲", 7:"🌳", 8:"🌸", 9:"🌳", 10:"🌳" };
-  return map[s] ?? "🌱";
+function TreeSVG({ stage, color }: { stage: number; color: string }) {
+  const w = 60, h = 72;
+
+  // Stage 1: Seed — small mound with seed
+  if (stage === 1) return (
+    <svg viewBox="0 0 60 72" width={w} height={h}>
+      <ellipse cx="30" cy="64" rx="18" ry="6" fill="#8b6f47" opacity="0.4" />
+      <ellipse cx="30" cy="60" rx="12" ry="4" fill="#a08060" />
+      <ellipse cx="30" cy="58" rx="4" ry="3" fill="#c4956a" />
+      <path d="M30 56 Q32 52 30 48" stroke="#8ab85a" strokeWidth="1.5" fill="none" strokeLinecap="round" opacity="0.6" />
+    </svg>
+  );
+
+  // Stage 2: Sprouting — tiny shoot
+  if (stage === 2) return (
+    <svg viewBox="0 0 60 72" width={w} height={h}>
+      <ellipse cx="30" cy="64" rx="18" ry="6" fill="#8b6f47" opacity="0.4" />
+      <line x1="30" y1="62" x2="30" y2="42" stroke="#7a9060" strokeWidth="2.5" strokeLinecap="round" />
+      <ellipse cx="24" cy="44" rx="6" ry="4" fill="#8ab85a" transform="rotate(-30 24 44)" />
+      <ellipse cx="36" cy="48" rx="5" ry="3.5" fill="#9ac86a" transform="rotate(25 36 48)" />
+    </svg>
+  );
+
+  // Stage 3: Seedling — taller with more leaves
+  if (stage === 3) return (
+    <svg viewBox="0 0 60 72" width={w} height={h}>
+      <ellipse cx="30" cy="64" rx="18" ry="6" fill="#8b6f47" opacity="0.4" />
+      <line x1="30" y1="62" x2="30" y2="32" stroke="#6a8050" strokeWidth="3" strokeLinecap="round" />
+      <ellipse cx="22" cy="42" rx="8" ry="5" fill="#7ab85a" transform="rotate(-25 22 42)" />
+      <ellipse cx="38" cy="46" rx="7" ry="4.5" fill="#8ac86a" transform="rotate(20 38 46)" />
+      <ellipse cx="25" cy="34" rx="6" ry="4" fill="#6aaa4a" transform="rotate(-35 25 34)" />
+    </svg>
+  );
+
+  // Stage 4-5: Young tree
+  if (stage <= 5) return (
+    <svg viewBox="0 0 60 72" width={w} height={h}>
+      <ellipse cx="30" cy="66" rx="18" ry="5" fill="#8b6f47" opacity="0.3" />
+      <rect x="27" y="44" width="6" height="22" rx="3" fill="#8b6f47" />
+      <ellipse cx="30" cy="32" rx="16" ry="14" fill={color} opacity="0.9" />
+      <ellipse cx="22" cy="30" rx="10" ry="10" fill={color} opacity="0.7" />
+      <ellipse cx="38" cy="30" rx="10" ry="10" fill={color} opacity="0.7" />
+      <ellipse cx="30" cy="24" rx="12" ry="10" fill={color} />
+    </svg>
+  );
+
+  // Stage 6-7: Full tree
+  if (stage <= 7) return (
+    <svg viewBox="0 0 60 72" width={w} height={h}>
+      <ellipse cx="30" cy="68" rx="20" ry="4" fill="#8b6f47" opacity="0.25" />
+      <rect x="26" y="40" width="8" height="28" rx="4" fill="#8b6f47" />
+      <path d="M26 54 Q16 52 14 48" stroke="#8b6f47" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      <path d="M34 50 Q42 48 44 44" stroke="#8b6f47" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      <ellipse cx="30" cy="28" rx="22" ry="18" fill={color} />
+      <ellipse cx="18" cy="26" rx="12" ry="12" fill={color} opacity="0.8" />
+      <ellipse cx="42" cy="26" rx="12" ry="12" fill={color} opacity="0.8" />
+      <ellipse cx="30" cy="18" rx="16" ry="12" fill={color} opacity="0.9" />
+      <circle cx="22" cy="20" r="3" fill="rgba(255,255,255,0.15)" />
+    </svg>
+  );
+
+  // Stage 8: Blooming — flowers
+  if (stage === 8) return (
+    <svg viewBox="0 0 60 72" width={w} height={h}>
+      <ellipse cx="30" cy="68" rx="20" ry="4" fill="#8b6f47" opacity="0.25" />
+      <rect x="26" y="40" width="8" height="28" rx="4" fill="#8b6f47" />
+      <ellipse cx="30" cy="28" rx="22" ry="18" fill={color} />
+      <ellipse cx="18" cy="26" rx="12" ry="12" fill={color} opacity="0.8" />
+      <ellipse cx="42" cy="26" rx="12" ry="12" fill={color} opacity="0.8" />
+      <ellipse cx="30" cy="18" rx="16" ry="12" fill={color} opacity="0.9" />
+      {/* Blossoms */}
+      <circle cx="20" cy="18" r="3" fill="#f9a8c8" opacity="0.9" />
+      <circle cx="38" cy="16" r="2.5" fill="#f9a8c8" opacity="0.9" />
+      <circle cx="30" cy="12" r="2.5" fill="#ffc0d0" opacity="0.9" />
+      <circle cx="14" cy="28" r="2" fill="#f9a8c8" opacity="0.8" />
+      <circle cx="44" cy="24" r="2" fill="#ffc0d0" opacity="0.8" />
+    </svg>
+  );
+
+  // Stage 9-10: Majestic — full canopy, fruit/sparkles
+  return (
+    <svg viewBox="0 0 60 72" width={w} height={h}>
+      <ellipse cx="30" cy="68" rx="22" ry="4" fill="#8b6f47" opacity="0.25" />
+      <rect x="25" y="38" width="10" height="30" rx="5" fill="#8b6f47" />
+      <path d="M25 52 Q14 50 10 44" stroke="#8b6f47" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <path d="M35 48 Q44 46 48 40" stroke="#8b6f47" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <ellipse cx="30" cy="24" rx="26" ry="20" fill={color} />
+      <ellipse cx="14" cy="24" rx="14" ry="14" fill={color} opacity="0.8" />
+      <ellipse cx="46" cy="24" rx="14" ry="14" fill={color} opacity="0.8" />
+      <ellipse cx="30" cy="14" rx="18" ry="14" fill={color} opacity="0.9" />
+      <circle cx="20" cy="16" r="3" fill="rgba(255,255,255,0.15)" />
+      {/* Fruit / sparkles */}
+      <circle cx="18" cy="30" r="2.5" fill="#ffd84d" opacity="0.9" />
+      <circle cx="40" cy="22" r="2.5" fill="#ffd84d" opacity="0.9" />
+      <circle cx="30" cy="10" r="2" fill="#ffd84d" opacity="0.8" />
+      <circle cx="10" cy="22" r="1.5" fill="#ffe680" opacity="0.7" />
+      <circle cx="48" cy="28" r="1.5" fill="#ffe680" opacity="0.7" />
+    </svg>
+  );
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -456,18 +551,17 @@ export default function GardenPage() {
                     animationDelay: `${i * 0.7}s`,
                   }}
                 >
-                  <span
+                  <div
                     style={{
-                      fontSize: "clamp(44px, 11vw, 72px)",
-                      lineHeight: 1,
-                      display: "block",
+                      width: "clamp(44px, 11vw, 72px)",
+                      height: "clamp(52px, 13vw, 86px)",
                       filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.2))",
                       userSelect: "none",
                     }}
                     aria-hidden
                   >
-                    {treeEmoji(leaves)}
-                  </span>
+                    <TreeSVG stage={getStageFromLeaves(leaves)} color={STAGE_INFO[getStageFromLeaves(leaves) - 1]?.color ?? "#5c7f63"} />
+                  </div>
 
                   {/* Leaf count badge */}
                   <div
@@ -568,12 +662,12 @@ export default function GardenPage() {
 
             {/* Big tree preview */}
             <div style={{ width: 80, height: 88, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span
-                style={{ fontSize: 64, lineHeight: 1, filter: "drop-shadow(0 6px 16px rgba(0,0,0,0.2))", userSelect: "none" }}
+              <div
+                style={{ width: 64, height: 78, filter: "drop-shadow(0 6px 16px rgba(0,0,0,0.2))", userSelect: "none" }}
                 aria-hidden
               >
-                {treeEmoji(selectedLeaves)}
-              </span>
+                <TreeSVG stage={getStageFromLeaves(selectedLeaves)} color={STAGE_INFO[getStageFromLeaves(selectedLeaves) - 1]?.color ?? "#5c7f63"} />
+              </div>
             </div>
           </div>
         </div>
