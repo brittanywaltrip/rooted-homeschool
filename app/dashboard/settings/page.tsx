@@ -1328,7 +1328,7 @@ export default function SettingsPage() {
 
         {/* Contact */}
         <p className="text-xs text-[#b5aca4] text-center">
-          Questions? Email <span className="text-[#5c7f63] font-medium">hello.rootedapp@gmail.com</span>
+          Questions? Email <span className="text-[#5c7f63] font-medium">hello@rootedhomeschoolapp.com</span>
         </p>
       </section>}
 
@@ -1595,7 +1595,7 @@ export default function SettingsPage() {
           {[
             { label: "What's new",      href: "/dashboard/more/whats-new", sub: "Latest updates" },
             { label: "FAQ",             href: "/faq",                       sub: "Common questions" },
-            { label: "Contact us",      href: "/contact",                   sub: "hello.rootedapp@gmail.com" },
+            { label: "Contact us",      href: "/contact",                   sub: "hello@rootedhomeschoolapp.com" },
           ].map(item => (
             <Link
               key={item.href}

@@ -1275,12 +1275,38 @@ export default function TodayPage() {
                 </Link>
               </div>
             );
-            return <p className="text-sm text-[#b5aca4] text-center py-6">No lessons scheduled today</p>;
+            return (
+              <div className="py-8 flex flex-col items-center text-center">
+                <span className="text-[40px] block mb-2">📋</span>
+                <p className="text-[17px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
+                  No lessons scheduled today
+                </p>
+                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
+                  Set up your curriculum to get daily lessons here automatically.
+                </p>
+                <Link href="/dashboard/plan?openWizard=true" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
+                  Set Up Your Curriculum →
+                </Link>
+              </div>
+            );
           }
 
           // Card-per-child system
           const activeChild = selectedChild ? children.find(c => c.id === selectedChild) : childrenWithLessons[0];
-          if (!activeChild) return <p className="text-sm text-[#b5aca4] text-center py-6">No lessons scheduled today</p>;
+          if (!activeChild) return (
+            <div className="py-8 flex flex-col items-center text-center">
+              <span className="text-[40px] block mb-2">📋</span>
+              <p className="text-[17px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
+                No lessons scheduled today
+              </p>
+              <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
+                Set up your curriculum to get daily lessons here automatically.
+              </p>
+              <Link href="/dashboard/plan?openWizard=true" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
+                Set Up Your Curriculum →
+              </Link>
+            </div>
+          );
 
           // Large family summary mode (4+ kids, no child selected via pill)
           if (childrenWithLessons.length >= 4 && !selectedChild) {
