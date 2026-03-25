@@ -107,7 +107,7 @@ function TabToday() {
           <div className="relative">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&q=80"
+              src="https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=400&q=80"
               alt="Emma reading"
               className="w-full h-48 object-cover"
             />
@@ -237,7 +237,7 @@ function TabMemories() {
         <div className="rounded-2xl overflow-hidden border border-[#e8e2d9] bg-white shadow-sm">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=400&q=80"
+            src="https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=400&q=80"
             alt="Nature walk"
             className="w-full h-56 object-cover"
           />
@@ -323,7 +323,7 @@ function TabMemories() {
         <div className="rounded-2xl overflow-hidden border border-[#e8e2d9] bg-white shadow-sm">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400&q=80"
+            src="https://images.unsplash.com/photo-1548407260-da850faa41e3?w=400&q=80"
             alt="Science museum"
             className="w-full h-44 object-cover"
           />
@@ -462,15 +462,14 @@ function TabGarden() {
 
 // ─── Main Demo Page ───────────────────────────────────────────────────────────
 
-type DemoTab = "today" | "memories" | "garden";
+type DemoTab = "today" | "memories";
 
 export default function DemoPage() {
   const [tab, setTab] = useState<DemoTab>("today");
 
   const tabs: { id: DemoTab; label: string; emoji: string }[] = [
-    { id: "today", label: "Today", emoji: "☀️" },
-    { id: "memories", label: "Memories", emoji: "📸" },
-    { id: "garden", label: "Garden", emoji: "🌱" },
+    { id: "today", label: "Today", emoji: "\u2600\uFE0F" },
+    { id: "memories", label: "Memories", emoji: "\uD83D\uDCF8" },
   ];
 
   return (
@@ -481,7 +480,6 @@ export default function DemoPage() {
       <div className="flex-1 max-w-lg mx-auto w-full pb-20">
         {tab === "today" && <TabToday />}
         {tab === "memories" && <TabMemories />}
-        {tab === "garden" && <TabGarden />}
       </div>
 
       {/* Bottom nav */}
