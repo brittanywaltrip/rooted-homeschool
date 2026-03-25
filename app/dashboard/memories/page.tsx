@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
-import { Camera, BookOpen, FolderOpen, Sparkles, Download, X, ImageIcon, ArrowRight } from "lucide-react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
-import PaywallCard from "@/components/PaywallCard";
 import LogTodayModal from "@/app/components/LogTodayModal";
-import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,891 +23,334 @@ type Memory = {
   created_at: string;
 };
 
-type Reflection = {
-  id: string;
-  date: string;
-  reflection: string;
-  is_private: boolean;
-  updated_at: string;
-};
-
 type Child = { id: string; name: string; color: string | null };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const MEMORY_TYPES = [
-  { id: "all",        label: "All",         emoji: "✨" },
-  { id: "photo",      label: "Photos",      emoji: "📷" },
-  { id: "field_trip", label: "Field Trips", emoji: "🗺️"  },
-  { id: "project",    label: "Projects",    emoji: "📁" },
-  { id: "book",       label: "Books",       emoji: "📖" },
-  { id: "reflection", label: "Reflections", emoji: "📝" },
-];
+function getMemoryDate(m: Memory): string {
+  return m.payload?.date ?? m.created_at.slice(0, 10);
+}
+
+function getMonthKey(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(key: string): string {
+  const [y, m] = key.split("-");
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function getTypeShort(type: string): string {
+  return type.replace("memory_", "");
+}
+
+const TYPE_STYLES: Record<string, { bg: string; emoji: string }> = {
+  photo:      { bg: "#f0ede8", emoji: "\uD83D\uDCF7" },
+  book:       { bg: "#fef5e4", emoji: "\uD83D\uDCD6" },
+  field_trip: { bg: "#e4f2fb", emoji: "\uD83D\uDDFA\uFE0F" },
+  project:    { bg: "#e8f0e9", emoji: "\uD83D\uDD2C" },
+  activity:   { bg: "#fce8f4", emoji: "\uD83C\uDFB5" },
+};
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MemoriesPage() {
   const { isPartner, effectiveUserId } = usePartner();
-  const [memories,     setMemories]    = useState<Memory[]>([]);
-  const [reflections,  setReflections] = useState<Reflection[]>([]);
-  const [children,     setChildren]    = useState<Child[]>([]);
-  const [activeType,   setActiveType]  = useState("all");
-  const [loading,      setLoading]     = useState(true);
-  const [isPro,        setIsPro]       = useState<boolean | null>(null);
-  const [showModal,    setShowModal]   = useState(false);
-  const [modalType,    setModalType]   = useState<"photo" | "project" | "book">("photo");
+  const [memories,    setMemories]    = useState<Memory[]>([]);
+  const [children,    setChildren]    = useState<Child[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [isPro,       setIsPro]       = useState(false);
+  const [familyName,  setFamilyName]  = useState("");
   const [showLogModal, setShowLogModal] = useState(false);
-  const [lightboxUrl,  setLightboxUrl] = useState<string | null>(null);
-  const [memoryDaysThisWeek, setMemoryDaysThisWeek] = useState(0);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
-  // Form state
-  const [formTitle,   setFormTitle]   = useState("");
-  const [formDesc,    setFormDesc]    = useState("");
-  const [formChild,   setFormChild]   = useState("");
-  const [formDate,    setFormDate]    = useState(new Date().toISOString().split("T")[0]);
-  const [formAuthor,  setFormAuthor]  = useState("");
-  const [formFile,    setFormFile]    = useState<File | null>(null);
-  const [previewUrl,  setPreviewUrl]  = useState<string | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [saving,      setSaving]      = useState(false);
+  // Filters
+  const [filterChild, setFilterChild] = useState<string | null>(null);
+  const [filterType,  setFilterType]  = useState<string | null>(null);
 
-  // Reflection view/edit state
-  const [viewingReflection,       setViewingReflection]       = useState<Reflection | null>(null);
-  const [editingReflection,       setEditingReflection]       = useState(false);
-  const [reflectionEditText,      setReflectionEditText]      = useState("");
-  const [reflectionDeleteConfirm, setReflectionDeleteConfirm] = useState(false);
-  const [savingReflection,        setSavingReflection]        = useState(false);
+  // Quick photo capture
+  const [showQuickPhoto, setShowQuickPhoto] = useState(false);
+  const quickPhotoRef = useRef<HTMLInputElement>(null);
 
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  // ── Load data ───────────────────────────────────────────────────────────────
+  // ── Load data ─────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     if (!effectiveUserId) return;
 
-    // Query profile first so we know if user is pro (needed for 30-day gate)
-    const { data: profile } = await supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single();
-    const userIsPro = (profile as { is_pro?: boolean } | null)?.is_pro ?? false;
-
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-
-    const [{ data: kids }, { data: events }, { data: reflData }] = await Promise.all([
-      supabase
-        .from("children")
-        .select("id, name, color")
-        .eq("user_id", effectiveUserId)
-        .eq("archived", false)
-        .order("sort_order"),
-      supabase
-        .from("app_events")
-        .select("id, type, payload, created_at")
+    const [{ data: profile }, { data: kids }, { data: events }] = await Promise.all([
+      supabase.from("profiles").select("is_pro, display_name, first_name, last_name").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
+      supabase.from("app_events").select("id, type, payload, created_at")
         .eq("user_id", effectiveUserId)
         .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"])
-        .gte("created_at", userIsPro ? "2020-01-01" : thirtyDaysAgo)
         .order("created_at", { ascending: false }),
-      supabase
-        .from("daily_reflections")
-        .select("id, date, reflection, is_private, updated_at")
-        .eq("user_id", effectiveUserId)
-        .order("date", { ascending: false }),
     ]);
 
+    const p = profile as { is_pro?: boolean; display_name?: string; first_name?: string; last_name?: string } | null;
+    setIsPro(p?.is_pro ?? false);
+    setFamilyName(p?.display_name ?? (p?.first_name ? `${p.first_name}${p.last_name ? ` ${p.last_name}` : ""}` : ""));
     setChildren(kids ?? []);
     setMemories((events as unknown as Memory[]) ?? []);
-    setIsPro(userIsPro);
-    setReflections((reflData as unknown as Reflection[]) ?? []);
-
-    // Memory logging streak — how many days this week have entries
-    const nowDate = new Date();
-    const currentDow = nowDate.getDay();
-    const monday = new Date(nowDate);
-    monday.setDate(monday.getDate() - ((currentDow === 0 ? 7 : currentDow) - 1));
-    monday.setHours(0, 0, 0, 0);
-    const mondayStr = monday.toISOString();
-    const { data: weekEvents } = await supabase
-      .from("app_events")
-      .select("created_at")
-      .eq("user_id", effectiveUserId)
-      .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"])
-      .gte("created_at", mondayStr);
-    const uniqueDays = new Set((weekEvents ?? []).map(e => e.created_at?.split("T")[0]));
-    setMemoryDaysThisWeek(uniqueDays.size);
-
     setLoading(false);
   }, [effectiveUserId]);
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────
 
-  const childName = (id?: string) =>
-    id ? (children.find((c) => c.id === id)?.name ?? "") : "";
+  const stats = {
+    total: memories.length,
+    photos: memories.filter((m) => m.type === "memory_photo").length,
+    books: memories.filter((m) => m.type === "memory_book").length,
+    trips: memories.filter((m) => m.type === "memory_field_trip").length,
+  };
 
-  const childColor = (id?: string) =>
-    id ? (children.find((c) => c.id === id)?.color ?? "#5c7f63") : "#5c7f63";
+  const filtered = memories.filter((m) => {
+    if (filterChild && m.payload?.child_id !== filterChild) return false;
+    if (filterType && getTypeShort(m.type) !== filterType) return false;
+    return true;
+  });
 
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFormFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
-    setUploadError(null);
+  // Group by month
+  const byMonth = new Map<string, Memory[]>();
+  for (const m of filtered) {
+    const key = getMonthKey(getMemoryDate(m));
+    if (!byMonth.has(key)) byMonth.set(key, []);
+    byMonth.get(key)!.push(m);
   }
+  const sortedMonths = [...byMonth.keys()].sort().reverse();
 
-  function openModal(type: "photo" | "project" | "book") {
-    setModalType(type);
-    setFormTitle(""); setFormDesc(""); setFormChild(""); setFormAuthor("");
-    setFormDate(new Date().toISOString().split("T")[0]);
-    setFormFile(null); setPreviewUrl(null); setUploadError(null);
-    setShowModal(true);
-  }
+  const displayName = familyName
+    ? (familyName.toLowerCase().endsWith("family") ? familyName : `The ${familyName} Family`)
+    : "Your Family";
 
-  function closeModal() {
-    setShowModal(false);
-    setFormFile(null);
-    setPreviewUrl(null);
-    setUploadError(null);
-  }
+  // ── Quick photo save ──────────────────────────────────────────────────────
 
-  function openReflection(r: Reflection) {
-    setViewingReflection(r);
-    setEditingReflection(false);
-    setReflectionDeleteConfirm(false);
-  }
-
-  function closeReflection() {
-    setViewingReflection(null);
-    setEditingReflection(false);
-    setReflectionDeleteConfirm(false);
-  }
-
-  async function saveReflectionEdit() {
-    if (!viewingReflection || !reflectionEditText.trim()) return;
-    setSavingReflection(true);
-    const { data } = await supabase
-      .from("daily_reflections")
-      .update({ reflection: reflectionEditText.trim(), is_private: viewingReflection.is_private })
-      .eq("id", viewingReflection.id)
-      .select("id, date, reflection, is_private, updated_at")
-      .single();
-    if (data) {
-      const updated = data as Reflection;
-      setReflections((prev) => prev.map((r) => r.id === updated.id ? updated : r));
-      setViewingReflection(updated);
-    }
-    setSavingReflection(false);
-    setEditingReflection(false);
-  }
-
-  async function deleteReflection() {
-    if (!viewingReflection) return;
-    await supabase.from("daily_reflections").delete().eq("id", viewingReflection.id);
-    setReflections((prev) => prev.filter((r) => r.id !== viewingReflection.id));
-    closeReflection();
-  }
-
-  // ── Save memory ─────────────────────────────────────────────────────────────
-
-  async function saveMemory() {
-    if (!formTitle.trim() && modalType !== "photo") return;
-    if (modalType === "photo" && !formFile && !formTitle.trim()) return;
-
-    setSaving(true);
-    setUploadError(null);
-
+  async function handleQuickPhoto(file: File) {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSaving(false); return; }
-
-    // Check photo limit for free users
-    if (modalType === "photo" && !isPro) {
-      const { data: countProfile } = await supabase
-        .from("profiles")
-        .select("photo_count")
-        .eq("id", user.id)
-        .single();
-
-      if ((countProfile?.photo_count ?? 0) >= 50) {
-        setUploadError(
-          "You've reached the 50-photo limit on the free plan. Upgrade to upload unlimited photos."
-        );
-        setSaving(false);
-        return;
-      }
-    }
-
-    // Upload photo if provided
-    let photoUrl: string | undefined;
-    if (modalType === "photo" && formFile) {
-      const ext = formFile.name.split(".").pop() ?? "jpg";
-      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-      const { error: uploadErr } = await supabase.storage
-        .from("memories")
-        .upload(path, formFile, { contentType: formFile.type, upsert: false });
-
-      if (uploadErr) {
-        setUploadError(
-          uploadErr.message.includes("Bucket not found")
-            ? "Storage not set up yet. Create a public bucket named 'memories' in your Supabase dashboard."
-            : `Upload failed: ${uploadErr.message}`
-        );
-        setSaving(false);
-        return;
-      }
-
-      const { data: urlData } = supabase.storage.from("memories").getPublicUrl(path);
-      photoUrl = urlData.publicUrl;
-    }
-
-    const payload: Memory["payload"] = {
-      title:     formTitle.trim() || (formFile?.name ?? "Photo"),
-      date:      formDate,
-      child_id:  formChild || undefined,
-      photo_url: photoUrl,
-    };
-    if (formDesc)   payload.description = formDesc;
-    if (formAuthor) payload.author      = formAuthor;
-
-    const { data } = await supabase
-      .from("app_events")
-      .insert({ user_id: user.id, type: `memory_${modalType}`, payload })
-      .select()
-      .single();
-
-    if (data) setMemories((prev) => [data as unknown as Memory, ...prev]);
-
-    // Increment photo count for free users after successful upload
-    if (modalType === "photo" && !isPro) {
-      await supabase.rpc("increment_photo_count", { p_user_id: user.id });
-    }
-
-    setSaving(false);
-    closeModal();
+    if (!user) return;
+    const path = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+    const { error } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
+    if (error) { console.error("Quick photo upload error:", error); return; }
+    const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+    await supabase.from("app_events").insert({
+      user_id: user.id,
+      type: "memory_photo",
+      payload: { title: "Photo", photo_url: urlData.publicUrl, date: new Date().toISOString().split("T")[0] },
+    });
+    load();
   }
 
-  // ── Derived state ────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
-  const filteredMemories = memories.filter((m) =>
-    activeType === "all" ? true : m.type === `memory_${activeType}`
-  );
-
-  const gridPhotos = filteredMemories.filter(
-    (m) => m.type === "memory_photo" && m.payload.photo_url
-  );
-  const listItems = filteredMemories.filter(
-    (m) => !(m.type === "memory_photo" && m.payload.photo_url)
-  );
-
-  // ── Render ───────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <span className="text-3xl animate-pulse">{"\uD83D\uDCF8"}</span>
+      </div>
+    );
+  }
 
   return (
     <>
-    <PageHero
-      overline="Your Family Story"
-      title="Memories 📸"
-      subtitle="Capture photos, projects, and books."
-    />
-    <div className="max-w-3xl px-4 pt-5 pb-7 space-y-6">
+    <div className="pb-24">
 
-      {/* Add memory */}
-      {!isPartner && (
-        <button
-          onClick={() => setShowLogModal(true)}
-          className="w-full flex items-center gap-4 bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#f8f5f0] rounded-2xl px-5 py-4 transition-colors"
-        >
-          <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0 text-lg">
-            📸
-          </div>
-          <div className="flex-1 text-left">
-            <p className="text-sm font-semibold text-[#2d2926]">+ Log a Memory</p>
-            <p className="text-xs text-[#7a6f65]">Photo, project, book, or anything you want to remember</p>
-          </div>
-          <span className="text-[#c8bfb5] text-lg leading-none">›</span>
-        </button>
-      )}
-
-      {/* Memories streak */}
-      {memoryDaysThisWeek >= 2 && (
-        <p className="text-xs text-[#5c7f63] text-center -mt-2">
-          {memoryDaysThisWeek >= 5
-            ? "🌟 You captured something every school day this week!"
-            : `🌿 You've captured something ${memoryDaysThisWeek} days this week`}
+      {/* ── Header ────────────────────────────────────────── */}
+      <div className="relative w-full rounded-b-[24px] px-6 pt-7 pb-8 overflow-hidden" style={{ background: "#2d5a3d" }}>
+        <div className="absolute top-2 right-3 text-[100px] leading-none select-none pointer-events-none" style={{ opacity: 0.06 }} aria-hidden>{"\uD83C\uDF3F"}</div>
+        <p className="text-[11px] font-semibold tracking-widest uppercase mb-1" style={{ color: "#8cba8e" }}>
+          {displayName}
         </p>
-      )}
+        <h1 className="text-[24px] font-bold leading-tight" style={{ color: "#fefcf9", fontFamily: "var(--font-display)" }}>
+          Your Story {"\uD83D\uDCD6"}
+        </h1>
+        <p className="text-[13px] mt-1 italic" style={{ color: "rgba(255,255,255,0.6)" }}>
+          Every moment, beautifully kept.
+        </p>
 
-      {/* AI Year in Review — live feature */}
-      <Link
-        href={isPro ? "/dashboard/year-in-review" : "/dashboard/pricing"}
-        className="block bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 hover:from-[#ddeade] hover:to-[#c5e0c8] transition-colors group"
-      >
-        <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#5c7f63] flex items-center justify-center shrink-0">
-            <Sparkles size={16} className="text-white" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold text-[#2d2926] text-sm mb-0.5">AI Year in Review ✨</h3>
-            <p className="text-xs text-[#5c6e5d] leading-relaxed">
-              See your family&apos;s stats, read an AI-written story of your homeschool year, and
-              print a beautiful keepsake to share with grandparents.
-            </p>
-            <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-[#5c7f63] bg-white/70 px-2.5 py-1 rounded-full group-hover:bg-white transition-colors">
-              {isPro ? (
-                <>Open Year in Review <ArrowRight size={10} /></>
-              ) : (
-                "🔒 Pro Feature"
-              )}
-            </span>
-          </div>
-          <Download size={16} className="text-[#5c7f63] shrink-0 mt-0.5" />
+        {/* Stats row */}
+        <div className="flex gap-3 mt-4">
+          {[
+            { n: stats.total, label: "Memories" },
+            { n: stats.photos, label: "Photos" },
+            { n: stats.books, label: "Books" },
+            { n: stats.trips, label: "Field Trips" },
+          ].map((s) => (
+            <div key={s.label} className="flex items-center gap-1">
+              <span className="text-sm font-bold text-white">{s.n}</span>
+              <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.5)" }}>{s.label}</span>
+            </div>
+          ))}
         </div>
-      </Link>
-
-      {/* Yearbook CTA */}
-      <Link
-        href="/dashboard/yearbook"
-        className="block bg-gradient-to-br from-[#fef5e4] to-[#fef0d0] border border-[#f0dda8] rounded-2xl p-5 hover:from-[#fef0d0] hover:to-[#fee8b8] transition-colors"
-      >
-        <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#8b6820] flex items-center justify-center shrink-0 text-white text-base">
-            {"\uD83D\uDCD6"}
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold text-[#2d2926] text-sm mb-0.5">Create Yearbook {"\uD83D\uDCD6"}</h3>
-            <p className="text-xs text-[#7a6f65] leading-relaxed">
-              Turn this year&apos;s memories, lessons, and milestones into a beautiful family yearbook.
-            </p>
-          </div>
-        </div>
-      </Link>
-
-      {/* Family Update CTA */}
-      <Link
-        href="/dashboard/family-update"
-        className="flex items-center justify-between bg-[#eef5ee] border border-[#b8d9bc] rounded-2xl px-4 py-4 hover:bg-[#e4f0e4] transition-colors"
-      >
-        <div>
-          <p className="text-sm font-semibold text-[#2d2926]">Generate your family update ✨</p>
-          <p className="text-xs text-[#7a6f65] mt-0.5">An AI-written summary to share with grandparents</p>
-        </div>
-        <span className="text-[#5c7f63] text-lg shrink-0">→</span>
-      </Link>
-
-      {/* Type filter tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {MEMORY_TYPES.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveType(t.id)}
-            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              activeType === t.id
-                ? "bg-[#5c7f63] text-white"
-                : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
-            }`}
-          >
-            {t.emoji} {t.label}
-          </button>
-        ))}
       </div>
 
-      {/* Free user upgrade banner */}
-      {!isPro && !loading && (
-        <div className="flex items-center justify-between bg-[#fafdf8] border border-[#c8dcc9] rounded-2xl px-4 py-3">
-          <p className="text-xs text-[#5c7f63] leading-snug">
-            📖 Showing your last 30 days — upgrade to unlock your full family story
-          </p>
-          <Link href="/dashboard/pricing"
-            className="text-xs font-semibold text-[#3d5c42] underline underline-offset-2 shrink-0 ml-3">
-            Upgrade
-          </Link>
+      {/* ── Filter bar ────────────────────────────────────── */}
+      <div className="px-4 pt-4 pb-2 overflow-x-auto">
+        <div className="flex gap-1.5 w-max">
+          {/* All */}
+          <button
+            onClick={() => { setFilterChild(null); setFilterType(null); }}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+              !filterChild && !filterType
+                ? "bg-[#3d5c42] text-white"
+                : "bg-white text-[#7a6f65] border border-[#e8e2d9] hover:bg-[#f0ede8]"
+            }`}
+          >
+            All
+          </button>
+          {/* Family */}
+          <button
+            onClick={() => { setFilterChild("__family__"); setFilterType(null); }}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+              filterChild === "__family__"
+                ? "bg-[#3d5c42] text-white"
+                : "bg-white text-[#7a6f65] border border-[#e8e2d9] hover:bg-[#f0ede8]"
+            }`}
+          >
+            {"\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66"} Family
+          </button>
+          {/* Children */}
+          {children.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => { setFilterChild(filterChild === c.id ? null : c.id); setFilterType(null); }}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                filterChild === c.id ? "text-white" : "bg-white border border-[#e8e2d9] hover:bg-[#f0ede8]"
+              }`}
+              style={filterChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : { color: c.color ?? "#5c7f63" }}
+            >
+              {c.name}
+            </button>
+          ))}
+          {/* Type filters */}
+          {[
+            { id: "photo", emoji: "\uD83D\uDCF7", label: "Photos" },
+            { id: "book", emoji: "\uD83D\uDCD6", label: "Books" },
+            { id: "field_trip", emoji: "\uD83D\uDDFA\uFE0F", label: "Trips" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => { setFilterType(filterType === t.id ? null : t.id); setFilterChild(null); }}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                filterType === t.id
+                  ? "bg-[#3d5c42] text-white"
+                  : "bg-white text-[#7a6f65] border border-[#e8e2d9] hover:bg-[#f0ede8]"
+              }`}
+            >
+              {t.emoji} {t.label}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
-      {/* ── Reflections tab ─────────────────────────────────── */}
-      {activeType === "reflection" && (
-        loading ? (
-          <div className="text-center py-12">
-            <span className="text-3xl animate-pulse">📝</span>
+      {/* ── Photo grid by month ───────────────────────────── */}
+      <div className="px-4 space-y-4">
+        {sortedMonths.length === 0 && (
+          <div className="py-16 text-center">
+            <div className="text-4xl mb-3">{"\uD83D\uDCF8"}</div>
+            <p className="text-sm text-[#7a6f65]">No memories yet. Tap the camera button to capture your first moment.</p>
           </div>
-        ) : reflections.length === 0 ? (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-            <span className="text-4xl mb-3">📝</span>
-            <p className="font-medium text-[#2d2926] mb-1">No reflections yet</p>
-            <p className="text-sm text-[#7a6f65] max-w-xs">
-              No reflections yet. Tap Log Today to write your first one →
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2.5">
-            {reflections.map((r) => {
-              const dateLabel = new Date(r.date + "T12:00:00").toLocaleDateString("en-US", {
-                weekday: "short", month: "long", day: "numeric", year: "numeric",
-              });
-              return (
-                <button
-                  key={r.id}
-                  onClick={() => openReflection(r)}
-                  className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-left hover:bg-[#faf8f5] transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-[#5c7f63]">{dateLabel}</span>
-                      {r.is_private && <span className="text-[10px] text-[#b5aca4]">🔒</span>}
-                    </div>
-                    <span className="text-[#c8bfb5] text-base leading-none shrink-0">›</span>
-                  </div>
-                  <p className="text-sm text-[#2d2926] leading-relaxed line-clamp-2">{r.reflection}</p>
-                </button>
-              );
-            })}
-          </div>
-        )
-      )}
+        )}
 
-      {/* ── Memories content (non-reflection tabs) ────────── */}
-      {activeType !== "reflection" && (
-        loading ? (
-          <div className="text-center py-12">
-            <span className="text-3xl animate-pulse">📷</span>
-          </div>
-        ) : filteredMemories.length === 0 ? (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-            <span className="text-4xl mb-3">🌸</span>
-            <p className="font-medium text-[#2d2926] mb-1">No memories yet</p>
-            <p className="text-sm text-[#7a6f65] max-w-xs">
-              Start logging photos, projects, and books to build your family&apos;s story.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-6">
+        {sortedMonths.map((monthKey) => {
+          const monthMemories = byMonth.get(monthKey)!;
+          return (
+            <div key={monthKey}>
+              {/* Month divider */}
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#a09890] mb-2 mt-2">
+                {formatMonthLabel(monthKey)}
+              </p>
 
-            {/* Photo grid */}
-            {gridPhotos.length > 0 && (
-              <div>
-                {activeType === "all" && (
-                  <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-                    Photos
-                  </p>
-                )}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {gridPhotos.map((m) => (
+              {/* 2-column grid */}
+              <div className="grid grid-cols-2 gap-1.5">
+                {monthMemories.map((m) => {
+                  const isPhoto = m.type === "memory_photo" && m.payload?.photo_url;
+                  const typeShort = getTypeShort(m.type);
+                  const style = TYPE_STYLES[typeShort] ?? TYPE_STYLES.activity;
+                  const childId = m.payload?.child_id;
+                  const child = childId ? children.find((c) => c.id === childId) : null;
+                  const date = getMemoryDate(m);
+                  const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+                  return (
                     <button
                       key={m.id}
-                      onClick={() => setLightboxUrl(m.payload.photo_url!)}
-                      className="group relative rounded-2xl overflow-hidden aspect-square bg-[#f0ede8] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]"
+                      className="relative aspect-square rounded-xl overflow-hidden group"
+                      onClick={() => isPhoto ? setLightboxUrl(m.payload.photo_url!) : undefined}
                     >
-                      {/* Photo */}
-                      <img
-                        src={m.payload.photo_url}
-                        alt={m.payload.title ?? "Memory photo"}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                      {/* Hover overlay */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
-                      {/* Caption on hover */}
-                      <div className="absolute bottom-0 left-0 right-0 p-3 translate-y-1 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-200">
-                        {m.payload.title && (
-                          <p className="text-white text-xs font-semibold leading-snug line-clamp-2">
-                            {m.payload.title}
-                          </p>
-                        )}
-                        {m.payload.child_id && (
-                          <span
-                            className="inline-block mt-1 text-[10px] font-medium px-2 py-0.5 rounded-full text-white"
-                            style={{ backgroundColor: childColor(m.payload.child_id) + "cc" }}
-                          >
-                            {childName(m.payload.child_id)}
-                          </span>
-                        )}
-                      </div>
-                      {/* Date badge */}
-                      {m.payload.date && (
-                        <div className="absolute top-2 right-2 bg-black/40 text-white text-[10px] px-1.5 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
-                          {new Date(m.payload.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {isPhoto ? (
+                        <img src={m.payload.photo_url!} alt={m.payload.title ?? ""} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: style.bg }}>
+                          <span className="text-4xl">{style.emoji}</span>
                         </div>
                       )}
+
+                      {/* Child dot */}
+                      <div className="absolute top-2 left-2">
+                        {child ? (
+                          <div className="w-[10px] h-[10px] rounded-full border border-white shadow-sm" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
+                        ) : (
+                          <span className="text-[8px]">{"\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66"}</span>
+                        )}
+                      </div>
+
+                      {/* Bottom overlay */}
+                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-2.5 pb-2 pt-6">
+                        <p className="text-[11px] font-semibold text-white leading-tight truncate">
+                          {m.payload?.title || typeShort}
+                        </p>
+                        <p className="text-[9px] text-white/60">{dateLabel}</p>
+                      </div>
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
-            )}
+            </div>
+          );
+        })}
 
-            {/* List items (projects, books, photos without url) */}
-            {listItems.length > 0 && (
-              <div>
-                {activeType === "all" && gridPhotos.length > 0 && (
-                  <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-                    Memories
-                  </p>
-                )}
-                <div className="space-y-2.5">
-                  {listItems.map((m) => {
-                    const isPhoto     = m.type === "memory_photo";
-                    const isProject   = m.type === "memory_project";
-                    const isBook      = m.type === "memory_book";
-                    const isFieldTrip = m.type === "memory_field_trip";
-                    const isActivity  = m.type === "memory_activity";
-                    const emoji = isPhoto ? "📷" : isProject ? "📁" : isBook ? "📖" : isFieldTrip ? "🗺️" : "🎵";
-                    const bg    = isPhoto ? "#f0f4ff" : isProject ? "#f5ede0" : isBook ? "#e8f0e9" : isFieldTrip ? "#fff8e8" : "#f0e8f5";
-                    const label = isPhoto ? "Photo" : isProject ? "Project" : isBook ? "Book" : isFieldTrip ? "Field Trip" : "Activity";
-                    const p = m.payload;
-                    return (
-                      <div
-                        key={m.id}
-                        className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 flex gap-3"
-                      >
-                        <div
-                          className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
-                          style={{ backgroundColor: bg }}
-                        >
-                          {emoji}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="font-medium text-sm text-[#2d2926] truncate">
-                              {p.title ?? "Untitled"}
-                            </p>
-                            <span className="text-[10px] text-[#b5aca4] shrink-0">
-                              {p.date
-                                ? new Date(p.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                                : new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                            </span>
-                          </div>
-                          {p.description && (
-                            <p className="text-xs text-[#7a6f65] mt-0.5 line-clamp-2">{p.description}</p>
-                          )}
-                          <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                            <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">
-                              {label}
-                            </span>
-                            {p.child_id && (
-                              <span
-                                className="text-[10px] px-2 py-0.5 rounded-full text-white"
-                                style={{ backgroundColor: childColor(p.child_id) }}
-                              >
-                                {childName(p.child_id)}
-                              </span>
-                            )}
-                            {p.author && (
-                              <span className="text-[10px] text-[#b5aca4]">by {p.author}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      )}
-
-      {/* ── Lightbox ────────────────────────────────────────── */}
-      {lightboxUrl && (
-        <div
-          className="fixed inset-0 bg-black/85 z-[60] flex items-center justify-center p-4 cursor-pointer"
-          onClick={() => setLightboxUrl(null)}
-        >
-          <button
-            onClick={() => setLightboxUrl(null)}
-            className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors z-10"
-            aria-label="Close"
+        {/* ── Yearbook card ───────────────────────────────── */}
+        {memories.length > 0 && (
+          <Link
+            href="/dashboard/yearbook"
+            className="block rounded-2xl p-5 mt-4" style={{ background: "linear-gradient(135deg, #2d5a3d 0%, #3d7a50 100%)" }}
           >
-            <X size={28} />
-          </button>
-          <img
-            src={lightboxUrl}
-            alt="Memory"
-            className="max-w-full max-h-[90vh] rounded-2xl object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
-
-      {/* ── Reflection View Modal ────────────────────────────── */}
-      {viewingReflection && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">{"\uD83D\uDCD2"}</span>
               <div>
-                <p className="text-xs font-semibold text-[#5c7f63] mb-0.5">
-                  {new Date(viewingReflection.date + "T12:00:00").toLocaleDateString("en-US", {
-                    weekday: "long", month: "long", day: "numeric", year: "numeric",
-                  })}
-                </p>
-                <h2 className="font-bold text-[#2d2926]">📝 Reflection</h2>
-              </div>
-              <button onClick={closeReflection} className="text-[#b5aca4] hover:text-[#7a6f65]">
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Private toggle */}
-            <button
-              onClick={async () => {
-                const newVal = !viewingReflection.is_private;
-                await supabase.from("daily_reflections").update({ is_private: newVal }).eq("id", viewingReflection.id);
-                const updated = { ...viewingReflection, is_private: newVal };
-                setViewingReflection(updated);
-                setReflections(prev => prev.map(r => r.id === updated.id ? updated : r));
-              }}
-              className="flex items-center gap-2 text-xs text-[#7a6f65]"
-            >
-              <div className={`w-8 h-[18px] rounded-full transition-colors relative ${viewingReflection.is_private ? "bg-[#5c7f63]" : "bg-[#e8e2d9]"}`}>
-                <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${viewingReflection.is_private ? "translate-x-[16px]" : "translate-x-[2px]"}`} />
-              </div>
-              <span>{viewingReflection.is_private ? "🔒 Private — hidden in Kid Mode" : "👀 Visible in Kid Mode"}</span>
-            </button>
-
-            {editingReflection ? (
-              <>
-                <textarea
-                  value={reflectionEditText}
-                  onChange={(e) => setReflectionEditText(e.target.value)}
-                  rows={8}
-                  autoFocus
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none leading-relaxed"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setEditingReflection(false)}
-                    className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={saveReflectionEdit}
-                    disabled={savingReflection || !reflectionEditText.trim()}
-                    className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
-                  >
-                    {savingReflection ? "Saving…" : "Save"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-[#2d2926] leading-relaxed whitespace-pre-wrap">
-                  {viewingReflection.reflection}
-                </p>
-                <button
-                  onClick={() => { setEditingReflection(true); setReflectionEditText(viewingReflection.reflection); }}
-                  className="w-full py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-                >
-                  ✏️ Edit
-                </button>
-                {!reflectionDeleteConfirm ? (
-                  <button
-                    onClick={() => setReflectionDeleteConfirm(true)}
-                    className="w-full py-2.5 rounded-xl border border-red-200 text-sm font-medium text-red-400 hover:bg-red-50 transition-colors"
-                  >
-                    Delete
-                  </button>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-sm text-center text-[#2d2926] font-medium">Are you sure?</p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setReflectionDeleteConfirm(false)}
-                        className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={deleteReflection}
-                        className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Add Memory Modal ─────────────────────────────────── */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold text-[#2d2926]">
-                {modalType === "photo"   && "📷 Add Photo Memory"}
-                {modalType === "project" && "📁 Log a Project"}
-                {modalType === "book"    && "📖 Log a Book"}
-              </h2>
-              <button onClick={closeModal} className="text-[#b5aca4] hover:text-[#7a6f65]">
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-3.5">
-
-              {/* Photo upload zone */}
-              {modalType === "photo" && (
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Photo</label>
-                  {previewUrl ? (
-                    <div className="relative rounded-2xl overflow-hidden bg-[#f0ede8]">
-                      <img
-                        src={previewUrl}
-                        alt="Preview"
-                        className="w-full max-h-48 object-cover"
-                      />
-                      <button
-                        onClick={() => { setFormFile(null); setPreviewUrl(null); if (fileRef.current) fileRef.current.value = ""; }}
-                        className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition-colors"
-                        aria-label="Remove photo"
-                      >
-                        <X size={14} />
-                      </button>
-                      <div className="absolute bottom-2 left-2 bg-black/40 text-white text-[10px] px-2 py-0.5 rounded-full">
-                        {formFile?.name}
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      onClick={() => fileRef.current?.click()}
-                      className="border-2 border-dashed border-[#e8e2d9] hover:border-[#5c7f63] rounded-2xl p-8 text-center cursor-pointer transition-colors group"
-                    >
-                      <div className="w-12 h-12 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-2 group-hover:bg-[#d4ead4] transition-colors">
-                        <ImageIcon size={20} className="text-[#5c7f63]" />
-                      </div>
-                      <p className="text-sm font-medium text-[#2d2926] mb-0.5">
-                        Click to choose a photo
-                      </p>
-                      <p className="text-xs text-[#b5aca4]">JPG, PNG, HEIC up to 10 MB</p>
-                    </div>
-                  )}
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleFileSelect}
-                  />
-                  {uploadError && (
-                    <div className="mt-1.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] p-4 text-center">
-                      <p className="mb-2 text-sm text-[#2d2926]">{uploadError}</p>
-                      {uploadError.includes("50-photo") && (
-                        <Link
-                          href="/dashboard/pricing"
-                          className="text-sm font-semibold text-[#5c7f63] underline underline-offset-2"
-                        >
-                          Upgrade to Pro
-                        </Link>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Caption / Title */}
-              <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-                  {modalType === "photo" ? "Caption" : modalType === "book" ? "Book title *" : "Title *"}
-                </label>
-                <input
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder={
-                    modalType === "photo"   ? "e.g. First day of nature study" :
-                    modalType === "book"    ? "e.g. Charlotte's Web" :
-                                             "e.g. Volcano Science Project"
-                  }
-                  autoFocus={modalType !== "photo"}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                />
-              </div>
-
-              {/* Book author */}
-              {modalType === "book" && (
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Author</label>
-                  <input
-                    value={formAuthor}
-                    onChange={(e) => setFormAuthor(e.target.value)}
-                    placeholder="e.g. E.B. White"
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                  />
-                </div>
-              )}
-
-              {/* Description */}
-              {modalType !== "book" && (
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-                    {modalType === "photo" ? "Notes (optional)" : "Description"}
-                  </label>
-                  <textarea
-                    value={formDesc}
-                    onChange={(e) => setFormDesc(e.target.value)}
-                    placeholder={modalType === "photo" ? "What was happening in this photo?" : "What did you do? What was learned?"}
-                    rows={2}
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
-                  />
-                </div>
-              )}
-
-              {/* Date + Child row */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Date</label>
-                  <input
-                    type="date"
-                    value={formDate}
-                    onChange={(e) => setFormDate(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                  />
-                </div>
-                {children.length > 0 && (
-                  <div>
-                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
-                    <select
-                      value={formChild}
-                      onChange={(e) => setFormChild(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                    >
-                      <option value="">All children</option>
-                      {children.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <p className="text-sm font-bold text-white">Create your yearbook</p>
+                <p className="text-xs text-white/60">Turn this year into a keepsake {"\u2192"}</p>
               </div>
             </div>
-
-            {/* Actions */}
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={closeModal}
-                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveMemory}
-                disabled={
-                  saving ||
-                  (modalType === "photo"   && !formFile && !formTitle.trim()) ||
-                  (modalType !== "photo"   && !formTitle.trim())
-                }
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
-              >
-                {saving
-                  ? (modalType === "photo" && formFile ? "Uploading…" : "Saving…")
-                  : "Save Memory"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="h-4" />
+          </Link>
+        )}
+      </div>
     </div>
 
+    {/* ── Floating camera button ──────────────────────────── */}
+    {!isPartner && (
+      <button
+        onClick={() => setShowLogModal(true)}
+        className="fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-[#3d5c42] hover:bg-[#2d4a32] text-white shadow-lg flex items-center justify-center transition-colors"
+        aria-label="Log a memory"
+      >
+        <span className="text-xl">{"\uD83D\uDCF8"}</span>
+      </button>
+    )}
+
+    {/* ── Lightbox ────────────────────────────────────────── */}
+    {lightboxUrl && (
+      <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4" onClick={() => setLightboxUrl(null)}>
+        <button className="absolute top-4 right-4 text-white/70 hover:text-white" onClick={() => setLightboxUrl(null)}>
+          <X size={24} />
+        </button>
+        <img src={lightboxUrl} alt="" className="max-w-full max-h-[85vh] rounded-xl object-contain" />
+      </div>
+    )}
+
+    {/* ── Log modal ───────────────────────────────────────── */}
     {showLogModal && (
       <LogTodayModal
         children={children}
@@ -919,6 +360,19 @@ export default function MemoriesPage() {
         onSaved={() => { setShowLogModal(false); load(); }}
       />
     )}
+
+    {/* Hidden quick photo input */}
+    <input
+      ref={quickPhotoRef}
+      type="file"
+      accept="image/*"
+      className="hidden"
+      onChange={(e) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (file) handleQuickPhoto(file);
+      }}
+    />
     </>
   );
 }
