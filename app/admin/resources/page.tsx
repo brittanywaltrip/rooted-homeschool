@@ -192,31 +192,40 @@ function ResourceRow({
           >
             <Pencil size={14} />
           </button>
-          {confirmDelete ? (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => onDelete(resource.id)}
-                className="text-[10px] bg-red-500 text-white px-2 py-1 rounded-lg hover:bg-red-600 font-medium"
-              >
-                Delete
-              </button>
-              <button
-                onClick={() => setConfirmDelete(false)}
-                className="text-[10px] text-[#7a6f65] px-2 py-1 rounded-lg hover:bg-[#f0ede8]"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              title="Delete"
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-red-500 hover:bg-red-50 transition-colors"
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
+          <button
+            onClick={() => setConfirmDelete(true)}
+            title="Delete"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-red-500 hover:bg-red-50 transition-colors"
+          >
+            <Trash2 size={14} />
+          </button>
         </div>
+
+        {/* Delete confirmation modal */}
+        {confirmDelete && (
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmDelete(false)}>
+            <div className="bg-[#fefcf9] rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-sm font-bold text-[#2d2926]">Delete &ldquo;{resource.title}&rdquo;?</h3>
+              <p className="text-xs text-[#7a6f65] leading-relaxed">
+                This will permanently remove this resource. This cannot be undone. Consider hiding it instead if you may want it back.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { onToggleActive(resource.id, false); setConfirmDelete(false); }}
+                  className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-xs font-semibold text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                >
+                  Hide instead
+                </button>
+                <button
+                  onClick={() => { onDelete(resource.id); setConfirmDelete(false); }}
+                  className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-xs font-semibold transition-colors"
+                >
+                  Delete permanently
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
