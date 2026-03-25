@@ -227,25 +227,6 @@ export default function PlanPage() {
 
   // ── Load data ───────────────────────────────────────────────────────────────
 
-  const loadData = useCallback(async () => {
-    if (!effectiveUserId) return;
-    setLoading(true);
-    const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }] = await Promise.all([
-      supabase.from("profiles").select("school_days, school_year_start, school_year_end").eq("id", effectiveUserId).maybeSingle(),
-      supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-      supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days").eq("user_id", effectiveUserId).order("created_at"),
-    ]);
-    const p = profile as { school_days?: string[]; school_year_start?: string; school_year_end?: string } | null;
-    setProfileSchoolDays(p?.school_days ?? []);
-    setSchoolYearStart(p?.school_year_start ?? null);
-    setSchoolYearEnd(p?.school_year_end ?? null);
-    setChildren(kids ?? []);
-    setSubjects((subs as Subject[]) ?? []);
-    setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
-    setLoading(false);
-  }, [effectiveUserId]);
-
   const loadAllLessons = useCallback(async () => {
     if (!effectiveUserId) return;
     const { data } = await supabase
@@ -265,9 +246,28 @@ export default function PlanPage() {
     setVacationBlocks((data as VacationBlock[]) ?? []);
   }, [effectiveUserId]);
 
-  useEffect(() => { loadData(); },           [loadData]);
-  useEffect(() => { loadAllLessons(); },     [loadAllLessons]);
-  useEffect(() => { loadVacationBlocks(); }, [loadVacationBlocks]);
+  const loadData = useCallback(async () => {
+    if (!effectiveUserId) return;
+    setLoading(true);
+    const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }] = await Promise.all([
+      supabase.from("profiles").select("school_days, school_year_start, school_year_end").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
+      supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days").eq("user_id", effectiveUserId).order("created_at"),
+    ]);
+    const p = profile as { school_days?: string[]; school_year_start?: string; school_year_end?: string } | null;
+    setProfileSchoolDays(p?.school_days ?? []);
+    setSchoolYearStart(p?.school_year_start ?? null);
+    setSchoolYearEnd(p?.school_year_end ?? null);
+    setChildren(kids ?? []);
+    setSubjects((subs as Subject[]) ?? []);
+    setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
+    // Also load lessons and vacations before clearing loading — prevents flash of empty state
+    await Promise.all([loadAllLessons(), loadVacationBlocks()]);
+    setLoading(false);
+  }, [effectiveUserId, loadAllLessons, loadVacationBlocks]);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   // ── Curriculum management ─────────────────────────────────────────────────
 
@@ -776,7 +776,7 @@ export default function PlanPage() {
       <CurriculumWizard
         mode="create"
         onClose={() => setShowCreateWizard(false)}
-        onSaved={() => { loadData(); loadAllLessons(); }}
+        onSaved={() => { loadData(); }}
       />
     )}
     {editWizardData && (
@@ -784,7 +784,7 @@ export default function PlanPage() {
         mode="edit"
         editData={editWizardData}
         onClose={() => setEditWizardData(null)}
-        onSaved={() => { loadData(); loadAllLessons(); }}
+        onSaved={() => { loadData(); }}
       />
     )}
     </>
