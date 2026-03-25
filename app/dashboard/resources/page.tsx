@@ -419,11 +419,21 @@ export default function ResourcesPage() {
     }
   }, [effectiveUserId, savedMap]);
 
-  const freshDrops = getFreshDrops();
+  // Use DB weekly picks if available, otherwise fall back to hardcoded rotation
+  const dbWeeklyPicks = dbResources.filter((r) => r.category === "weekly_picks");
+  const freshDrops: FreshDrop[] = dbWeeklyPicks.length > 0
+    ? dbWeeklyPicks.slice(0, 3).map((r) => ({
+        name: r.title, desc: r.description, url: r.url,
+        grade: (r.grade_level as FreshDrop["grade"]) || "All Ages",
+        type: r.badge_text || "Free Pick",
+        emoji: "⭐",
+      }))
+    : getFreshDrops();
   const dayIdx     = new Date().getDay();
-  const todayWin1 = EASY_WINS[dayIdx % 6];
-  const todayWin2 = EASY_WINS[(dayIdx + 1) % 6];
-  const restWins  = EASY_WINS.filter((_, i) => i !== dayIdx % 6 && i !== (dayIdx + 1) % 6);
+  const validWins = EASY_WINS.filter((w) => w.title && w.desc);
+  const todayWin1 = validWins[dayIdx % validWins.length];
+  const todayWin2 = validWins[(dayIdx + 1) % validWins.length];
+  const restWins  = validWins.filter((w) => w !== todayWin1 && w !== todayWin2);
 
   function getEmbedUrl(url: string): string {
     const match = url.match(/[?&]v=([^&]+)/);

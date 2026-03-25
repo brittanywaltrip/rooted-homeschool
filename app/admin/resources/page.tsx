@@ -9,10 +9,11 @@ import { Pencil, Trash2, Check, X, Plus, ChevronDown, ChevronUp, ExternalLink, A
 const ADMIN_EMAIL = "hello.rootedapp@gmail.com";
 
 const CATEGORIES = [
-  { id: "discounts",   label: "💰 Discounts"   },
-  { id: "field_trips", label: "🌍 Field Trips"  },
-  { id: "printables",  label: "🖨️ Printables"  },
-  { id: "science",     label: "🔬 Science"      },
+  { id: "discounts",    label: "💰 Discounts"    },
+  { id: "field_trips",  label: "🌍 Field Trips"  },
+  { id: "printables",   label: "🖨️ Printables"  },
+  { id: "science",      label: "🔬 Science"      },
+  { id: "weekly_picks", label: "⭐ Free Picks"   },
 ] as const;
 
 type CategoryId = typeof CATEGORIES[number]["id"];
