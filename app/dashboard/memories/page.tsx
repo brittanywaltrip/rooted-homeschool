@@ -244,6 +244,24 @@ export default function MemoriesPage() {
         </div>
       </div>
 
+      {/* ── AI Family Update CTA ─────────────────────────── */}
+      {memories.length >= 3 && (
+        <div className="px-4 pt-2">
+          <Link
+            href="/dashboard/family-update"
+            className="block bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-4 py-3.5 hover:from-[#ddeade] hover:to-[#c5e0c8] transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#5c7f63] flex items-center justify-center shrink-0 text-white text-base">{"\u2728"}</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-[#2d2926]">Your family&apos;s story, beautifully written</p>
+                <p className="text-[11px] text-[#5c7f63]">AI-generated update from your memories {"\u2192"}</p>
+              </div>
+            </div>
+          </Link>
+        </div>
+      )}
+
       {/* ── Photo grid by month ───────────────────────────── */}
       <div className="px-4 space-y-4">
         {sortedMonths.length === 0 && (

@@ -62,14 +62,30 @@ export default function FamilyUpdatePage() {
   const [shareUrl,      setShareUrl]      = useState<string | null>(null)
   const [saving,        setSaving]        = useState(false)
   const [copied,        setCopied]        = useState(false)
+  const [userIsPro,     setUserIsPro]     = useState(false)
+  const [usedThisMonth, setUsedThisMonth] = useState(false)
+  const [resetDate,     setResetDate]     = useState('')
 
-  // Load family name
+  // Load family name + usage tracking
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) return
       const { data: profile } = await supabase
-        .from('profiles').select('display_name').eq('id', session.user.id).maybeSingle()
-      setFamilyName(profile?.display_name || session.user.user_metadata?.family_name || '')
+        .from('profiles').select('display_name, is_pro, ai_update_last_generated').eq('id', session.user.id).maybeSingle()
+      const p = profile as { display_name?: string; is_pro?: boolean; ai_update_last_generated?: string } | null
+      setFamilyName(p?.display_name || session.user.user_metadata?.family_name || '')
+      setUserIsPro(p?.is_pro ?? false)
+
+      // Check if free user already used their monthly update
+      if (!p?.is_pro && p?.ai_update_last_generated) {
+        const lastGen = new Date(p.ai_update_last_generated)
+        const now = new Date()
+        if (lastGen.getFullYear() === now.getFullYear() && lastGen.getMonth() === now.getMonth()) {
+          setUsedThisMonth(true)
+          const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+          setResetDate(nextMonth.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }))
+        }
+      }
     })
   }, [])
 
@@ -154,6 +170,14 @@ export default function FamilyUpdatePage() {
       const json = await res.json()
       if (json.error) { setGenError(json.error); setGenerating(false); return }
       setNarrative(json.narrative)
+
+      // Record usage for free user monthly limit
+      if (!userIsPro) {
+        await supabase.from('profiles').update({ ai_update_last_generated: new Date().toISOString().split('T')[0] }).eq('id', session.user.id)
+        setUsedThisMonth(true)
+        const nextMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
+        setResetDate(nextMonth.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }))
+      }
     } catch {
       setGenError('Failed to generate narrative. Please try again.')
     }
@@ -260,14 +284,24 @@ export default function FamilyUpdatePage() {
       </div>
 
       {/* Generate button */}
-      <button
-        onClick={handleGenerate}
-        disabled={generating}
-        className="w-full flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-bold py-3.5 rounded-xl transition-colors shadow-sm"
-      >
-        <Sparkles size={16} />
-        {generating ? 'Generating your update…' : 'Generate Update ✨'}
-      </button>
+      {!userIsPro && usedThisMonth && !narrative ? (
+        <div className="w-full bg-[#fef9e8] border border-[#f0dda8] rounded-xl px-4 py-3 text-center">
+          <p className="text-sm font-medium text-[#7a4a1a]">Used this month</p>
+          <p className="text-xs text-[#a08040] mt-0.5">Resets {resetDate} · <Link href="/dashboard/pricing" className="underline font-semibold text-[#5c7f63]">Upgrade for unlimited</Link></p>
+        </div>
+      ) : (
+        <button
+          onClick={handleGenerate}
+          disabled={generating}
+          className="w-full flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-bold py-3.5 rounded-xl transition-colors shadow-sm"
+        >
+          <Sparkles size={16} />
+          {generating ? 'Generating your update…' : 'Generate Update ✨'}
+        </button>
+      )}
+      {!userIsPro && !usedThisMonth && (
+        <p className="text-[10px] text-[#b5aca4] text-center">Free plan: 1 update per month · <Link href="/dashboard/pricing" className="underline">Upgrade for unlimited</Link></p>
+      )}
 
       {genError && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{genError}</div>
