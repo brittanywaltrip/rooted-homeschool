@@ -157,6 +157,7 @@ export default function AdminPage() {
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [showTestSection, setShowTestSection] = useState(false);
   const [affiliates, setAffiliates] = useState<{ id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; profiles: { display_name: string | null; first_name: string | null; last_name: string | null } | null }[]>([]);
+  const [foundingByDay, setFoundingByDay] = useState<{ date: string; count: number }[]>([]);
 
   const fetchData = async (accessToken: string) => {
     setRefreshing(true);
@@ -177,6 +178,34 @@ export default function AdminPage() {
       .select("id, name, code, stripe_coupon_id, is_active, created_at, profiles(display_name, first_name, last_name)")
       .order("created_at", { ascending: false });
     if (affRows) setAffiliates(affRows as unknown as typeof affiliates);
+
+    // Founding members by day — last 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    const { data: foundingRows } = await supabase
+      .from("profiles")
+      .select("created_at")
+      .eq("plan_type", "founding_family")
+      .gte("created_at", sevenDaysAgo.toISOString())
+      .order("created_at", { ascending: false });
+    if (foundingRows) {
+      const counts: Record<string, number> = {};
+      for (let i = 0; i < 7; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        counts[d.toISOString().split("T")[0]] = 0;
+      }
+      foundingRows.forEach((r) => {
+        const day = (r as { created_at: string }).created_at.split("T")[0];
+        if (counts[day] !== undefined) counts[day]++;
+      });
+      setFoundingByDay(
+        Object.entries(counts)
+          .sort(([a], [b]) => b.localeCompare(a))
+          .map(([date, count]) => ({ date, count }))
+      );
+    }
 
     setRefreshing(false);
   };
@@ -641,6 +670,45 @@ export default function AdminPage() {
             </div>
           </div>
         </section>
+
+        {/* ── Founding Members by Day ─────────────────────────────────── */}
+        {foundingByDay.length > 0 && (
+          <section>
+            <SectionHeader emoji="📈" title="Founding Members by Day" />
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-xs text-[#7a6f65]">Last 7 days</p>
+                <p className="text-sm font-semibold text-[#2d2926]">
+                  This week: {foundingByDay.reduce((sum, d) => sum + d.count, 0)}
+                </p>
+              </div>
+              <div className="space-y-2">
+                {foundingByDay.map(({ date, count }) => {
+                  const maxCount = Math.max(...foundingByDay.map(d => d.count), 1);
+                  const label = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+                    weekday: "short", month: "short", day: "numeric",
+                  });
+                  return (
+                    <div key={date} className="flex items-center gap-3">
+                      <span className="text-xs text-[#7a6f65] w-24 shrink-0">{label}</span>
+                      <div className="flex-1 h-5 bg-[#f0ede8] rounded-full overflow-hidden">
+                        {count > 0 && (
+                          <div
+                            className="h-full bg-[#5c7f63] rounded-full transition-all"
+                            style={{ width: `${Math.max((count / maxCount) * 100, 8)}%` }}
+                          />
+                        )}
+                      </div>
+                      <span className={`text-sm font-semibold w-6 text-right ${count > 0 ? "text-[#2d2926]" : "text-[#d4d0c8]"}`}>
+                        {count}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* ── Affiliates / Ambassadors ────────────────────────────────── */}
         {affiliates.length > 0 && (
