@@ -411,7 +411,7 @@ export default function Home() {
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
-            Built for families who take homeschooling seriously. 🌱
+            The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and build a memory book your family will treasure forever.
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
@@ -557,6 +557,13 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
               {
+                emoji: "📸",
+                title: "Capture Memories",
+                color: "#fef3e0",
+                border: "#f0d090",
+                desc: "Photos, little quotes, field trips, books they loved \u2014 saved as it happens. Build a memory book your family will treasure forever.",
+              },
+              {
                 emoji: "🗓️",
                 title: "Plan Your Days",
                 color: "#e8f0e9",
@@ -568,7 +575,14 @@ export default function Home() {
                 title: "Watch Them Grow",
                 color: "#f0f7e0",
                 border: "#c8d8a0",
-                desc: "Every lesson earns a leaf. Watch each child\u2019s tree bloom through five stages.",
+                desc: "Every lesson earns a leaf. Watch each child\u2019s tree bloom through the garden stages.",
+              },
+              {
+                emoji: "📋",
+                title: "Progress Reports",
+                color: "#f5ede0",
+                border: "#d4b896",
+                desc: "See exactly how much your kids have learned \u2014 then print it, share it with grandparents, or save it forever.",
               },
               {
                 emoji: "📚",
@@ -576,27 +590,6 @@ export default function Home() {
                 color: "#e8f4f8",
                 border: "#a8d0e0",
                 desc: "Discounts, field trips, printables, science projects, and state homeschool information \u2014 curated for you.",
-              },
-              {
-                emoji: "📸",
-                title: "Capture Memories",
-                color: "#fef3e0",
-                border: "#f0d090",
-                desc: "Photos, little quotes, field trips, books they loved — saved as it happens. Because these years go by so fast.",
-              },
-              {
-                emoji: "📋",
-                title: "Generate Reports",
-                color: "#f5ede0",
-                border: "#d4b896",
-                desc: "See exactly how much your kids have learned — then print it, share it with grandparents, or save it forever.",
-              },
-              {
-                emoji: "💡",
-                title: "Insights & Streaks",
-                color: "#f0e8f8",
-                border: "#c8a8e0",
-                desc: "See streaks, active days, and how this week compares to last.",
               },
             ].map((f) => (
               <div
