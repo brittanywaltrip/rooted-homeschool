@@ -115,6 +115,8 @@ export default function GardenPage() {
   const todayStr = toDateStr(new Date());
   const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
 
+  useEffect(() => { localStorage.setItem("rooted_visited_garden", "true"); }, []);
+
   useEffect(() => {
     if (!effectiveUserId) return;
     async function load() {

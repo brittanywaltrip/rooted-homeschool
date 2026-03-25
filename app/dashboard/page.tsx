@@ -450,6 +450,20 @@ export default function TodayPage() {
     lessons: { title: string; childId: string | null; subjectName: string | null }[];
   } | null>(null);
 
+  // Getting started checklist
+  const [gsShow, setGsShow] = useState(false);
+  const [gsCollapsed, setGsCollapsed] = useState(false);
+  const [gsHasMemory, setGsHasMemory] = useState(false);
+  const [gsHasCompleted, setGsHasCompleted] = useState(false);
+  const [gsVisitedGarden, setGsVisitedGarden] = useState(false);
+  const [gsVisitedResources, setGsVisitedResources] = useState(false);
+  const [gsDone, setGsDone] = useState(false);
+
+  useEffect(() => {
+    setGsVisitedGarden(localStorage.getItem("rooted_visited_garden") === "true");
+    setGsVisitedResources(localStorage.getItem("rooted_visited_resources") === "true");
+  }, []);
+
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
   const refreshLeafCounts = useCallback(async () => {
@@ -684,6 +698,22 @@ export default function TodayPage() {
       });
     } else {
       setUpcomingDay(null);
+    }
+
+    // Getting started checklist — only for brand new users
+    const userOnboarded = (profile as { onboarded?: boolean } | null)?.onboarded ?? false;
+    const gsDismissed = localStorage.getItem("rooted_getting_started_dismissed") === "true";
+    if (userOnboarded && !gsDismissed && (totalLessons ?? 0) < 3) {
+      const { count: memCount } = await supabase
+        .from("app_events")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", effectiveUserId)
+        .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"]);
+      if ((memCount ?? 0) < 2) {
+        setGsShow(true);
+        setGsHasMemory((memCount ?? 0) > 0);
+        setGsHasCompleted((completed?.length ?? 0) > 0);
+      }
     }
 
     setLoading(false);
@@ -1020,6 +1050,73 @@ export default function TodayPage() {
       </PageHero>
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
+
+      {/* ── Getting Started Checklist ──────────────────────────── */}
+      {gsShow && !gsDone && (() => {
+        const steps = [
+          { done: gsHasMemory, emoji: "📸", label: "Capture a memory", desc: "A photo, a project, or a book your family read" },
+          { done: gsHasCompleted, emoji: "✓", label: "Check off a lesson", desc: "Mark one lesson as done on today\u2019s list" },
+          { done: gsVisitedGarden, emoji: "🌱", label: "Visit your Garden", desc: "Watch your family\u2019s tree grow with every lesson" },
+          { done: gsVisitedResources, emoji: "📚", label: "Explore Resources", desc: "Discounts, printables, and field trips" },
+        ];
+        const allChecked = steps.every((s) => s.done);
+        if (allChecked) {
+          setTimeout(() => {
+            localStorage.setItem("rooted_getting_started_dismissed", "true");
+            setGsDone(true);
+          }, 2000);
+        }
+        return (
+          <div className="bg-[#fefcf9] border border-[#c8dcc9] rounded-2xl overflow-hidden">
+            <button
+              onClick={() => setGsCollapsed(!gsCollapsed)}
+              className="w-full flex items-center justify-between px-5 py-4"
+            >
+              <h3 className="text-sm font-semibold text-[#2d2926]">
+                {allChecked ? "You know your way around! 🎉" : "Get to know Rooted ✨"}
+              </h3>
+              <svg
+                width="16" height="16" viewBox="0 0 16 16" fill="none"
+                className={`text-[#b5aca4] transition-transform ${gsCollapsed ? "" : "rotate-180"}`}
+              >
+                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {!gsCollapsed && (
+              <div className="px-5 pb-5 space-y-3">
+                {steps.map((s) => (
+                  <div key={s.label} className="flex items-start gap-3">
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                      s.done ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0c8] bg-white"
+                    }`}>
+                      {s.done && (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                    <div>
+                      <p className={`text-sm font-medium ${s.done ? "text-[#5c7f63] line-through" : "text-[#2d2926]"}`}>
+                        {s.emoji !== "✓" ? `${s.emoji} ` : ""}{s.label}
+                      </p>
+                      <p className="text-xs text-[#9e958d] mt-0.5">{s.desc}</p>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  onClick={() => {
+                    localStorage.setItem("rooted_getting_started_dismissed", "true");
+                    setGsDone(true);
+                  }}
+                  className="text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-1"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── AI Family Update Prompt ────────────────────────────── */}
       {showFamilyUpdate && (
