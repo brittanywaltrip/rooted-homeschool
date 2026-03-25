@@ -241,7 +241,18 @@ export default function SettingsPage() {
     setPartnerEmail(pe);
     setSavedPartnerEmail(pe);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
-    setHomeschoolState((profile as { state?: string } | null)?.state ?? "");
+    const dbState = String((profile as Record<string, unknown> | null)?.state ?? "");
+    // Normalize: match against option list (case-insensitive) to handle legacy formats
+    const stateOptions = ["Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut",
+      "Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa",
+      "Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan",
+      "Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada",
+      "New Hampshire","New Jersey","New Mexico","New York","North Carolina",
+      "North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island",
+      "South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont",
+      "Virginia","Washington","West Virginia","Wisconsin","Wyoming","Outside the US"];
+    const matched = stateOptions.find((s) => s.toLowerCase() === dbState.toLowerCase()) ?? dbState;
+    setHomeschoolState(matched);
     setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
     setCurrentPeriodEnd((profile as { current_period_end?: string } | null)?.current_period_end ?? null);
