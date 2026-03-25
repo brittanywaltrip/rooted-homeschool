@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -465,6 +465,8 @@ export default function PlanPage() {
   const [savingVac,        setSavingVac]        = useState(false);
   const [profileSchoolDays, setProfileSchoolDays] = useState<string[]>([]);
   const [expandedCurricMenu, setExpandedCurricMenu] = useState<string | null>(null);
+  const [collapsedChildren,  setCollapsedChildren]  = useState<Set<string>>(new Set());
+  const collapsedChildrenInitialized = useRef(false);
 
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
@@ -538,6 +540,15 @@ export default function PlanPage() {
   useEffect(() => { loadAllLessons(); },     [loadAllLessons]);
   useEffect(() => { loadVacationBlocks(); }, [loadVacationBlocks]);
   useEffect(() => { if (viewMode === "month") loadMonthData(); }, [viewMode, loadMonthData]);
+
+  // Initialize collapsed state: all collapsed if 2+ children, expanded if 1
+  useEffect(() => {
+    if (collapsedChildrenInitialized.current || children.length === 0) return;
+    collapsedChildrenInitialized.current = true;
+    if (children.length >= 2) {
+      setCollapsedChildren(new Set(children.map((c) => c.id)));
+    }
+  }, [children]);
 
   useEffect(() => {
     if (isCurrentWeek) {
@@ -820,37 +831,76 @@ export default function PlanPage() {
 
       {/* Child filter pills removed — curriculum cards already show child */}
 
-      {/* ── Manage Curriculum ────────────────────────────────── */}
+      {/* ── Manage Curriculum (collapsible by child) ──────── */}
       {!isPartner && curricGroups.length > 0 && (() => {
         const visibleCurricGroups = selectedChild
           ? curricGroups.filter(g => g.childId === selectedChild)
           : curricGroups;
-        return visibleCurricGroups.length > 0 ? (
-        <div className="space-y-2">
+        if (visibleCurricGroups.length === 0) return null;
+
+        // Group by child
+        const groupsByChild = new Map<string, { child: Child | undefined; groups: CurriculumGroup[] }>();
+        for (const g of visibleCurricGroups) {
+          const key = g.childId ?? "__unassigned__";
+          if (!groupsByChild.has(key)) groupsByChild.set(key, { child: children.find((c) => c.id === g.childId), groups: [] });
+          groupsByChild.get(key)!.groups.push(g);
+        }
+
+        return (
+        <div className="space-y-3">
           <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">Your Curricula</p>
-          {visibleCurricGroups.map((group) => {
-            const child   = children.find((c) => c.id === group.childId);
+          {Array.from(groupsByChild.entries()).map(([childKey, { child, groups: childGroups }]) => {
+            const isCollapsed = collapsedChildren.has(childKey);
+            const subjectCount = childGroups.length;
+            const totalAll = childGroups.reduce((s, g) => s + g.totalCount, 0);
+            const completedAll = childGroups.reduce((s, g) => s + (g.totalCount - g.remainingCount), 0);
+            const avgPct = totalAll > 0 ? Math.round((completedAll / totalAll) * 100) : 0;
+            const childName = child?.name ?? "Unassigned";
+            const childColor = child?.color ?? "#7a6f65";
+
+            return (
+              <div key={childKey}>
+                {/* ── Child collapsible header ── */}
+                <button
+                  onClick={() => setCollapsedChildren((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(childKey)) next.delete(childKey); else next.add(childKey);
+                    return next;
+                  })}
+                  className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9] rounded-2xl px-4 py-3 hover:bg-[#faf9f7] transition-colors text-left"
+                >
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white text-sm font-bold"
+                    style={{ backgroundColor: childColor }}>
+                    {childName.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[#2d2926] truncate">{childName}</p>
+                    <p className="text-xs text-[#7a6f65] mt-0.5">
+                      {subjectCount} {subjectCount === 1 ? "subject" : "subjects"}
+                      <span className="mx-1.5 text-[#e8e2d9]">|</span>
+                      <span className="text-[#5c7f63] font-semibold">{avgPct}% complete</span>
+                    </p>
+                  </div>
+                  <ChevronDown size={18} className={`shrink-0 text-[#b5aca4] transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`} />
+                </button>
+
+                {/* ── Collapsible cards ── */}
+                <div
+                  className="overflow-hidden transition-all duration-200 ease-in-out"
+                  style={{ maxHeight: isCollapsed ? "0px" : `${childGroups.length * 250}px`, opacity: isCollapsed ? 0 : 1 }}
+                >
+                  <div className="space-y-2 pt-2">
+          {childGroups.map((group) => {
             const subStyle = getSubjectStyle(group.subjectName ?? undefined);
-            return (() => {
-                const completedCount = group.totalCount - group.remainingCount;
-                const pct = group.totalCount > 0 ? Math.round((completedCount / group.totalCount) * 100) : 0;
-                const paceStatus = calcPaceStatus(group.remainingCount, group.goalData?.target_date ?? null, group.goalData?.school_days ?? null);
-                const targetDateLabel = group.goalData?.target_date
-                  ? new Date(group.goalData.target_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                  : null;
-                return (
+            const completedCount = group.totalCount - group.remainingCount;
+            const pct = group.totalCount > 0 ? Math.round((completedCount / group.totalCount) * 100) : 0;
+            const paceStatus = calcPaceStatus(group.remainingCount, group.goalData?.target_date ?? null, group.goalData?.school_days ?? null);
+            const targetDateLabel = group.goalData?.target_date
+              ? new Date(group.goalData.target_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+              : null;
+            return (
                   <div key={group.key} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3 space-y-2">
                     <div className="flex items-center gap-3">
-                      {/* Child avatar */}
-                      {child ? (
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white text-sm font-bold"
-                          style={{ backgroundColor: child.color ?? "#5c7f63" }}>
-                          {child.name.charAt(0).toUpperCase()}
-                        </div>
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-[#e8e2d9] flex items-center justify-center shrink-0 text-[#7a6f65] text-xs font-bold">?</div>
-                      )}
-
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -869,7 +919,6 @@ export default function PlanPage() {
                           )}
                         </div>
                         <p className="text-xs text-[#7a6f65] mt-0.5">
-                          {child?.name && <span className="mr-1">{child.name} ·</span>}
                           <span className="text-[#5c7f63] font-semibold">{group.remainingCount} remaining</span>
                           <span className="text-[#b5aca4]"> / {group.totalCount} total</span>
                         </p>
@@ -924,11 +973,15 @@ export default function PlanPage() {
                       <span className="text-xs text-[#b5aca4]">No finish line set</span>
                     )}
                   </div>
-                );
-            })();
+            );
+          })}
+                  </div>
+                </div>
+              </div>
+            );
           })}
         </div>
-        ) : null;
+        );
       })()}
 
       {/* ── Curriculum empty state ───────────────────────────── */}
