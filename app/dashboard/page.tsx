@@ -1,5 +1,8 @@
 "use client";
 
+// TODO(cleanup): Delete stale test lessons for admin account:
+// DELETE FROM lessons WHERE title ILIKE '%test%' AND user_id = 'd18ca881-a776-4e82-b145-832adc88a88a';
+
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -763,12 +766,46 @@ export default function TodayPage() {
 
       if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
         const { data: goalRow } = await supabase
-          .from("curriculum_goals").select("current_lesson")
+          .from("curriculum_goals").select("id, curriculum_name, current_lesson, total_lessons")
           .eq("id", lesson.curriculum_goal_id).single();
         if (goalRow && lesson.lesson_number > goalRow.current_lesson) {
-          await supabase.from("curriculum_goals")
-            .update({ current_lesson: lesson.lesson_number })
-            .eq("id", lesson.curriculum_goal_id);
+          const newCurrent = lesson.lesson_number;
+          if (newCurrent >= goalRow.total_lessons) {
+            // Curriculum complete — mark done, don't schedule next
+            await supabase.from("curriculum_goals")
+              .update({ current_lesson: newCurrent, completed: true })
+              .eq("id", lesson.curriculum_goal_id);
+          } else {
+            // Advance current_lesson and schedule the next lesson
+            await supabase.from("curriculum_goals")
+              .update({ current_lesson: newCurrent })
+              .eq("id", lesson.curriculum_goal_id);
+
+            // Find next school day
+            const days = schoolDaysArr.length > 0
+              ? schoolDaysArr
+              : ["monday", "tuesday", "wednesday", "thursday", "friday"];
+            const nextDate = new Date(today + "T12:00:00");
+            for (let i = 0; i < 14; i++) {
+              nextDate.setDate(nextDate.getDate() + 1);
+              const dayName = nextDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+              if (days.includes(dayName)) break;
+            }
+            const nextDateStr = nextDate.toISOString().split("T")[0];
+
+            const { data: { user: authUser } } = await supabase.auth.getUser();
+            if (authUser) {
+              await supabase.from("lessons").insert({
+                user_id: authUser.id,
+                child_id: lesson.child_id,
+                curriculum_goal_id: lesson.curriculum_goal_id,
+                title: goalRow.curriculum_name || lesson.title,
+                lesson_number: newCurrent + 1,
+                scheduled_date: nextDateStr,
+                completed: false,
+              });
+            }
+          }
         }
       }
 
