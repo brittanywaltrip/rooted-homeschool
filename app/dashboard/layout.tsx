@@ -269,11 +269,11 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           onClick={() => setMenuOpen(false)}
           className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
         >
-          {profileData.first_name ? (
-            profileData.first_name.charAt(0).toUpperCase()
-          ) : displayName ? (
-            displayName.charAt(0).toUpperCase()
-          ) : '\uD83C\uDF3F'}
+          {(() => {
+            const name = displayName || profileData.first_name || "";
+            const words = name.replace(/\bfamily\b/gi, "").replace(/^the\s+/i, "").trim().split(/\s+/).filter(Boolean);
+            return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "\uD83C\uDF3F";
+          })()}
         </Link>
       </div>
 
@@ -412,9 +412,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               {/* Family name + photo */}
               <div className="px-5 pb-3 border-b border-[#e8e2d9] flex items-center gap-3">
                 <div className="w-11 h-11 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] shrink-0 overflow-hidden">
-                  {displayName ? (
-                    displayName.charAt(0).toUpperCase()
-                  ) : "\uD83C\uDF3F"}
+                  {(() => {
+                    const words = (displayName || "").replace(/\bfamily\b/gi, "").replace(/^the\s+/i, "").trim().split(/\s+/).filter(Boolean);
+                    return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "\uD83C\uDF3F";
+                  })()}
                 </div>
                 <div>
                   <p className="text-sm font-bold text-[#2d2926]">{displayName || "Your Family"}</p>
