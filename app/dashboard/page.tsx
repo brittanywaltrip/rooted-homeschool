@@ -378,6 +378,12 @@ export default function TodayPage() {
   const [allDoneBanner,     setAllDoneBanner]     = useState(false);
   const childDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Undo pill
+  const [undoPill, setUndoPill] = useState<{ lessonId: string; subjectName: string } | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Uncheck confirm
+  const [uncheckConfirm, setUncheckConfirm] = useState<{ lessonId: string; subjectName: string } | null>(null);
+
   const [todayMemoryEvents, setTodayMemoryEvents] = useState<TodayEvent[]>([]);
   const [todayBooks,        setTodayBooks]        = useState<BookLog[]>([]);
   const [showBookModal,     setShowBookModal]     = useState(false);
@@ -688,67 +694,99 @@ export default function TodayPage() {
 
   async function toggleLesson(id: string, current: boolean) {
     const lesson = lessons.find((l) => l.id === id);
-    const updatedLessons = lessons.map(l => l.id === id ? { ...l, completed: !current } : l);
-    setLessons(updatedLessons);
-    await supabase.from("lessons").update({ completed: !current }).eq("id", id);
+    const subjectName = lesson?.subjects?.name ?? lesson?.title ?? "Lesson";
 
-    if (!current) {
-      setCelebrating(true);
-      setTimeout(() => setCelebrating(false), 1600);
-      triggerGardenAnimation(lesson?.child_id ?? undefined);
-
-      // Tier 2: child done toast at 300ms
-      const childId = lesson?.child_id;
-      if (childId) {
-        const childLessons = updatedLessons.filter(l => l.child_id === childId);
-        const childAllDone = childLessons.length > 0 && childLessons.every(l => l.completed);
-        if (childAllDone) {
-          const childName = children.find(c => c.id === childId)?.name;
-          if (childName) {
-            setTimeout(() => {
-              if (childDoneTimerRef.current) clearTimeout(childDoneTimerRef.current);
-              setChildDoneToastOut(false);
-              setChildDoneToast(childName);
-              childDoneTimerRef.current = setTimeout(() => {
-                setChildDoneToastOut(true);
-                setTimeout(() => { setChildDoneToast(null); setChildDoneToastOut(false); }, 300);
-              }, 2500);
-            }, 300);
-          }
-        }
-      }
-
-      // Tier 3: all done banner at 800ms
-      const allNowDone = updatedLessons.length > 0 && updatedLessons.every(l => l.completed);
-      if (allNowDone) {
-        setTimeout(() => setAllDoneBanner(true), 800);
-      }
-
-      if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
-        const { data: goalRow } = await supabase
-          .from("curriculum_goals").select("current_lesson")
-          .eq("id", lesson.curriculum_goal_id).single();
-        if (goalRow && lesson.lesson_number > goalRow.current_lesson) {
-          await supabase.from("curriculum_goals")
-            .update({ current_lesson: lesson.lesson_number })
-            .eq("id", lesson.curriculum_goal_id);
-        }
-      }
-
-      if (lesson?.goal_id) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from("app_events").insert({
-            user_id: user.id,
-            type: "lesson_goal_complete",
-            payload: { title: lesson.title, goal_id: lesson.goal_id, date: today },
-          });
-        }
-      }
-    } else {
-      // Unchecking — immediately hide the all done banner
-      setAllDoneBanner(false);
+    // Unchecking a previously-completed lesson → show confirm
+    if (current) {
+      setUncheckConfirm({ lessonId: id, subjectName });
+      return;
     }
+
+    // Checking complete → apply immediately + show undo pill
+    completeLesson(id, lesson);
+  }
+
+  async function completeLesson(id: string, lesson: Lesson | undefined) {
+    const subjectName = lesson?.subjects?.name ?? lesson?.title ?? "Lesson";
+    const updatedLessons = lessons.map(l => l.id === id ? { ...l, completed: true } : l);
+    setLessons(updatedLessons);
+    await supabase.from("lessons").update({ completed: true }).eq("id", id);
+
+    setCelebrating(true);
+    setTimeout(() => setCelebrating(false), 1600);
+    triggerGardenAnimation(lesson?.child_id ?? undefined);
+
+    // Tier 2: child done toast at 300ms
+    const childId = lesson?.child_id;
+    if (childId) {
+      const childLessons = updatedLessons.filter(l => l.child_id === childId);
+      const childAllDone = childLessons.length > 0 && childLessons.every(l => l.completed);
+      if (childAllDone) {
+        const childName = children.find(c => c.id === childId)?.name;
+        if (childName) {
+          setTimeout(() => {
+            if (childDoneTimerRef.current) clearTimeout(childDoneTimerRef.current);
+            setChildDoneToastOut(false);
+            setChildDoneToast(childName);
+            childDoneTimerRef.current = setTimeout(() => {
+              setChildDoneToastOut(true);
+              setTimeout(() => { setChildDoneToast(null); setChildDoneToastOut(false); }, 300);
+            }, 2500);
+          }, 300);
+        }
+      }
+    }
+
+    // Tier 3: all done banner at 800ms
+    const allNowDone = updatedLessons.length > 0 && updatedLessons.every(l => l.completed);
+    if (allNowDone) {
+      setTimeout(() => setAllDoneBanner(true), 800);
+    }
+
+    if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
+      const { data: goalRow } = await supabase
+        .from("curriculum_goals").select("current_lesson")
+        .eq("id", lesson.curriculum_goal_id).single();
+      if (goalRow && lesson.lesson_number > goalRow.current_lesson) {
+        await supabase.from("curriculum_goals")
+          .update({ current_lesson: lesson.lesson_number })
+          .eq("id", lesson.curriculum_goal_id);
+      }
+    }
+
+    if (lesson?.goal_id) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("app_events").insert({
+          user_id: user.id,
+          type: "lesson_goal_complete",
+          payload: { title: lesson.title, goal_id: lesson.goal_id, date: today },
+        });
+      }
+    }
+
+    await refreshLeafCounts();
+
+    // Show undo pill with 5-second timer
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoPill({ lessonId: id, subjectName });
+    undoTimerRef.current = setTimeout(() => setUndoPill(null), 5000);
+  }
+
+  async function undoComplete(lessonId: string) {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoPill(null);
+    setLessons((prev) => prev.map(l => l.id === lessonId ? { ...l, completed: false } : l));
+    await supabase.from("lessons").update({ completed: false }).eq("id", lessonId);
+    setAllDoneBanner(false);
+    await refreshLeafCounts();
+  }
+
+  async function confirmUncheck(lessonId: string) {
+    setUncheckConfirm(null);
+    setLessons((prev) => prev.map(l => l.id === lessonId ? { ...l, completed: false } : l));
+    await supabase.from("lessons").update({ completed: false }).eq("id", lessonId);
+    setAllDoneBanner(false);
     await refreshLeafCounts();
   }
 
@@ -1594,6 +1632,64 @@ export default function TodayPage() {
           </div>
         </div>
       )}
+
+      {/* ── Undo pill ───────────────────────────────────────── */}
+      {undoPill && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[80] animate-[fadeUp_0.25s_ease-out]">
+          <div className="bg-[#2d2926] rounded-2xl shadow-lg overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-3">
+              <span className="text-sm text-white">
+                <span className="font-semibold">{undoPill.subjectName}</span> marked done
+              </span>
+              <button
+                onClick={() => undoComplete(undoPill.lessonId)}
+                className="text-sm font-bold text-[#86efac] hover:text-white transition-colors"
+              >
+                Undo
+              </button>
+            </div>
+            {/* 5-second countdown bar */}
+            <div className="h-0.5 bg-white/10">
+              <div
+                className="h-full bg-[#86efac]/60"
+                style={{ animation: "undoShrink 5s linear forwards" }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Uncheck confirm ─────────────────────────────────── */}
+      {uncheckConfirm && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-2xl shadow-xl w-full max-w-xs p-5 space-y-4 text-center">
+            <p className="text-sm font-semibold text-[#2d2926]">
+              Mark <span className="text-[#5c7f63]">{uncheckConfirm.subjectName}</span> incomplete?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setUncheckConfirm(null)}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => confirmUncheck(uncheckConfirm.lessonId)}
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+              >
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes undoShrink {
+          from { width: 100%; }
+          to { width: 0%; }
+        }
+      `}</style>
 
       </div>
     </>
