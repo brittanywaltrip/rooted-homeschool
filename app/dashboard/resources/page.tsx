@@ -340,6 +340,9 @@ export default function ResourcesPage() {
   const [activeTab,     setActiveTab]     = useState("discounts");
   const [selectedTour,  setSelectedTour]  = useState<{ title: string; url: string } | null>(null);
   const [gradeFilter,   setGradeFilter]   = useState<GradeTag | "">("");
+  const [stateExpanded, setStateExpanded] = useState(false);
+  const [showAllWins,   setShowAllWins]   = useState(false);
+  const [expandedCats,  setExpandedCats]  = useState<Set<string>>(new Set());
   const [stateSearch,   setStateSearch]   = useState("");
   const [selectedLevel, setSelectedLevel] = useState<RegLevel | "all">("all");
   const [expandedState, setExpandedState] = useState<string | null>(null);
@@ -353,6 +356,8 @@ export default function ResourcesPage() {
   const stateRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Load DB resources
+  useEffect(() => { localStorage.setItem("rooted_visited_resources", "true"); }, []);
+
   useEffect(() => {
     supabase
       .from("resources")
@@ -483,10 +488,87 @@ export default function ResourcesPage() {
 
   return (
     <>
-    <PageHero overline="Discover" title="Resources" subtitle="Everything homeschool, in one place." />
-    <div className="max-w-3xl px-4 py-6 space-y-8">
+    <div className="max-w-3xl px-4 pt-6 pb-8 space-y-8" style={{ background: "#faf9f6" }}>
 
-      {/* ── 2. Personalized State Banner ───────────────────────── */}
+      {/* ── 1. Header ──────────────────────────────────────────── */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Discover</p>
+        <h1 className="text-3xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>Resources {"\uD83C\uDF3F"}</h1>
+        <p className="text-sm text-[#7a6f65] mt-1">Curated for your homeschool, updated weekly.</p>
+        <p className="text-[10px] text-[#b5aca4] mt-0.5">Updated every Monday</p>
+      </div>
+
+      {/* ── 2. This Week's Free Picks ───────────────────────────── */}
+      <div>
+        <h2 className="text-lg font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>This Week&apos;s Free Picks {"\u2B50"}</h2>
+        <p className="text-xs text-[#7a6f65] mb-4">Exclusive finds — updated every week</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {filteredFreshDrops.map((drop, i) => {
+            const col = PICK_CARD_COLORS[i % PICK_CARD_COLORS.length];
+            const id = dropId(drop.name);
+            return (
+              <div key={drop.name} className="rounded-2xl overflow-hidden border border-white/80 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all" style={{ background: col.bg }}>
+                <a href={drop.url} target="_blank" rel="noopener noreferrer" className="block p-5">
+                  <div className="text-4xl mb-2">{drop.emoji}</div>
+                  <div className="flex items-start justify-between gap-1 mb-1.5">
+                    <p className="text-sm font-bold text-[#2d2926] leading-snug">{drop.name} {"\u2197"}</p>
+                    <BookmarkBtn id={id} savedMap={savedMap} onToggle={toggleSave} />
+                  </div>
+                  <p className="text-[11px] text-[#5c5550] leading-snug mb-2">{drop.desc}</p>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <GradePill grade={drop.grade} />
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `${col.accent}22`, color: col.accent }}>{drop.type}</span>
+                  </div>
+                </a>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── 3. Today's Easy Win ─────────────────────────────────── */}
+      {validWins.length > 0 && (() => {
+        const todayIdx = new Date().getDate() % validWins.length;
+        const win = validWins[todayIdx];
+        return (
+          <div className="space-y-2">
+            <div className="rounded-2xl p-5 text-white" style={{ background: "linear-gradient(135deg, #2d5a3d 0%, #3d7a50 100%)" }}>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/70">{"\u26A1"} Today&apos;s easy win</span>
+                <span className="text-[10px] text-white/40">{"\u21BB"} New idea tomorrow</span>
+              </div>
+              <div className="text-3xl mb-2">{win.emoji}</div>
+              <h3 className="text-lg font-bold mb-1">{win.title}</h3>
+              <p className="text-sm text-white/80 leading-relaxed mb-3">{win.desc}</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {win.time && <span className="text-[10px] font-medium bg-white/15 px-2 py-0.5 rounded-full">{"\u23F1"} {win.time}</span>}
+                {win.grade && <span className="text-[10px] font-medium bg-white/15 px-2 py-0.5 rounded-full">{win.grade}</span>}
+                {win.url && (
+                  <a href={win.url} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs font-semibold bg-white text-[#3d5c42] px-3 py-1 rounded-lg hover:bg-white/90 transition-colors">
+                    Try it {"\u2192"}
+                  </a>
+                )}
+              </div>
+            </div>
+            <button onClick={() => setShowAllWins(!showAllWins)} className="text-xs text-[#5c7f63] font-medium hover:underline">
+              {showAllWins ? "Hide ideas" : `See all ${validWins.length} ideas \u2192`}
+            </button>
+            {showAllWins && (
+              <div className="grid grid-cols-2 gap-2">
+                {validWins.filter((_, i) => i !== todayIdx).map((w) => (
+                  <a key={w.title} href={w.url} target="_blank" rel="noopener noreferrer" className="bg-white border border-[#e8e2d9] rounded-xl p-3 hover:border-[#5c7f63] transition-colors">
+                    <div className="text-xl mb-1">{w.emoji}</div>
+                    <p className="text-xs font-semibold text-[#2d2926] mb-0.5">{w.title}</p>
+                    <p className="text-[10px] text-[#7a6f65]">{w.time}</p>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── 3b. Personalized State Banner (collapsed) ──────────── */}
       {stateLoaded && userState && userState !== "Outside the US" && STATE_INFO[userState] ? (() => {
         const info = STATE_INFO[userState];
         const badge = REG_BADGE[info.regulation];
@@ -584,54 +666,10 @@ export default function ResourcesPage() {
         </Link>
       ) : null}
 
-      {/* ── 3. This Week's Free Picks ───────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <div className="mb-1">
-              <h2 className="text-xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-                This Week&apos;s Free Picks ⭐
-              </h2>
-            </div>
-            <p className="text-xs text-[#7a6f65]">Exclusive finds — updated every week</p>
-          </div>
-        </div>
+      {/* Old Free Picks section moved to top */}
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {filteredFreshDrops.map((drop, i) => {
-            const col = PICK_CARD_COLORS[i % PICK_CARD_COLORS.length];
-            const id  = dropId(drop.name);
-            return (
-              <div
-                key={drop.name}
-                className="rounded-2xl overflow-hidden border border-white/80 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
-                style={{ background: col.bg }}
-              >
-                <a href={drop.url} target="_blank" rel="noopener noreferrer" className="block p-5">
-                  <div className="text-5xl mb-3">{drop.emoji}</div>
-                  <div className="flex items-start justify-between gap-1 mb-2">
-                    <p className="text-sm font-bold text-[#2d2926] leading-snug hover:underline">{drop.name} ↗</p>
-                    <BookmarkBtn id={id} savedMap={savedMap} onToggle={toggleSave} />
-                  </div>
-                  <p className="text-[11px] text-[#5c5550] leading-snug mb-3">{drop.desc}</p>
-                  <div className="flex gap-1.5 flex-wrap">
-                    <GradePill grade={drop.grade} />
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `${col.accent}22`, color: col.accent }}>
-                      {drop.type}
-                    </span>
-                  </div>
-                </a>
-              </div>
-            );
-          })}
-          {filteredFreshDrops.length === 0 && (
-            <p className="col-span-3 text-sm text-[#b5aca4] text-center py-6">No picks match that grade filter.</p>
-          )}
-        </div>
-      </div>
-
-      {/* ── 4. Easy Win Today ───────────────────────────────────── */}
-      <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #fef9e8 0%, #fef3d0 100%)" }}>
+      {/* Old Easy Win section moved to top as daily card */}
+      {false && <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #fef9e8 0%, #fef3d0 100%)" }}>
         <div className="mb-5">
           <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
             Easy Win Today ⚡
@@ -703,9 +741,10 @@ export default function ResourcesPage() {
         <p className="text-[11px] text-[#b5aca4] mt-4 text-center italic">
           Some days just showing up is the lesson. You&apos;re doing great. 🌿
         </p>
-      </div>
+      </div>}
 
-      {/* ── 5. Category Tabs ────────────────────────────────────── */}
+      {/* ── 5. Browse Everything — Category Tabs ──────────────── */}
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-[#a09890]">Browse Everything</p>
 
       {/* Grade Filter — hidden for now, will bring back later */}
 
