@@ -490,7 +490,9 @@ export default function GardenPage() {
               style={{ background: "#fef3dc", border: "1.5px solid #f0dda8" }}
             >
               <p className="text-xs font-semibold text-[#7a4a1a] leading-snug">
-                {familyName ? `${familyName.replace(/^The\s+/i, "").trim() || familyName}` : "Family"} is away 🌴
+                {familyName
+                  ? `${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "").trim()} Family is on ${activeVacation.name} 🌴`
+                  : `Enjoying ${activeVacation.name} 🌴`}
               </p>
             </div>
           </>

@@ -921,9 +921,9 @@ export default function TodayPage() {
       <PageHero
         overline={formatDateHero(new Date())}
         title={activeVacation
-          ? `${familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} are` : "You're"} away 🌴`
+          ? `${familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} Family is` : "You're"} on ${activeVacation.name} 🌴`
           : buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}
-        subtitle={activeVacation ? `${activeVacation.name} · Back ${new Date(activeVacation.end_date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}` : undefined}
+        subtitle={activeVacation ? `Back ${new Date(activeVacation.end_date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}` : undefined}
         bgColor={activeVacation ? "#1a6b8a" : undefined}
       >
         {totalToday > 0 && isSchoolDay && !activeVacation && (
