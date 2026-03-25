@@ -536,26 +536,32 @@ export default function LogTodayModal({
               <div className="mt-4">
                 <label className="text-xs font-medium text-[#7a6f65] block mb-2">When?</label>
                 <div className="flex gap-2">
-                  {[
-                    { label: "Today", value: new Date().toISOString().split("T")[0] },
-                    { label: "Yesterday", value: new Date(Date.now() - 86400000).toISOString().split("T")[0] },
-                  ].map(opt => (
-                    <button
-                      key={opt.label}
-                      type="button"
-                      onClick={() => setDateOverride(opt.value)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                        (dateOverride || new Date().toISOString().split("T")[0]) === opt.value
-                          ? "bg-[#eef5ee] border-[#5c7f63] text-[#3d5c42] font-semibold"
-                          : "bg-white border-[#e8e2d9] text-[#7a6f65]"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                  {(() => {
+                    const now = new Date();
+                    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+                    const yd = new Date(now); yd.setDate(yd.getDate() - 1);
+                    const yesterdayStr = `${yd.getFullYear()}-${String(yd.getMonth() + 1).padStart(2, "0")}-${String(yd.getDate()).padStart(2, "0")}`;
+                    return [
+                      { label: "Today", value: todayStr },
+                      { label: "Yesterday", value: yesterdayStr },
+                    ].map(opt => (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        onClick={() => setDateOverride(opt.value)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                          (dateOverride || todayStr) === opt.value
+                            ? "bg-[#eef5ee] border-[#5c7f63] text-[#3d5c42] font-semibold"
+                            : "bg-white border-[#e8e2d9] text-[#7a6f65]"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ));
+                  })()}
                   <input
                     type="date"
-                    value={dateOverride || new Date().toISOString().split("T")[0]}
+                    value={dateOverride || (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`; })()}
                     onChange={e => setDateOverride(e.target.value)}
                     className="px-2 py-1.5 rounded-full text-xs border border-[#e8e2d9] text-[#7a6f65] bg-white"
                   />

@@ -62,7 +62,7 @@ const freshDraft = (childUid: number): CurriculumDraft => ({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toDateStr(d: Date) {
-  return d.toISOString().split("T")[0];
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function generateSchedule(draft: CurriculumDraft): ScheduleRow[] {
@@ -397,7 +397,7 @@ function StepFirstMemory({
 
     if (!error) {
       const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-      const today = new Date().toISOString().split("T")[0];
+      const today = toDateStr(new Date());
       await supabase.from("app_events").insert({
         user_id: userId,
         type: "memory_photo",

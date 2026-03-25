@@ -60,7 +60,7 @@ export default function FinishLineCard({ goal, onEdit, onUpdate, showToast }: Fi
 
     const newDates: string[] = []
     while (newDates.length < remaining.length) {
-      if (dayNums.includes(cursor.getDay())) newDates.push(cursor.toISOString().split('T')[0])
+      if (dayNums.includes(cursor.getDay())) newDates.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`)
       cursor.setDate(cursor.getDate() + 1)
     }
 

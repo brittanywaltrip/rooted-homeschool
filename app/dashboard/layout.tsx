@@ -204,7 +204,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, fabFile, { contentType: fabFile.type, upsert: false });
     if (upErr) { setFabSaving(false); return; }
     const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     await supabase.from("app_events").insert({
       user_id: user.id, type: "memory_photo",
       payload: { photo_url: urlData.publicUrl, title: fabCaption.trim() || undefined, child_id: fabChildId || undefined, date: today },

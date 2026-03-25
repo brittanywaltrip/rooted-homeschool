@@ -30,7 +30,7 @@ function suggestFinishDate(total: number, current: number): string {
   const weeksNeeded = Math.ceil(remaining / 4)
   const d = new Date()
   d.setDate(d.getDate() + weeksNeeded * 7)
-  return d.toISOString().split('T')[0]
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function formatDateNice(iso: string): string {
@@ -52,7 +52,7 @@ function buildSchedule(
   let n = startLesson
   while (n <= totalLessons) {
     if (selectedNums.includes(cursor.getDay())) {
-      result.push({ lessonNumber: n, scheduledDate: cursor.toISOString().split('T')[0] })
+      result.push({ lessonNumber: n, scheduledDate: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}` })
       n++
     }
     cursor.setDate(cursor.getDate() + 1)
