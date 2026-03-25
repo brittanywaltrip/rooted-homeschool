@@ -574,76 +574,82 @@ export default function ResourcesPage() {
         const badge = REG_BADGE[info.regulation];
         return (
           <div className="rounded-2xl border border-[#b8d4be] overflow-hidden" style={{ background: "linear-gradient(135deg, #eef5ec 0%, #f5fbf0 100%)" }}>
-            {/* Header */}
-            <div className="px-5 pt-5 pb-4 border-b border-[#d4e8d8] flex items-center justify-between gap-3 flex-wrap">
+            {/* Collapsed header — always visible */}
+            <button
+              onClick={() => setStateExpanded(!stateExpanded)}
+              className="w-full px-5 py-4 flex items-center justify-between gap-3 text-left"
+            >
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#4a7c59] flex items-center justify-center shrink-0">
-                  <MapPin size={15} className="text-white" />
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-[#4a7c59]">Know Your State</p>
-                  <p className="text-lg font-bold text-[#2d2926] leading-tight">{userState}</p>
-                </div>
+                <span className="text-base">{"\uD83D\uDCCB"}</span>
+                <span className="text-sm font-semibold text-[#2d2926]">{userState}</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: badge.bg, color: badge.color }}>
+                  {info.regulation}
+                </span>
               </div>
-              <span className="text-xs font-bold px-3 py-1 rounded-full" style={{ backgroundColor: badge.bg, color: badge.color }}>
-                {info.regulation} Regulation
-              </span>
-            </div>
-            {/* Info grid */}
-            <div className="px-5 py-4 space-y-3">
-              <div className="flex gap-3">
-                <span className="text-base shrink-0 mt-0.5">📋</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Required Subjects</p>
-                  <p className="text-xs text-[#5c5550] leading-relaxed">{info.requiredSubjects.join(", ")}</p>
+              <svg
+                width="14" height="14" viewBox="0 0 14 14" fill="none"
+                className="shrink-0 text-[#7a6f65] transition-transform duration-200"
+                style={{ transform: stateExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
+              >
+                <path d="M3 5.5L7 9.5L11 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            {/* Expanded details */}
+            {stateExpanded && (
+              <>
+                <div className="border-t border-[#d4e8d8] px-5 py-4 space-y-3">
+                  <div className="flex gap-3">
+                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDCCB"}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Required Subjects</p>
+                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.requiredSubjects.join(", ")}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-base shrink-0 mt-0.5">{"\uD83C\uDFDB\uFE0F"}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Notice Required</p>
+                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.notice}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDCCA"}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Attendance / Days</p>
+                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.attendance}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDCDD"}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Testing</p>
+                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.testing}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDDC2\uFE0F"}</span>
+                    <div>
+                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Portfolio / Records</p>
+                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.portfolios}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-3">
-                <span className="text-base shrink-0 mt-0.5">🏛️</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Notice Required</p>
-                  <p className="text-xs text-[#5c5550] leading-relaxed">{info.notice}</p>
+                <div className="px-5 pb-4 flex gap-2 flex-wrap">
+                  <a href={info.hsldaUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
+                    HSLDA State Page {"\u2192"}
+                  </a>
+                  <a href={info.localGroupUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#4a7c59] border border-[#b8d4be] bg-white hover:bg-[#f0f8f0] px-3 py-1.5 rounded-lg transition-colors">
+                    Local Association {"\u2192"}
+                  </a>
                 </div>
-              </div>
-              <div className="flex gap-3">
-                <span className="text-base shrink-0 mt-0.5">📊</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Attendance / Days</p>
-                  <p className="text-xs text-[#5c5550] leading-relaxed">{info.attendance}</p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <span className="text-base shrink-0 mt-0.5">📝</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Testing</p>
-                  <p className="text-xs text-[#5c5550] leading-relaxed">{info.testing}</p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <span className="text-base shrink-0 mt-0.5">🗂️</span>
-                <div>
-                  <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Portfolio / Records</p>
-                  <p className="text-xs text-[#5c5550] leading-relaxed">{info.portfolios}</p>
-                </div>
-              </div>
-            </div>
-            {/* Buttons */}
-            <div className="px-5 pb-4 flex gap-2 flex-wrap">
-              <a href={info.hsldaUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
-                HSLDA State Page →
-              </a>
-              <a href={info.localGroupUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-[#4a7c59] border border-[#b8d4be] bg-white hover:bg-[#f0f8f0] px-3 py-1.5 rounded-lg transition-colors">
-                Local Association →
-              </a>
-            </div>
-            <p className="px-5 pb-4 text-[10px] text-[#8aaa90] italic leading-relaxed">
-              Laws change — always verify requirements with your state homeschool association or HSLDA.org before making legal decisions.
-            </p>
-            <p className="text-[10px] text-[#7a6f65] italic mt-2 px-1">
-              Rooted provides this as helpful information only. For legal questions about homeschooling in your state, consult HSLDA or a local homeschool association.
-            </p>
+                <p className="px-5 pb-4 text-[10px] text-[#8aaa90] italic leading-relaxed">
+                  Laws change — always verify with your state homeschool association or HSLDA.org.
+                </p>
+              </>
+            )}
           </div>
         );
       })() : stateLoaded && userState === "Outside the US" ? (
