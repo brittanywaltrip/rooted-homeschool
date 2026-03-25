@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Camera, Check, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -259,56 +258,30 @@ function ChildRow({
 function StepOpening({ onNext }: { onNext: () => void }) {
   return (
     <div
-      className="min-h-screen flex flex-col justify-between"
-      style={{ backgroundColor: "#1a3d24", padding: "60px 40px 56px" }}
+      className="min-h-screen flex flex-col items-center justify-center px-6"
+      style={{ background: "#1a3d24" }}
     >
-      {/* TOP */}
-      <div>
-        <p style={{ fontSize: 12, letterSpacing: "0.12em", color: "rgba(255,255,255,0.45)" }} className="uppercase font-medium mb-4">
-          ROOTED
+      <div className="flex flex-col items-center text-center max-w-sm w-full">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-white/50 mb-6">
+          Rooted
         </p>
-        <div style={{ width: 40, height: 1, backgroundColor: "rgba(255,255,255,0.15)" }} className="mb-8" />
+        <div className="w-10 h-px bg-white/20 mb-8" />
         <h1
-          style={{
-            fontFamily: "var(--font-display)",
-            fontWeight: 400,
-            fontSize: 42,
-            lineHeight: 1.15,
-            letterSpacing: "-0.5px",
-            color: "#ffffff",
-          }}
-          className="mb-5"
+          className="text-3xl sm:text-[2.5rem] font-bold text-white mb-5 leading-snug"
+          style={{ fontFamily: "var(--font-display)" }}
         >
-          The homeschool years go&nbsp;by so&nbsp;fast.
+          The homeschool years go by so fast.
         </h1>
-        <p style={{ fontSize: 16, lineHeight: 1.65, color: "rgba(255,255,255,0.55)" }} className="max-w-sm">
-          Rooted helps you plan your days, capture the moments, and hold onto it&nbsp;all.
+        <p className="text-white/60 text-base leading-relaxed mb-12 max-w-xs">
+          Rooted helps you plan your days, capture the moments, and hold onto it all.
         </p>
-      </div>
-
-      {/* BOTTOM */}
-      <div>
         <button
           type="button"
           onClick={onNext}
-          className="w-full font-semibold transition-all active:scale-[0.98]"
-          style={{
-            backgroundColor: "#ffffff",
-            color: "#1a3d24",
-            fontSize: 16,
-            fontWeight: 600,
-            padding: 18,
-            borderRadius: 14,
-          }}
+          className="px-9 py-4 rounded-2xl bg-white text-[#1a3d24] hover:bg-white/90 font-semibold text-lg transition-all shadow-2xl hover:scale-105 active:scale-100"
         >
           Let&apos;s get started →
         </button>
-        <p className="text-center mt-4" style={{ fontSize: 13, color: "rgba(255,255,255,0.3)" }}>
-          Already have an account?{" "}
-          <Link href="/login" className="underline underline-offset-2 hover:text-white/50 transition-colors">
-            Log in
-          </Link>
-        </p>
       </div>
     </div>
   );
@@ -854,10 +827,10 @@ function StepDone({
           className="text-3xl sm:text-4xl font-bold text-white mb-4 leading-tight"
           style={{ fontFamily: "var(--font-display)" }}
         >
-          Your story starts here.
+          You&apos;re all set!
         </h1>
         <p className="text-[#c8ddb8] text-base leading-relaxed mb-3 max-w-xs">
-          Every lesson, every photo, every little moment — Rooted holds onto it all. You don&apos;t have to be perfect. You just have to show up.
+          Your homeschool is officially rooted. Time to watch it grow.
         </p>
         {noCurriculumNote && (
           <p className="text-[#a0cc9a] text-sm mb-4 max-w-xs">
@@ -867,7 +840,12 @@ function StepDone({
 
         {/* Founder closing moment */}
         <div className="mt-4 mb-8 flex flex-col items-center">
-          <span className="text-[40px] mb-4">🌱</span>
+          <div
+            className="w-14 h-14 rounded-full bg-[#2d5c38] flex items-center justify-center text-white text-xl font-bold shadow-lg mb-4"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            B
+          </div>
           <p
             className="text-white/85 text-sm leading-relaxed italic mb-2 max-w-[280px]"
             style={{ fontFamily: "var(--font-display)" }}
@@ -1120,32 +1098,18 @@ export default function OnboardingPage() {
   );
 
   if (step === 4) {
+    const validKids = children.filter((c) => c.name.trim());
     return (
-      <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
-        <ProgressDots step={4} />
-        <Card>
-          <div className="flex flex-col items-center text-center">
-            <span className="text-3xl mb-4">{"\uD83D\uDCCB"}</span>
-            <p className="text-[10px] font-medium uppercase tracking-widest text-[#b5aca4] mb-2">Step 4 of 5</p>
-            <h2 className="text-2xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
-              Your plan is waiting.
-            </h2>
-            <p className="text-sm text-[#7a6f65] leading-relaxed mb-1">
-              Set up your curriculum anytime from the Plan page.
-            </p>
-            <p className="text-sm text-[#7a6f65] leading-relaxed mb-8">
-              Most families explore first, then come back to plan.
-            </p>
-            <button
-              type="button"
-              onClick={() => setStep(5)}
-              className="w-full py-3.5 rounded-xl bg-[#3d5c42] hover:bg-[#2d4a32] text-white font-medium text-sm transition-colors"
-            >
-              Take me to my dashboard {"\u2192"}
-            </button>
-          </div>
-        </Card>
-      </div>
+      <StepCurriculum
+        schoolDays={schoolDays}
+        validChildren={validKids}
+        onAddCurriculum={handleAddCurriculum}
+        onSkip={() => {
+          if (childSchedules.length === 0) setNoCurriculumNote(true);
+          setStep(5);
+        }}
+        onBack={() => setStep(3)}
+      />
     );
   }
 

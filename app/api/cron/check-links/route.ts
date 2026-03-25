@@ -42,7 +42,7 @@ export async function GET(request: Request) {
   if (broken.length > 0) {
     await resend.emails.send({
       from: "Rooted <hello@rootedhomeschoolapp.com>",
-      to: "hello@rootedhomeschoolapp.com",
+      to: "garfieldbrittany@gmail.com",
       subject: `⚠️ ${broken.length} broken resource link${broken.length > 1 ? "s" : ""} found`,
       html: `
         <p>The weekly link check found ${broken.length} broken link${broken.length > 1 ? "s" : ""}:</p>

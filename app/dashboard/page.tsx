@@ -1,10 +1,12 @@
 "use client";
 
+// TODO(cleanup): Delete stale test lessons for admin account:
+// DELETE FROM lessons WHERE title ILIKE '%test%' AND user_id = 'd18ca881-a776-4e82-b145-832adc88a88a';
+
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
-import LogTodayModal from "@/app/components/LogTodayModal";
 import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -95,6 +97,8 @@ function buildGreeting(firstName: string, opts: { allDone?: boolean; isSchoolDay
   const hour = new Date().getHours();
   const day = new Date().getDay();
   const name = firstName || "";
+
+  // Time-based greeting prefix
   const timeGreeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   // All done state
@@ -103,7 +107,7 @@ function buildGreeting(firstName: string, opts: { allDone?: boolean; isSchoolDay
     return `You did it${name ? `, ${name}` : ""}! 🎉`;
   }
 
-  // Weekend / non-school day
+  // Weekend / non-school day — handled separately in the UI
   if (!opts.isSchoolDay || day === 0 || day === 6) {
     return `${timeGreeting}${name ? `, ${name}` : ""} 🌿`;
   }
@@ -362,7 +366,6 @@ export default function TodayPage() {
   const start = new Date(new Date().getFullYear(), 0, 0);
   const dayOfYear = Math.floor((Date.now() - start.getTime()) / 86400000);
   const [factIndex, setFactIndex] = useState(dayOfYear % DID_YOU_KNOW.length);
-  const [factFade, setFactFade] = useState(true);
   const { isPartner, effectiveUserId } = usePartner();
 
   const [familyName,      setFamilyName]      = useState("");
@@ -380,12 +383,6 @@ export default function TodayPage() {
   const [allDoneBanner,     setAllDoneBanner]     = useState(false);
   const childDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Undo pill
-  const [undoPill, setUndoPill] = useState<{ lessonId: string; subjectName: string } | null>(null);
-  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Uncheck confirm
-  const [uncheckConfirm, setUncheckConfirm] = useState<{ lessonId: string; subjectName: string } | null>(null);
-
   const [todayMemoryEvents, setTodayMemoryEvents] = useState<TodayEvent[]>([]);
   const [todayBooks,        setTodayBooks]        = useState<BookLog[]>([]);
   const [showBookModal,     setShowBookModal]     = useState(false);
@@ -394,15 +391,12 @@ export default function TodayPage() {
   const [savingBook,        setSavingBook]        = useState(false);
 
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(false);
-  const [welcomePhoto, setWelcomePhoto] = useState<{ url: string; title: string } | null>(null);
   useEffect(() => {
     if (sessionStorage.getItem("setup-banner-dismissed") === "1") setBannerDismissed(true);
   }, []);
 
   const [nudgeDismissed,   setNudgeDismissed]   = useState(false);
   const [isPro,            setIsPro]            = useState(false);
-  const [planType,         setPlanType]         = useState<string | null>(null);
   const [upgradeDismissed, setUpgradeDismissed] = useState(false);
   useEffect(() => {
     if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") setNudgeDismissed(true);
@@ -410,6 +404,13 @@ export default function TodayPage() {
     if (udDate === new Date().toISOString().split("T")[0]) setUpgradeDismissed(true);
   }, []);
 
+  const [showPwaBanner, setShowPwaBanner] = useState(false);
+  const [showPwaModal,  setShowPwaModal]  = useState(false);
+  useEffect(() => {
+    const dismissed  = localStorage.getItem("pwa-banner-dismissed") === "true";
+    const standalone = window.matchMedia("(display-mode: standalone)").matches;
+    if (!dismissed && !standalone) setShowPwaBanner(true);
+  }, []);
 
   const [subjects,     setSubjects]     = useState<Subject[]>([]);
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
@@ -425,41 +426,23 @@ export default function TodayPage() {
   const [activityDeleteConfirm, setActivityDeleteConfirm] = useState(false);
   const [savingActivityEdit,    setSavingActivityEdit]    = useState(false);
 
-  const [showLogModal,           setShowLogModal]           = useState(false);
   const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
-  const [memoryMoment,           setMemoryMoment]           = useState<{
-    kind: "on_this_day" | "recent" | "empty";
-    memory?: { id: string; title: string; photo_url: string | null; date: string; type: string };
-    yearsAgo?: number;
-  } | null>(null);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
+  const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [memoryMoment, setMemoryMoment] = useState<{ kind: "on_this_day" | "recent" | "empty"; memory?: { id: string; title: string; photo_url: string | null; date: string; type: string }; yearsAgo?: number } | null>(null);
   const [streak,                 setStreak]                 = useState(0);
   const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
   const [showFamilyUpdate,       setShowFamilyUpdate]       = useState(false);
   const [daysLearning,           setDaysLearning]           = useState<number | null>(null);
   const [familyPhotoUrl,         setFamilyPhotoUrl]         = useState<string | null>(null);
-  const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
     lessons: { title: string; childId: string | null; subjectName: string | null }[];
   } | null>(null);
-
-  // Getting started checklist
-  const [gsShow, setGsShow] = useState(false);
-  const [gsCollapsed, setGsCollapsed] = useState(false);
-  const [gsHasMemory, setGsHasMemory] = useState(false);
-  const [gsHasCompleted, setGsHasCompleted] = useState(false);
-  const [gsVisitedGarden, setGsVisitedGarden] = useState(false);
-  const [gsVisitedResources, setGsVisitedResources] = useState(false);
-  const [gsDone, setGsDone] = useState(false);
-
-  useEffect(() => {
-    setGsVisitedGarden(localStorage.getItem("rooted_visited_garden") === "true");
-    setGsVisitedResources(localStorage.getItem("rooted_visited_resources") === "true");
-  }, []);
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
@@ -483,13 +466,12 @@ export default function TodayPage() {
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
-      supabase.from("profiles").select("is_pro, plan_type").eq("id", effectiveUserId).single(),
+      supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
     ]);
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
-    setPlanType((profileData as { plan_type?: string } | null)?.plan_type ?? null);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
     // Check if today is a school day
@@ -698,60 +680,42 @@ export default function TodayPage() {
       setUpcomingDay(null);
     }
 
-    // Getting started checklist — only for brand new users
-    const userOnboarded = (profile as { onboarded?: boolean } | null)?.onboarded ?? false;
-    const gsDismissed = localStorage.getItem("rooted_getting_started_dismissed") === "true";
-    if (userOnboarded && !gsDismissed && (totalLessons ?? 0) < 3) {
-      const { count: memCount } = await supabase
-        .from("app_events")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", effectiveUserId)
-        .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"]);
-      if ((memCount ?? 0) < 2) {
-        setGsShow(true);
-        setGsHasMemory((memCount ?? 0) > 0);
-        setGsHasCompleted((completed?.length ?? 0) > 0);
-      }
+    // Memory moment — "On this day" or recent memory
+    const mmNow = new Date();
+    const curMonth = mmNow.getMonth() + 1;
+    const curDay = mmNow.getDate();
+    const curYear = mmNow.getFullYear();
+
+    const { data: allMems } = await supabase
+      .from("memories")
+      .select("id, title, photo_url, date, type")
+      .eq("user_id", effectiveUserId);
+
+    const otdMatch = (allMems ?? []).find((r: { date: string }) => {
+      const d = new Date(r.date + "T12:00:00");
+      return d.getMonth() + 1 === curMonth && d.getDate() === curDay && d.getFullYear() < curYear;
+    }) as { id: string; title: string; photo_url: string | null; date: string; type: string } | undefined;
+
+    if (otdMatch) {
+      setMemoryMoment({
+        kind: "on_this_day",
+        memory: otdMatch,
+        yearsAgo: curYear - new Date(otdMatch.date + "T12:00:00").getFullYear(),
+      });
+    } else if (allMems && allMems.length > 0) {
+      const sorted = [...allMems].sort((a, b) =>
+        (b as { created_at?: string }).created_at?.localeCompare((a as { created_at?: string }).created_at ?? "") ?? 0
+      );
+      const recent = sorted[0] as { id: string; title: string; photo_url: string | null; date: string; type: string };
+      setMemoryMoment({ kind: "recent", memory: recent });
+    } else {
+      setMemoryMoment({ kind: "empty" });
     }
 
     setLoading(false);
-
-    // First-time welcome check
-    if (typeof window !== "undefined" && !localStorage.getItem("rooted_welcomed")) {
-      const isNew = (profile as { onboarded?: boolean } | null)?.onboarded === true && (totalLessons ?? 0) < 3;
-      if (isNew) {
-        setShowWelcome(true);
-        // Try to find the onboarding photo (last 30 minutes)
-        const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-        const { data: recentPhoto } = await supabase
-          .from("app_events")
-          .select("payload")
-          .eq("user_id", effectiveUserId)
-          .eq("type", "memory_photo")
-          .gte("created_at", thirtyMinsAgo)
-          .order("created_at", { ascending: false })
-          .limit(1);
-        if (recentPhoto?.[0]?.payload?.photo_url) {
-          setWelcomePhoto({ url: recentPhoto[0].payload.photo_url, title: recentPhoto[0].payload.title ?? "Our first day" });
-        }
-        localStorage.setItem("rooted_welcomed", "1");
-      }
-    }
   }, [today, effectiveUserId]);
 
   useEffect(() => { loadData(); }, [loadData]);
-
-  // ── Auto-rotate Did You Know quotes ─────────────────────────────────────
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setFactFade(false);
-      setTimeout(() => {
-        setFactIndex((prev) => (prev + 1) % DID_YOU_KNOW.length);
-        setFactFade(true);
-      }, 300);
-    }, 8000);
-    return () => clearInterval(interval);
-  }, []);
 
   // ── Lesson actions ────────────────────────────────────────────────────────
 
@@ -764,99 +728,101 @@ export default function TodayPage() {
 
   async function toggleLesson(id: string, current: boolean) {
     const lesson = lessons.find((l) => l.id === id);
-    const subjectName = lesson?.subjects?.name ?? lesson?.title ?? "Lesson";
-
-    // Unchecking a previously-completed lesson → show confirm
-    if (current) {
-      setUncheckConfirm({ lessonId: id, subjectName });
-      return;
-    }
-
-    // Checking complete → apply immediately + show undo pill
-    completeLesson(id, lesson);
-  }
-
-  async function completeLesson(id: string, lesson: Lesson | undefined) {
-    const subjectName = lesson?.subjects?.name ?? lesson?.title ?? "Lesson";
-    const updatedLessons = lessons.map(l => l.id === id ? { ...l, completed: true } : l);
+    const updatedLessons = lessons.map(l => l.id === id ? { ...l, completed: !current } : l);
     setLessons(updatedLessons);
-    await supabase.from("lessons").update({ completed: true }).eq("id", id);
+    await supabase.from("lessons").update({ completed: !current }).eq("id", id);
 
-    setCelebrating(true);
-    setTimeout(() => setCelebrating(false), 1600);
-    triggerGardenAnimation(lesson?.child_id ?? undefined);
+    if (!current) {
+      setCelebrating(true);
+      setTimeout(() => setCelebrating(false), 1600);
+      triggerGardenAnimation(lesson?.child_id ?? undefined);
 
-    // Tier 2: child done toast at 300ms
-    const childId = lesson?.child_id;
-    if (childId) {
-      const childLessons = updatedLessons.filter(l => l.child_id === childId);
-      const childAllDone = childLessons.length > 0 && childLessons.every(l => l.completed);
-      if (childAllDone) {
-        const childName = children.find(c => c.id === childId)?.name;
-        if (childName) {
-          setTimeout(() => {
-            if (childDoneTimerRef.current) clearTimeout(childDoneTimerRef.current);
-            setChildDoneToastOut(false);
-            setChildDoneToast(childName);
-            childDoneTimerRef.current = setTimeout(() => {
-              setChildDoneToastOut(true);
-              setTimeout(() => { setChildDoneToast(null); setChildDoneToastOut(false); }, 300);
-            }, 2500);
-          }, 300);
+      // Tier 2: child done toast at 300ms
+      const childId = lesson?.child_id;
+      if (childId) {
+        const childLessons = updatedLessons.filter(l => l.child_id === childId);
+        const childAllDone = childLessons.length > 0 && childLessons.every(l => l.completed);
+        if (childAllDone) {
+          const childName = children.find(c => c.id === childId)?.name;
+          if (childName) {
+            setTimeout(() => {
+              if (childDoneTimerRef.current) clearTimeout(childDoneTimerRef.current);
+              setChildDoneToastOut(false);
+              setChildDoneToast(childName);
+              childDoneTimerRef.current = setTimeout(() => {
+                setChildDoneToastOut(true);
+                setTimeout(() => { setChildDoneToast(null); setChildDoneToastOut(false); }, 300);
+              }, 2500);
+            }, 300);
+          }
         }
       }
-    }
 
-    // Tier 3: all done banner at 800ms
-    const allNowDone = updatedLessons.length > 0 && updatedLessons.every(l => l.completed);
-    if (allNowDone) {
-      setTimeout(() => setAllDoneBanner(true), 800);
-    }
-
-    if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
-      const { data: goalRow } = await supabase
-        .from("curriculum_goals").select("current_lesson")
-        .eq("id", lesson.curriculum_goal_id).single();
-      if (goalRow && lesson.lesson_number > goalRow.current_lesson) {
-        await supabase.from("curriculum_goals")
-          .update({ current_lesson: lesson.lesson_number })
-          .eq("id", lesson.curriculum_goal_id);
+      // Tier 3: all done banner at 800ms
+      const allNowDone = updatedLessons.length > 0 && updatedLessons.every(l => l.completed);
+      if (allNowDone) {
+        setTimeout(() => setAllDoneBanner(true), 800);
       }
-    }
 
-    if (lesson?.goal_id) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabase.from("app_events").insert({
-          user_id: user.id,
-          type: "lesson_goal_complete",
-          payload: { title: lesson.title, goal_id: lesson.goal_id, date: today },
-        });
+      if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
+        const { data: goalRow } = await supabase
+          .from("curriculum_goals").select("id, curriculum_name, current_lesson, total_lessons")
+          .eq("id", lesson.curriculum_goal_id).single();
+        if (goalRow && lesson.lesson_number > goalRow.current_lesson) {
+          const newCurrent = lesson.lesson_number;
+          if (newCurrent >= goalRow.total_lessons) {
+            // Curriculum complete — mark done, don't schedule next
+            await supabase.from("curriculum_goals")
+              .update({ current_lesson: newCurrent, completed: true })
+              .eq("id", lesson.curriculum_goal_id);
+          } else {
+            // Advance current_lesson and schedule the next lesson
+            await supabase.from("curriculum_goals")
+              .update({ current_lesson: newCurrent })
+              .eq("id", lesson.curriculum_goal_id);
+
+            // Find next school day
+            const days = schoolDaysArr.length > 0
+              ? schoolDaysArr
+              : ["monday", "tuesday", "wednesday", "thursday", "friday"];
+            const nextDate = new Date(today + "T12:00:00");
+            for (let i = 0; i < 14; i++) {
+              nextDate.setDate(nextDate.getDate() + 1);
+              const dayName = nextDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+              if (days.includes(dayName)) break;
+            }
+            const nextDateStr = nextDate.toISOString().split("T")[0];
+
+            const { data: { user: authUser } } = await supabase.auth.getUser();
+            if (authUser) {
+              await supabase.from("lessons").insert({
+                user_id: authUser.id,
+                child_id: lesson.child_id,
+                curriculum_goal_id: lesson.curriculum_goal_id,
+                title: goalRow.curriculum_name || lesson.title,
+                lesson_number: newCurrent + 1,
+                scheduled_date: nextDateStr,
+                completed: false,
+              });
+            }
+          }
+        }
       }
+
+      if (lesson?.goal_id) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("app_events").insert({
+            user_id: user.id,
+            type: "lesson_goal_complete",
+            payload: { title: lesson.title, goal_id: lesson.goal_id, date: today },
+          });
+        }
+      }
+    } else {
+      // Unchecking — immediately hide the all done banner
+      setAllDoneBanner(false);
     }
-
-    await refreshLeafCounts();
-
-    // Show undo pill with 5-second timer
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-    setUndoPill({ lessonId: id, subjectName });
-    undoTimerRef.current = setTimeout(() => setUndoPill(null), 5000);
-  }
-
-  async function undoComplete(lessonId: string) {
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-    setUndoPill(null);
-    setLessons((prev) => prev.map(l => l.id === lessonId ? { ...l, completed: false } : l));
-    await supabase.from("lessons").update({ completed: false }).eq("id", lessonId);
-    setAllDoneBanner(false);
-    await refreshLeafCounts();
-  }
-
-  async function confirmUncheck(lessonId: string) {
-    setUncheckConfirm(null);
-    setLessons((prev) => prev.map(l => l.id === lessonId ? { ...l, completed: false } : l));
-    await supabase.from("lessons").update({ completed: false }).eq("id", lessonId);
-    setAllDoneBanner(false);
     await refreshLeafCounts();
   }
 
@@ -928,20 +894,6 @@ export default function TodayPage() {
       if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     }
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
-  }
-
-  function handleLogSaved(type: string, childId?: string) {
-    setShowLogModal(false);
-    if (type === "lesson") {
-      setCelebrating(true);
-      setTimeout(() => setCelebrating(false), 1600);
-      if (childId) setLeafCounts((prev) => ({ ...prev, [childId]: (prev[childId] ?? 0) + 1 }));
-      triggerGardenAnimation(childId);
-    } else if (type === "field_trip" || type === "activity") {
-      setSavedMemoryToast(true);
-      setTimeout(() => setSavedMemoryToast(false), 2500);
-    }
-    loadData();
   }
 
   // ── Activity edit/delete ──────────────────────────────────────────────────
@@ -1025,94 +977,14 @@ export default function TodayPage() {
 
   return (
     <>
-      {/* ── First-time welcome experience ─────────────────────── */}
-      {showWelcome && (
-        <div className="space-y-0">
-          {/* Photo hero or gradient */}
-          <div className="relative w-full overflow-hidden" style={{ height: 220 }}>
-            {welcomePhoto ? (
-              <>
-                <img src={welcomePhoto.url} alt="" className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
-                <div className="absolute bottom-4 left-5">
-                  <span className="text-[10px] font-semibold bg-white/20 text-white px-2 py-0.5 rounded-full backdrop-blur-sm">
-                    {"\uD83D\uDCF8"} Your first memory
-                  </span>
-                  <p className="text-base font-bold text-white mt-1.5">{welcomePhoto.title} {"\uD83C\uDF31"}</p>
-                  <p className="text-xs text-white/60">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
-                </div>
-              </>
-            ) : (
-              <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, #1a3d24 0%, #2d5a3d 100%)" }}>
-                <span className="text-6xl">{"\uD83C\uDF31"}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="px-5 space-y-4 pt-4 pb-2">
-            {/* Founder card */}
-            <div className="bg-[#e8f0e9] rounded-2xl p-4 flex items-start gap-3">
-              <div className="w-9 h-9 rounded-full bg-[#3d5c42] flex items-center justify-center text-white text-sm font-bold shrink-0">B</div>
-              <div>
-                <p className="text-xs font-semibold text-[#2d2926]">Brittany, founder</p>
-                <p className="text-sm text-[#3d5c42] italic leading-relaxed mt-0.5">
-                  Welcome to your family&apos;s story. Every day from here builds something beautiful. {"\uD83C\uDF3F"}
-                </p>
-              </div>
-            </div>
-
-            {/* Garden strip */}
-            {children.length > 0 && (
-              <Link href="/dashboard/garden" className="block bg-[#2d5a3d] rounded-2xl px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-white/50 mb-2">Your garden is growing</p>
-                <div className="flex items-center gap-4">
-                  {children.map((c) => {
-                    const stage = Math.min(10, Math.max(1, (leafCounts[c.id] ?? 0) > 0 ? 2 : 1));
-                    const emoji = stage <= 2 ? "\uD83C\uDF31" : stage <= 5 ? "\uD83E\uDEB4" : "\uD83C\uDF33";
-                    return (
-                      <div key={c.id} className="flex flex-col items-center gap-1">
-                        <span className="text-2xl">{emoji}</span>
-                        <span className="text-[10px] font-medium text-white/80">{c.name}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Link>
-            )}
-
-            {/* Quick links */}
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { emoji: "\uD83D\uDCF8", label: "Memories", href: "/dashboard/memories" },
-                { emoji: "\uD83D\uDCCB", label: "Add curriculum", href: "/dashboard/plan" },
-                { emoji: "\uD83D\uDCDA", label: "Resources", href: "/dashboard/resources" },
-              ].map((link) => (
-                <Link
-                  key={link.label}
-                  href={link.href}
-                  className="flex flex-col items-center gap-1.5 bg-white border border-[#e8e2d9] rounded-xl py-3 hover:border-[#5c7f63] transition-colors"
-                >
-                  <span className="text-lg">{link.emoji}</span>
-                  <span className="text-[10px] font-medium text-[#7a6f65]">{link.label}</span>
-                </Link>
-              ))}
-            </div>
-
-            {/* Divider */}
-            <div className="h-px bg-[#e8e2d9]" />
-          </div>
-        </div>
-      )}
-
       {/* ── Hero Header ──────────────────────────────────────── */}
       <PageHero
         overline={formatDateHero(new Date())}
         title={activeVacation
-          ? `${familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} Family is` : "You're"} on ${activeVacation.name} 🌴`
+          ? `${familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} are` : "You're"} away 🌴`
           : buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}
-        subtitle={activeVacation ? `Back ${new Date(activeVacation.end_date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}` : undefined}
+        subtitle={activeVacation ? `${activeVacation.name} · Back ${new Date(activeVacation.end_date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}` : undefined}
         bgColor={activeVacation ? "#1a6b8a" : undefined}
-        photoUrl={familyPhotoUrl}
       >
         {totalToday > 0 && isSchoolDay && !activeVacation && (
           <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
@@ -1131,7 +1003,6 @@ export default function TodayPage() {
           </p>
         )}
 
-
         {/* Days learning milestone — shows once per month */}
         {daysLearning && !activeVacation && (
           <p className="text-[11px] mt-1 text-center" style={{ color: "rgba(255,255,255,0.5)" }}>
@@ -1141,73 +1012,6 @@ export default function TodayPage() {
       </PageHero>
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
-
-      {/* ── Getting Started Checklist ──────────────────────────── */}
-      {gsShow && !gsDone && (() => {
-        const steps = [
-          { done: gsHasMemory, emoji: "📸", label: "Capture a memory", desc: "A photo, a project, or a book your family read" },
-          { done: gsHasCompleted, emoji: "✓", label: "Check off a lesson", desc: "Mark one lesson as done on today\u2019s list" },
-          { done: gsVisitedGarden, emoji: "🌱", label: "Visit your Garden", desc: "Watch your family\u2019s tree grow with every lesson" },
-          { done: gsVisitedResources, emoji: "📚", label: "Explore Resources", desc: "Discounts, printables, and field trips" },
-        ];
-        const allChecked = steps.every((s) => s.done);
-        if (allChecked) {
-          setTimeout(() => {
-            localStorage.setItem("rooted_getting_started_dismissed", "true");
-            setGsDone(true);
-          }, 2000);
-        }
-        return (
-          <div className="bg-[#fefcf9] border border-[#c8dcc9] rounded-2xl overflow-hidden">
-            <button
-              onClick={() => setGsCollapsed(!gsCollapsed)}
-              className="w-full flex items-center justify-between px-5 py-4"
-            >
-              <h3 className="text-sm font-semibold text-[#2d2926]">
-                {allChecked ? "You know your way around! 🎉" : "Get to know Rooted ✨"}
-              </h3>
-              <svg
-                width="16" height="16" viewBox="0 0 16 16" fill="none"
-                className={`text-[#b5aca4] transition-transform ${gsCollapsed ? "" : "rotate-180"}`}
-              >
-                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-            {!gsCollapsed && (
-              <div className="px-5 pb-5 space-y-3">
-                {steps.map((s) => (
-                  <div key={s.label} className="flex items-start gap-3">
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
-                      s.done ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0c8] bg-white"
-                    }`}>
-                      {s.done && (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                          <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      )}
-                    </div>
-                    <div>
-                      <p className={`text-sm font-medium ${s.done ? "text-[#5c7f63] line-through" : "text-[#2d2926]"}`}>
-                        {s.emoji !== "✓" ? `${s.emoji} ` : ""}{s.label}
-                      </p>
-                      <p className="text-xs text-[#9e958d] mt-0.5">{s.desc}</p>
-                    </div>
-                  </div>
-                ))}
-                <button
-                  onClick={() => {
-                    localStorage.setItem("rooted_getting_started_dismissed", "true");
-                    setGsDone(true);
-                  }}
-                  className="text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-1"
-                >
-                  Dismiss
-                </button>
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
       {/* ── AI Family Update Prompt ────────────────────────────── */}
       {showFamilyUpdate && (
@@ -1240,14 +1044,14 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Setup Banner — only after data is loaded and user genuinely has 0 children ── */}
-      {!loading && children.length === 0 && !bannerDismissed && (
+      {/* ── Setup Banner ─────────────────────────────────────── */}
+      {onboarded === true && children.length === 0 && !bannerDismissed && (
         <div className="relative flex items-center justify-between gap-4 bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4">
           <p className="text-sm text-[#2d2926] font-medium leading-snug">
-            🌱 Add your children to get started with Rooted.
+            🌱 Finish setting up your homeschool — you haven&apos;t added any children yet.
           </p>
           <div className="flex items-center gap-2 shrink-0">
-            <Link href="/dashboard/settings?section=children" className="bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors whitespace-nowrap">
+            <Link href="/onboarding" className="bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors whitespace-nowrap">
               Add a Child →
             </Link>
             <button
@@ -1256,6 +1060,37 @@ export default function TodayPage() {
               className="w-7 h-7 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#b8d9bc]/50 transition-colors text-lg leading-none"
             >×</button>
           </div>
+        </div>
+      )}
+
+      {/* ── Welcome Banner ─────────────────────────────────── */}
+      {children.length === 0 && onboarded !== true && !bannerDismissed && (
+        <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
+          <button
+            onClick={() => { sessionStorage.setItem("setup-banner-dismissed", "1"); setBannerDismissed(true); }}
+            aria-label="Dismiss"
+            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#b8d9bc]/50 transition-colors text-lg leading-none"
+          >×</button>
+          <h2 className="text-lg font-bold text-[#2d2926] mb-1">Welcome to Rooted! 🌿</h2>
+          <p className="text-sm text-[#5c7f63] mb-4">Let&apos;s get your family set up in 3 easy steps</p>
+          <div className="flex flex-col sm:flex-row gap-3 mb-4">
+            {[
+              { step: "1", label: "Add a child",                dest: "Onboarding", href: "/onboarding" },
+              { step: "2", label: "Add your curriculum",        dest: "Plan",        href: "/dashboard/plan" },
+              { step: "3", label: "Check off your first lesson", dest: "Today",      href: "#" },
+            ].map(({ step, label, dest, href }) => (
+              <Link key={step} href={href} className="flex-1 flex items-center gap-2.5 bg-white/70 hover:bg-white border border-[#b8d9bc] rounded-xl px-3.5 py-3 transition-colors">
+                <div className="w-7 h-7 rounded-full bg-[#5c7f63] text-white text-xs font-bold flex items-center justify-center shrink-0">{step}</div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-[#2d2926] leading-tight">{label}</p>
+                  <p className="text-[10px] text-[#7a6f65]">→ {dest}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+          <Link href="/onboarding" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm">
+            Add your first child →
+          </Link>
         </div>
       )}
 
@@ -1327,7 +1162,17 @@ export default function TodayPage() {
               <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
               <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
             </div>
-            {/* Capture card removed — replaced by floating camera FAB on Memories page */}
+            <button
+              onClick={() => setShowLogModal(true)}
+              className="mb-4 w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-[#5c7f63] hover:bg-[#faf8f5] transition-colors text-left"
+            >
+              <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0 text-lg">📸</div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-[#2d2926]">Capture today&apos;s memory</p>
+                <p className="text-xs text-[#7a6f65]">What did you do today? Add a photo, book, or note.</p>
+              </div>
+              <span className="text-[#c8bfb5] text-lg">›</span>
+            </button>
           </>
         )}
         {(() => {
@@ -1336,11 +1181,17 @@ export default function TodayPage() {
           const hasAnyContent     = childrenWithLessons.length > 0 || unassignedLessons.length > 0;
 
           if (!hasAnyContent) {
-            // Priority: vacation (banner already shown above) > non-school-day > no content
-            if (activeVacation) return null;
+            // Priority: vacation > non-school-day > no content
+            if (activeVacation) return (
+              <div className="rounded-2xl px-4 py-3" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
+                <p className="text-sm font-semibold text-[#7a4a1a]">🌴 <strong>{activeVacation.name}</strong> · No lessons today — enjoy your time off!</p>
+              </div>
+            );
             if (!isSchoolDay) {
               const dow = new Date().getDay();
               const isWeekend = dow === 0 || dow === 6;
+
+              // Find the next school day name from the profile's school_days
               const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
               let resumeDay = "";
               if (schoolDaysArr.length > 0) {
@@ -1352,6 +1203,7 @@ export default function TodayPage() {
                   }
                 }
               }
+
               return (
                 <div className="py-8 flex flex-col items-center text-center">
                   {/* Leaf illustration */}
@@ -1617,23 +1469,102 @@ export default function TodayPage() {
         );
       })()}
 
+      {/* ── Memory Moment Card ─────────────────────────────── */}
+      {memoryMoment && memoryMoment.kind === "on_this_day" && memoryMoment.memory && (
+        <Link
+          href="/dashboard/memories"
+          className="block bg-white rounded-2xl p-4 transition-colors hover:bg-[#fefcf9]"
+          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
+        >
+          <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest mb-2.5">On This Day</p>
+          <div className="flex gap-3 items-center">
+            {memoryMoment.memory.photo_url ? (
+              <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-[#f0ede8]" style={{ border: "3px solid white", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+                <img src={memoryMoment.memory.photo_url} alt="" className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <div className="w-16 h-16 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-2xl" style={{ border: "3px solid white", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+                📸
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#2d2926] leading-snug">
+                📸 On this day, {memoryMoment.yearsAgo} year{memoryMoment.yearsAgo !== 1 ? "s" : ""} ago…
+              </p>
+              <p className="text-xs text-[#7a6f65] mt-0.5 truncate">{memoryMoment.memory.title}</p>
+            </div>
+            <span className="text-[#c8bfb5] text-lg shrink-0">›</span>
+          </div>
+        </Link>
+      )}
+
+      {memoryMoment && memoryMoment.kind === "recent" && memoryMoment.memory && (
+        <Link
+          href="/dashboard/memories"
+          className="block bg-white rounded-2xl p-4 transition-colors hover:bg-[#fefcf9]"
+          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
+        >
+          <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest mb-2.5">Last Captured</p>
+          <div className="flex gap-3 items-center">
+            {memoryMoment.memory.photo_url ? (
+              <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-[#f0ede8]" style={{ border: "3px solid white", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+                <img src={memoryMoment.memory.photo_url} alt="" className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <div className="w-16 h-16 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-2xl" style={{ border: "3px solid white", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+                📸
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#2d2926] leading-snug">
+                📸 Last captured — {(() => {
+                  const memDate = new Date(memoryMoment.memory!.date + "T12:00:00");
+                  const diffDays = Math.round((new Date().getTime() - memDate.getTime()) / (1000 * 60 * 60 * 24));
+                  if (diffDays === 0) return "today";
+                  if (diffDays === 1) return "yesterday";
+                  if (diffDays < 7) return `${diffDays} days ago`;
+                  if (diffDays < 30) return `${Math.round(diffDays / 7)} week${Math.round(diffDays / 7) !== 1 ? "s" : ""} ago`;
+                  return memDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                })()}
+              </p>
+              <p className="text-xs text-[#7a6f65] mt-0.5 truncate">{memoryMoment.memory.title}</p>
+            </div>
+            <span className="text-[#c8bfb5] text-lg shrink-0">›</span>
+          </div>
+        </Link>
+      )}
+
+      {memoryMoment && memoryMoment.kind === "empty" && !isPartner && (
+        <button
+          onClick={() => setShowLogModal(true)}
+          className="w-full bg-white rounded-2xl p-5 text-left transition-colors hover:bg-[#fefcf9]"
+          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
+        >
+          <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest mb-2">Capture a Memory</p>
+          <div className="flex gap-3 items-center">
+            <div className="w-12 h-12 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-xl">
+              📸
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#2d2926] leading-snug">
+                What&apos;s one thing worth remembering today? 📸
+              </p>
+              <p className="text-xs text-[#9e958d] mt-0.5">
+                A drawing, a moment, something they said.
+              </p>
+            </div>
+          </div>
+        </button>
+      )}
+
       {/* ── Did You Know card (school days only) ────────── */}
       {isSchoolDay && !activeVacation && (
         <button
-          onClick={() => {
-            setFactFade(false);
-            setTimeout(() => {
-              setFactIndex((prev) => (prev + 1) % DID_YOU_KNOW.length);
-              setFactFade(true);
-            }, 200);
-          }}
+          onClick={() => setFactIndex((factIndex + 1) % DID_YOU_KNOW.length)}
           className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 text-left hover:bg-[#faf8f5] transition-colors"
         >
           <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">Did you know?</p>
-          <p
-            className="text-[13px] text-[#5c5248] leading-relaxed border-l-2 border-[#3d5c42] pl-3 transition-opacity duration-300"
-            style={{ opacity: factFade ? 1 : 0 }}
-          >
+          <p className="text-[13px] text-[#5c5248] leading-relaxed border-l-2 border-[#3d5c42] pl-3">
             {DID_YOU_KNOW[factIndex]}
           </p>
         </button>
@@ -1641,7 +1572,7 @@ export default function TodayPage() {
 
       <div className="h-4" />
 
-      {/* Floating log button removed — logging happens on Memories page */}
+      {/* Floating log button removed — replaced by persistent camera FAB in layout */}
 
       {/* ── Book modal ────────────────────────────────────── */}
       {showBookModal && (
@@ -1776,28 +1707,6 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Floating camera FAB ────────────────────────────── */}
-      {!isPartner && !showLogModal && (
-        <button
-          onClick={() => setShowLogModal(true)}
-          className="fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-[#3d5c42] hover:bg-[#2d4a32] text-white shadow-lg flex items-center justify-center transition-colors"
-          aria-label="Log a memory"
-        >
-          <span className="text-xl">📷</span>
-        </button>
-      )}
-
-      {/* ── Log Today Modal ───────────────────────────────── */}
-      {showLogModal && (
-        <LogTodayModal
-          children={children}
-          subjects={subjects}
-          today={today}
-          onClose={() => setShowLogModal(false)}
-          onSaved={handleLogSaved}
-        />
-      )}
-
       {/* ── Saved to Memories toast ──────────────────────── */}
       {savedMemoryToast && (
         <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[70] pointer-events-none toast-slide-up">
@@ -1817,6 +1726,38 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* ── PWA Install Banner ────────────────────────────── */}
+      {showPwaBanner && (
+        <div className="sm:hidden fixed bottom-20 left-4 right-4 z-50 bg-[#2d2926] text-white rounded-2xl shadow-xl px-4 py-3 flex items-center gap-3">
+          <span className="text-xl shrink-0">🌿</span>
+          <p className="flex-1 text-sm font-medium leading-tight">Add Rooted to your home screen</p>
+          <button onClick={() => setShowPwaModal(true)} className="shrink-0 text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg transition-colors">How?</button>
+          <button onClick={() => { localStorage.setItem("pwa-banner-dismissed", "true"); setShowPwaBanner(false); }} aria-label="Dismiss" className="shrink-0 text-white/60 hover:text-white text-lg leading-none transition-colors">×</button>
+        </div>
+      )}
+
+      {/* ── PWA Install Modal ─────────────────────────────── */}
+      {showPwaModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-[#2d2926]">🌿 Add to Home Screen</h2>
+              <button onClick={() => setShowPwaModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+            </div>
+            <div className="space-y-3">
+              <div className="bg-[#f8f5f0] rounded-xl p-4 space-y-1">
+                <p className="text-xs font-bold text-[#2d2926] uppercase tracking-wide">🍎 iPhone</p>
+                <p className="text-sm text-[#5c5248] leading-relaxed">Safari → tap the <span className="font-semibold">Share</span> button → <span className="font-semibold">Add to Home Screen</span></p>
+              </div>
+              <div className="bg-[#f8f5f0] rounded-xl p-4 space-y-1">
+                <p className="text-xs font-bold text-[#2d2926] uppercase tracking-wide">🤖 Android</p>
+                <p className="text-sm text-[#5c5248] leading-relaxed">Chrome → tap the <span className="font-semibold">Menu (⋮)</span> → <span className="font-semibold">Add to Home Screen</span></p>
+              </div>
+            </div>
+            <button onClick={() => setShowPwaModal(false)} className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors">Got it!</button>
+          </div>
+        </div>
+      )}
 
       <FloatingLeaves active={celebrating} />
 
@@ -1830,64 +1771,6 @@ export default function TodayPage() {
           </div>
         </div>
       )}
-
-      {/* ── Undo pill ───────────────────────────────────────── */}
-      {undoPill && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[80] animate-[fadeUp_0.25s_ease-out]">
-          <div className="bg-[#2d2926] rounded-2xl shadow-lg overflow-hidden">
-            <div className="flex items-center gap-3 px-5 py-3">
-              <span className="text-sm text-white">
-                <span className="font-semibold">{undoPill.subjectName}</span> marked done
-              </span>
-              <button
-                onClick={() => undoComplete(undoPill.lessonId)}
-                className="text-sm font-bold text-[#86efac] hover:text-white transition-colors"
-              >
-                Undo
-              </button>
-            </div>
-            {/* 5-second countdown bar */}
-            <div className="h-0.5 bg-white/10">
-              <div
-                className="h-full bg-[#86efac]/60"
-                style={{ animation: "undoShrink 5s linear forwards" }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Uncheck confirm ─────────────────────────────────── */}
-      {uncheckConfirm && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-2xl shadow-xl w-full max-w-xs p-5 space-y-4 text-center">
-            <p className="text-sm font-semibold text-[#2d2926]">
-              Mark <span className="text-[#5c7f63]">{uncheckConfirm.subjectName}</span> incomplete?
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setUncheckConfirm(null)}
-                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => confirmUncheck(uncheckConfirm.lessonId)}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
-              >
-                Yes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <style>{`
-        @keyframes undoShrink {
-          from { width: 100%; }
-          to { width: 0%; }
-        }
-      `}</style>
 
       </div>
     </>

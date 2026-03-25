@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, Camera, Calendar, Search, Menu, X, Settings, Megaphone, LogOut } from "lucide-react";
+import { Sun, Leaf, Camera, Calendar, Search, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
@@ -17,7 +17,7 @@ const navItems = [
   { label: "Resources", href: "/dashboard/resources",  icon: Search   },
 ];
 
-// Primary tabs shown in mobile bottom nav (5 links + Menu button)
+// Primary tabs shown in mobile bottom nav (5 links)
 const mobileBottomNav = [
   { label: "Today",     href: "/dashboard",            icon: Sun      },
   { label: "Plan",      href: "/dashboard/plan",       icon: Calendar },
@@ -61,15 +61,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 }
 
+type FabChild = { id: string; name: string; color: string | null };
+
 function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
   const { displayName: profileName } = useProfile();
   const [checking,  setChecking]  = useState(true);
   const [menuOpen,  setMenuOpen]  = useState(false);
-  const [menuSheet, setMenuSheet] = useState(false);
   const [isAdmin,   setIsAdmin]   = useState(false);
   const [profileData, setProfileData] = useState<{ first_name?: string | null; family_photo_url?: string | null }>({});
+
+  // ── Floating camera FAB state ────────────────────────────────────────────
+  const fabFileRef = useRef<HTMLInputElement>(null);
+  const [fabKids, setFabKids] = useState<FabChild[]>([]);
+  const [fabFile, setFabFile] = useState<File | null>(null);
+  const [fabUrl, setFabUrl] = useState<string | null>(null);
+  const [fabCaption, setFabCaption] = useState("");
+  const [fabChildId, setFabChildId] = useState("");
+  const [fabSaving, setFabSaving] = useState(false);
+  const [fabToast, setFabToast] = useState<string | null>(null);
+
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
     isPartner: false,
     effectiveUserId: "",
@@ -164,6 +176,42 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     return href === "/dashboard"
       ? pathname === "/dashboard"
       : pathname.startsWith(href);
+  }
+
+  // ── FAB: load children for child pills ─────────────────────────────────────
+  const loadFabKids = useCallback(async () => {
+    if (!partnerCtx.effectiveUserId || partnerCtx.isPartner) return;
+    const { data } = await supabase
+      .from("children").select("id, name, color")
+      .eq("user_id", partnerCtx.effectiveUserId).eq("archived", false).order("sort_order");
+    setFabKids((data as FabChild[]) ?? []);
+  }, [partnerCtx.effectiveUserId, partnerCtx.isPartner]);
+  useEffect(() => { if (!checking) loadFabKids(); }, [checking, loadFabKids]);
+
+  function openFabPicker() { fabFileRef.current?.click(); }
+  function onFabFileChosen(file: File) {
+    setFabFile(file); setFabUrl(URL.createObjectURL(file)); setFabCaption(""); setFabChildId("");
+  }
+  function closeFabSheet() {
+    setFabFile(null); if (fabUrl) URL.revokeObjectURL(fabUrl); setFabUrl(null); setFabCaption(""); setFabChildId("");
+  }
+  async function saveFabPhoto() {
+    if (!fabFile || fabSaving) return;
+    setFabSaving(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setFabSaving(false); return; }
+    const path = `${user.id}/${Date.now()}-${fabFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+    const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, fabFile, { contentType: fabFile.type, upsert: false });
+    if (upErr) { setFabSaving(false); return; }
+    const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+    const today = new Date().toISOString().split("T")[0];
+    await supabase.from("app_events").insert({
+      user_id: user.id, type: "memory_photo",
+      payload: { photo_url: urlData.publicUrl, title: fabCaption.trim() || undefined, child_id: fabChildId || undefined, date: today },
+    });
+    await supabase.rpc("increment_photo_count", { p_user_id: user.id });
+    setFabSaving(false); closeFabSheet();
+    setFabToast("Saved to Memories 🌱"); setTimeout(() => setFabToast(null), 2500);
   }
 
   if (checking) {
@@ -269,11 +317,13 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           onClick={() => setMenuOpen(false)}
           className="w-8 h-8 rounded-full bg-[#e8f0e9] flex items-center justify-center text-xs font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
         >
-          {(() => {
-            const name = displayName || profileData.first_name || "";
-            const words = name.replace(/\bfamily\b/gi, "").replace(/^the\s+/i, "").trim().split(/\s+/).filter(Boolean);
-            return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "\uD83C\uDF3F";
-          })()}
+          {profileData.family_photo_url ? (
+            <img src={profileData.family_photo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+          ) : profileData.first_name ? (
+            profileData.first_name.charAt(0).toUpperCase()
+          ) : displayName ? (
+            displayName.charAt(0).toUpperCase()
+          ) : '🌿'}
         </Link>
       </div>
 
@@ -369,7 +419,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           <div className="flex-1 pb-24 md:pb-0">{children}</div>
         </main>
 
-        {/* Mobile bottom nav bar — 6 tabs */}
+        {/* Mobile bottom nav bar — 5 tabs */}
         <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#fefcf9] border-t border-[#e8e2d9] flex items-stretch" style={{ minHeight: "3.75rem", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           {mobileBottomNav.map(({ label, href, icon: Icon }) => {
             const active = isActive(href);
@@ -377,7 +427,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               <Link
                 key={href}
                 href={href}
-                onClick={() => setMenuSheet(false)}
                 className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[9px] font-medium transition-colors ${
                   active ? "text-[#3d5c42]" : "text-[#c8bfb5]"
                 }`}
@@ -387,75 +436,69 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-          {/* Menu tab */}
-          <button
-            onClick={() => setMenuSheet(!menuSheet)}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[9px] font-medium transition-colors ${
-              menuSheet ? "text-[#3d5c42]" : "text-[#c8bfb5]"
-            }`}
-          >
-            <Menu size={22} strokeWidth={menuSheet ? 2.5 : 1.8} />
-            Menu
-          </button>
         </nav>
 
-        {/* Menu sheet — slides up from bottom */}
-        {menuSheet && (
+
+        {/* ── Floating Camera FAB ───────────────────────────────── */}
+        {!partnerCtx.isPartner && !fabUrl && (
+          <button onClick={openFabPicker}
+            className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all hover:shadow-xl"
+            style={{ backgroundColor: "#2d5a3d" }} aria-label="Log a memory">
+            <Camera size={22} className="text-white" strokeWidth={2.2} />
+          </button>
+        )}
+        <input ref={fabFileRef} type="file" accept="image/*" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (e.target) e.target.value = ""; if (f) onFabFileChosen(f); }} />
+
+        {/* ── Instant Photo Bottom Sheet ─────────────────────────── */}
+        {fabUrl && (
           <>
-            <div className="md:hidden fixed inset-0 bg-black/30 z-50" onClick={() => setMenuSheet(false)} />
-            <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-2xl border-t border-[#e8e2d9] shadow-xl" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 3.75rem)" }}>
-              {/* Handle */}
-              <div className="flex justify-center pt-3 pb-2">
-                <div className="w-10 h-1 rounded-full bg-[#e8e2d9]" />
-              </div>
-
-              {/* Family name + photo */}
-              <div className="px-5 pb-3 border-b border-[#e8e2d9] flex items-center gap-3">
-                <div className="w-11 h-11 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] shrink-0 overflow-hidden">
-                  {(() => {
-                    const words = (displayName || "").replace(/\bfamily\b/gi, "").replace(/^the\s+/i, "").trim().split(/\s+/).filter(Boolean);
-                    return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "\uD83C\uDF3F";
-                  })()}
+            <div className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm" onClick={closeFabSheet} />
+            <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto"
+              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+              <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+              <div className="px-5 pb-5 space-y-4">
+                <div className="relative rounded-2xl overflow-hidden bg-[#f0ede8]">
+                  <img src={fabUrl} alt="Preview" className="w-full max-h-56 object-cover" />
+                  <button onClick={closeFabSheet}
+                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+                    <X size={14} />
+                  </button>
                 </div>
-                <div>
-                  <p className="text-sm font-bold text-[#2d2926]">{displayName || "Your Family"}</p>
-                  <p className="text-[11px] text-[#7a6f65]">Rooted</p>
-                </div>
-              </div>
-
-              {/* Menu items */}
-              <div className="px-3 py-2 space-y-0.5">
-                <Link href="/dashboard/settings" onClick={() => setMenuSheet(false)}
-                  className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors">
-                  <Settings size={18} className="text-[#7a6f65]" />
-                  Settings
-                </Link>
-                <Link href="/dashboard/more/whats-new" onClick={() => setMenuSheet(false)}
-                  className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors">
-                  <Megaphone size={18} className="text-[#7a6f65]" />
-                  What&apos;s New
-                </Link>
-                {isAdmin && (
-                  <Link href="/admin" onClick={() => setMenuSheet(false)}
-                    className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors">
-                    <span className="text-[15px]">🔒</span>
-                    Founder Dashboard
-                  </Link>
+                <input type="text" value={fabCaption} onChange={(e) => setFabCaption(e.target.value)}
+                  placeholder="What's this?" autoFocus
+                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition-colors" />
+                {fabKids.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setFabChildId("")}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${fabChildId === "" ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63]"}`}>
+                      Everyone
+                    </button>
+                    {fabKids.map((c) => (
+                      <button key={c.id} type="button" onClick={() => setFabChildId(c.id)}
+                        className="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors"
+                        style={fabChildId === c.id
+                          ? { backgroundColor: c.color ?? "#5c7f63", color: "#fff", borderColor: c.color ?? "#5c7f63" }
+                          : { backgroundColor: "#fff", color: "#7a6f65", borderColor: "#e8e2d9" }}>
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </div>
-
-              {/* Sign out */}
-              <div className="px-3 pb-4 pt-1 border-t border-[#e8e2d9]">
-                <button
-                  onClick={() => { setMenuSheet(false); handleSignOut(); }}
-                  className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#7a6f65] hover:bg-red-50 hover:text-red-600 w-full transition-colors"
-                >
-                  <LogOut size={18} />
-                  Sign Out
+                <button onClick={saveFabPhoto} disabled={fabSaving}
+                  className="w-full py-3 rounded-xl text-sm font-bold text-white transition-all shadow-sm disabled:opacity-60"
+                  style={{ backgroundColor: "#2d5a3d" }}>
+                  {fabSaving ? "Saving..." : "Save 🌱"}
                 </button>
               </div>
             </div>
           </>
+        )}
+
+        {fabToast && (
+          <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
+            <div className="bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">{fabToast}</div>
+          </div>
         )}
       </div>
     </PartnerContext.Provider>

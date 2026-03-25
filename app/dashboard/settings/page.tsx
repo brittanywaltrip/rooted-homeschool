@@ -187,13 +187,6 @@ export default function SettingsPage() {
   const [subscriptionStatus,  setSubscriptionStatus]  = useState<string | null>(null);
   const [portalLoading,       setPortalLoading]       = useState(false);
 
-  // Email update
-  const [editingEmail,    setEditingEmail]    = useState(false);
-  const [newEmail,        setNewEmail]        = useState("");
-  const [emailSaving,     setEmailSaving]     = useState(false);
-  const [emailSent,       setEmailSent]       = useState(false);
-  const [emailError,      setEmailError]      = useState("");
-
   // Password reset
   const [resetSending,    setResetSending]    = useState(false);
   const [resetSent,       setResetSent]       = useState(false);
@@ -228,7 +221,7 @@ export default function SettingsPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status, first_name, last_name, school_year_start, school_year_end, school_days")
+      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status, first_name, last_name")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -241,18 +234,7 @@ export default function SettingsPage() {
     setPartnerEmail(pe);
     setSavedPartnerEmail(pe);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
-    const dbState = String((profile as Record<string, unknown> | null)?.state ?? "");
-    // Normalize: match against option list (case-insensitive) to handle legacy formats
-    const stateOptions = ["Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut",
-      "Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa",
-      "Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan",
-      "Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada",
-      "New Hampshire","New Jersey","New Mexico","New York","North Carolina",
-      "North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island",
-      "South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont",
-      "Virginia","Washington","West Virginia","Wisconsin","Wyoming","Outside the US"];
-    const matched = stateOptions.find((s) => s.toLowerCase() === dbState.toLowerCase()) ?? dbState;
-    setHomeschoolState(matched);
+    setHomeschoolState((profile as { state?: string } | null)?.state ?? "");
     setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
     setCurrentPeriodEnd((profile as { current_period_end?: string } | null)?.current_period_end ?? null);
@@ -342,11 +324,12 @@ export default function SettingsPage() {
 
   async function saveFamilyName() {
     const nameToSave = familyName.trim();
+    console.log("[Settings] saveFamilyName() called — familyName state value:", JSON.stringify(nameToSave));
     setSavingFamily(true);
 
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
-    if (!token) { setSavingFamily(false); return; }
+    if (!token) { setSavingFamily(false); console.log("[Settings] saveFamilyName: no token, aborting"); return; }
 
     // Primary: API route (uses service role key, bypasses RLS)
     const res = await fetch("/api/profile/update", {
@@ -354,16 +337,19 @@ export default function SettingsPage() {
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
       body: JSON.stringify({ display_name: nameToSave }),
     });
-    await res.json().catch(() => ({}));
+    const resBody = await res.json().catch(() => ({}));
+    console.log("[Settings] API route response:", res.status, JSON.stringify(resBody));
 
     // Fallback: direct Supabase client update in case API route failed
     if (!res.ok) {
+      console.log("[Settings] API route failed — attempting direct Supabase fallback");
       const userId = session.user.id;
-      await supabase
+      const { data: fallbackData, error: fallbackErr } = await supabase
         .from("profiles")
         .update({ display_name: nameToSave })
         .eq("id", userId)
         .select();
+      console.log("[Settings] direct Supabase fallback result — data:", JSON.stringify(fallbackData), "error:", fallbackErr?.message ?? null);
     }
 
     setSavingFamily(false);
@@ -629,7 +615,6 @@ export default function SettingsPage() {
     const data = await res.json();
     if (data.error === 'no_customer') {
       setPortalLoading(false);
-      alert('To manage your subscription please email hello@rootedhomeschoolapp.com');
       return;
     }
     window.location.href = data.url;
@@ -1248,7 +1233,6 @@ export default function SettingsPage() {
         </div>
       </section>}
 
-      {/* ── School ─────────────────────────────────────────────── */}
       {/* ── Subscription ────────────────────────────────────── */}
       {activeTab === "account" && <section className="space-y-3">
         <div className="flex items-center gap-2">
@@ -1256,69 +1240,46 @@ export default function SettingsPage() {
           <span className="h-px flex-1 bg-[#e8e2d9]" />
         </div>
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5">
-          {(() => {
-            const isActivePaid = isPro || subscriptionStatus === 'active' || planType === 'founding_family' || planType === 'standard';
-            return (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium text-[#2d2926]">
-                      {planType === 'founding_family'
-                        ? '🌱 Founding Family — $39/yr locked forever'
-                        : planType === 'standard'
-                        ? '🌿 Standard — $59/yr'
-                        : '🪴 Free Plan'}
-                    </p>
-                    {currentPeriodEnd && subscriptionStatus === 'active' && (
-                      <p className="text-xs text-[#7a6f65] mt-1">
-                        Next billing:{' '}
-                        {new Date(currentPeriodEnd).toLocaleDateString('en-US', {
-                          month: 'long', day: 'numeric', year: 'numeric',
-                        })}
-                      </p>
-                    )}
-                    {subscriptionStatus === 'cancelled' && (
-                      <p className="text-xs text-red-500 mt-1">Subscription cancelled — access continues until end of billing period</p>
-                    )}
-                  </div>
-                  {isActivePaid ? (
-                    <button
-                      onClick={handleManageSubscription}
-                      disabled={portalLoading}
-                      className="shrink-0 px-4 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
-                    >
-                      {portalLoading ? 'Loading…' : 'Manage Subscription'}
-                    </button>
-                  ) : (
-                    <a
-                      href="/dashboard/pricing"
-                      className="shrink-0 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
-                    >
-                      Upgrade
-                    </a>
-                  )}
-                </div>
-
-                {/* Billing info */}
-                {isActivePaid && subscriptionStatus !== 'cancelled' && (
-                  <p className="text-[11px] text-[#b5aca4] leading-relaxed">
-                    Your access continues until the end of your billing period after cancellation.
-                  </p>
-                )}
-
-                {/* Cancel subscription — FTC click-to-cancel compliance */}
-                {subscriptionStatus === 'active' && isActivePaid && (
-                  <button
-                    onClick={handleManageSubscription}
-                    disabled={portalLoading}
-                    className="text-xs text-[#7a6f65] hover:text-red-500 transition-colors disabled:opacity-40"
-                  >
-                    Need to cancel? <span className="underline">Cancel your subscription →</span>
-                  </button>
-                )}
-              </div>
-            );
-          })()}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-[#2d2926]">
+                {planType === 'founding_family'
+                  ? '🌱 Founding Family — $39/yr locked forever'
+                  : planType === 'standard'
+                  ? '🌿 Standard — $59/yr'
+                  : '🪴 Free Plan'}
+              </p>
+              {currentPeriodEnd && subscriptionStatus === 'active' && (
+                <p className="text-xs text-[#7a6f65] mt-1">
+                  Next billing:{' '}
+                  {new Date(currentPeriodEnd).toLocaleDateString('en-US', {
+                    month: 'long', day: 'numeric', year: 'numeric',
+                  })}
+                </p>
+              )}
+              {subscriptionStatus === 'cancelled' && (
+                <p className="text-xs text-red-500 mt-1">Subscription cancelled</p>
+              )}
+            </div>
+            {(subscriptionStatus === 'active' || planType === 'founding_family' || planType === 'standard') ? (
+              <button
+                onClick={handleManageSubscription}
+                disabled={portalLoading}
+                className="shrink-0 px-4 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
+              >
+                {portalLoading ? 'Loading…' : 'Manage Subscription'}
+              </button>
+            ) : ADMIN_EMAILS.includes(userEmail) ? (
+              <span className="text-xs text-[#9e958d] italic shrink-0">Admin — managed via Stripe dashboard</span>
+            ) : (
+              <a
+                href="/upgrade"
+                className="shrink-0 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+              >
+                Upgrade to Founding Family →
+              </a>
+            )}
+          </div>
         </div>
       </section>}
 
@@ -1327,61 +1288,6 @@ export default function SettingsPage() {
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-[#2d2926]">Account</h2>
           <span className="h-px flex-1 bg-[#e8e2d9]" />
-        </div>
-
-        {/* Email address */}
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 space-y-3">
-          <div>
-            <p className="text-sm font-medium text-[#2d2926]">Email Address</p>
-            <p className="text-xs text-[#7a6f65] mt-0.5">{userEmail || "—"}</p>
-          </div>
-          {emailSent ? (
-            <p className="text-sm text-[#5c7f63] font-medium">{"\u2713"} Confirmation sent to {newEmail}. Check your inbox to verify.</p>
-          ) : editingEmail ? (
-            <div className="space-y-2">
-              <input
-                type="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder="New email address"
-                autoFocus
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { setEditingEmail(false); setNewEmail(""); setEmailError(""); }}
-                  className="flex-1 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  disabled={emailSaving || !newEmail.trim() || newEmail === userEmail}
-                  onClick={async () => {
-                    setEmailSaving(true);
-                    setEmailError("");
-                    const { error } = await supabase.auth.updateUser({ email: newEmail.trim() });
-                    setEmailSaving(false);
-                    if (error) {
-                      setEmailError(error.message);
-                    } else {
-                      setEmailSent(true);
-                    }
-                  }}
-                  className="flex-1 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
-                >
-                  {emailSaving ? "Sending..." : "Update Email"}
-                </button>
-              </div>
-              {emailError && <p className="text-xs text-red-600">{emailError}</p>}
-            </div>
-          ) : (
-            <button
-              onClick={() => { setEditingEmail(true); setNewEmail(""); setEmailSent(false); }}
-              className="px-4 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-            >
-              Update email
-            </button>
-          )}
         </div>
 
         {/* Reset password */}
@@ -1422,7 +1328,7 @@ export default function SettingsPage() {
 
         {/* Contact */}
         <p className="text-xs text-[#b5aca4] text-center">
-          Questions? Email <span className="text-[#5c7f63] font-medium">hello@rootedhomeschoolapp.com</span>
+          Questions? Email <span className="text-[#5c7f63] font-medium">hello.rootedapp@gmail.com</span>
         </p>
       </section>}
 
@@ -1598,7 +1504,19 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ── Kid View — hidden until rebuilt ──────────────────────────── */}
+      {/* ── Kid View ─────────────────────────────────────────────────── */}
+      <div className="mt-8 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+        <Link
+          href="/child"
+          className="flex items-center justify-between px-5 py-4 hover:bg-[#f8f5f0] transition-colors"
+        >
+          <div>
+            <p className="text-sm font-semibold text-[#2d2926]">Kid view</p>
+            <p className="text-xs text-[#7a6f65]">Show the garden to your child</p>
+          </div>
+          <span className="text-[#7a6f65]">→</span>
+        </Link>
+      </div>
 
       {/* ── Rooted Partner ───────────────────────────────────────────── */}
       {affiliateData?.is_active && (
@@ -1658,38 +1576,6 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* How to share */}
-            <div className="bg-[#e8f0e9] border border-[#b8d9bc] rounded-xl p-4 space-y-3">
-              <p className="text-xs font-semibold text-[#3d5c42] uppercase tracking-widest">How to share</p>
-              <p className="text-sm text-[#2d2926] leading-relaxed">
-                Your referral link gives followers 15% off automatically. Share it in your bio, stories, or posts.
-              </p>
-              <div className="bg-white border border-[#b8d9bc] rounded-lg px-3 py-2">
-                <p className="text-xs text-[#7a6f65] font-mono break-all">
-                  https://rootedhomeschoolapp.com?ref={affiliateData.code}
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(`https://rootedhomeschoolapp.com?ref=${affiliateData.code}`);
-                  showCopiedToast("Link copied!");
-                }}
-                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors"
-              >
-                Copy link
-              </button>
-            </div>
-
-            {/* Payout info */}
-            <div className="px-1 space-y-1">
-              <p className="text-xs text-[#b5aca4] leading-relaxed">
-                Commissions are 20% of each sale. Paid to your PayPal on the 1st of every month.
-              </p>
-              <p className="text-xs text-[#b5aca4]">
-                Minimum payout: $10
-              </p>
-            </div>
-
             {/* Partner since */}
             <p className="text-xs text-[#6366f1] text-center">
               Partner since {new Date(affiliateData.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
@@ -1705,7 +1591,7 @@ export default function SettingsPage() {
           {[
             { label: "What's new",      href: "/dashboard/more/whats-new", sub: "Latest updates" },
             { label: "FAQ",             href: "/faq",                       sub: "Common questions" },
-            { label: "Contact us",      href: "/contact",                   sub: "hello@rootedhomeschoolapp.com" },
+            { label: "Contact us",      href: "/contact",                   sub: "hello.rootedapp@gmail.com" },
           ].map(item => (
             <Link
               key={item.href}
