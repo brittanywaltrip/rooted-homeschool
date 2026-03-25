@@ -715,7 +715,7 @@ export default function TodayPage() {
 
     // First-time welcome check
     if (typeof window !== "undefined" && !localStorage.getItem("rooted_welcomed")) {
-      const isNew = (profile as { onboarded?: boolean } | null)?.onboarded === true && (totalLessons ?? 0) === 0;
+      const isNew = (profile as { onboarded?: boolean } | null)?.onboarded === true && (totalLessons ?? 0) < 3;
       if (isNew) {
         setShowWelcome(true);
         // Try to find the onboarding photo (last 30 minutes)
@@ -1768,6 +1768,17 @@ export default function TodayPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ── Floating camera FAB ────────────────────────────── */}
+      {!isPartner && !showLogModal && (
+        <button
+          onClick={() => setShowLogModal(true)}
+          className="fixed bottom-20 right-4 z-40 w-14 h-14 rounded-full bg-[#3d5c42] hover:bg-[#2d4a32] text-white shadow-lg flex items-center justify-center transition-colors"
+          aria-label="Log a memory"
+        >
+          <span className="text-xl">📷</span>
+        </button>
       )}
 
       {/* ── Log Today Modal ───────────────────────────────── */}
