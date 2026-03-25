@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Camera, Check, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -252,6 +253,68 @@ function ChildRow({
     </div>
   );
 }
+
+// ─── Step 0 — Opening ───────────────────────────────────────────────────────
+
+function StepOpening({ onNext }: { onNext: () => void }) {
+  return (
+    <div
+      className="min-h-screen flex flex-col justify-between"
+      style={{ backgroundColor: "#1a3d24", padding: "60px 40px 56px" }}
+    >
+      {/* TOP */}
+      <div>
+        <p style={{ fontSize: 12, letterSpacing: "0.12em", color: "rgba(255,255,255,0.45)" }} className="uppercase font-medium mb-4">
+          ROOTED
+        </p>
+        <div style={{ width: 40, height: 1, backgroundColor: "rgba(255,255,255,0.15)" }} className="mb-8" />
+        <h1
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 400,
+            fontSize: 42,
+            lineHeight: 1.15,
+            letterSpacing: "-0.5px",
+            color: "#ffffff",
+          }}
+          className="mb-5"
+        >
+          The homeschool years go&nbsp;by so&nbsp;fast.
+        </h1>
+        <p style={{ fontSize: 16, lineHeight: 1.65, color: "rgba(255,255,255,0.55)" }} className="max-w-sm">
+          Rooted helps you plan your days, capture the moments, and hold onto it&nbsp;all.
+        </p>
+      </div>
+
+      {/* BOTTOM */}
+      <div>
+        <button
+          type="button"
+          onClick={onNext}
+          className="w-full font-semibold transition-all active:scale-[0.98]"
+          style={{
+            backgroundColor: "#ffffff",
+            color: "#1a3d24",
+            fontSize: 16,
+            fontWeight: 600,
+            padding: 18,
+            borderRadius: 14,
+          }}
+        >
+          Let&apos;s get started →
+        </button>
+        <p className="text-center mt-4" style={{ fontSize: 13, color: "rgba(255,255,255,0.3)" }}>
+          Already have an account?{" "}
+          <Link href="/login" className="underline underline-offset-2 hover:text-white/50 transition-colors">
+            Log in
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 1 — Family & Kids ─────────────────────────────────────────────────
 
 function StepFamilyAndKids({
   familyName, onFamilyNameChange,
@@ -826,7 +889,7 @@ function StepDone({
 export default function OnboardingPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(0);
   const [userId, setUserId] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -1010,6 +1073,8 @@ export default function OnboardingPage() {
       </div>
     );
   }
+
+  if (step === 0) return <StepOpening onNext={() => setStep(1)} />;
 
   if (step === 1) return (
     <StepFamilyAndKids
