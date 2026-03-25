@@ -854,10 +854,10 @@ function StepDone({
           className="text-3xl sm:text-4xl font-bold text-white mb-4 leading-tight"
           style={{ fontFamily: "var(--font-display)" }}
         >
-          You&apos;re all set!
+          Your story starts here.
         </h1>
         <p className="text-[#c8ddb8] text-base leading-relaxed mb-3 max-w-xs">
-          Your homeschool is officially rooted. Time to watch it grow.
+          Every lesson, every photo, every little moment — Rooted holds onto it all. You don&apos;t have to be perfect. You just have to show up.
         </p>
         {noCurriculumNote && (
           <p className="text-[#a0cc9a] text-sm mb-4 max-w-xs">
@@ -867,12 +867,7 @@ function StepDone({
 
         {/* Founder closing moment */}
         <div className="mt-4 mb-8 flex flex-col items-center">
-          <div
-            className="w-14 h-14 rounded-full bg-[#2d5c38] flex items-center justify-center text-white text-xl font-bold shadow-lg mb-4"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            B
-          </div>
+          <span className="text-[40px] mb-4">🌱</span>
           <p
             className="text-white/85 text-sm leading-relaxed italic mb-2 max-w-[280px]"
             style={{ fontFamily: "var(--font-display)" }}
