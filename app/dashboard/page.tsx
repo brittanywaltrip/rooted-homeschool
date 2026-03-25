@@ -1128,14 +1128,6 @@ export default function TodayPage() {
           </p>
         )}
 
-        {/* Founding Member badge */}
-        {planType === "founding_family" && (
-          <p className="mt-2 text-center">
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.8)" }}>
-              {"\uD83C\uDF31"} Founding Member
-            </span>
-          </p>
-        )}
 
         {/* Days learning milestone — shows once per month */}
         {daysLearning && !activeVacation && (
