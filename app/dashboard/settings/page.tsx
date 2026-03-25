@@ -187,6 +187,13 @@ export default function SettingsPage() {
   const [subscriptionStatus,  setSubscriptionStatus]  = useState<string | null>(null);
   const [portalLoading,       setPortalLoading]       = useState(false);
 
+  // Email update
+  const [editingEmail,    setEditingEmail]    = useState(false);
+  const [newEmail,        setNewEmail]        = useState("");
+  const [emailSaving,     setEmailSaving]     = useState(false);
+  const [emailSent,       setEmailSent]       = useState(false);
+  const [emailError,      setEmailError]      = useState("");
+
   // Password reset
   const [resetSending,    setResetSending]    = useState(false);
   const [resetSent,       setResetSent]       = useState(false);
@@ -1309,6 +1316,61 @@ export default function SettingsPage() {
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-[#2d2926]">Account</h2>
           <span className="h-px flex-1 bg-[#e8e2d9]" />
+        </div>
+
+        {/* Email address */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-[#2d2926]">Email Address</p>
+            <p className="text-xs text-[#7a6f65] mt-0.5">{userEmail || "—"}</p>
+          </div>
+          {emailSent ? (
+            <p className="text-sm text-[#5c7f63] font-medium">{"\u2713"} Confirmation sent to {newEmail}. Check your inbox to verify.</p>
+          ) : editingEmail ? (
+            <div className="space-y-2">
+              <input
+                type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                placeholder="New email address"
+                autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setEditingEmail(false); setNewEmail(""); setEmailError(""); }}
+                  className="flex-1 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={emailSaving || !newEmail.trim() || newEmail === userEmail}
+                  onClick={async () => {
+                    setEmailSaving(true);
+                    setEmailError("");
+                    const { error } = await supabase.auth.updateUser({ email: newEmail.trim() });
+                    setEmailSaving(false);
+                    if (error) {
+                      setEmailError(error.message);
+                    } else {
+                      setEmailSent(true);
+                    }
+                  }}
+                  className="flex-1 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                >
+                  {emailSaving ? "Sending..." : "Update Email"}
+                </button>
+              </div>
+              {emailError && <p className="text-xs text-red-600">{emailError}</p>}
+            </div>
+          ) : (
+            <button
+              onClick={() => { setEditingEmail(true); setNewEmail(""); setEmailSent(false); }}
+              className="px-4 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+            >
+              Update email
+            </button>
+          )}
         </div>
 
         {/* Reset password */}

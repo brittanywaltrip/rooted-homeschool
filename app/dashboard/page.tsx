@@ -399,6 +399,7 @@ export default function TodayPage() {
 
   const [nudgeDismissed,   setNudgeDismissed]   = useState(false);
   const [isPro,            setIsPro]            = useState(false);
+  const [planType,         setPlanType]         = useState<string | null>(null);
   const [upgradeDismissed, setUpgradeDismissed] = useState(false);
   useEffect(() => {
     if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") setNudgeDismissed(true);
@@ -466,12 +467,13 @@ export default function TodayPage() {
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
-      supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
+      supabase.from("profiles").select("is_pro, plan_type").eq("id", effectiveUserId).single(),
     ]);
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setPlanType((profileData as { plan_type?: string } | null)?.plan_type ?? null);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
     // Check if today is a school day
@@ -991,6 +993,15 @@ export default function TodayPage() {
         {streak >= 2 && isSchoolDay && !activeVacation && (
           <p className="text-[11px] mt-2 text-center" style={{ color: "rgba(255,255,255,0.6)" }}>
             🌱 {streak} day streak
+          </p>
+        )}
+
+        {/* Founding Member badge */}
+        {planType === "founding_family" && (
+          <p className="mt-2 text-center">
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.8)" }}>
+              {"\uD83C\uDF31"} Founding Member
+            </span>
           </p>
         )}
 
