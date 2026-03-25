@@ -1,29 +1,42 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
-import { Camera, BookOpen, FolderOpen, Sparkles, Download, X, ImageIcon, ArrowRight, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { Sparkles, Download, X, ArrowRight, MoreHorizontal, Trash2, Pencil } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
-import PaywallCard from "@/components/PaywallCard";
 import LogTodayModal from "@/app/components/LogTodayModal";
 import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Memory = {
+type MemoryRow = {
   id: string;
   user_id: string;
   child_id: string | null;
   date: string;
   type: string;
-  title: string;
+  title: string | null;
   caption: string | null;
   photo_url: string | null;
   include_in_book: boolean;
   page_order: number | null;
   created_at: string;
   updated_at: string;
+};
+
+type LegacyEvent = {
+  id: string;
+  type: string;
+  payload: {
+    title?: string;
+    description?: string;
+    photo_url?: string;
+    child_id?: string;
+    date?: string;
+    author?: string;
+  };
+  created_at: string;
 };
 
 type Reflection = {
@@ -36,75 +49,104 @@ type Reflection = {
 
 type Child = { id: string; name: string; color: string | null };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const MEMORY_TYPES = [
-  { id: "all",        label: "All",         emoji: "✨" },
-  { id: "memory_photo",      label: "Photos",      emoji: "📷" },
-  { id: "memory_field_trip", label: "Field Trips", emoji: "🗺️"  },
-  { id: "memory_project",    label: "Projects",    emoji: "📁" },
-  { id: "memory_book",       label: "Books",       emoji: "📖" },
-  { id: "reflection", label: "Reflections", emoji: "📝" },
-];
+function legacyToMemory(e: LegacyEvent): MemoryRow {
+  const typeMap: Record<string, string> = {
+    memory_photo: "photo",
+    memory_book: "book",
+    book_read: "book",
+    memory_project: "project",
+    memory_field_trip: "field_trip",
+    memory_activity: "activity",
+  };
+  return {
+    id: e.id,
+    user_id: "",
+    child_id: e.payload.child_id ?? null,
+    date: e.payload.date ?? e.created_at.split("T")[0],
+    type: typeMap[e.type] ?? "photo",
+    title: e.payload.title ?? null,
+    caption: e.payload.description ?? (e.payload.author ? `by ${e.payload.author}` : null),
+    photo_url: e.payload.photo_url ?? null,
+    include_in_book: false,
+    page_order: null,
+    created_at: e.created_at,
+    updated_at: e.created_at,
+  };
+}
+
+const TYPE_EMOJI: Record<string, string> = {
+  photo: "📷",
+  book: "📖",
+  project: "📁",
+  field_trip: "🗺️",
+  activity: "🎵",
+};
+
+const TYPE_LABEL: Record<string, string> = {
+  photo: "Photo",
+  book: "Book",
+  project: "Project",
+  field_trip: "Field Trip",
+  activity: "Activity",
+};
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MemoriesPage() {
   const { isPartner, effectiveUserId } = usePartner();
-  const [memories,     setMemories]    = useState<Memory[]>([]);
-  const [reflections,  setReflections] = useState<Reflection[]>([]);
-  const [children,     setChildren]    = useState<Child[]>([]);
-  const [activeType,   setActiveType]  = useState("all");
-  const [activeChild,  setActiveChild] = useState("all");      // "all" | "family" | child id
-  const [loading,      setLoading]     = useState(true);
-  const [isPro,        setIsPro]       = useState<boolean | null>(null);
-  const [showModal,    setShowModal]   = useState(false);
-  const [modalType,    setModalType]   = useState<"photo" | "project" | "book">("photo");
+  const [memories, setMemories] = useState<MemoryRow[]>([]);
+  const [reflections, setReflections] = useState<Reflection[]>([]);
+  const [children, setChildren] = useState<Child[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isPro, setIsPro] = useState<boolean | null>(null);
   const [showLogModal, setShowLogModal] = useState(false);
-  const [lightboxUrl,  setLightboxUrl] = useState<string | null>(null);
-  const [memoryDaysThisWeek, setMemoryDaysThisWeek] = useState(0);
 
-  // Form state
-  const [formTitle,   setFormTitle]   = useState("");
-  const [formDesc,    setFormDesc]    = useState("");
-  const [formChild,   setFormChild]   = useState("");
-  const [formDate,    setFormDate]    = useState(new Date().toISOString().split("T")[0]);
-  const [formAuthor,  setFormAuthor]  = useState("");
-  const [formFile,    setFormFile]    = useState<File | null>(null);
-  const [previewUrl,  setPreviewUrl]  = useState<string | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [saving,      setSaving]      = useState(false);
+  // Filter: "all" | "family" | child id
+  const [filter, setFilter] = useState("all");
+
+  // Detail / lightbox
+  const [selectedMemory, setSelectedMemory] = useState<MemoryRow | null>(null);
+
+  // Menu
+  const [menuId, setMenuId] = useState<string | null>(null);
 
   // Edit state
-  const [editingMemory,     setEditingMemory]     = useState<Memory | null>(null);
-  const [editTitle,         setEditTitle]         = useState("");
-  const [editCaption,       setEditCaption]       = useState("");
-  const [editChild,         setEditChild]         = useState("");
-  const [editDate,          setEditDate]          = useState("");
-  const [savingEdit,        setSavingEdit]        = useState(false);
+  const [editing, setEditing] = useState<MemoryRow | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editCaption, setEditCaption] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editChild, setEditChild] = useState("");
+  const [editInBook, setEditInBook] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
 
   // Delete state
-  const [deletingMemoryId,  setDeletingMemoryId]  = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<MemoryRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  // Reflection view/edit state
-  const [viewingReflection,       setViewingReflection]       = useState<Reflection | null>(null);
-  const [editingReflection,       setEditingReflection]       = useState(false);
-  const [reflectionEditText,      setReflectionEditText]      = useState("");
+  // Reflection view
+  const [viewingReflection, setViewingReflection] = useState<Reflection | null>(null);
+  const [editingReflection, setEditingReflection] = useState(false);
+  const [reflectionEditText, setReflectionEditText] = useState("");
   const [reflectionDeleteConfirm, setReflectionDeleteConfirm] = useState(false);
-  const [savingReflection,        setSavingReflection]        = useState(false);
-
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [savingReflection, setSavingReflection] = useState(false);
 
   // ── Load data ───────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     if (!effectiveUserId) return;
 
-    // Query profile first so we know if user is pro (needed for 30-day gate)
-    const { data: profile } = await supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single();
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_pro")
+      .eq("id", effectiveUserId)
+      .single();
     const userIsPro = (profile as { is_pro?: boolean } | null)?.is_pro ?? false;
+    setIsPro(userIsPro);
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const dateFloor = userIsPro ? "2020-01-01" : thirtyDaysAgo;
 
     const [{ data: kids }, { data: memRows }, { data: reflData }] = await Promise.all([
       supabase
@@ -117,8 +159,8 @@ export default function MemoriesPage() {
         .from("memories")
         .select("*")
         .eq("user_id", effectiveUserId)
-        .gte("created_at", userIsPro ? "2020-01-01" : thirtyDaysAgo)
-        .order("created_at", { ascending: false }),
+        .gte("created_at", dateFloor)
+        .order("date", { ascending: false }),
       supabase
         .from("daily_reflections")
         .select("id, date, reflection, is_private, updated_at")
@@ -127,24 +169,21 @@ export default function MemoriesPage() {
     ]);
 
     setChildren(kids ?? []);
-    setMemories((memRows as unknown as Memory[]) ?? []);
-    setIsPro(userIsPro);
     setReflections((reflData as unknown as Reflection[]) ?? []);
 
-    // Memory logging streak — how many days this week have entries
-    const nowDate = new Date();
-    const currentDow = nowDate.getDay();
-    const monday = new Date(nowDate);
-    monday.setDate(monday.getDate() - ((currentDow === 0 ? 7 : currentDow) - 1));
-    monday.setHours(0, 0, 0, 0);
-    const mondayStr = monday.toISOString();
-    const { data: weekEvents } = await supabase
-      .from("memories")
-      .select("created_at")
-      .eq("user_id", effectiveUserId)
-      .gte("created_at", mondayStr);
-    const uniqueDays = new Set((weekEvents ?? []).map(e => (e as { created_at: string }).created_at?.split("T")[0]));
-    setMemoryDaysThisWeek(uniqueDays.size);
+    // If memories table has data, use it. Otherwise fall back to app_events.
+    if (memRows && memRows.length > 0) {
+      setMemories(memRows as MemoryRow[]);
+    } else {
+      const { data: events } = await supabase
+        .from("app_events")
+        .select("id, type, payload, created_at")
+        .eq("user_id", effectiveUserId)
+        .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"])
+        .gte("created_at", dateFloor)
+        .order("created_at", { ascending: false });
+      setMemories((events ?? []).map((e) => legacyToMemory(e as unknown as LegacyEvent)));
+    }
 
     setLoading(false);
   }, [effectiveUserId]);
@@ -155,32 +194,94 @@ export default function MemoriesPage() {
 
   const childName = (id?: string | null) =>
     id ? (children.find((c) => c.id === id)?.name ?? "") : "";
-
   const childColor = (id?: string | null) =>
     id ? (children.find((c) => c.id === id)?.color ?? "#5c7f63") : "#5c7f63";
 
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFormFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
-    setUploadError(null);
+  const formatDate = (d: string) =>
+    new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  // ── Filter ──────────────────────────────────────────────────────────────────
+
+  const filtered = memories.filter((m) => {
+    if (filter === "all") return true;
+    if (filter === "family") return !m.child_id;
+    return m.child_id === filter;
+  });
+
+  // ── Edit handlers ─────────────────────────────────────────────────────────
+
+  function openEdit(m: MemoryRow) {
+    setEditing(m);
+    setEditTitle(m.title ?? "");
+    setEditCaption(m.caption ?? "");
+    setEditDate(m.date);
+    setEditChild(m.child_id ?? "");
+    setEditInBook(m.include_in_book);
+    setMenuId(null);
+    setSelectedMemory(null);
   }
 
-  function openModal(type: "photo" | "project" | "book") {
-    setModalType(type);
-    setFormTitle(""); setFormDesc(""); setFormChild(""); setFormAuthor("");
-    setFormDate(new Date().toISOString().split("T")[0]);
-    setFormFile(null); setPreviewUrl(null); setUploadError(null);
-    setShowModal(true);
+  async function saveEdit() {
+    if (!editing) return;
+    setEditSaving(true);
+    const updates = {
+      title: editTitle.trim() || null,
+      caption: editCaption.trim() || null,
+      date: editDate,
+      child_id: editChild || null,
+      include_in_book: editInBook,
+      updated_at: new Date().toISOString(),
+    };
+    const { data } = await supabase
+      .from("memories")
+      .update(updates)
+      .eq("id", editing.id)
+      .select()
+      .single();
+    if (data) {
+      setMemories((prev) => prev.map((m) => (m.id === editing.id ? (data as MemoryRow) : m)));
+    }
+    setEditSaving(false);
+    setEditing(null);
   }
 
-  function closeModal() {
-    setShowModal(false);
-    setFormFile(null);
-    setPreviewUrl(null);
-    setUploadError(null);
+  // ── Delete handlers ────────────────────────────────────────────────────────
+
+  function openDelete(m: MemoryRow) {
+    setDeleteTarget(m);
+    setMenuId(null);
+    setSelectedMemory(null);
   }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+
+    // Delete photo from storage if exists
+    if (deleteTarget.photo_url) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const url = deleteTarget.photo_url;
+        const buckets = ["memories", "memory-photos"];
+        for (const bucket of buckets) {
+          const marker = `/storage/v1/object/public/${bucket}/`;
+          const idx = url.indexOf(marker);
+          if (idx !== -1) {
+            const path = url.slice(idx + marker.length);
+            await supabase.storage.from(bucket).remove([path]);
+            break;
+          }
+        }
+      }
+    }
+
+    await supabase.from("memories").delete().eq("id", deleteTarget.id);
+    setMemories((prev) => prev.filter((m) => m.id !== deleteTarget.id));
+    setDeleting(false);
+    setDeleteTarget(null);
+  }
+
+  // ── Reflection handlers ────────────────────────────────────────────────────
 
   function openReflection(r: Reflection) {
     setViewingReflection(r);
@@ -194,52 +295,6 @@ export default function MemoriesPage() {
     setReflectionDeleteConfirm(false);
   }
 
-  // ── Edit memory ────────────────────────────────────────────────────────────
-
-  function openEditMemory(m: Memory) {
-    setEditingMemory(m);
-    setEditTitle(m.title);
-    setEditCaption(m.caption ?? "");
-    setEditChild(m.child_id ?? "");
-    setEditDate(m.date);
-  }
-
-  function closeEditMemory() {
-    setEditingMemory(null);
-  }
-
-  async function saveMemoryEdit() {
-    if (!editingMemory) return;
-    setSavingEdit(true);
-    const { data } = await supabase
-      .from("memories")
-      .update({
-        title: editTitle.trim() || editingMemory.title,
-        caption: editCaption.trim() || null,
-        child_id: editChild || null,
-        date: editDate,
-      })
-      .eq("id", editingMemory.id)
-      .select()
-      .single();
-    if (data) {
-      const updated = data as unknown as Memory;
-      setMemories((prev) => prev.map((m) => m.id === updated.id ? updated : m));
-    }
-    setSavingEdit(false);
-    closeEditMemory();
-  }
-
-  // ── Delete memory ──────────────────────────────────────────────────────────
-
-  async function deleteMemory(id: string) {
-    await supabase.from("memories").delete().eq("id", id);
-    setMemories((prev) => prev.filter((m) => m.id !== id));
-    setDeletingMemoryId(null);
-  }
-
-  // ── Reflection edit/delete ─────────────────────────────────────────────────
-
   async function saveReflectionEdit() {
     if (!viewingReflection || !reflectionEditText.trim()) return;
     setSavingReflection(true);
@@ -251,7 +306,7 @@ export default function MemoriesPage() {
       .single();
     if (data) {
       const updated = data as Reflection;
-      setReflections((prev) => prev.map((r) => r.id === updated.id ? updated : r));
+      setReflections((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
       setViewingReflection(updated);
     }
     setSavingReflection(false);
@@ -265,135 +320,12 @@ export default function MemoriesPage() {
     closeReflection();
   }
 
-  // ── Save memory ─────────────────────────────────────────────────────────────
-
-  async function saveMemory() {
-    if (!formTitle.trim() && modalType !== "photo") return;
-    if (modalType === "photo" && !formFile && !formTitle.trim()) return;
-
-    setSaving(true);
-    setUploadError(null);
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSaving(false); return; }
-
-    // Check photo limit for free users
-    if (modalType === "photo" && !isPro) {
-      const { data: countProfile } = await supabase
-        .from("profiles")
-        .select("photo_count")
-        .eq("id", user.id)
-        .single();
-
-      if ((countProfile?.photo_count ?? 0) >= 50) {
-        setUploadError(
-          "You've reached the 50-photo limit on the free plan. Upgrade to upload unlimited photos."
-        );
-        setSaving(false);
-        return;
-      }
-    }
-
-    // Upload photo if provided
-    let photoUrl: string | null = null;
-    if (modalType === "photo" && formFile) {
-      const ext = formFile.name.split(".").pop() ?? "jpg";
-      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-      const { error: uploadErr } = await supabase.storage
-        .from("memories")
-        .upload(path, formFile, { contentType: formFile.type, upsert: false });
-
-      if (uploadErr) {
-        setUploadError(
-          uploadErr.message.includes("Bucket not found")
-            ? "Storage not set up yet. Create a public bucket named 'memories' in your Supabase dashboard."
-            : `Upload failed: ${uploadErr.message}`
-        );
-        setSaving(false);
-        return;
-      }
-
-      const { data: urlData } = supabase.storage.from("memories").getPublicUrl(path);
-      photoUrl = urlData.publicUrl;
-    }
-
-    const { data } = await supabase
-      .from("memories")
-      .insert({
-        user_id: user.id,
-        type: `memory_${modalType}`,
-        title: formTitle.trim() || (formFile?.name ?? "Photo"),
-        caption: formDesc.trim() || null,
-        child_id: formChild || null,
-        date: formDate,
-        photo_url: photoUrl,
-      })
-      .select()
-      .single();
-
-    if (data) setMemories((prev) => [data as unknown as Memory, ...prev]);
-
-    // Increment photo count for free users after successful upload
-    if (modalType === "photo" && !isPro) {
-      await supabase.rpc("increment_photo_count", { p_user_id: user.id });
-    }
-
-    setSaving(false);
-    closeModal();
-  }
-
-  // ── Derived state ────────────────────────────────────────────────────────────
-
-  const filteredMemories = memories.filter((m) => {
-    // Type filter
-    if (activeType !== "all" && activeType !== "reflection" && m.type !== activeType) return false;
-    // Child filter
-    if (activeChild === "family") return !m.child_id;
-    if (activeChild !== "all") return m.child_id === activeChild;
-    return true;
-  });
-
-  // Type-specific helpers
-  function memoryEmoji(type: string) {
-    if (type === "memory_photo") return "📷";
-    if (type === "memory_project") return "📁";
-    if (type === "memory_book") return "📖";
-    if (type === "memory_field_trip") return "🗺️";
-    if (type === "memory_activity") return "🎵";
-    if (type === "book_read") return "📖";
-    return "✨";
-  }
-
-  function memoryLabel(type: string) {
-    if (type === "memory_photo") return "Photo";
-    if (type === "memory_project") return "Project";
-    if (type === "memory_book") return "Book";
-    if (type === "memory_field_trip") return "Field Trip";
-    if (type === "memory_activity") return "Activity";
-    if (type === "book_read") return "Book";
-    return "Memory";
-  }
-
-  function memoryBg(type: string) {
-    if (type === "memory_photo") return "#f0f4ff";
-    if (type === "memory_project") return "#f5ede0";
-    if (type === "memory_book" || type === "book_read") return "#e8f0e9";
-    if (type === "memory_field_trip") return "#fff8e8";
-    if (type === "memory_activity") return "#f0e8f5";
-    return "#f0ede8";
-  }
-
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <>
-    <PageHero
-      overline="Your Family Story"
-      title="Memories 📸"
-      subtitle="Capture photos, projects, and books."
-    />
-    <div className="max-w-3xl px-4 pt-5 pb-7 space-y-6">
+    <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Capture photos, projects, and books." />
+    <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
       {/* Add memory */}
       {!isPartner && (
@@ -401,9 +333,7 @@ export default function MemoriesPage() {
           onClick={() => setShowLogModal(true)}
           className="w-full flex items-center gap-4 bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] hover:bg-[#f8f5f0] rounded-2xl px-5 py-4 transition-colors"
         >
-          <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0 text-lg">
-            📸
-          </div>
+          <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0 text-lg">📸</div>
           <div className="flex-1 text-left">
             <p className="text-sm font-semibold text-[#2d2926]">+ Log a Memory</p>
             <p className="text-xs text-[#7a6f65]">Photo, project, book, or anything you want to remember</p>
@@ -412,16 +342,7 @@ export default function MemoriesPage() {
         </button>
       )}
 
-      {/* Memories streak */}
-      {memoryDaysThisWeek >= 2 && (
-        <p className="text-xs text-[#5c7f63] text-center -mt-2">
-          {memoryDaysThisWeek >= 5
-            ? "🌟 You captured something every school day this week!"
-            : `🌿 You've captured something ${memoryDaysThisWeek} days this week`}
-        </p>
-      )}
-
-      {/* AI Year in Review — live feature */}
+      {/* AI Year in Review */}
       <Link
         href={isPro ? "/dashboard/year-in-review" : "/dashboard/pricing"}
         className="block bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 hover:from-[#ddeade] hover:to-[#c5e0c8] transition-colors group"
@@ -437,11 +358,7 @@ export default function MemoriesPage() {
               print a beautiful keepsake to share with grandparents.
             </p>
             <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-[#5c7f63] bg-white/70 px-2.5 py-1 rounded-full group-hover:bg-white transition-colors">
-              {isPro ? (
-                <>Open Year in Review <ArrowRight size={10} /></>
-              ) : (
-                "🔒 Pro Feature"
-              )}
+              {isPro ? (<>Open Year in Review <ArrowRight size={10} /></>) : "🔒 Pro Feature"}
             </span>
           </div>
           <Download size={16} className="text-[#5c7f63] shrink-0 mt-0.5" />
@@ -461,58 +378,43 @@ export default function MemoriesPage() {
       </Link>
 
       {/* ── Child filter bar ─────────────────────────────────── */}
-      {children.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setActiveChild("all")}
-            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              activeChild === "all"
-                ? "bg-[#2d2926] text-white"
-                : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#2d2926]"
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setActiveChild("family")}
-            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              activeChild === "family"
-                ? "bg-[#2d2926] text-white"
-                : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#2d2926]"
-            }`}
-          >
-            👨‍👩‍👧‍👦 Family
-          </button>
-          {children.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setActiveChild(c.id)}
-              className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                activeChild === c.id
-                  ? "text-white"
-                  : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
-              }`}
-              style={activeChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : undefined}
-            >
-              {c.name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Type filter tabs */}
       <div className="flex gap-2 flex-wrap">
-        {MEMORY_TYPES.map((t) => (
+        <button
+          onClick={() => setFilter("all")}
+          className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            filter === "all"
+              ? "bg-[#5c7f63] text-white"
+              : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+          }`}
+        >
+          All
+        </button>
+        <button
+          onClick={() => setFilter("family")}
+          className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            filter === "family"
+              ? "bg-[#5c7f63] text-white"
+              : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+          }`}
+        >
+          👨‍👩‍👧‍👦 Family
+        </button>
+        {children.map((c) => (
           <button
-            key={t.id}
-            onClick={() => setActiveType(t.id)}
-            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              activeType === t.id
-                ? "bg-[#5c7f63] text-white"
+            key={c.id}
+            onClick={() => setFilter(c.id)}
+            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5 ${
+              filter === c.id
+                ? "text-white"
                 : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
             }`}
+            style={filter === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : {}}
           >
-            {t.emoji} {t.label}
+            <span
+              className="w-2.5 h-2.5 rounded-full shrink-0"
+              style={{ backgroundColor: c.color ?? "#5c7f63", ...(filter === c.id ? { border: "1.5px solid rgba(255,255,255,0.6)" } : {}) }}
+            />
+            {c.name}
           </button>
         ))}
       </div>
@@ -523,198 +425,221 @@ export default function MemoriesPage() {
           <p className="text-xs text-[#5c7f63] leading-snug">
             📖 Showing your last 30 days — upgrade to unlock your full family story
           </p>
-          <Link href="/dashboard/pricing"
-            className="text-xs font-semibold text-[#3d5c42] underline underline-offset-2 shrink-0 ml-3">
+          <Link href="/dashboard/pricing" className="text-xs font-semibold text-[#3d5c42] underline underline-offset-2 shrink-0 ml-3">
             Upgrade
           </Link>
         </div>
       )}
 
-      {/* ── Reflections tab ─────────────────────────────────── */}
-      {activeType === "reflection" && (
-        loading ? (
-          <div className="text-center py-12">
-            <span className="text-3xl animate-pulse">📝</span>
-          </div>
-        ) : reflections.length === 0 ? (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-            <span className="text-4xl mb-3">📝</span>
-            <p className="font-medium text-[#2d2926] mb-1">No reflections yet</p>
-            <p className="text-sm text-[#7a6f65] max-w-xs">
-              No reflections yet. Tap Log Today to write your first one →
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2.5">
-            {reflections.map((r) => {
-              const dateLabel = new Date(r.date + "T12:00:00").toLocaleDateString("en-US", {
-                weekday: "short", month: "long", day: "numeric", year: "numeric",
-              });
-              return (
-                <button
-                  key={r.id}
-                  onClick={() => openReflection(r)}
-                  className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-left hover:bg-[#faf8f5] transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-[#5c7f63]">{dateLabel}</span>
-                      {r.is_private && <span className="text-[10px] text-[#b5aca4]">🔒</span>}
-                    </div>
-                    <span className="text-[#c8bfb5] text-base leading-none shrink-0">›</span>
-                  </div>
-                  <p className="text-sm text-[#2d2926] leading-relaxed line-clamp-2">{r.reflection}</p>
-                </button>
-              );
-            })}
-          </div>
-        )
-      )}
-
-      {/* ── Memories content (non-reflection tabs) ────────── */}
-      {activeType !== "reflection" && (
-        loading ? (
-          <div className="text-center py-12">
-            <span className="text-3xl animate-pulse">📷</span>
-          </div>
-        ) : filteredMemories.length === 0 ? (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-            <span className="text-4xl mb-3">🌸</span>
-            <p className="font-medium text-[#2d2926] mb-1">No memories yet</p>
-            <p className="text-sm text-[#7a6f65] max-w-xs">
-              Start logging photos, projects, and books to build your family&apos;s story.
-            </p>
-          </div>
-        ) : (
-          /* ── 2-column photo grid ─────────────────────────── */
-          <div className="grid grid-cols-2 gap-3">
-            {filteredMemories.map((m) => {
-              const hasPhoto = !!m.photo_url;
-              const dateLabel = m.date
-                ? new Date(m.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                : new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-
-              return (
-                <div
-                  key={m.id}
-                  className="group relative rounded-2xl overflow-hidden bg-[#f0ede8] flex flex-col"
-                >
-                  {/* Photo or placeholder */}
-                  {hasPhoto ? (
-                    <button
-                      onClick={() => setLightboxUrl(m.photo_url!)}
-                      className="aspect-square w-full focus:outline-none"
-                    >
-                      <img
-                        src={m.photo_url!}
-                        alt={m.title ?? "Memory"}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    </button>
-                  ) : (
-                    <div
-                      className="aspect-square w-full flex items-center justify-center"
-                      style={{ backgroundColor: memoryBg(m.type) }}
-                    >
-                      <span className="text-4xl">{memoryEmoji(m.type)}</span>
-                    </div>
-                  )}
-
-                  {/* Bottom info bar */}
-                  <div className="bg-[#fefcf9] px-3 py-2.5 flex-1 min-h-0">
-                    <p className="text-xs font-semibold text-[#2d2926] line-clamp-2 leading-snug">
-                      {m.title || "Untitled"}
-                    </p>
-                    {m.caption && (
-                      <p className="text-[11px] text-[#7a6f65] mt-0.5 line-clamp-1">{m.caption}</p>
-                    )}
-                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                      <span className="text-[10px] text-[#b5aca4]">{dateLabel}</span>
-                      <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-1.5 py-0.5 rounded-full">
-                        {memoryLabel(m.type)}
-                      </span>
-                      {m.child_id && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded-full text-white"
-                          style={{ backgroundColor: childColor(m.child_id) }}
-                        >
-                          {childName(m.child_id)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Edit / Delete overlay — visible on hover */}
-                  {!isPartner && (
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); openEditMemory(m); }}
-                        className="w-7 h-7 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors"
-                        aria-label="Edit memory"
-                      >
-                        <Pencil size={12} />
-                      </button>
-                      {deletingMemoryId === m.id ? (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); deleteMemory(m.id); }}
-                          className="h-7 px-2 rounded-full bg-red-500 hover:bg-red-600 text-white text-[10px] font-semibold flex items-center justify-center transition-colors"
-                        >
-                          Confirm
-                        </button>
-                      ) : (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDeletingMemoryId(m.id); }}
-                          className="w-7 h-7 rounded-full bg-black/50 hover:bg-red-500 text-white flex items-center justify-center transition-colors"
-                          aria-label="Delete memory"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      )}
-                    </div>
-                  )}
+      {/* ── Reflections section (when filter = all, show recent) ── */}
+      {filter === "all" && reflections.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-2">📝 Reflections</p>
+          <div className="space-y-2">
+            {reflections.slice(0, 3).map((r) => (
+              <button
+                key={r.id}
+                onClick={() => openReflection(r)}
+                className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-3.5 text-left hover:bg-[#faf8f5] transition-colors"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-semibold text-[#5c7f63]">
+                    {new Date(r.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                  </span>
+                  {r.is_private && <span className="text-[10px] text-[#b5aca4]">🔒</span>}
                 </div>
-              );
-            })}
+                <p className="text-sm text-[#2d2926] leading-relaxed line-clamp-2">{r.reflection}</p>
+              </button>
+            ))}
           </div>
-        )
-      )}
-
-      {/* ── Lightbox ────────────────────────────────────────── */}
-      {lightboxUrl && (
-        <div
-          className="fixed inset-0 bg-black/85 z-[60] flex items-center justify-center p-4 cursor-pointer"
-          onClick={() => setLightboxUrl(null)}
-        >
-          <button
-            onClick={() => setLightboxUrl(null)}
-            className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors z-10"
-            aria-label="Close"
-          >
-            <X size={28} />
-          </button>
-          <img
-            src={lightboxUrl}
-            alt="Memory"
-            className="max-w-full max-h-[90vh] rounded-2xl object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
         </div>
       )}
 
-      {/* ── Edit Memory Modal ──────────────────────────────── */}
-      {editingMemory && (
+      {/* ── Memory grid ──────────────────────────────────────── */}
+      {loading ? (
+        <div className="text-center py-16">
+          <span className="text-3xl animate-pulse">📷</span>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+          <span className="text-4xl mb-3">🌸</span>
+          <p className="font-medium text-[#2d2926] mb-1">No memories yet</p>
+          <p className="text-sm text-[#7a6f65] max-w-xs">
+            Start logging photos, projects, and books to build your family&apos;s story.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2.5">
+          {filtered.map((m) => (
+            <button
+              key={m.id}
+              className="group relative rounded-2xl overflow-hidden aspect-square bg-[#f0ede8] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] text-left"
+              onClick={() => setSelectedMemory(m)}
+            >
+              {/* Photo or type placeholder */}
+              {m.photo_url ? (
+                <img
+                  src={m.photo_url}
+                  alt={m.title ?? "Memory"}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#f8f6f3] to-[#ece8e2]">
+                  <span className="text-3xl mb-1">{TYPE_EMOJI[m.type] ?? "📷"}</span>
+                  <p className="text-[11px] font-semibold text-[#7a6f65] px-2 text-center line-clamp-2">
+                    {m.title ?? TYPE_LABEL[m.type] ?? "Memory"}
+                  </p>
+                </div>
+              )}
+
+              {/* Child color dot */}
+              <div
+                className="absolute top-2 left-2 w-4 h-4 rounded-full border-2 border-white shadow-sm flex items-center justify-center"
+                style={{ backgroundColor: m.child_id ? childColor(m.child_id) : "transparent" }}
+              >
+                {!m.child_id && (
+                  <span className="text-[7px] leading-none">👨‍👩‍👧‍👦</span>
+                )}
+              </div>
+
+              {/* ··· menu button */}
+              {!isPartner && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setMenuId(menuId === m.id ? null : m.id); }}
+                  className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 sm:opacity-0 active:opacity-100 transition-opacity"
+                  aria-label="More options"
+                >
+                  <MoreHorizontal size={14} className="text-white" />
+                </button>
+              )}
+
+              {/* Dropdown menu */}
+              {menuId === m.id && (
+                <div
+                  className="absolute top-9 right-2 bg-white rounded-xl shadow-lg border border-[#e8e2d9] z-20 overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => openEdit(m)}
+                    className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f6f3] transition-colors"
+                  >
+                    <Pencil size={14} className="text-[#7a6f65]" /> Edit
+                  </button>
+                  <button
+                    onClick={() => openDelete(m)}
+                    className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 size={14} /> Delete
+                  </button>
+                </div>
+              )}
+
+              {/* Date label at bottom */}
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent px-2.5 pb-2 pt-6">
+                <p className="text-[11px] text-white/90 font-medium">
+                  {formatDate(m.date)}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Detail / Lightbox Modal ────────────────────────── */}
+      {selectedMemory && (
+        <div
+          className="fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-4"
+          onClick={() => { setSelectedMemory(null); setMenuId(null); }}
+        >
+          <div
+            className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {selectedMemory.photo_url && (
+              <img
+                src={selectedMemory.photo_url}
+                alt={selectedMemory.title ?? "Memory"}
+                className="w-full rounded-t-3xl object-cover max-h-[50vh]"
+              />
+            )}
+
+            <div className="p-5 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">{TYPE_EMOJI[selectedMemory.type] ?? "📷"}</span>
+                    <span className="text-[11px] font-medium text-[#b5aca4] uppercase tracking-wider">
+                      {TYPE_LABEL[selectedMemory.type] ?? "Memory"}
+                    </span>
+                  </div>
+                  {selectedMemory.title && (
+                    <p className="font-semibold text-[#2d2926] text-base">{selectedMemory.title}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setSelectedMemory(null); setMenuId(null); }}
+                  className="text-[#b5aca4] hover:text-[#7a6f65] shrink-0"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {selectedMemory.caption && (
+                <p className="text-sm text-[#7a6f65] leading-relaxed">{selectedMemory.caption}</p>
+              )}
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-[#b5aca4]">{formatDate(selectedMemory.date)}</span>
+                {selectedMemory.child_id ? (
+                  <span
+                    className="text-[11px] font-medium px-2.5 py-0.5 rounded-full text-white"
+                    style={{ backgroundColor: childColor(selectedMemory.child_id) }}
+                  >
+                    {childName(selectedMemory.child_id)}
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-[#f0ede8] text-[#7a6f65]">
+                    👨‍👩‍👧‍👦 Everyone
+                  </span>
+                )}
+                {selectedMemory.include_in_book && (
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#5c7f63]">
+                    ☑ In yearbook
+                  </span>
+                )}
+              </div>
+
+              {!isPartner && (
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => openEdit(selectedMemory)}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Pencil size={14} /> Edit
+                  </button>
+                  <button
+                    onClick={() => openDelete(selectedMemory)}
+                    className="flex-1 py-2.5 rounded-xl border border-red-200 text-sm font-medium text-red-400 hover:bg-red-50 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 size={14} /> Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Modal ─────────────────────────────────────── */}
+      {editing && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <h2 className="font-bold text-[#2d2926]">✏️ Edit Memory</h2>
-              <button onClick={closeEditMemory} className="text-[#b5aca4] hover:text-[#7a6f65]">
+              <h2 className="font-bold text-[#2d2926]">Edit Memory</h2>
+              <button onClick={() => setEditing(null)} className="text-[#b5aca4] hover:text-[#7a6f65]">
                 <X size={18} />
               </button>
             </div>
-
-            {editingMemory.photo_url && (
-              <img src={editingMemory.photo_url} alt="" className="w-full rounded-xl max-h-40 object-cover" />
-            )}
 
             <div className="space-y-3.5">
               <div>
@@ -722,18 +647,20 @@ export default function MemoriesPage() {
                 <input
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
                 />
               </div>
+
               <div>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Caption</label>
                 <textarea
                   value={editCaption}
                   onChange={(e) => setEditCaption(e.target.value)}
                   rows={2}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                 />
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Date</label>
@@ -744,44 +671,88 @@ export default function MemoriesPage() {
                     className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
                   />
                 </div>
-                {children.length > 0 && (
-                  <div>
-                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
-                    <select
-                      value={editChild}
-                      onChange={(e) => setEditChild(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                    >
-                      <option value="">All children</option>
-                      {children.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                  <select
+                    value={editChild}
+                    onChange={(e) => setEditChild(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                  >
+                    <option value="">Everyone</option>
+                    {children.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
+
+              {/* Include in yearbook toggle */}
+              <button
+                onClick={() => setEditInBook(!editInBook)}
+                className="flex items-center gap-2.5 w-full"
+                type="button"
+              >
+                <div className={`w-9 h-5 rounded-full transition-colors relative ${editInBook ? "bg-[#5c7f63]" : "bg-[#e8e2d9]"}`}>
+                  <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${editInBook ? "translate-x-[18px]" : "translate-x-[2px]"}`} />
+                </div>
+                <span className="text-sm text-[#2d2926]">Include in yearbook</span>
+              </button>
             </div>
 
             <div className="flex gap-2 pt-1">
               <button
-                onClick={closeEditMemory}
+                onClick={() => setEditing(null)}
                 className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
               >
                 Cancel
               </button>
               <button
-                onClick={saveMemoryEdit}
-                disabled={savingEdit}
+                onClick={saveEdit}
+                disabled={editSaving}
                 className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
               >
-                {savingEdit ? "Saving…" : "Save"}
+                {editSaving ? "Saving…" : "Save"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Reflection View Modal ────────────────────────────── */}
+      {/* ── Delete confirm ─────────────────────────────────── */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4 text-center">
+            <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mx-auto">
+              <Trash2 size={24} className="text-red-400" />
+            </div>
+            <div>
+              <p className="font-bold text-[#2d2926] mb-1">Delete this memory?</p>
+              <p className="text-sm text-[#7a6f65]">
+                {deleteTarget.title ? `"${deleteTarget.title}" will` : "This will"} be permanently removed
+                {deleteTarget.photo_url ? " along with its photo" : ""}.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reflection View Modal ──────────────────────────── */}
       {viewingReflection && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -799,14 +770,13 @@ export default function MemoriesPage() {
               </button>
             </div>
 
-            {/* Private toggle */}
             <button
               onClick={async () => {
                 const newVal = !viewingReflection.is_private;
                 await supabase.from("daily_reflections").update({ is_private: newVal }).eq("id", viewingReflection.id);
                 const updated = { ...viewingReflection, is_private: newVal };
                 setViewingReflection(updated);
-                setReflections(prev => prev.map(r => r.id === updated.id ? updated : r));
+                setReflections((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
               }}
               className="flex items-center gap-2 text-xs text-[#7a6f65]"
             >
@@ -880,184 +850,6 @@ export default function MemoriesPage() {
                 )}
               </>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Add Memory Modal ─────────────────────────────────── */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold text-[#2d2926]">
-                {modalType === "photo"   && "📷 Add Photo Memory"}
-                {modalType === "project" && "📁 Log a Project"}
-                {modalType === "book"    && "📖 Log a Book"}
-              </h2>
-              <button onClick={closeModal} className="text-[#b5aca4] hover:text-[#7a6f65]">
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-3.5">
-
-              {/* Photo upload zone */}
-              {modalType === "photo" && (
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Photo</label>
-                  {previewUrl ? (
-                    <div className="relative rounded-2xl overflow-hidden bg-[#f0ede8]">
-                      <img
-                        src={previewUrl}
-                        alt="Preview"
-                        className="w-full max-h-48 object-cover"
-                      />
-                      <button
-                        onClick={() => { setFormFile(null); setPreviewUrl(null); if (fileRef.current) fileRef.current.value = ""; }}
-                        className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition-colors"
-                        aria-label="Remove photo"
-                      >
-                        <X size={14} />
-                      </button>
-                      <div className="absolute bottom-2 left-2 bg-black/40 text-white text-[10px] px-2 py-0.5 rounded-full">
-                        {formFile?.name}
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      onClick={() => fileRef.current?.click()}
-                      className="border-2 border-dashed border-[#e8e2d9] hover:border-[#5c7f63] rounded-2xl p-8 text-center cursor-pointer transition-colors group"
-                    >
-                      <div className="w-12 h-12 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-2 group-hover:bg-[#d4ead4] transition-colors">
-                        <ImageIcon size={20} className="text-[#5c7f63]" />
-                      </div>
-                      <p className="text-sm font-medium text-[#2d2926] mb-0.5">
-                        Click to choose a photo
-                      </p>
-                      <p className="text-xs text-[#b5aca4]">JPG, PNG, HEIC up to 10 MB</p>
-                    </div>
-                  )}
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleFileSelect}
-                  />
-                  {uploadError && (
-                    <div className="mt-1.5 rounded-xl border border-[#e8e2d9] bg-[#fefcf9] p-4 text-center">
-                      <p className="mb-2 text-sm text-[#2d2926]">{uploadError}</p>
-                      {uploadError.includes("50-photo") && (
-                        <Link
-                          href="/dashboard/pricing"
-                          className="text-sm font-semibold text-[#5c7f63] underline underline-offset-2"
-                        >
-                          Upgrade to Pro
-                        </Link>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Caption / Title */}
-              <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-                  {modalType === "photo" ? "Caption" : modalType === "book" ? "Book title *" : "Title *"}
-                </label>
-                <input
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder={
-                    modalType === "photo"   ? "e.g. First day of nature study" :
-                    modalType === "book"    ? "e.g. Charlotte's Web" :
-                                             "e.g. Volcano Science Project"
-                  }
-                  autoFocus={modalType !== "photo"}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                />
-              </div>
-
-              {/* Book author */}
-              {modalType === "book" && (
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Author</label>
-                  <input
-                    value={formAuthor}
-                    onChange={(e) => setFormAuthor(e.target.value)}
-                    placeholder="e.g. E.B. White"
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                  />
-                </div>
-              )}
-
-              {/* Description */}
-              {modalType !== "book" && (
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
-                    {modalType === "photo" ? "Notes (optional)" : "Description"}
-                  </label>
-                  <textarea
-                    value={formDesc}
-                    onChange={(e) => setFormDesc(e.target.value)}
-                    placeholder={modalType === "photo" ? "What was happening in this photo?" : "What did you do? What was learned?"}
-                    rows={2}
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
-                  />
-                </div>
-              )}
-
-              {/* Date + Child row */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Date</label>
-                  <input
-                    type="date"
-                    value={formDate}
-                    onChange={(e) => setFormDate(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                  />
-                </div>
-                {children.length > 0 && (
-                  <div>
-                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
-                    <select
-                      value={formChild}
-                      onChange={(e) => setFormChild(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
-                    >
-                      <option value="">All children</option>
-                      {children.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={closeModal}
-                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveMemory}
-                disabled={
-                  saving ||
-                  (modalType === "photo"   && !formFile && !formTitle.trim()) ||
-                  (modalType !== "photo"   && !formTitle.trim())
-                }
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
-              >
-                {saving
-                  ? (modalType === "photo" && formFile ? "Uploading…" : "Saving…")
-                  : "Save Memory"}
-              </button>
-            </div>
           </div>
         </div>
       )}
