@@ -1160,9 +1160,7 @@ export default function TodayPage() {
                     {isWeekend ? "Enjoy your weekend! 🌿" : "No school today"}
                   </p>
                   <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
-                    {isWeekend
-                      ? (resumeDay ? `School resumes ${resumeDay}.` : "Your garden is still growing")
-                      : (resumeDay ? `School resumes ${resumeDay}.` : "Enjoy the slow morning")}
+                    School resumes {resumeDay || "Monday"}.
                   </p>
 
                   {/* Log memory prompt */}
