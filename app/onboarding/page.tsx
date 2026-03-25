@@ -1610,6 +1610,79 @@ function StepTodayPreview({
   );
 }
 
+// ─── Step 0 — Emotional Opening ─────────────────────────────────────────────
+
+function StepWhy({ onNext }: { onNext: () => void }) {
+  return (
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-6 relative overflow-hidden"
+      style={{ background: "linear-gradient(155deg, #1a3d24 0%, #2a5533 45%, #3d7a50 80%, #4d8f63 100%)" }}
+    >
+      <div className="flex flex-col items-center text-center max-w-sm w-full">
+        <span className="text-5xl mb-8">🌱</span>
+        <h1
+          className="text-3xl sm:text-[2.25rem] font-bold text-white mb-5 leading-snug"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          The homeschool years go by so fast.
+        </h1>
+        <p className="text-[#c8ddb8] text-base leading-relaxed mb-10 max-w-xs">
+          Rooted helps you plan your days, capture the moments, and remember it all.
+        </p>
+        <button
+          type="button"
+          onClick={onNext}
+          className="px-9 py-4 rounded-2xl bg-[#5c7f63] hover:bg-[#4d6e54] text-white font-semibold text-lg transition-all shadow-2xl hover:scale-105 active:scale-100"
+        >
+          Let&apos;s get started →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 8 — Founder Moment ────────────────────────────────────────────────
+
+function StepFounder({ saving, onDone }: { saving: boolean; onDone: () => void }) {
+  return (
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-6 relative overflow-hidden"
+      style={{ background: "linear-gradient(155deg, #1a3d24 0%, #2a5533 45%, #3d7a50 80%, #4d8f63 100%)" }}
+    >
+      <div className="flex flex-col items-center text-center max-w-sm w-full">
+        {/* Founder photo / initials */}
+        <div className="w-20 h-20 rounded-full bg-[#5c7f63] flex items-center justify-center text-white text-2xl font-bold shadow-xl mb-6 ring-4 ring-white/20" style={{ fontFamily: "var(--font-display)" }}>
+          B
+        </div>
+
+        <p
+          className="text-white/90 text-base leading-relaxed italic mb-4 max-w-xs"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          &ldquo;I built Rooted for families exactly like yours. If you ever have a question — just reply to any email from me. I read every one.&rdquo;
+        </p>
+        <p className="text-[#a0cc9a] text-sm font-semibold mb-10">Brittany, founder 🌱</p>
+
+        <button
+          type="button"
+          onClick={onDone}
+          disabled={saving}
+          className="px-9 py-4 rounded-2xl bg-white text-[#2d5c38] font-semibold text-lg hover:bg-[#f5fbf5] transition-all shadow-2xl hover:scale-105 active:scale-100 disabled:opacity-60"
+        >
+          {saving ? (
+            <span className="flex items-center gap-2">
+              <span className="w-4 h-4 rounded-full border-2 border-[#2d5c38] border-t-transparent animate-spin" />
+              Setting up your space…
+            </span>
+          ) : (
+            "Take me to my dashboard →"
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Step 7 — Add to Home Screen ──────────────────────────────────────────────
 
 function StepAddToHomeScreen({
@@ -1689,7 +1762,7 @@ function StepAddToHomeScreen({
 export default function OnboardingPage() {
   const router = useRouter();
   const [ready,   setReady]   = useState(false);
-  const [step,    setStep]    = useState(1);
+  const [step,    setStep]    = useState(0);
   const [userId,  setUserId]  = useState("");
   const [saving,  setSaving]  = useState(false);
   const [isPro,   setIsPro]   = useState(false);
@@ -1968,6 +2041,8 @@ export default function OnboardingPage() {
     );
   }
 
+  if (step === 0) return <StepWhy onNext={() => setStep(1)} />;
+
   if (step === 1) return <StepWelcome firstName={firstName} onNext={() => setStep(2)} />;
 
   if (step === 2) return (
@@ -2033,12 +2108,16 @@ export default function OnboardingPage() {
 
   return (
     <>
-      <StepAddToHomeScreen
-        saving={saving}
-        onDone={complete}
-        onSkip={complete}
-        noCurriculumNote={noCurriculumNote}
-      />
+      {step === 8 ? (
+        <StepFounder saving={saving} onDone={complete} />
+      ) : (
+        <StepAddToHomeScreen
+          saving={saving}
+          onDone={() => setStep(8)}
+          onSkip={() => setStep(8)}
+          noCurriculumNote={noCurriculumNote}
+        />
+      )}
       {saveError && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2.5rem)] max-w-sm">
           <div className="bg-red-600 text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-lg flex items-center justify-between gap-3">

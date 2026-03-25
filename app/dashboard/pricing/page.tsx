@@ -19,7 +19,6 @@ const features: FeatureRow[] = [
   { label: "Progress reports",   free: "—",              founding: "✓",            standard: "✓"           },
   { label: "Finish Line curriculum pacing",  free: "—",              founding: "✓",            standard: "✓"           },
   { label: "AI Family Update narrative",     free: "—",              founding: "✓",            standard: "✓"           },
-  { label: "AI Graduation Letter",           free: "—",              founding: "✓",            standard: "✓"           },
   { label: "Priority support",               free: "—",              founding: "✓",            standard: "—"           },
   { label: "Founding price locked forever",  free: "—",              founding: "Forever 🎁",   standard: "—",          foundingOnly: true },
 ];
@@ -156,7 +155,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#5c7f63] mt-0.5">≈ $3.25/month</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "AI Family Update", "AI Graduation Letter", "Priority support", "Price locked forever ✦"].map(f => (
+            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "AI Family Update", "Priority support", "Price locked forever ✦"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#3d5c42]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -189,7 +188,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#b5aca4] mt-0.5">≈ $4.92/month</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "AI Family Update", "AI Graduation Letter"].map(f => (
+            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "AI Family Update"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -215,14 +214,14 @@ export default function DashboardPricingPage() {
         {/* Monthly */}
         <div className="relative bg-[#fefcf9] border-2 border-[#e8e2d9] rounded-2xl p-5 flex flex-col">
           <p className="text-base font-bold text-[#2d2926] mb-1">Monthly</p>
-          <p className="text-xs text-[#7a6f65] mb-4 leading-relaxed">Pay as you go, cancel anytime.</p>
+          <p className="text-xs text-[#7a6f65] mb-4 leading-relaxed">Most flexible — cancel anytime</p>
           <div className="mb-5">
             <span className="text-3xl font-bold text-[#2d2926]">$6.99</span>
             <span className="text-sm text-[#7a6f65]">/mo</span>
-            <p className="text-[10px] text-[#b5aca4] mt-0.5">≈ $83.88/year</p>
+            <p className="text-[10px] text-[#b5aca4] mt-0.5">$6.99/mo · $83.88/yr</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "AI Family Update", "AI Graduation Letter"].map(f => (
+            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "AI Family Update"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
