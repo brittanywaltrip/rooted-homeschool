@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, Camera, Calendar, Search, X } from "lucide-react";
+import { Sun, Leaf, Camera, Calendar, Search, Menu, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
@@ -17,14 +17,15 @@ const navItems = [
   { label: "Resources", href: "/dashboard/resources",  icon: Search   },
 ];
 
-/* NAV ORDER — DO NOT CHANGE: Today → Plan → Garden → Memories → Resources
-   This order is intentional. Any reorder breaks muscle memory for existing users. */
+/* NAV ORDER — DO NOT CHANGE: Today → Plan → Garden → Memories → Resources → More
+   This order is intentional. Any reorder breaks mobile UX. Verify before merging. */
 const mobileBottomNav = [
   { label: "Today",     href: "/dashboard",            icon: Sun      },
   { label: "Plan",      href: "/dashboard/plan",       icon: Calendar },
   { label: "Garden",    href: "/dashboard/garden",     icon: Leaf     },
   { label: "Memories",  href: "/dashboard/memories",   icon: Camera   },
   { label: "Resources", href: "/dashboard/resources",  icon: Search   },
+  { label: "More",      href: "/dashboard/settings",   icon: Menu     },
 ];
 
 function NavLink({
