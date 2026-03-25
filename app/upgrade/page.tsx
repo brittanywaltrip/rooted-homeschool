@@ -20,6 +20,7 @@ function UpgradePageInner() {
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
   const [foundingCount, setFoundingCount] = useState<number | null>(null)
+  const [countdown, setCountdown] = useState('')
   const refCode = searchParams.get('ref')
 
   useEffect(() => {
@@ -62,6 +63,20 @@ function UpgradePageInner() {
       fetch(`/api/affiliate/track-click?code=${refCode}`).catch(() => {})
     }
   }, [refCode])
+
+  useEffect(() => {
+    const deadline = new Date('2026-04-30T00:00:00').getTime()
+    function tick() {
+      const diff = deadline - Date.now()
+      if (diff <= 0) { setCountdown('Offer ended'); return }
+      const d = Math.floor(diff / 86400000)
+      const h = Math.floor((diff % 86400000) / 3600000)
+      setCountdown(`${d} day${d !== 1 ? 's' : ''}, ${h} hr${h !== 1 ? 's' : ''} left`)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
 
   async function handleClick(plan: 'founding' | 'standard') {
     setError(null)
@@ -192,7 +207,11 @@ function UpgradePageInner() {
               <p className="text-sm text-[#3d5c42] leading-relaxed">
                 For the first 200 families who believe in where this is going
               </p>
-              <p className="text-xs text-[#5c7f63] font-semibold mt-2">🕐 Ends April 30</p>
+              {countdown && (
+                <p className="text-xs font-semibold mt-2 text-[#a08040]">
+                  ⏳ {countdown}
+                </p>
+              )}
             </div>
 
             <ul className="space-y-2 mb-6 flex-1">
