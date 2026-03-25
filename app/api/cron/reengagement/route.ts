@@ -11,7 +11,7 @@ const supabase = createClient(
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
 
-const SIG_TEXT = `With love,\nBrittany\nFounder, Rooted Homeschool`
+const SIG_TEXT = `Warmly,\nBrittany\nFounder, Rooted Homeschool`
 
 function emailHtml(bodyLines: string[], ctaLabel: string, ctaUrl: string): string {
   return `<!DOCTYPE html>
@@ -26,7 +26,7 @@ ${bodyLines.map(l => `<p style="font-size:15px;line-height:1.6;color:#2d2926;mar
 <a href="${ctaUrl}" style="color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;display:inline-block;">${ctaLabel}</a>
 </td></tr></table>
 <p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:0 0 4px;">If you run into anything or just want to share how homeschooling is going &mdash; reply to this email. I read every single one.</p>
-<p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:24px 0 0;">With love,</p>
+<p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:24px 0 0;">Warmly,</p>
 <p style="font-size:14px;line-height:1.5;color:#2d2926;margin:4px 0 0;font-weight:600;">Brittany</p>
 <p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">Founder, Rooted Homeschool</p>
 </td></tr></table>
