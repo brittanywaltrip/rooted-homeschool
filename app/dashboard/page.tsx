@@ -984,14 +984,14 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Setup Banner ─────────────────────────────────────── */}
-      {onboarded === true && children.length === 0 && !bannerDismissed && (
+      {/* ── Setup Banner — only after data is loaded and user genuinely has 0 children ── */}
+      {!loading && children.length === 0 && !bannerDismissed && (
         <div className="relative flex items-center justify-between gap-4 bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4">
           <p className="text-sm text-[#2d2926] font-medium leading-snug">
-            🌱 Finish setting up your homeschool — you haven&apos;t added any children yet.
+            🌱 Add your children to get started with Rooted.
           </p>
           <div className="flex items-center gap-2 shrink-0">
-            <Link href="/onboarding" className="bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors whitespace-nowrap">
+            <Link href="/dashboard/settings?section=children" className="bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors whitespace-nowrap">
               Add a Child →
             </Link>
             <button
@@ -1000,37 +1000,6 @@ export default function TodayPage() {
               className="w-7 h-7 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#b8d9bc]/50 transition-colors text-lg leading-none"
             >×</button>
           </div>
-        </div>
-      )}
-
-      {/* ── Welcome Banner ─────────────────────────────────── */}
-      {children.length === 0 && onboarded !== true && !bannerDismissed && (
-        <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
-          <button
-            onClick={() => { sessionStorage.setItem("setup-banner-dismissed", "1"); setBannerDismissed(true); }}
-            aria-label="Dismiss"
-            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#b8d9bc]/50 transition-colors text-lg leading-none"
-          >×</button>
-          <h2 className="text-lg font-bold text-[#2d2926] mb-1">Welcome to Rooted! 🌿</h2>
-          <p className="text-sm text-[#5c7f63] mb-4">Let&apos;s get your family set up in 3 easy steps</p>
-          <div className="flex flex-col sm:flex-row gap-3 mb-4">
-            {[
-              { step: "1", label: "Add a child",                dest: "Onboarding", href: "/onboarding" },
-              { step: "2", label: "Add your curriculum",        dest: "Plan",        href: "/dashboard/plan" },
-              { step: "3", label: "Check off your first lesson", dest: "Today",      href: "#" },
-            ].map(({ step, label, dest, href }) => (
-              <Link key={step} href={href} className="flex-1 flex items-center gap-2.5 bg-white/70 hover:bg-white border border-[#b8d9bc] rounded-xl px-3.5 py-3 transition-colors">
-                <div className="w-7 h-7 rounded-full bg-[#5c7f63] text-white text-xs font-bold flex items-center justify-center shrink-0">{step}</div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-[#2d2926] leading-tight">{label}</p>
-                  <p className="text-[10px] text-[#7a6f65]">→ {dest}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-          <Link href="/onboarding" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm">
-            Add your first child →
-          </Link>
         </div>
       )}
 
