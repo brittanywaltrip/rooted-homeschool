@@ -783,7 +783,6 @@ export default function Home() {
                 {[
                   { emoji: "📸", title: "A keepsake, not just a document", desc: "Every lesson logged becomes part of a beautiful record of your child's entire learning life." },
                   { emoji: "👵", title: "Share with grandparents", desc: "Send a PDF showing everything your kids learned this year. They'll treasure it." },
-                  { emoji: "🎓", title: "High school transcripts", desc: "Build a college-ready transcript automatically as your teen logs lessons and credits." },
                   { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
@@ -919,7 +918,7 @@ export default function Home() {
                 "Printable progress reports",
                 "Finish Line curriculum pacing",
                 "AI Family Update",
-                "AI Graduation Letter",
+
                 "Priority support",
                 "Lifetime founding price 🎁",
               ].map((f) => (
@@ -959,7 +958,7 @@ export default function Home() {
                 "Printable progress reports",
                 "Finish Line curriculum pacing",
                 "AI Family Update",
-                "AI Graduation Letter",
+
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -997,7 +996,7 @@ export default function Home() {
                 "Printable progress reports",
                 "Finish Line curriculum pacing",
                 "AI Family Update",
-                "AI Graduation Letter",
+
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -1037,7 +1036,6 @@ export default function Home() {
                 { feature: "Progress reports",     free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Finish Line pacing",     free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "AI Family Update",       free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "AI Graduation Letter",   free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Partner/co-parent view", free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
                 { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },

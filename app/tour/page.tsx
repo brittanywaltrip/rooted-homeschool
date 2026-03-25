@@ -242,9 +242,6 @@ function ReportMockup() {
             </div>
           ))}
         </div>
-        <div className="bg-[#e8f0e9] rounded-xl px-3 py-2 text-center">
-          <p className="text-[10px] text-[#5c7f63] font-semibold">✓ Ready for state submission</p>
-        </div>
       </div>
     </MockupShell>
   );
@@ -785,9 +782,6 @@ export default function TourPage() {
                         <span className="text-[9px] text-[#b5aca4] w-6 text-right">{s.pct}%</span>
                       </div>
                     ))}
-                  </div>
-                  <div className="bg-[#e8f0e9] rounded-xl px-3 py-2 text-center">
-                    <p className="text-[10px] text-[#5c7f63] font-semibold">✓ Ready for state submission</p>
                   </div>
                 </div>
               </div>
