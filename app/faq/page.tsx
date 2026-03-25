@@ -16,8 +16,8 @@ const sections = [
         a: "Head to rootedhomeschoolapp.com and click Sign Up. Enter your family name, email address, and a password. Once you're in, you'll be prompted to add your children and choose your state — that's it! Your account is ready to use.",
       },
       {
-        q: "Is Rooted really free to start?",
-        a: "Yes! The free plan gives you daily lesson tracking, your family's Garden, curated resources, 30 days of memories, and 1 AI Family Update per month. No credit card required. You can use Rooted free for as long as you like — upgrade when you're ready for unlimited photos, full memory history, yearbook PDF download, and more.",
+        q: "Is Rooted free?",
+        a: "Yes — Rooted is free to start, no credit card needed. Free families get lesson tracking, the garden, curated resources, memories for the last 30 days, and 1 AI Family Update per month. Upgrade to Founding Family ($39/yr) for unlimited everything including yearbook PDF download.",
       },
       {
         q: "How do I set up my curriculum?",
@@ -25,7 +25,19 @@ const sections = [
       },
       {
         q: "Can I skip the curriculum setup?",
-        a: "Yes! Curriculum is completely optional in Rooted. You can start capturing memories and tracking lessons right away, and add your curriculum anytime from the Plan page.",
+        a: "Absolutely. Curriculum is optional. You can start capturing memories and checking off lessons right away, then add your curriculum anytime from the Plan page.",
+      },
+      {
+        q: "Does Rooted work with our curriculum?",
+        a: "Yes — Rooted works alongside any curriculum. We don't replace what you're already using, we just help you track it, remember it, and see how far you've come.",
+      },
+      {
+        q: "How do I add my children?",
+        a: "During onboarding or anytime in Settings → Our Kids.",
+      },
+      {
+        q: "Can I use Rooted on my phone?",
+        a: "Yes — Rooted is designed mobile-first. You can add it to your home screen from your browser for quick daily access.",
       },
       {
         q: "What is the curriculum planner?",
@@ -120,7 +132,21 @@ const sections = [
       },
       {
         q: "How do I upgrade to Pro?",
-        a: 'Click Upgrade to Pro in your sidebar or visit the pricing section on the homepage. Choose from three options: $39/yr Founding Family (limited time, price locked forever), $59/yr Standard, or $6.99/mo monthly. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account is upgraded instantly — no waiting, no manual review. You can cancel anytime from Settings → Billing.',
+        a: 'Click Upgrade to Pro in your sidebar or visit the pricing section on the homepage. Choose from three options: $39/yr Founding Family (limited time, price locked forever), $59/yr Standard, or $6.99/mo monthly. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account is upgraded instantly — no waiting, no manual review.',
+      },
+      {
+        q: "How do I cancel?",
+        a: "Go to Settings → Account → Cancel subscription. Your access continues until the end of your billing period.",
+      },
+    ],
+  },
+  {
+    title: "About Rooted",
+    emoji: "🌿",
+    items: [
+      {
+        q: "Who built Rooted?",
+        a: "Brittany Waltrip — a homeschool mom who built the app she wished existed. Questions? Email hello@rootedhomeschoolapp.com",
       },
     ],
   },
