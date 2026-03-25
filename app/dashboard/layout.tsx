@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, Camera, Calendar, Search, Menu, X, Settings, Sprout, Megaphone, LogOut } from "lucide-react";
+import { Sun, Leaf, Camera, Calendar, Search, Menu, X, Settings, Megaphone, LogOut } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
@@ -293,18 +293,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         ))}
       </nav>
 
-      {/* Child View button */}
-      <div className="px-3 pb-1">
-        <Link
-          href="/child"
-          onClick={() => setMenuOpen(false)}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-[#e8f5ea] to-[#f0f7e8] text-[#3d5c42] hover:from-[#d4ead4] hover:to-[#e4f0d4] transition-colors"
-        >
-          <span className="text-base">🌱</span>
-          Kid Mode
-        </Link>
-      </div>
-
       {/* Settings + Sign out */}
       <div className="p-3 border-t border-[#e8e2d9] space-y-0.5">
         {isAdmin && (
@@ -444,11 +432,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                   className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors">
                   <Settings size={18} className="text-[#7a6f65]" />
                   Settings
-                </Link>
-                <Link href="/child" onClick={() => setMenuSheet(false)}
-                  className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors">
-                  <Sprout size={18} className="text-[#7a6f65]" />
-                  Kid Mode
                 </Link>
                 <Link href="/dashboard/more/whats-new" onClick={() => setMenuSheet(false)}
                   className="flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors">

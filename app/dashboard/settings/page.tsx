@@ -1525,19 +1525,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ── Kid View ─────────────────────────────────────────────────── */}
-      <div className="mt-8 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
-        <Link
-          href="/child"
-          className="flex items-center justify-between px-5 py-4 hover:bg-[#f8f5f0] transition-colors"
-        >
-          <div>
-            <p className="text-sm font-semibold text-[#2d2926]">Kid view</p>
-            <p className="text-xs text-[#7a6f65]">Show the garden to your child</p>
-          </div>
-          <span className="text-[#7a6f65]">→</span>
-        </Link>
-      </div>
+      {/* ── Kid View — hidden until rebuilt ──────────────────────────── */}
 
       {/* ── Rooted Partner ───────────────────────────────────────────── */}
       {affiliateData?.is_active && (
