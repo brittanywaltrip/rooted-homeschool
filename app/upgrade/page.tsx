@@ -19,7 +19,6 @@ function UpgradePageInner() {
   const [error, setError] = useState<string | null>(null)
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
-  const [foundingCount, setFoundingCount] = useState<number | null>(null)
   const [countdown, setCountdown] = useState('')
   const refCode = searchParams.get('ref')
 
@@ -45,18 +44,8 @@ function UpgradePageInner() {
       }
     }
 
-    async function loadFoundingCount() {
-      try {
-        const res = await fetch('/api/founding-count')
-        const { count } = await res.json()
-        if (typeof count === 'number') setFoundingCount(count)
-      } catch {
-        // silently skip — not critical
-      }
-    }
 
     loadUserProfile()
-    loadFoundingCount()
   }, [])
 
   useEffect(() => {
@@ -134,11 +123,6 @@ function UpgradePageInner() {
             You&apos;re not just getting an app — you&apos;re supporting a homeschool mom building something
             for all of us. Founding members get the best price, forever.
           </p>
-          {foundingCount !== null && (
-            <p className="text-sm text-[#5c7f63] font-semibold mt-3">
-              🌱 {foundingCount} {foundingCount === 1 ? 'family is' : 'families are'} already Founding Members — spots are limited to 200
-            </p>
-          )}
         </div>
 
         {/* Error banner */}
