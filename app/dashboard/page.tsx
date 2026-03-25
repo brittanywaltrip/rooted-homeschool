@@ -95,6 +95,7 @@ function buildGreeting(firstName: string, opts: { allDone?: boolean; isSchoolDay
   const hour = new Date().getHours();
   const day = new Date().getDay();
   const name = firstName || "";
+  const timeGreeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   // All done state
   if (opts.allDone) {
@@ -104,21 +105,21 @@ function buildGreeting(firstName: string, opts: { allDone?: boolean; isSchoolDay
 
   // Weekend / non-school day
   if (!opts.isSchoolDay || day === 0 || day === 6) {
-    return `Enjoy the rest${name ? `, ${name}` : ""} 🌿`;
+    return `${timeGreeting}${name ? `, ${name}` : ""} 🌿`;
   }
 
   // Monday
   if (day === 1) {
     if (hour < 12) return `Ready for the week${name ? `, ${name}` : ""}? 🌱`;
     if (hour < 17) return `Great start to the week${name ? `, ${name}` : ""} 🌱`;
-    return `You showed up today${name ? `, ${name}` : ""} 🌿`;
+    return `${timeGreeting}${name ? `, ${name}` : ""} 🌿`;
   }
 
   // Tue–Thu
   if (day >= 2 && day <= 4) {
-    if (hour < 12) return `Good morning${name ? `, ${name}` : ""} 🌿`;
+    if (hour < 12) return `${timeGreeting}${name ? `, ${name}` : ""} 🌿`;
     if (hour < 17) return `Keep it going${name ? `, ${name}` : ""} 🌱`;
-    return `Good evening${name ? `, ${name}` : ""} 🌿`;
+    return `${timeGreeting}${name ? `, ${name}` : ""} 🌿`;
   }
 
   // Friday
@@ -128,7 +129,7 @@ function buildGreeting(firstName: string, opts: { allDone?: boolean; isSchoolDay
     return `What a week${name ? `, ${name}` : ""} 🌿`;
   }
 
-  return `Good day${name ? `, ${name}` : ""} 🌿`;
+  return `${timeGreeting}${name ? `, ${name}` : ""} 🌿`;
 }
 
 function toTitleCase(name: string) {
@@ -439,6 +440,7 @@ export default function TodayPage() {
   const [showFamilyUpdate,       setShowFamilyUpdate]       = useState(false);
   const [daysLearning,           setDaysLearning]           = useState<number | null>(null);
   const [familyPhotoUrl,         setFamilyPhotoUrl]         = useState<string | null>(null);
+  const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
@@ -492,6 +494,7 @@ export default function TodayPage() {
 
     // Check if today is a school day
     const schoolDays: string[] = (profile as { school_days?: string[] } | null)?.school_days ?? [];
+    setSchoolDaysArr(schoolDays);
     if (schoolDays.length > 0) {
       const todayDayName = new Date().toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       setIsSchoolDay(schoolDays.includes(todayDayName));
@@ -1338,6 +1341,17 @@ export default function TodayPage() {
             if (!isSchoolDay) {
               const dow = new Date().getDay();
               const isWeekend = dow === 0 || dow === 6;
+              const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+              let resumeDay = "";
+              if (schoolDaysArr.length > 0) {
+                for (let offset = 1; offset <= 7; offset++) {
+                  const checkDay = dayNames[(dow + offset) % 7];
+                  if (schoolDaysArr.includes(checkDay)) {
+                    resumeDay = checkDay.charAt(0).toUpperCase() + checkDay.slice(1);
+                    break;
+                  }
+                }
+              }
               return (
                 <div className="py-8 flex flex-col items-center text-center">
                   {/* Leaf illustration */}
@@ -1346,10 +1360,10 @@ export default function TodayPage() {
                     <line x1="32" y1="12" x2="32" y2="56" stroke="#3d5c42" strokeWidth="1.5" opacity="0.5" />
                   </svg>
                   <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
-                    {isWeekend ? "Rest day 🌿" : "No school today"}
+                    {isWeekend ? "Enjoy your weekend! 🌿" : "No school today"}
                   </p>
                   <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
-                    {isWeekend ? "Your garden is still growing" : "Enjoy the slow morning"}
+                    School resumes {resumeDay || "Monday"}.
                   </p>
 
                   {/* Log memory prompt */}
