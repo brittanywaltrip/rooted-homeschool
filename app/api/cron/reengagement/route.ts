@@ -11,7 +11,7 @@ const supabase = createClient(
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
 
-const SIG_TEXT = `— Brittany\nFounder, Rooted Homeschool App`
+const SIG_TEXT = `With love,\nBrittany\nFounder, Rooted Homeschool`
 
 function emailHtml(bodyLines: string[], ctaLabel: string, ctaUrl: string): string {
   return `<!DOCTYPE html>
@@ -25,10 +25,10 @@ ${bodyLines.map(l => `<p style="font-size:15px;line-height:1.6;color:#2d2926;mar
 <table cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr><td style="background:#5c7f63;border-radius:10px;padding:13px 28px;">
 <a href="${ctaUrl}" style="color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;display:inline-block;">${ctaLabel}</a>
 </td></tr></table>
-<p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:0 0 4px;">If you have any questions at all, just hit reply &mdash; it comes straight to me.</p>
-<p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:24px 0 0;">Cheering you on,</p>
+<p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:0 0 4px;">If you run into anything or just want to share how homeschooling is going &mdash; reply to this email. I read every single one.</p>
+<p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:24px 0 0;">With love,</p>
 <p style="font-size:14px;line-height:1.5;color:#2d2926;margin:4px 0 0;font-weight:600;">Brittany</p>
-<p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">Founder, Rooted Homeschool App</p>
+<p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">Founder, Rooted Homeschool</p>
 </td></tr></table>
 </td></tr></table>
 </body></html>`
@@ -99,11 +99,11 @@ export async function GET(req: NextRequest) {
       from: FROM,
       to: email,
       subject: `Hey ${firstName}, your Rooted plan is ready \uD83C\uDF31`,
-      text: `Hey ${firstName},\n\nIt's Brittany from Rooted — I saw you signed up yesterday and just wanted to say welcome!\n\nThe one thing that makes everything click is setting up your plan. It takes about 5 minutes, and once it's done you'll have your weekly schedule, lesson tracking, and your family's learning garden all ready to go.\n\nSet up your plan here:\n${ctaUrl}\n\nIf anything feels confusing or you just want to say hi, reply to this email — it comes straight to me.\n\n${SIG_TEXT}`,
+      text: `Hi ${firstName},\n\nI'm Brittany — I built Rooted for homeschool families just like yours.\n\nI noticed you signed up but haven't set up your curriculum plan yet. It only takes a few minutes, and once your lessons are scheduled, the Today page becomes your family's daily anchor.\n\nSet up your plan here:\n${ctaUrl}\n\nIf you run into anything or just want to share how homeschooling is going — reply to this email. I read every single one.\n\n${SIG_TEXT}`,
       html: emailHtml([
-        `Hey ${firstName}! \uD83C\uDF31`,
-        `It&rsquo;s Brittany from Rooted &mdash; I saw you signed up yesterday and just wanted to say welcome!`,
-        `The one thing that makes everything click is <strong>setting up your plan</strong>. It takes about 5 minutes, and once it&rsquo;s done you&rsquo;ll have your weekly schedule, lesson tracking, and your family&rsquo;s learning garden all ready to go.`,
+        `Hi ${firstName},`,
+        `I&rsquo;m Brittany &mdash; I built Rooted for homeschool families just like yours.`,
+        `I noticed you signed up but haven&rsquo;t set up your curriculum plan yet. It only takes a few minutes, and once your lessons are scheduled, the Today page becomes your family&rsquo;s daily anchor.`,
       ], 'Set Up My Plan \u2192', ctaUrl),
     })
 
