@@ -259,22 +259,26 @@ function StepOpening({ onNext }: { onNext: () => void }) {
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center px-6"
-      style={{ background: "linear-gradient(155deg, #1a3d24 0%, #2a5533 45%, #3d7a50 80%, #4d8f63 100%)" }}
+      style={{ background: "#1a3d24" }}
     >
       <div className="flex flex-col items-center text-center max-w-sm w-full">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-white/50 mb-6">
+          Rooted
+        </p>
+        <div className="w-10 h-px bg-white/20 mb-8" />
         <h1
           className="text-3xl sm:text-[2.5rem] font-bold text-white mb-5 leading-snug"
-          style={{ fontFamily: "'Lora', var(--font-display), serif" }}
+          style={{ fontFamily: "var(--font-display)" }}
         >
           The homeschool years go by so fast.
         </h1>
-        <p className="text-[#c8ddb8] text-base leading-relaxed mb-12 max-w-xs">
+        <p className="text-white/60 text-base leading-relaxed mb-12 max-w-xs">
           Rooted helps you plan your days, capture the moments, and hold onto it all.
         </p>
         <button
           type="button"
           onClick={onNext}
-          className="px-9 py-4 rounded-2xl bg-[#5c7f63] hover:bg-[#4d6e54] text-white font-semibold text-lg transition-all shadow-2xl hover:scale-105 active:scale-100"
+          className="px-9 py-4 rounded-2xl bg-white text-[#1a3d24] hover:bg-white/90 font-semibold text-lg transition-all shadow-2xl hover:scale-105 active:scale-100"
         >
           Let&apos;s get started →
         </button>
