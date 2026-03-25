@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { FileText, Printer, Calendar, Clock, BookOpen, CheckSquare } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
-import PaywallCard from "@/components/PaywallCard";
+import UpgradePrompt from "@/components/UpgradePrompt";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,7 +20,7 @@ type BookEvent  = { payload: { title?: string; child_id?: string; date?: string 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function toDateStr(d: Date) { return d.toISOString().split("T")[0]; }
+function toDateStr(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 function schoolYearStart() {
   const now = new Date();
   const year = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
@@ -245,6 +245,55 @@ export default function ReportsPage() {
     return (
       <div className="flex items-center justify-center min-h-64">
         <span className="text-2xl animate-pulse">📋</span>
+      </div>
+    );
+  }
+
+  if (!isPro) {
+    return (
+      <div className="max-w-3xl px-4 py-7 space-y-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">
+            For Your Family Records
+          </p>
+          <h1 className="text-2xl font-bold text-[#2d2926]">Reports 📋</h1>
+          <p className="text-sm text-[#7a6f65] mt-1">
+            Professional, printable reports for states that require homeschool documentation.
+          </p>
+        </div>
+        {/* Blurred preview teaser */}
+        <div className="relative rounded-2xl overflow-hidden">
+          <div className="blur-sm pointer-events-none select-none opacity-60">
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-3">
+              <div className="h-4 w-32 bg-[#e8e2d9] rounded" />
+              <div className="grid grid-cols-3 gap-3">
+                {[1,2,3].map(i => (
+                  <div key={i} className="bg-[#f0ede8] rounded-xl p-4 text-center space-y-2">
+                    <div className="h-6 w-10 bg-[#e8e2d9] rounded mx-auto" />
+                    <div className="h-3 w-16 bg-[#e8e2d9] rounded mx-auto" />
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2 pt-2">
+                {[1,2,3,4].map(i => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="w-4 h-4 rounded bg-[#e8e2d9]" />
+                    <div className="h-3 bg-[#e8e2d9] rounded flex-1" style={{ width: `${40 + i * 12}%` }} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="max-w-sm w-full px-4">
+              <UpgradePrompt
+                inline
+                feature="Progress Reports"
+                valueProp="Generate printable progress reports with lessons, hours, attendance, and books — ready for your state records."
+              />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
