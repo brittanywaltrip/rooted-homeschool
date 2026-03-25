@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
-import LogTodayModal from "@/app/components/LogTodayModal";
 import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -424,7 +423,6 @@ export default function TodayPage() {
   const [activityDeleteConfirm, setActivityDeleteConfirm] = useState(false);
   const [savingActivityEdit,    setSavingActivityEdit]    = useState(false);
 
-  const [showLogModal,           setShowLogModal]           = useState(false);
   const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
@@ -859,20 +857,6 @@ export default function TodayPage() {
       if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     }
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
-  }
-
-  function handleLogSaved(type: string, childId?: string) {
-    setShowLogModal(false);
-    if (type === "lesson") {
-      setCelebrating(true);
-      setTimeout(() => setCelebrating(false), 1600);
-      if (childId) setLeafCounts((prev) => ({ ...prev, [childId]: (prev[childId] ?? 0) + 1 }));
-      triggerGardenAnimation(childId);
-    } else if (type === "field_trip" || type === "activity") {
-      setSavedMemoryToast(true);
-      setTimeout(() => setSavedMemoryToast(false), 2500);
-    }
-    loadData();
   }
 
   // ── Activity edit/delete ──────────────────────────────────────────────────
@@ -1684,17 +1668,6 @@ export default function TodayPage() {
             )}
           </div>
         </div>
-      )}
-
-      {/* ── Log Today Modal ───────────────────────────────── */}
-      {showLogModal && (
-        <LogTodayModal
-          children={children}
-          subjects={subjects}
-          today={today}
-          onClose={() => setShowLogModal(false)}
-          onSaved={handleLogSaved}
-        />
       )}
 
       {/* ── Saved to Memories toast ──────────────────────── */}

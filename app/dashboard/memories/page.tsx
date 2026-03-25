@@ -5,7 +5,6 @@ import { Sparkles, Download, X, ArrowRight, MoreHorizontal, Trash2, Pencil } fro
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
-import LogTodayModal from "@/app/components/LogTodayModal";
 import PageHero from "@/app/components/PageHero";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -101,8 +100,6 @@ export default function MemoriesPage() {
   const [children, setChildren] = useState<Child[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPro, setIsPro] = useState<boolean | null>(null);
-  const [showLogModal, setShowLogModal] = useState(false);
-
   // Filter: "all" | "family" | child id
   const [filter, setFilter] = useState("all");
 
@@ -327,7 +324,16 @@ export default function MemoriesPage() {
     <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Capture photos, projects, and books." />
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
-      {/* Log a Memory button removed — replaced by persistent camera FAB in layout */}
+      {/* Header link */}
+      <div className="flex justify-end -mt-2 mb--1">
+        <button
+          type="button"
+          onClick={() => alert("More memory types coming soon")}
+          className="text-sm text-[#5c7f63] cursor-pointer"
+        >
+          + Add memory
+        </button>
+      </div>
 
       {/* AI Year in Review */}
       <Link
@@ -844,15 +850,6 @@ export default function MemoriesPage() {
       <div className="h-4" />
     </div>
 
-    {showLogModal && (
-      <LogTodayModal
-        children={children}
-        subjects={[]}
-        today={new Date().toISOString().split("T")[0]}
-        onClose={() => setShowLogModal(false)}
-        onSaved={() => { setShowLogModal(false); load(); }}
-      />
-    )}
     </>
   );
 }
