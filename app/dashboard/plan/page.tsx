@@ -114,17 +114,16 @@ function formatDateLong(dateStr: string): string {
 }
 
 // ─── Pace calculation ─────────────────────────────────────────────────────────
+// Forward-looking from today. Behind/Ahead badges only shown when an explicit
+// end date (target_date on the goal) is set. No badge = no deadline = no stress.
 
-type PaceBadge = { label: string; color: string; bg: string; icon: "check" | "alert" | "clock" | "ahead" };
+type PaceBadge = { label: string; color: string; bg: string; icon: "check" | "alert" | "clock" | "ahead" | "none" };
 
 function calcPace(
   remainingCount: number,
-  totalCount: number,
   schoolDays: string[] | null,
-  schoolYearEnd: string | null,
-): { badge: PaceBadge; projectedFinish: string | null; lessonsPerWeek: number } {
-  const completedCount = totalCount - remainingCount;
-
+  targetDate: string | null, // explicit end date from curriculum goal — null = no deadline
+): { badge: PaceBadge | null; projectedFinish: string | null; lessonsPerWeek: number } {
   if (remainingCount === 0) {
     return {
       badge: { label: "Complete", color: "#3d5c42", bg: "#e8f0e9", icon: "check" },
@@ -135,18 +134,13 @@ function calcPace(
 
   // Determine lessons per week from school days
   const daysPerWeek = (schoolDays && schoolDays.length > 0) ? schoolDays.length : 5;
-  const lessonsPerWeek = daysPerWeek; // 1 lesson per school day is the default pace
+  const lessonsPerWeek = daysPerWeek;
 
-  // Guard: if pace is somehow 0, we can't project a finish date
   if (lessonsPerWeek === 0) {
-    return {
-      badge: { label: "Pace not set", color: "#7a6f65", bg: "#f0ede8", icon: "clock" },
-      projectedFinish: null,
-      lessonsPerWeek: 0,
-    };
+    return { badge: null, projectedFinish: null, lessonsPerWeek: 0 };
   }
 
-  // Calculate projected finish from today
+  // Project finish date forward from today
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const weeksNeeded = remainingCount / lessonsPerWeek;
@@ -155,15 +149,13 @@ function calcPace(
   projected.setDate(projected.getDate() + daysNeeded);
   const projectedStr = toDateStr(projected);
 
-  if (!schoolYearEnd) {
-    return {
-      badge: { label: "On pace", color: "#3d5c42", bg: "#e8f0e9", icon: "check" },
-      projectedFinish: projectedStr,
-      lessonsPerWeek,
-    };
+  // No explicit end date → no pace badge, just show projected finish
+  if (!targetDate) {
+    return { badge: null, projectedFinish: projectedStr, lessonsPerWeek };
   }
 
-  const endDate = new Date(schoolYearEnd + "T00:00:00");
+  // Explicit end date set → compare
+  const endDate = new Date(targetDate + "T00:00:00");
   const twoWeeksBefore = new Date(endDate);
   twoWeeksBefore.setDate(twoWeeksBefore.getDate() - 14);
 
@@ -182,7 +174,7 @@ function calcPace(
     };
   }
   return {
-    badge: { label: "On pace", color: "#3d5c42", bg: "#e8f0e9", icon: "check" },
+    badge: { label: "On track", color: "#3d5c42", bg: "#e8f0e9", icon: "check" },
     projectedFinish: projectedStr,
     lessonsPerWeek,
   };
@@ -341,18 +333,16 @@ export default function PlanPage() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
-  // School year defaults: Aug 1 – May 31
-  const currentYear = new Date().getFullYear();
-  const effectiveYearStart = schoolYearStart ?? `${new Date().getMonth() >= 7 ? currentYear : currentYear - 1}-08-01`;
-  const effectiveYearEnd   = schoolYearEnd   ?? `${new Date().getMonth() >= 7 ? currentYear + 1 : currentYear}-05-31`;
-  const yearStartDate = new Date(effectiveYearStart + "T00:00:00");
-  const yearEndDate   = new Date(effectiveYearEnd   + "T00:00:00");
+  // School year overview — only calculated when user has explicitly set dates
+  const hasSchoolYearDates = !!(schoolYearStart && schoolYearEnd);
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const totalYearDays = Math.max(1, Math.round((yearEndDate.getTime() - yearStartDate.getTime()) / 86400000));
-  const elapsedDays   = Math.max(0, Math.min(totalYearDays, Math.round((today.getTime() - yearStartDate.getTime()) / 86400000)));
-  const yearPct       = Math.round((elapsedDays / totalYearDays) * 100);
+  const yearStartDate = hasSchoolYearDates ? new Date(schoolYearStart + "T00:00:00") : null;
+  const yearEndDate   = hasSchoolYearDates ? new Date(schoolYearEnd + "T00:00:00") : null;
+  const totalYearDays = yearStartDate && yearEndDate ? Math.max(1, Math.round((yearEndDate.getTime() - yearStartDate.getTime()) / 86400000)) : 0;
+  const elapsedDays   = yearStartDate ? Math.max(0, Math.min(totalYearDays, Math.round((today.getTime() - yearStartDate.getTime()) / 86400000))) : 0;
+  const yearPct       = totalYearDays > 0 ? Math.round((elapsedDays / totalYearDays) * 100) : 0;
   const daysLeft      = Math.max(0, totalYearDays - elapsedDays);
-  const yearLabel     = `${yearStartDate.getFullYear()}–${yearEndDate.getFullYear()}`;
+  const yearLabel     = yearStartDate && yearEndDate ? `${yearStartDate.getFullYear()}–${yearEndDate.getFullYear()}` : "";
 
   // Curriculum groups from allLessons
   const curricGroups: CurriculumGroup[] = (() => {
@@ -405,43 +395,50 @@ export default function PlanPage() {
         <h1 className="text-2xl font-bold text-[#3d5c42]">Plan</h1>
       </div>
 
-      {/* ── 2. School Year Overview ────────────────────────── */}
-      <div className="bg-white rounded-xl border border-[#e8e2d9] p-5 space-y-4">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-bold text-[#2d2926]">{yearLabel}</h2>
-          <span className="text-xs text-[#7a6f65]">
-            {formatDate(effectiveYearStart)} – {formatDate(effectiveYearEnd)}
-          </span>
-        </div>
+      {/* ── 2. School Year Overview — only when dates are set ── */}
+      {hasSchoolYearDates ? (
+        <div className="bg-white rounded-xl border border-[#e8e2d9] p-5 space-y-4">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-lg font-bold text-[#2d2926]">{yearLabel}</h2>
+            <span className="text-xs text-[#7a6f65]">
+              {formatDate(schoolYearStart!)} – {formatDate(schoolYearEnd!)}
+            </span>
+          </div>
 
-        {/* Progress bar */}
-        <div>
-          <div className="h-2.5 bg-[#f0ede8] rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${yearPct}%`, backgroundColor: "#3d5c42" }}
-            />
+          {/* Progress bar */}
+          <div>
+            <div className="h-2.5 bg-[#f0ede8] rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${yearPct}%`, backgroundColor: "#3d5c42" }}
+              />
+            </div>
           </div>
-        </div>
 
-        {/* Stats row */}
-        <div className="flex items-center justify-between text-center">
-          <div>
-            <p className="text-lg font-bold text-[#2d2926]">{elapsedDays}</p>
-            <p className="text-[10px] uppercase tracking-widest text-[#a09890] font-semibold">Days Done</p>
-          </div>
-          <div className="w-px h-8 bg-[#e8e2d9]" />
-          <div>
-            <p className="text-lg font-bold text-[#3d5c42]">{yearPct}%</p>
-            <p className="text-[10px] uppercase tracking-widest text-[#a09890] font-semibold">Complete</p>
-          </div>
-          <div className="w-px h-8 bg-[#e8e2d9]" />
-          <div>
-            <p className="text-lg font-bold text-[#2d2926]">{daysLeft}</p>
-            <p className="text-[10px] uppercase tracking-widest text-[#a09890] font-semibold">Days Left</p>
+          {/* Stats row */}
+          <div className="flex items-center justify-between text-center">
+            <div>
+              <p className="text-lg font-bold text-[#2d2926]">{elapsedDays}</p>
+              <p className="text-[10px] uppercase tracking-widest text-[#a09890] font-semibold">Days Done</p>
+            </div>
+            <div className="w-px h-8 bg-[#e8e2d9]" />
+            <div>
+              <p className="text-lg font-bold text-[#3d5c42]">{yearPct}%</p>
+              <p className="text-[10px] uppercase tracking-widest text-[#a09890] font-semibold">Complete</p>
+            </div>
+            <div className="w-px h-8 bg-[#e8e2d9]" />
+            <div>
+              <p className="text-lg font-bold text-[#2d2926]">{daysLeft}</p>
+              <p className="text-[10px] uppercase tracking-widest text-[#a09890] font-semibold">Days Left</p>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-dashed border-[#e8e2d9] px-5 py-4 flex items-center justify-between">
+          <p className="text-sm text-[#7a6f65]">Set your school year dates in Settings to track yearly progress</p>
+          <a href="/dashboard/settings" className="text-xs font-semibold text-[#5c7f63] hover:underline shrink-0">Settings →</a>
+        </div>
+      )}
 
       {/* ── 3. Per-Child Curriculum Progress ────────────────── */}
       {loading ? (
@@ -492,11 +489,10 @@ export default function PlanPage() {
                   const subStyle = getSubjectStyle(group.subjectName ?? undefined);
                   const { badge, projectedFinish, lessonsPerWeek } = calcPace(
                     group.remainingCount,
-                    group.totalCount,
                     group.goalData?.school_days ?? (profileSchoolDays.length > 0 ? profileSchoolDays : null),
-                    effectiveYearEnd,
+                    group.goalData?.target_date ?? null, // only compare against explicit deadline
                   );
-                  const isBehind = badge.icon === "alert";
+                  const isBehind = badge?.icon === "alert";
 
                   return (
                     <div key={group.key} className="bg-white border border-[#e8e2d9] rounded-xl p-4 space-y-3">
@@ -514,17 +510,18 @@ export default function PlanPage() {
                           </div>
                         </div>
 
-                        {/* Pace badge */}
-                        <span
-                          className="text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap flex items-center gap-1"
-                          style={{ backgroundColor: badge.bg, color: badge.color }}
-                        >
-                          {badge.icon === "check" && <CheckCircle2 size={10} />}
-                          {badge.icon === "alert" && <AlertTriangle size={10} />}
-                          {badge.icon === "clock" && <Clock size={10} />}
-                          {badge.icon === "ahead" && <TrendingUp size={10} />}
-                          {badge.label}
-                        </span>
+                        {/* Pace badge — only shown when a deadline is set */}
+                        {badge && (
+                          <span
+                            className="text-[10px] font-bold px-2 py-1 rounded-full whitespace-nowrap flex items-center gap-1"
+                            style={{ backgroundColor: badge.bg, color: badge.color }}
+                          >
+                            {badge.icon === "check" && <CheckCircle2 size={10} />}
+                            {badge.icon === "alert" && <AlertTriangle size={10} />}
+                            {badge.icon === "ahead" && <TrendingUp size={10} />}
+                            {badge.label}
+                          </span>
+                        )}
 
                         {/* Menu */}
                         {!isPartner && (
@@ -568,7 +565,7 @@ export default function PlanPage() {
                           <span className="text-xs font-semibold text-[#2d2926]">{pct}%</span>
                         </div>
                         <div className="h-2 bg-[#f0ede8] rounded-full overflow-hidden">
-                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: badge.color }} />
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: badge?.color ?? "#5c7f63" }} />
                         </div>
                       </div>
 
