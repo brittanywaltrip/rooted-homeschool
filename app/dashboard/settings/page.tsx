@@ -73,7 +73,7 @@ function ColorPicker({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-type SettingsTab = "family" | "kids" | "account" | "partners";
+type SettingsTab = "family" | "kids" | "school" | "account" | "partners";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com"];
 
@@ -119,9 +119,12 @@ function AffiliateStatsRow({ couponId }: { couponId: string }) {
 export default function SettingsPage() {
   const { refreshProfile } = useProfile();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
-    searchParams.get("section") === "children" ? "kids" : "family"
-  );
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+    const section = searchParams.get("section");
+    if (section === "children") return "kids";
+    if (section === "school") return "school";
+    return "family";
+  });
 
   // First / Last name
   const [firstName,      setFirstName]      = useState("");
@@ -187,6 +190,13 @@ export default function SettingsPage() {
   const [subscriptionStatus,  setSubscriptionStatus]  = useState<string | null>(null);
   const [portalLoading,       setPortalLoading]       = useState(false);
 
+  // School
+  const [schoolYearStart,  setSchoolYearStart]  = useState("");
+  const [schoolYearEnd,    setSchoolYearEnd]    = useState("");
+  const [schoolDays,       setSchoolDays]       = useState<boolean[]>([true, true, true, true, true, false, false]); // Mon-Sun
+  const [savingSchool,     setSavingSchool]     = useState(false);
+  const [schoolSaved,      setSchoolSaved]      = useState(false);
+
   // Password reset
   const [resetSending,    setResetSending]    = useState(false);
   const [resetSent,       setResetSent]       = useState(false);
@@ -221,7 +231,7 @@ export default function SettingsPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status, first_name, last_name")
+      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status, first_name, last_name, school_year_start, school_year_end, school_days")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -239,6 +249,14 @@ export default function SettingsPage() {
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
     setCurrentPeriodEnd((profile as { current_period_end?: string } | null)?.current_period_end ?? null);
     setSubscriptionStatus((profile as { subscription_status?: string } | null)?.subscription_status ?? null);
+
+    // School fields
+    const sysP = profile as { school_year_start?: string; school_year_end?: string; school_days?: string[] } | null;
+    setSchoolYearStart(sysP?.school_year_start ?? "");
+    setSchoolYearEnd(sysP?.school_year_end ?? "");
+    const dayNames = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+    const savedDays = sysP?.school_days ?? ["monday", "tuesday", "wednesday", "thursday", "friday"];
+    setSchoolDays(dayNames.map((d) => savedDays.includes(d)));
 
     const { data: kids } = await supabase
       .from("children")
@@ -662,7 +680,7 @@ export default function SettingsPage() {
 
       {/* ── Tab navigation ─────────────────────────────────── */}
       <div className="flex gap-1.5 bg-[#f0ede8] rounded-full p-1 w-fit overflow-x-auto">
-        {(["family", "kids", "account", ...(isAdmin ? ["partners" as SettingsTab] : [])] as SettingsTab[]).map((tab) => (
+        {(["family", "kids", "school", "account", ...(isAdmin ? ["partners" as SettingsTab] : [])] as SettingsTab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -672,7 +690,7 @@ export default function SettingsPage() {
                 : "text-[#7a6f65] hover:text-[#2d2926]"
             }`}
           >
-            {tab === "family" ? "Our Family" : tab === "kids" ? "Our Kids" : tab === "partners" ? "Partners" : "Account"}
+            {tab === "family" ? "Our Family" : tab === "kids" ? "Our Kids" : tab === "school" ? "School" : tab === "partners" ? "Partners" : "Account"}
           </button>
         ))}
       </div>
@@ -1232,6 +1250,84 @@ export default function SettingsPage() {
             Start New School Year
           </button>
         </div>
+      </section>}
+
+      {/* ── School ─────────────────────────────────────────────── */}
+      {activeTab === "school" && <section className="space-y-5">
+
+        {/* School year dates */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-[#2d2926]">School Year Dates</h2>
+            <span className="h-px flex-1 bg-[#e8e2d9]" />
+          </div>
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
+            <p className="text-xs text-[#7a6f65]">Set your school year to track yearly progress on the Plan page. Leave blank if you don&apos;t follow a fixed calendar.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Start date</label>
+                <input type="date" value={schoolYearStart} onChange={(e) => setSchoolYearStart(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">End date</label>
+                <input type="date" value={schoolYearEnd} onChange={(e) => setSchoolYearEnd(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* School days */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-[#2d2926]">School Days</h2>
+            <span className="h-px flex-1 bg-[#e8e2d9]" />
+          </div>
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
+            <p className="text-xs text-[#7a6f65]">Which days does your family do school? This determines how lessons are scheduled and pace is calculated.</p>
+            <div className="flex gap-2 flex-wrap">
+              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label, i) => (
+                <button
+                  key={label}
+                  onClick={() => setSchoolDays((prev) => prev.map((v, j) => j === i ? !v : v))}
+                  className={`w-11 h-11 rounded-xl text-xs font-semibold transition-colors ${
+                    schoolDays[i]
+                      ? "bg-[#5c7f63] text-white shadow-sm"
+                      : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Save button */}
+        <button
+          disabled={savingSchool}
+          onClick={async () => {
+            setSavingSchool(true);
+            setSchoolSaved(false);
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) { setSavingSchool(false); return; }
+            const dayNames = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+            const selectedDays = dayNames.filter((_, i) => schoolDays[i]);
+            await supabase.from("profiles").update({
+              school_year_start: schoolYearStart || null,
+              school_year_end: schoolYearEnd || null,
+              school_days: selectedDays,
+            }).eq("id", user.id);
+            setSavingSchool(false);
+            setSchoolSaved(true);
+            setTimeout(() => setSchoolSaved(false), 3000);
+          }}
+          className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+        >
+          {savingSchool ? "Saving..." : schoolSaved ? "Saved!" : "Save School Settings"}
+        </button>
+
       </section>}
 
       {/* ── Subscription ────────────────────────────────────── */}

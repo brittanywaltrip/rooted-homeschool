@@ -434,9 +434,14 @@ export default function PlanPage() {
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-dashed border-[#e8e2d9] px-5 py-4 flex items-center justify-between">
-          <p className="text-sm text-[#7a6f65]">Set your school year dates in Settings to track yearly progress</p>
-          <a href="/dashboard/settings" className="text-xs font-semibold text-[#5c7f63] hover:underline shrink-0">Settings →</a>
+        <div className="bg-white rounded-xl border border-[#e8e2d9] px-5 py-4">
+          <p className="text-sm text-[#7a6f65]">
+            Want to track your school year progress? Set your start and end dates in{' '}
+            <a href="/dashboard/settings?section=school" className="text-[#5c7f63] font-semibold hover:underline">Settings → School</a>.
+          </p>
+          <p className="text-xs text-[#b5aca4] mt-1">
+            Each curriculum shows a projected finish date based on your current pace.
+          </p>
         </div>
       )}
 
@@ -577,9 +582,12 @@ export default function PlanPage() {
                         {group.remainingCount > 0 && (
                           <span>{group.remainingCount} remaining</span>
                         )}
-                        {projectedFinish && (
-                          <span className={isBehind ? "text-[#b91c1c] font-semibold" : ""}>
-                            {isBehind && "⚠ "}Finishes {formatDateLong(projectedFinish)}
+                        {projectedFinish && !isBehind && (
+                          <span>Finishes {formatDateLong(projectedFinish)}</span>
+                        )}
+                        {projectedFinish && isBehind && (
+                          <span className="text-[#b91c1c] font-semibold">
+                            Finishes {formatDateLong(projectedFinish)} (past deadline)
                           </span>
                         )}
                       </div>
