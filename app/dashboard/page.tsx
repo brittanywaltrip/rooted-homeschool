@@ -1908,11 +1908,14 @@ export default function TodayPage() {
 
       {/* ── Field trip / project sheet ────────────────────── */}
       {showFieldTripSheet && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); }} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-[#2d2926]">🌿 Log an Activity</h2>
-              <button onClick={() => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); }} className="text-[#b5aca4] hover:text-[#7a6f65]">✕</button>
+              <button onClick={() => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); }} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
             </div>
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What did they do?</label>
@@ -1978,8 +1981,9 @@ export default function TodayPage() {
                 {ftSaving ? "Saving…" : "Save"}
               </button>
             </div>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* ── Book sheet ────────────────────────────────────── */}
