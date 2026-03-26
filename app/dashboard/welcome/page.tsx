@@ -19,6 +19,8 @@ export default function WelcomePage() {
   const [familyName, setFamilyName] = useState('')
   const [showContent, setShowContent] = useState(false)
 
+  useEffect(() => { document.title = "Welcome \u00b7 Rooted"; }, []);
+
   useEffect(() => {
     // Load family name
     supabase.auth.getSession().then(async ({ data: { session } }) => {

@@ -111,6 +111,7 @@ export default function MemoriesPage() {
   const [reflections, setReflections] = useState<Reflection[]>([]);
   const [children, setChildren] = useState<Child[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [isPro, setIsPro] = useState<boolean | null>(null);
   // Filter: "all" | "family" | "favorites" | child id
   const [filter, setFilter] = useState("all");
@@ -152,10 +153,13 @@ export default function MemoriesPage() {
   const [reflectionDeleteConfirm, setReflectionDeleteConfirm] = useState(false);
   const [savingReflection, setSavingReflection] = useState(false);
 
+  useEffect(() => { document.title = "Memories \u00b7 Rooted"; }, []);
+
   // ── Load data ───────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     if (!effectiveUserId) return;
+    try {
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -205,7 +209,12 @@ export default function MemoriesPage() {
       setMemories((events ?? []).map((e) => legacyToMemory(e as unknown as LegacyEvent)));
     }
 
-    setLoading(false);
+    } catch (err) {
+      console.error("Failed to load memories:", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [effectiveUserId]);
 
   // ── Open lightbox from ?open= URL param ──────────────────────────────────────
@@ -642,7 +651,19 @@ export default function MemoriesPage() {
       )}
 
       {/* ── Memory grid ──────────────────────────────────────── */}
-      {loading ? (
+      {loadError ? (
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+          <span className="text-4xl mb-3">🌿</span>
+          <p className="font-medium text-[#2d2926] mb-1">Something went wrong loading your memories</p>
+          <p className="text-sm text-[#7a6f65] max-w-xs mb-4">Pull to refresh or try again.</p>
+          <button
+            onClick={() => { setLoadError(false); setLoading(true); load(); }}
+            className="px-4 py-2 rounded-xl bg-[#5c7f63] text-white text-sm font-medium hover:bg-[#3d5c42] transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      ) : loading ? (
         <div className="text-center py-16">
           <span className="text-3xl animate-pulse">📷</span>
         </div>
@@ -661,12 +682,23 @@ export default function MemoriesPage() {
               Capture a memory →
             </Link>
           </div>
+        ) : (filter !== "all" && memories.length > 0) ? (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+            <span className="text-4xl mb-3">🔍</span>
+            <p className="font-medium text-[#2d2926] mb-1">No memories match this filter</p>
+            <button
+              onClick={() => setFilter("all")}
+              className="text-sm text-[#5c7f63] font-medium mt-2 hover:underline"
+            >
+              Clear filter
+            </button>
+          </div>
         ) : (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-            <span className="text-4xl mb-3">🌸</span>
+            <span className="text-4xl mb-3">🌱</span>
             <p className="font-medium text-[#2d2926] mb-1">No memories yet</p>
             <p className="text-sm text-[#7a6f65] max-w-xs">
-              Start logging photos, projects, and books to build your family&apos;s story.
+              Tap Capture to add your first one.
             </p>
           </div>
         )
@@ -674,6 +706,7 @@ export default function MemoriesPage() {
         <div className="grid grid-cols-3 gap-[2px] rounded-2xl overflow-hidden">
           {(() => {
             let lastMonth = "";
+            let photoIdx = 0;
             return filtered.map((m) => {
               const month = m.date.slice(0, 7); // "YYYY-MM"
               const showHeader = month !== lastMonth;
@@ -691,7 +724,7 @@ export default function MemoriesPage() {
                 >
                   {/* Photo or type tile */}
                   {m.photo_url ? (
-                    <img src={m.photo_url} alt={m.title ?? "Memory"} className="w-full h-full object-cover" />
+                    <img src={m.photo_url} alt={m.title ?? "Memory"} loading={photoIdx++ < 6 ? "eager" : "lazy"} className="w-full h-full object-cover" />
                   ) : (
                     <div className={`w-full h-full flex flex-col items-center justify-center px-2 ${
                       m.type === "book" ? "bg-[#FDF3E3]"
@@ -812,6 +845,7 @@ export default function MemoriesPage() {
               <img
                 src={selectedMemory.photo_url}
                 alt={selectedMemory.title ?? "Memory"}
+                loading="eager"
                 className="w-full rounded-t-3xl object-cover max-h-[50vh]"
               />
             ) : (

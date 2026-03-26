@@ -43,6 +43,8 @@ export default function YearbookPage() {
   const [removing, setRemoving] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
+  useEffect(() => { document.title = "Yearbook \u00b7 Rooted"; }, []);
+
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
     const [{ data: mems }, { data: kids }] = await Promise.all([

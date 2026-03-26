@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 const GROWTH_AREAS = [
   { emoji: "📐", label: "Math", color: "bg-blue-50 border-blue-100", progress: 0 },
   { emoji: "🔤", label: "Reading", color: "bg-purple-50 border-purple-100", progress: 0 },
@@ -10,6 +12,8 @@ const GROWTH_AREAS = [
 ];
 
 export default function GrowthPage() {
+  useEffect(() => { document.title = "Growth \u00b7 Rooted"; }, []);
+
   return (
     <div className="px-4 pt-8 pb-4 space-y-5">
       {/* Header */}

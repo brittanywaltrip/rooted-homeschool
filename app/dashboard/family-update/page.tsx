@@ -67,6 +67,8 @@ export default function FamilyUpdatePage() {
   const [usedThisMonth, setUsedThisMonth] = useState(false)
   const [resetDate,     setResetDate]     = useState('')
 
+  useEffect(() => { document.title = "Family Update \u00b7 Rooted"; }, []);
+
   // Load family name + usage tracking
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {

@@ -1,6 +1,9 @@
 "use client";
 
+import { useEffect } from "react";
+
 export default function JourneyPage() {
+  useEffect(() => { document.title = "Journey \u00b7 Rooted"; }, []);
   const milestones = [
     { emoji: "🌱", title: "Account Created", desc: "You started your Rooted journey", done: true },
     { emoji: "📖", title: "First Lesson Added", desc: "Add your first lesson plan", done: false },

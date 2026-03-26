@@ -42,6 +42,8 @@ function schoolYearLabel(startStr: string | null, endStr: string | null): string
 export default function YearbookPage() {
   const { isPartner, effectiveUserId } = usePartner();
 
+  useEffect(() => { document.title = "Yearbook \u00b7 Rooted"; }, []);
+
   // Data
   const [children, setChildren] = useState<Child[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);

@@ -81,6 +81,8 @@ export default function YearInReviewPage() {
 
   const year = new Date().getFullYear();
 
+  useEffect(() => { document.title = "Year in Review \u00b7 Rooted"; }, []);
+
   // ── Pro check (before any data fetching) ───────────────────────────────────
 
   useEffect(() => {

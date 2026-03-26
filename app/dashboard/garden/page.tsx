@@ -222,6 +222,8 @@ export default function GardenPage() {
   const todayStr = toDateStr(new Date());
   const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
 
+  useEffect(() => { document.title = "Garden \u00b7 Rooted"; }, []);
+
   useEffect(() => {
     if (!effectiveUserId) return;
     async function load() {

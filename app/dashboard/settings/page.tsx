@@ -123,6 +123,8 @@ export default function SettingsPage() {
     searchParams.get("section") === "children" ? "kids" : "family"
   );
 
+  useEffect(() => { document.title = "Settings \u00b7 Rooted"; }, []);
+
   // First / Last name
   const [firstName,      setFirstName]      = useState("");
   const [editingFirst,   setEditingFirst]   = useState(false);

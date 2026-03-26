@@ -128,6 +128,8 @@ export default function MorePage() {
   const router = useRouter();
   const [hasUnread, setHasUnread] = useState(false);
 
+  useEffect(() => { document.title = "More \u00b7 Rooted"; }, []);
+
   useEffect(() => {
     const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
     setHasUnread(!lastSeen || lastSeen < LATEST_UPDATE_DATE);

@@ -439,6 +439,8 @@ export default function PlanPage() {
   // ── Curriculum management ─────────────────────────────────────────────────
   const [showCreateWizard,  setShowCreateWizard]  = useState(false);
 
+  useEffect(() => { document.title = "Plan \u00b7 Rooted"; }, []);
+
   useEffect(() => {
     if (searchParams.get("openWizard") === "true") {
       setShowCreateWizard(true);

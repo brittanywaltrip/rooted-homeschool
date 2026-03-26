@@ -94,6 +94,8 @@ const LAST_SEEN_KEY = "rooted_whats_new_last_seen";
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function WhatsNewPage() {
+  useEffect(() => { document.title = "What\u2019s New \u00b7 Rooted"; }, []);
+
   useEffect(() => {
     localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString().split("T")[0]);
   }, []);

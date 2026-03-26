@@ -383,6 +383,7 @@ export default function TodayPage() {
   const [hasAnyLessons,   setHasAnyLessons]   = useState(false);
   const [leafCounts,      setLeafCounts]      = useState<Record<string, number>>({});
   const [loading,         setLoading]         = useState(true);
+  const [loadError,       setLoadError]       = useState(false);
   const [celebrating,     setCelebrating]     = useState(false);
   const [childDoneToast,    setChildDoneToast]    = useState<string | null>(null);
   const [childDoneToastOut, setChildDoneToastOut] = useState(false);
@@ -398,6 +399,8 @@ export default function TodayPage() {
   const [savingBook,        setSavingBook]        = useState(false);
 
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  useEffect(() => { document.title = "Today \u00b7 Rooted"; }, []);
+
   useEffect(() => {
     if (sessionStorage.getItem("setup-banner-dismissed") === "1") setBannerDismissed(true);
   }, []);
@@ -495,6 +498,7 @@ export default function TodayPage() {
 
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
+    try {
 
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
@@ -805,7 +809,12 @@ export default function TodayPage() {
       .order("created_at", { ascending: false });
     setTodayStory((storyData ?? []) as typeof todayStory);
 
-    setLoading(false);
+    } catch (err) {
+      console.error("Failed to load dashboard data:", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [today, effectiveUserId]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -1117,11 +1126,48 @@ export default function TodayPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-64 p-8">
-        <div className="flex flex-col items-center gap-3">
-          <span className="text-3xl animate-pulse">🌿</span>
-          <p className="text-sm text-[#7a6f65]">Tending your garden…</p>
+      <>
+        {/* Skeleton: Book Cover Card */}
+        <div className="mx-5 mt-5 rounded-2xl p-4 space-y-3" style={{ background: "#2d5a3d" }}>
+          <div className="w-24 h-2 rounded bg-white/10 animate-pulse" />
+          <div className="w-16 h-8 rounded bg-white/15 animate-pulse" />
+          <div className="w-40 h-3 rounded bg-white/10 animate-pulse" />
         </div>
+        <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-4">
+          {/* Skeleton: Capture button */}
+          <div className="w-full h-12 rounded-xl bg-[#e8e2d9] animate-pulse" />
+          {/* Skeleton: Greeting */}
+          <div className="space-y-2">
+            <div className="w-32 h-3 rounded bg-[#e8e2d9] animate-pulse" />
+            <div className="w-56 h-5 rounded bg-[#e8e2d9] animate-pulse" />
+          </div>
+          {/* Skeleton: Lesson rows */}
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+                <div className="w-5 h-5 rounded-md bg-[#e8e2d9] animate-pulse shrink-0" />
+                <div className="h-3 rounded bg-[#e8e2d9] animate-pulse flex-1" />
+                <div className="w-10 h-2.5 rounded bg-[#e8e2d9] animate-pulse shrink-0" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-64 p-8 text-center">
+        <span className="text-3xl mb-3">🌿</span>
+        <p className="text-sm font-medium text-[#2d2926] mb-1">Something went wrong loading your day</p>
+        <p className="text-xs text-[#7a6f65] mb-4">Pull to refresh or try again.</p>
+        <button
+          onClick={() => { setLoadError(false); setLoading(true); loadData(); }}
+          className="px-4 py-2 rounded-xl bg-[#5c7f63] text-white text-sm font-medium hover:bg-[#3d5c42] transition-colors"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -1862,6 +1908,7 @@ export default function TodayPage() {
               <img
                 src={lightboxMemory.photo_url}
                 alt={lightboxMemory.title || "Memory"}
+                loading="eager"
                 className="max-h-[70vh] w-full object-contain rounded-xl bg-[#1a2e1f]"
               />
             ) : (
