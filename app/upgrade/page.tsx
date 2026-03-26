@@ -128,12 +128,30 @@ function UpgradePageInner() {
         <div className="text-center mb-12">
           <div className="text-5xl mb-5">🌿</div>
           <h1 className="text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: 'var(--font-display)' }}>
-            Join the Rooted Family
+            Your family&apos;s story deserves to be kept forever.
           </h1>
           <p className="text-[#7a6f65] leading-relaxed max-w-md mx-auto text-base">
-            You&apos;re not just getting an app — you&apos;re supporting a homeschool mom building something
-            for all of us. Founding members get the best price, forever.
+            Upgrade to unlock unlimited memories, your family yearbook, and AI updates to share with the people you love.
           </p>
+        </div>
+
+        {/* Testimonials */}
+        <div className="mb-10">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] text-center mb-4">Loved by homeschool families</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              { quote: "Finally an app that gets how we actually homeschool.", name: "Sarah M.", loc: "Texas" },
+              { quote: "I've tried every planner. Rooted is the only one that stuck.", name: "Jessica T.", loc: "Ohio" },
+              { quote: "The garden is our kids' favourite part of the day.", name: "Amanda D.", loc: "Florida" },
+            ].map((t) => (
+              <div key={t.name} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
+                <p className="text-sm text-[#2d2926] leading-relaxed mb-3" style={{ fontFamily: 'var(--font-display)' }}>
+                  &ldquo;{t.quote}&rdquo;
+                </p>
+                <p className="text-xs text-[#7a6f65]">{t.name}, {t.loc}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Error banner */}
@@ -164,7 +182,7 @@ function UpgradePageInner() {
               <p className="text-sm text-[#7a6f65]">Get started</p>
             </div>
             <ul className="space-y-2 mb-6 flex-1">
-              {['Unlimited children', 'Basic lesson tracking', 'Family garden', 'Curated resources'].map(f => (
+              {['Unlimited children', 'Basic lesson tracking', 'Family garden', 'Memories search', 'Curated resources'].map(f => (
                 <li key={f} className="flex items-center gap-2 text-sm text-[#7a6f65]">
                   <span className="text-[#c8bfb5] shrink-0">✓</span>{f}
                 </li>
@@ -209,29 +227,38 @@ function UpgradePageInner() {
                 </p>
               )}
               {foundingCount !== null && (
-                <p className="text-xs font-semibold mt-1.5 text-[#5c7f63]">
-                  🌱 {foundingCount} of 200 spots claimed
-                </p>
+                <div className="mt-2">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#3d5c42]" style={{ animation: 'pulse 2s ease-in-out infinite' }} />
+                    <p className="text-xs font-semibold text-[#5c7f63]">
+                      {foundingCount} of 200 spots claimed
+                    </p>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-[#f0ede8] overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{ width: `${Math.min((foundingCount / 200) * 100, 100)}%`, backgroundColor: '#3d5c42' }}
+                    />
+                  </div>
+                </div>
               )}
             </div>
 
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                { label: 'Unlimited children' },
-                { label: 'Memories & photo log' },
-                { label: 'Insights & learning streaks' },
-                { label: 'Progress reports & transcripts' },
-                { label: 'AI-written family updates' },
-                { label: 'Shareable family updates', sub: 'Share your homeschool story with family' },
-                { label: 'Priority support from Brittany' },
-                { label: 'Founding price locked forever 🎁' },
-              ].map(({ label, sub }) => (
+                'Unlimited children',
+                'Photos, books, wins, drawings, field trips',
+                'Memories search',
+                'Family yearbook',
+                'Progress reports & transcripts',
+                'AI-written family updates',
+                'Share with family',
+                'Priority support from Brittany',
+                'Founding price locked forever 🎁',
+              ].map((label) => (
                 <li key={label} className="flex items-start gap-2 text-sm text-[#2d5c38] font-medium">
                   <span className="text-[#5c7f63] shrink-0 mt-0.5">✓</span>
-                  <span>
-                    {label}
-                    {sub && <span className="block text-xs text-[#5c7f63]/70 font-normal">{sub}</span>}
-                  </span>
+                  {label}
                 </li>
               ))}
             </ul>
@@ -280,19 +307,17 @@ function UpgradePageInner() {
             </div>
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                { label: 'Unlimited children' },
-                { label: 'Memories & photo log' },
-                { label: 'Insights & learning streaks' },
-                { label: 'Progress reports & transcripts' },
-                { label: 'AI-written family updates' },
-                { label: 'Shareable family updates', sub: 'Share your homeschool story with family' },
-              ].map(({ label, sub }) => (
+                'Unlimited children',
+                'Photos, books, wins, drawings, field trips',
+                'Memories search',
+                'Family yearbook',
+                'Progress reports & transcripts',
+                'AI-written family updates',
+                'Share with family',
+              ].map((label) => (
                 <li key={label} className="flex items-start gap-2 text-sm text-[#7a6f65]">
                   <span className="text-[#5c7f63] shrink-0 mt-0.5">✓</span>
-                  <span>
-                    {label}
-                    {sub && <span className="block text-xs text-[#b5aca4] font-normal">{sub}</span>}
-                  </span>
+                  {label}
                 </li>
               ))}
             </ul>
@@ -340,19 +365,17 @@ function UpgradePageInner() {
             </div>
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                { label: 'Unlimited children' },
-                { label: 'Memories & photo log' },
-                { label: 'Insights & learning streaks' },
-                { label: 'Progress reports & transcripts' },
-                { label: 'AI-written family updates' },
-                { label: 'Shareable family updates', sub: 'Share your homeschool story with family' },
-              ].map(({ label, sub }) => (
+                'Unlimited children',
+                'Photos, books, wins, drawings, field trips',
+                'Memories search',
+                'Family yearbook',
+                'Progress reports & transcripts',
+                'AI-written family updates',
+                'Share with family',
+              ].map((label) => (
                 <li key={label} className="flex items-start gap-2 text-sm text-[#7a6f65]">
                   <span className="text-[#5c7f63] shrink-0 mt-0.5">✓</span>
-                  <span>
-                    {label}
-                    {sub && <span className="block text-xs text-[#b5aca4] font-normal">{sub}</span>}
-                  </span>
+                  {label}
                 </li>
               ))}
             </ul>
