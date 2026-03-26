@@ -727,45 +727,37 @@ export default function MemoriesPage() {
                   {m.photo_url ? (
                     <img src={m.photo_url} alt={m.title ?? "Memory"} loading={photoIdx++ < 6 ? "eager" : "lazy"} className="w-full h-full object-cover" />
                   ) : (
-                    <div className={`w-full h-full flex flex-col items-center justify-center px-2 ${
-                      m.type === "book" ? "bg-[#FDF3E3]"
-                        : m.type === "quote" ? "bg-[#F5EFF8]"
-                        : m.type === "win" ? "bg-[#FDF6EC]"
-                        : m.type === "drawing" ? "bg-[#FFF5E6]"
-                        : "bg-[#EAF6EE]"
-                    }`}>
-                      {m.type === "book" ? (
-                        <>
-                          <span className="text-4xl mb-1">📖</span>
-                          <p className="text-[11px] font-semibold text-[#7a4f1a] text-center line-clamp-2">{m.title ?? "Book"}</p>
-                          {m.caption && <p className="text-[10px] italic text-[#c8a96e] text-center line-clamp-1 mt-0.5">{m.caption}</p>}
-                        </>
-                      ) : m.type === "quote" ? (
-                        <>
-                          <span className="text-5xl leading-none font-serif text-[#c49edd]">&ldquo;</span>
-                          <p className="text-[10px] italic text-[#4a2d6a] text-center line-clamp-3">{m.title ?? "Moment"}</p>
-                          {m.child_id && <p className="text-[9px] text-[#a07ab8] mt-1">{childName(m.child_id)}</p>}
-                        </>
-                      ) : m.type === "win" ? (
-                        <>
-                          <span className="text-4xl mb-1">🏆</span>
-                          <p className="text-[11px] font-semibold text-[#7a4f1a] text-center line-clamp-2">{m.title ?? "Win"}</p>
-                          <p className="text-[9px] italic text-[#c8a96e] mt-0.5">Win</p>
-                        </>
-                      ) : m.type === "drawing" ? (
-                        <>
-                          <span className="text-4xl mb-1">🎨</span>
-                          <p className="text-[11px] font-semibold text-[#8B4513] text-center line-clamp-2">{m.title ?? "Drawing"}</p>
-                          <p className="text-[9px] italic text-[#C4956A] mt-0.5">Drawing</p>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-4xl mb-1">{TYPE_EMOJI[m.type] ?? "📷"}</span>
-                          <p className="text-[11px] font-semibold text-[#1a4d2e] text-center line-clamp-2">{m.title ?? TYPE_LABEL[m.type] ?? "Memory"}</p>
-                          <p className="text-[9px] italic text-[#4a8c65] mt-0.5">{TYPE_LABEL[m.type] ?? "Memory"}</p>
-                        </>
-                      )}
-                    </div>
+                    (() => {
+                      const tileConfig: Record<string, { gradient: string; textColor: string; subtextColor: string }> = {
+                        book:       { gradient: "linear-gradient(135deg, #F5E6C8 0%, #E8C87A 100%)", textColor: "#4a2e0a", subtextColor: "#7a5c2e" },
+                        win:        { gradient: "linear-gradient(135deg, #FDE8A0 0%, #F5C842 100%)", textColor: "#4a3200", subtextColor: "#7a5c1a" },
+                        drawing:    { gradient: "linear-gradient(135deg, #E8D5F5 0%, #C9A8E8 100%)", textColor: "#3d1f5c", subtextColor: "#6b4a8a" },
+                        quote:      { gradient: "linear-gradient(135deg, #F0E4F8 0%, #D4B8E8 100%)", textColor: "#3d1f5c", subtextColor: "#6b4a8a" },
+                        project:    { gradient: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)", textColor: "#1a3d1e", subtextColor: "#2d5a32" },
+                        field_trip: { gradient: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)", textColor: "#1a3d1e", subtextColor: "#2d5a32" },
+                        activity:   { gradient: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)", textColor: "#1a3d1e", subtextColor: "#2d5a32" },
+                      };
+                      const cfg = tileConfig[m.type] ?? tileConfig.project;
+                      const emoji = TYPE_EMOJI[m.type] ?? "📷";
+                      const title = m.title ?? TYPE_LABEL[m.type] ?? "Memory";
+                      return (
+                        <div className="w-full h-full relative overflow-hidden" style={{ background: cfg.gradient }}>
+                          {/* Subtle dot texture */}
+                          <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(circle, currentColor 0.5px, transparent 0.5px)", backgroundSize: "8px 8px", opacity: 0.06 }} />
+                          {/* Centered emoji */}
+                          <div className="absolute inset-0 flex items-center justify-center pb-6">
+                            <span className="text-5xl drop-shadow-sm">{emoji}</span>
+                          </div>
+                          {/* Bottom gradient overlay + text */}
+                          <div className="absolute inset-x-0 bottom-0 h-[45%]" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.35) 0%, transparent 100%)" }}>
+                            <div className="absolute bottom-0 inset-x-0 px-2 pb-2">
+                              <p className="text-[11px] font-semibold text-white text-center line-clamp-2 drop-shadow-sm">{title}</p>
+                              {m.caption && <p className="text-[10px] text-white/75 text-center line-clamp-1 mt-0.5">{m.caption}</p>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()
                   )}
 
                   {/* Child color dot */}
@@ -850,19 +842,25 @@ export default function MemoriesPage() {
                 className="w-full rounded-t-3xl object-cover max-h-[50vh]"
               />
             ) : (
-              <div className={`w-full h-48 rounded-t-3xl flex flex-col items-center justify-center ${
-                selectedMemory.type === "book" ? "bg-[#FDF3E3]"
-                  : selectedMemory.type === "quote" ? "bg-[#F5EFF8]"
-                  : "bg-[#EAF6EE]"
-              }`}>
-                {selectedMemory.type === "book" ? (
-                  <span className="text-6xl">📖</span>
-                ) : selectedMemory.type === "quote" ? (
-                  <span className="text-7xl font-serif text-[#c49edd] leading-none">&ldquo;</span>
-                ) : (
-                  <span className="text-6xl">{TYPE_EMOJI[selectedMemory.type] ?? "📷"}</span>
-                )}
-              </div>
+              (() => {
+                const lbConfig: Record<string, string> = {
+                  book:       "linear-gradient(135deg, #F5E6C8 0%, #E8C87A 100%)",
+                  win:        "linear-gradient(135deg, #FDE8A0 0%, #F5C842 100%)",
+                  drawing:    "linear-gradient(135deg, #E8D5F5 0%, #C9A8E8 100%)",
+                  quote:      "linear-gradient(135deg, #F0E4F8 0%, #D4B8E8 100%)",
+                  project:    "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)",
+                  field_trip: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)",
+                  activity:   "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)",
+                };
+                return (
+                  <div className="w-full h-48 rounded-t-3xl relative overflow-hidden" style={{ background: lbConfig[selectedMemory.type] ?? lbConfig.project }}>
+                    <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(circle, currentColor 0.5px, transparent 0.5px)", backgroundSize: "10px 10px", opacity: 0.06 }} />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-6xl drop-shadow-sm">{TYPE_EMOJI[selectedMemory.type] ?? "📷"}</span>
+                    </div>
+                  </div>
+                );
+              })()
             )}
 
             <div className="p-5 space-y-3">
