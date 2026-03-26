@@ -186,6 +186,11 @@ export default function AdminPage() {
   const [sendingTestimonial, setSendingTestimonial] = useState(false);
   const [testimonialResult, setTestimonialResult] = useState<{ sent: number; errors: string[]; notFound: string[] } | null>(null);
 
+  // Weekly summary
+  const [sendingWeekly, setSendingWeekly] = useState(false);
+  const [weeklySent, setWeeklySent] = useState(false);
+  const [weeklyResult, setWeeklyResult] = useState<string | null>(null);
+
   const fetchData = async (accessToken: string) => {
     setRefreshing(true);
     const res = await fetch("/api/admin/summary", {
@@ -697,6 +702,36 @@ export default function AdminPage() {
                 className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
               >
                 {sendingTestimonial ? "Sending…" : "Request testimonials →"}
+              </button>
+            )}
+          </div>
+        </section>
+
+        {/* Section 3g — Weekly Summary */}
+        <section>
+          <SectionHeader emoji="📧" title="Weekly Summary" />
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+            <p className="text-sm text-[#2d2926] mb-3">
+              Send a test weekly summary email to garfieldbrittany@gmail.com
+            </p>
+            {weeklySent ? (
+              <p className="text-sm text-[#5c7f63] font-medium">{weeklyResult ?? "Test email sent!"}</p>
+            ) : (
+              <button
+                onClick={async () => {
+                  setSendingWeekly(true);
+                  try {
+                    const res = await fetch("/api/cron/weekly-summary?test=true", { method: "POST" });
+                    const json = await res.json();
+                    setWeeklyResult(`Sent ${json.sent} test email (${json.totalUsers} active users total)`);
+                    setWeeklySent(true);
+                  } catch { /* ignore */ }
+                  setSendingWeekly(false);
+                }}
+                disabled={sendingWeekly}
+                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              >
+                {sendingWeekly ? "Sending…" : "Send weekly summary now →"}
               </button>
             )}
           </div>

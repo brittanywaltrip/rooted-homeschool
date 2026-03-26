@@ -21,15 +21,17 @@ export type BadgeDef = {
 };
 
 export const ACTIVITY_BADGES: BadgeDef[] = [
-  { id: "story_begun",       emoji: "📖", label: "Story Begun",       message: "You saved your first memory. This is where your story starts." },
+  { id: "story_begun",       emoji: "🌱", label: "Story Begun",       message: "You saved your first memory. This is where your story starts." },
+  { id: "first_leaf",        emoji: "🍃", label: "First Leaf",        message: "Your first lesson is complete. A leaf unfurls." },
   { id: "first_win",         emoji: "🏆", label: "First Win",         message: "Your first win is captured. Celebrate the small stuff." },
   { id: "bookworm_begins",   emoji: "📚", label: "Bookworm Begins",   message: "The first book is logged. A reader is growing." },
   { id: "shutter",           emoji: "📷", label: "Shutter",           message: "First photo or drawing saved. These moments matter." },
   { id: "showing_up",        emoji: "🔥", label: "Showing Up",        message: "5 active days this month. Consistency is everything." },
   { id: "gallery_wall",      emoji: "🖼️", label: "Gallery Wall",      message: "3 drawings saved. You're building a gallery." },
-  { id: "author",            emoji: "✍️", label: "Author",            message: "10 memories in the yearbook. You're writing a real book." },
+  { id: "author",            emoji: "✍️", label: "Author",            message: "5 books logged. You're raising a reader." },
   { id: "full_circle",       emoji: "🔄", label: "Full Circle",       message: "A memory from one year ago. Look how far you've come." },
   { id: "founding_family",   emoji: "⭐", label: "Founding Family",   message: "You believed in Rooted from the start. Thank you." },
+  { id: "rooted",            emoji: "🌳", label: "Rooted",            message: "One full year. Your roots run deep now." },
 ];
 
 /**
@@ -66,6 +68,8 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeDef | nu
     { data: legacyBookData },
     { data: legacyWinData },
     { data: inBookData },
+    { data: lessonData },
+    { data: profileData },
   ] = await Promise.all([
     // memories table counts
     supabase.from("memories").select("id").eq("user_id", userId),
@@ -82,6 +86,10 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeDef | nu
       .in("type", ["memory_activity", "memory_project"]),
     // yearbook curator count
     supabase.from("memories").select("id").eq("user_id", userId).eq("include_in_book", true),
+    // lesson count (for first_leaf badge)
+    supabase.from("lessons").select("id").eq("user_id", userId).eq("completed", true),
+    // profile created_at (for rooted badge)
+    supabase.from("profiles").select("created_at").eq("id", userId).single(),
   ]);
 
   const memCount = memData?.length ?? 0;
@@ -142,16 +150,23 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeDef | nu
     .gte("date", yStart)
     .lte("date", yEnd);
   const onThisDayCount = onThisDayData?.length ?? 0;
+  const totalLessons = lessonData?.length ?? 0;
+  const createdAt = (profileData as { created_at?: string } | null)?.created_at;
+  const daysSinceSignup = createdAt
+    ? Math.floor((Date.now() - new Date(createdAt).getTime()) / 86400000)
+    : 0;
 
   const checks: { id: string; met: boolean }[] = [
     { id: "story_begun",     met: totalMemories >= 1 },
+    { id: "first_leaf",      met: totalLessons >= 1 },
     { id: "first_win",       met: totalWins >= 1 },
     { id: "bookworm_begins", met: totalBooks >= 1 },
     { id: "shutter",         met: totalPhotosAndDrawings >= 1 },
     { id: "showing_up",      met: activeDays.size >= 5 },
     { id: "gallery_wall",    met: totalDrawings >= 3 },
-    { id: "author",          met: totalInBook >= 10 },
+    { id: "author",          met: totalBooks >= 5 },
     { id: "full_circle",     met: (onThisDayCount ?? 0) >= 1 },
+    { id: "rooted",          met: daysSinceSignup >= 365 },
   ];
 
   let firstNew: BadgeDef | null = null;

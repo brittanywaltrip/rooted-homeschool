@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
 import PageHero from "@/app/components/PageHero";
-import { checkAndAwardBadges, checkFoundingBadge } from "@/lib/badges";
+import { checkAndAwardBadges, checkFoundingBadge, ACTIVITY_BADGES, type BadgeDef } from "@/lib/badges";
 
 function treeEmoji(leaves: number): string {
   const s = getStageFromLeaves(leaves);
@@ -774,10 +774,9 @@ export default function GardenPage() {
       <div className="h-4" />
       </div>
 
-      {/* Badge celebration overlay */}
+      {/* Leaf badge celebration overlay */}
       {badgeCelebration && (
         <div className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center">
-          {/* Particles */}
           {Array.from({ length: 12 }).map((_, i) => (
             <span
               key={i}
@@ -793,7 +792,6 @@ export default function GardenPage() {
               {["⭐", "🌟", "✨", "🎉", "🏅"][i % 5]}
             </span>
           ))}
-          {/* Badge name */}
           <div
             className="bg-white/95 border border-[#e8e2d9] rounded-2xl px-6 py-4 text-center shadow-xl"
             style={{ animation: "badge-pop 2s ease-out forwards" }}
@@ -804,6 +802,30 @@ export default function GardenPage() {
           </div>
         </div>
       )}
+
+      {/* Activity badge slide-up notification */}
+      {badgeNotification && (
+        <div
+          className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2"
+          style={{ animation: "slide-up-badge 0.4s ease-out forwards" }}
+        >
+          <div className="bg-[#1e3d29] text-white rounded-2xl shadow-xl px-5 py-4 flex items-center gap-4 max-w-sm">
+            <span className="text-3xl shrink-0">{badgeNotification.emoji}</span>
+            <div>
+              <p className="text-sm font-bold">{badgeNotification.label} earned!</p>
+              <p className="text-xs text-white/75 mt-0.5 leading-relaxed">{badgeNotification.message}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Slide-up animation keyframes */}
+      <style jsx global>{`
+        @keyframes slide-up-badge {
+          from { transform: translate(-50%, 100%); opacity: 0; }
+          to   { transform: translate(-50%, 0);    opacity: 1; }
+        }
+      `}</style>
 
     </>
   );

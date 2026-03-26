@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/weekly-summary",
-      "schedule": "0 9 * * 1"
+      "schedule": "0 15 * * 1"
     },
     {
       "path": "/api/cron/re-engagement",
