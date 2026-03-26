@@ -1114,14 +1114,27 @@ export default function TodayPage() {
           <>
             <p className="text-[32px] font-bold text-white leading-tight mt-1">{totalMemories} 🌿</p>
             <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.55)" }}>memories in your story</p>
+            {activeDaysThisMonth > 0 && (
+              <div className="inline-block mt-2.5 px-2.5 py-1 rounded-full text-[10px] font-medium" style={{ background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.7)" }}>
+                {activeDaysThisMonth} day{activeDaysThisMonth !== 1 ? "s" : ""} active in {new Date().toLocaleDateString("en-US", { month: "long" })}
+              </div>
+            )}
           </>
         ) : (
-          <p className="text-[16px] font-semibold text-white leading-snug mt-2 mb-1">Your story is just beginning 🌿</p>
-        )}
-        {activeDaysThisMonth > 0 && (
-          <div className="inline-block mt-2.5 px-2.5 py-1 rounded-full text-[10px] font-medium" style={{ background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.7)" }}>
-            {activeDaysThisMonth} day{activeDaysThisMonth !== 1 ? "s" : ""} active in {new Date().toLocaleDateString("en-US", { month: "long" })}
-          </div>
+          <>
+            <p className="text-[14px] text-white/80 leading-relaxed mt-2 mb-2" style={{ fontFamily: "Georgia, serif" }}>
+              {[
+                "Kids make 100 drawings a week — you can't keep them all, but you can keep this one 📸",
+                "What made them laugh today? You'll want to remember this. ✍️",
+                "Snap something small. You'll treasure it later. 📸",
+                "A book, a face, a moment — anything counts. 🌿",
+                "Five years from now you'll wish you took this photo. Take it now. 📸",
+                "What did they discover today? Write it down before you forget. ✍️",
+                "Every ordinary day is worth remembering. 🌿",
+              ][new Date().getDay()]}
+            </p>
+            <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.4)" }}>Your story starts today</p>
+          </>
         )}
       </div>
 
