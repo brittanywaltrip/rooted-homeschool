@@ -472,8 +472,11 @@ export default function MemoriesPage() {
     <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Photos, drawings, wins, books, field trips — everything." />
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
-      {/* Header link */}
-      <div className="flex justify-end -mt-2 mb--1">
+      {/* Header links */}
+      <div className="flex justify-end gap-4 -mt-2 mb--1">
+        <Link href="/dashboard/memories/yearbook" className="text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
+          📖 Yearbook
+        </Link>
         <button
           type="button"
           onClick={() => alert("More memory types coming soon")}
