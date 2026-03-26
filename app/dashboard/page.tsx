@@ -2453,6 +2453,7 @@ export default function TodayPage() {
                   try {
                     const { data: { user } } = await supabase.auth.getUser();
                     if (!user) { setSavingWin(false); return; }
+                    console.log("[Win save] user:", user.id, "winText:", winText.trim(), "winType:", winType, "childId:", winChild);
                     const { data: ins, error } = await supabase.from("memories").insert({
                       user_id: user.id,
                       child_id: winChild || null,
@@ -2461,12 +2462,18 @@ export default function TodayPage() {
                       title: winText.trim(),
                       include_in_book: false,
                     }).select("id").single();
+                    console.log("[Win save] result:", { data: ins, error });
                     if (error) {
-                      console.error("Win save failed:", error);
+                      console.error("[Win save] FAILED:", error.message, error.code, error.details, error.hint);
                       setSavingWin(false);
                       return;
                     }
-                    console.log("[Win save] Success — id:", (ins as { id: string } | null)?.id, "type:", winType, "closing sheet + refreshing story");
+                    if (!ins) {
+                      console.error("[Win save] No data returned — likely RLS policy blocking insert. Check that 'Users can insert own memories' policy exists on memories table.");
+                      setSavingWin(false);
+                      return;
+                    }
+                    console.log("[Win save] Success — id:", (ins as { id: string }).id, "type:", winType);
                     setTotalMemories(prev => prev + 1);
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
                     showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
