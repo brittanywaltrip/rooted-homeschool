@@ -1037,6 +1037,7 @@ export default function TodayPage() {
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
+    // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
     loadData(); refreshTodayStory();
     checkAndAwardBadges(user.id);
   }
@@ -1062,6 +1063,7 @@ export default function TodayPage() {
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null);
+    // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
     loadData(); refreshTodayStory();
     checkAndAwardBadges(user.id);
   }
@@ -1090,6 +1092,7 @@ export default function TodayPage() {
     }).eq("id", editSheet.id);
     setEditSaving(false); setEditSheet(null);
     showCaptureToast("✏️ Updated 🌿", null);
+    // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
     loadData(); refreshTodayStory();
   }
 
@@ -1099,6 +1102,7 @@ export default function TodayPage() {
     await supabase.from("memories").delete().eq("id", editSheet.id);
     setEditDeleting(false); setEditSheet(null);
     showCaptureToast("🗑️ Deleted", null);
+    // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
     loadData(); refreshTodayStory();
   }
 
@@ -1332,6 +1336,7 @@ export default function TodayPage() {
               const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
               showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
               captureTypeRef.current = "photo"; // reset
+              // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
               loadData(); refreshTodayStory();
               checkAndAwardBadges(user.id);
             }}
@@ -2133,6 +2138,7 @@ export default function TodayPage() {
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild("");
+                  // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
                   loadData(); refreshTodayStory();
                 }}
                 className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
@@ -2430,6 +2436,7 @@ export default function TodayPage() {
                   setWinText("");
                   setWinChild("");
                   setShowWinSheet(false);
+                  // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
                   loadData(); refreshTodayStory();
                 }}
                 disabled={savingWin || !winText.trim()}
@@ -2719,6 +2726,7 @@ export default function TodayPage() {
                     setWinText("");
                     setWinChild("");
                     setShowWinSheet(false);
+                    // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
                     loadData();
                     refreshTodayStory();
                   } catch (err) {
