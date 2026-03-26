@@ -439,6 +439,7 @@ export default function TodayPage() {
   const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [memoryMoment, setMemoryMoment] = useState<{ kind: "on_this_day" | "recent" | "empty"; memory?: { id: string; title: string; photo_url: string | null; date: string; type: string }; yearsAgo?: number } | null>(null);
+  const [lightboxMemory, setLightboxMemory] = useState<{ id: string; title: string; photo_url: string | null; date: string; type: string } | null>(null);
   const [streak,                 setStreak]                 = useState(0);
   const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
   const [showFamilyUpdate,       setShowFamilyUpdate]       = useState(false);
@@ -1647,9 +1648,10 @@ export default function TodayPage() {
 
       {/* ── Memory Moment Card ─────────────────────────────── */}
       {memoryMoment && memoryMoment.kind === "on_this_day" && memoryMoment.memory && (
-        <Link
-          href={`/dashboard/memories?open=${memoryMoment.memory.id}`}
-          className="block bg-white rounded-2xl p-4 transition-colors hover:bg-[#fefcf9]"
+        <button
+          type="button"
+          onClick={() => setLightboxMemory(memoryMoment.memory!)}
+          className="w-full bg-white rounded-2xl p-4 transition-colors hover:bg-[#fefcf9] text-left"
           style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
         >
           <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest mb-2.5">On This Day</p>
@@ -1671,13 +1673,14 @@ export default function TodayPage() {
             </div>
             <span className="text-[#c8bfb5] text-lg shrink-0">›</span>
           </div>
-        </Link>
+        </button>
       )}
 
       {memoryMoment && memoryMoment.kind === "recent" && memoryMoment.memory && (
-        <Link
-          href={`/dashboard/memories?open=${memoryMoment.memory.id}`}
-          className="block bg-white rounded-2xl overflow-hidden transition-colors hover:bg-[#fefcf9]"
+        <button
+          type="button"
+          onClick={() => setLightboxMemory(memoryMoment.memory!)}
+          className="w-full bg-white rounded-2xl overflow-hidden transition-colors hover:bg-[#fefcf9] text-left"
           style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
         >
           {memoryMoment.memory.photo_url ? (
@@ -1719,7 +1722,7 @@ export default function TodayPage() {
               </div>
             </div>
           )}
-        </Link>
+        </button>
       )}
 
       {memoryMoment && memoryMoment.kind === "empty" && !isPartner && (
@@ -1761,6 +1764,51 @@ export default function TodayPage() {
       <div className="h-4" />
 
       {/* Floating log button removed — replaced by persistent camera FAB in layout */}
+
+      {/* ── Inline lightbox ──────────────────────────────── */}
+      {lightboxMemory && (
+        <div
+          className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center p-4"
+          onClick={() => setLightboxMemory(null)}
+        >
+          <button
+            onClick={() => setLightboxMemory(null)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors z-10"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+
+          <div className="flex-1 flex items-center justify-center w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            {lightboxMemory.photo_url ? (
+              <img
+                src={lightboxMemory.photo_url}
+                alt={lightboxMemory.title || "Memory"}
+                className="max-h-[70vh] w-full object-contain rounded-xl"
+              />
+            ) : (
+              <div className="w-full aspect-square max-w-xs bg-[#1a2e1f] rounded-xl flex items-center justify-center text-7xl">
+                📸
+              </div>
+            )}
+          </div>
+
+          <div className="w-full max-w-lg mt-4 text-center" onClick={(e) => e.stopPropagation()}>
+            {lightboxMemory.title && (
+              <p className="text-white text-base font-semibold mb-1">{lightboxMemory.title}</p>
+            )}
+            <p className="text-white/60 text-xs">
+              {new Date(lightboxMemory.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+            </p>
+            <Link
+              href={`/dashboard/memories?open=${lightboxMemory.id}`}
+              className="inline-block mt-3 text-xs text-white/50 hover:text-white/80 transition-colors"
+            >
+              Open in Memories →
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* ── Book modal ────────────────────────────────────── */}
       {showBookModal && (
