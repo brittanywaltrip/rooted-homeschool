@@ -437,8 +437,7 @@ export default function TodayPage() {
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
   const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [memoryMoment, setMemoryMoment] = useState<{ kind: "on_this_day" | "recent" | "empty"; memory?: { id: string; title: string; photo_url: string | null; date: string; type: string }; yearsAgo?: number } | null>(null);
+  // memoryMoment removed — replaced by onThisDayMemory and lastPhoto
   const [lightboxMemory, setLightboxMemory] = useState<{ id: string; title: string; photo_url: string | null; date: string; type: string } | null>(null);
   const [streak,                 setStreak]                 = useState(0);
   const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
@@ -710,38 +709,6 @@ export default function TodayPage() {
       });
     } else {
       setUpcomingDay(null);
-    }
-
-    // Memory moment — "On this day" or recent memory
-    const mmNow = new Date();
-    const curMonth = mmNow.getMonth() + 1;
-    const curDay = mmNow.getDate();
-    const curYear = mmNow.getFullYear();
-
-    const { data: allMems } = await supabase
-      .from("memories")
-      .select("id, title, photo_url, date, type")
-      .eq("user_id", effectiveUserId);
-
-    const otdMatch = (allMems ?? []).find((r: { date: string }) => {
-      const d = new Date(r.date + "T12:00:00");
-      return d.getMonth() + 1 === curMonth && d.getDate() === curDay && d.getFullYear() < curYear;
-    }) as { id: string; title: string; photo_url: string | null; date: string; type: string } | undefined;
-
-    if (otdMatch) {
-      setMemoryMoment({
-        kind: "on_this_day",
-        memory: otdMatch,
-        yearsAgo: curYear - new Date(otdMatch.date + "T12:00:00").getFullYear(),
-      });
-    } else if (allMems && allMems.length > 0) {
-      const sorted = [...allMems].sort((a, b) =>
-        (b as { created_at?: string }).created_at?.localeCompare((a as { created_at?: string }).created_at ?? "") ?? 0
-      );
-      const recent = sorted[0] as { id: string; title: string; photo_url: string | null; date: string; type: string };
-      setMemoryMoment({ kind: "recent", memory: recent });
-    } else {
-      setMemoryMoment({ kind: "empty" });
     }
 
     // ── Book Cover: total memories this school year ────────────────────
@@ -1752,33 +1719,24 @@ export default function TodayPage() {
       })()}
 
       {/* ── Memory Moment Card ─────────────────────────────── */}
-      {memoryMoment && memoryMoment.kind === "on_this_day" && memoryMoment.memory && (
-        <button
-          type="button"
-          onClick={() => setLightboxMemory(memoryMoment.memory!)}
-          className="w-full bg-white rounded-2xl p-4 transition-colors hover:bg-[#fefcf9] text-left"
-          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
-        >
-          <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest mb-2.5">On This Day</p>
-          <div className="flex gap-3 items-center">
-            {memoryMoment.memory.photo_url ? (
-              <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-[#f0ede8]" style={{ border: "3px solid white", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-                <img src={memoryMoment.memory.photo_url} alt="" className="w-full h-full object-cover" />
-              </div>
-            ) : (
-              <div className="w-16 h-16 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-2xl" style={{ border: "3px solid white", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-                📸
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-[#2d2926] leading-snug">
-                📸 On this day, {memoryMoment.yearsAgo} year{memoryMoment.yearsAgo !== 1 ? "s" : ""} ago…
-              </p>
-              <p className="text-xs text-[#7a6f65] mt-0.5 truncate">{memoryMoment.memory.title}</p>
-            </div>
-            <span className="text-[#c8bfb5] text-lg shrink-0">›</span>
+      {/* ── On This Day ──────────────────────────────────────── */}
+      {onThisDayMemory && (
+        <Link href="/dashboard/memories" className="block rounded-2xl px-4 py-3.5" style={{ background: "#f5f0fa", border: "1.5px solid #d9bee8" }}>
+          <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#ede4f5", color: "#7a4a9e" }}>
+            One year ago today
+          </span>
+          <p className="text-sm font-medium text-[#2d2926]">{onThisDayMemory.title}</p>
+          <div className="flex items-center justify-between mt-1.5">
+            <span className="text-xs text-[#7a6f65]">
+              {(() => {
+                const child = children.find(c => c.id === onThisDayMemory.child_id);
+                const dateLabel = new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                return child ? `${child.name} · ${dateLabel}` : dateLabel;
+              })()}
+            </span>
+            <span className="text-xs font-medium" style={{ color: "#7a4a9e" }}>See the memory →</span>
           </div>
-        </button>
+        </Link>
       )}
 
 
@@ -2275,7 +2233,7 @@ export default function TodayPage() {
                   setWinText("");
                   setWinChild("");
                   setShowWinSheet(false);
-                  refreshTodayStory();
+                  loadData(); refreshTodayStory();
                 }}
                 disabled={savingWin || !winText.trim()}
                 className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
