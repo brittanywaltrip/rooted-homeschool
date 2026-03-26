@@ -1645,6 +1645,106 @@ export default function TodayPage() {
         );
       })()}
 
+      {/* ── Memory Moment Card ─────────────────────────────── */}
+      {memoryMoment && memoryMoment.kind === "on_this_day" && memoryMoment.memory && (
+        <Link
+          href="/dashboard/memories"
+          className="block bg-white rounded-2xl p-4 transition-colors hover:bg-[#fefcf9]"
+          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
+        >
+          <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest mb-2.5">On This Day</p>
+          <div className="flex gap-3 items-center">
+            {memoryMoment.memory.photo_url ? (
+              <div className="w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-[#f0ede8]" style={{ border: "3px solid white", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+                <img src={memoryMoment.memory.photo_url} alt="" className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <div className="w-16 h-16 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-2xl" style={{ border: "3px solid white", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
+                📸
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#2d2926] leading-snug">
+                📸 On this day, {memoryMoment.yearsAgo} year{memoryMoment.yearsAgo !== 1 ? "s" : ""} ago…
+              </p>
+              <p className="text-xs text-[#7a6f65] mt-0.5 truncate">{memoryMoment.memory.title}</p>
+            </div>
+            <span className="text-[#c8bfb5] text-lg shrink-0">›</span>
+          </div>
+        </Link>
+      )}
+
+      {memoryMoment && memoryMoment.kind === "recent" && memoryMoment.memory && (
+        <Link
+          href="/dashboard/memories"
+          className="block bg-white rounded-2xl overflow-hidden transition-colors hover:bg-[#fefcf9]"
+          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
+        >
+          {memoryMoment.memory.photo_url ? (
+            <div className="relative aspect-[4/3] bg-[#f0ede8]">
+              <img src={memoryMoment.memory.photo_url} alt="" className="w-full h-full object-cover" />
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-4 pb-3 pt-8">
+                <p className="text-white text-sm font-semibold leading-snug truncate">{memoryMoment.memory.title || "Memory"}</p>
+                <p className="text-white/70 text-[11px] mt-0.5">
+                  {(() => {
+                    const memDate = new Date(memoryMoment.memory!.date + "T12:00:00");
+                    const diffDays = Math.round((new Date().getTime() - memDate.getTime()) / (1000 * 60 * 60 * 24));
+                    if (diffDays === 0) return "Captured today";
+                    if (diffDays === 1) return "Captured yesterday";
+                    if (diffDays < 7) return `${diffDays} days ago`;
+                    if (diffDays < 30) return `${Math.round(diffDays / 7)} week${Math.round(diffDays / 7) !== 1 ? "s" : ""} ago`;
+                    return memDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  })()}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4">
+              <div className="flex gap-3 items-center">
+                <div className="w-14 h-14 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-2xl">📸</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-[#2d2926] leading-snug truncate">{memoryMoment.memory.title || "Memory"}</p>
+                  <p className="text-xs text-[#7a6f65] mt-0.5">
+                    {(() => {
+                      const memDate = new Date(memoryMoment.memory!.date + "T12:00:00");
+                      const diffDays = Math.round((new Date().getTime() - memDate.getTime()) / (1000 * 60 * 60 * 24));
+                      if (diffDays === 0) return "Captured today";
+                      if (diffDays === 1) return "Captured yesterday";
+                      if (diffDays < 7) return `${diffDays} days ago`;
+                      return memDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                    })()}
+                  </p>
+                </div>
+                <span className="text-[#c8bfb5] text-lg shrink-0">›</span>
+              </div>
+            </div>
+          )}
+        </Link>
+      )}
+
+      {memoryMoment && memoryMoment.kind === "empty" && !isPartner && (
+        <button
+          onClick={() => setShowLogModal(true)}
+          className="w-full bg-white rounded-2xl p-5 text-left transition-colors hover:bg-[#fefcf9]"
+          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
+        >
+          <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest mb-2">Capture a Memory</p>
+          <div className="flex gap-3 items-center">
+            <div className="w-12 h-12 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-xl">
+              📸
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#2d2926] leading-snug">
+                What&apos;s one thing worth remembering today? 📸
+              </p>
+              <p className="text-xs text-[#9e958d] mt-0.5">
+                A drawing, a moment, something they said.
+              </p>
+            </div>
+          </div>
+        </button>
+      )}
+
       {/* ── Did You Know card (school days only) ────────── */}
       {isSchoolDay && !activeVacation && (
         <button
