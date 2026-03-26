@@ -459,6 +459,11 @@ export default function TodayPage() {
   const [ftType, setFtType] = useState<"field_trip" | "project" | "activity">("field_trip");
   const [ftSaving, setFtSaving] = useState(false);
   const captureFileRef = useRef<HTMLInputElement>(null);
+  const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
+  const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editDeleting, setEditDeleting] = useState(false);
+  const [editDeleteConfirm, setEditDeleteConfirm] = useState(false);
   const [winText, setWinText] = useState("");
   const [winType, setWinType] = useState<"win" | "quote">("win");
   const [winChild, setWinChild] = useState("");
@@ -968,12 +973,49 @@ export default function TodayPage() {
     setSavingBook(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingBook(false); return; }
-    await supabase.from("memories").insert({
+    const { data: inserted } = await supabase.from("memories").insert({
       user_id: user.id, type: "book", title: bookTitle.trim(),
       child_id: bookChild || null, date: today, include_in_book: true,
-    });
+    }).select("id").single();
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
+    showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
+    loadData();
+  }
+
+  // ── Capture toast + edit sheet helpers ────────────────────────────────────
+
+  function showCaptureToast(message: string, memoryId: string | null) {
+    setCaptureToast({ message, memoryId });
+    setTimeout(() => setCaptureToast(null), 4000);
+  }
+
+  function openEditSheet(id: string, title: string, caption: string, childId: string, type: string) {
+    setEditSheet({ id, title, caption, child_id: childId, type });
+    setEditDeleteConfirm(false);
+    setCaptureToast(null);
+  }
+
+  async function saveEditSheet() {
+    if (!editSheet) return;
+    setEditSaving(true);
+    await supabase.from("memories").update({
+      title: editSheet.title.trim() || null,
+      caption: editSheet.caption.trim() || null,
+      child_id: editSheet.child_id || null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", editSheet.id);
+    setEditSaving(false); setEditSheet(null);
+    showCaptureToast("✏️ Updated 🌿", null);
+    loadData();
+  }
+
+  async function deleteFromEditSheet() {
+    if (!editSheet) return;
+    setEditDeleting(true);
+    await supabase.from("memories").delete().eq("id", editSheet.id);
+    setEditDeleting(false); setEditSheet(null);
+    showCaptureToast("🗑️ Deleted", null);
     loadData();
   }
 
@@ -1110,11 +1152,12 @@ export default function TodayPage() {
               const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
               if (upErr) return;
               const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-              await supabase.from("memories").insert({
+              const { data: ins } = await supabase.from("memories").insert({
                 user_id: user.id, type: "photo", title: null,
                 photo_url: urlData.publicUrl, child_id: null,
                 date: today, include_in_book: false,
-              });
+              }).select("id").single();
+              showCaptureToast("📸 Memory saved 🌿", (ins as { id: string } | null)?.id ?? null);
               loadData();
             }}
           />
@@ -1671,7 +1714,7 @@ export default function TodayPage() {
               <img
                 src={lightboxMemory.photo_url}
                 alt={lightboxMemory.title || "Memory"}
-                className="max-h-[70vh] w-full object-contain rounded-xl"
+                className="max-h-[70vh] w-full object-contain rounded-xl bg-[#1a2e1f]"
               />
             ) : (
               <div className="w-full aspect-square max-w-xs bg-[#1a2e1f] rounded-xl flex items-center justify-center text-7xl">
@@ -1703,6 +1746,10 @@ export default function TodayPage() {
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowCaptureMenu(false)} />
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="flex items-center justify-between px-5 pb-2">
+              <h2 className="font-bold text-[#2d2926] text-sm">Capture a memory</h2>
+              <button onClick={() => setShowCaptureMenu(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+            </div>
             <div className="px-4 pb-6 space-y-1">
               <button
                 onClick={() => { setShowCaptureMenu(false); captureFileRef.current?.click(); }}
@@ -1805,11 +1852,13 @@ export default function TodayPage() {
                   setFtSaving(true);
                   const { data: { user } } = await supabase.auth.getUser();
                   if (user) {
-                    await supabase.from("memories").insert({
+                    const { data: ins } = await supabase.from("memories").insert({
                       user_id: user.id, type: ftType, title: ftTitle.trim(),
                       caption: ftNote.trim() || null, child_id: ftChild || null,
                       date: today, include_in_book: false,
-                    });
+                    }).select("id").single();
+                    const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
+                    showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null);
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild("");
@@ -2088,7 +2137,7 @@ export default function TodayPage() {
                   setSavingWin(true);
                   const { data: { user } } = await supabase.auth.getUser();
                   if (user) {
-                    await supabase.from("memories").insert({
+                    const { data: ins } = await supabase.from("memories").insert({
                       user_id: user.id,
                       child_id: winChild || null,
                       date: localDateStr(new Date()),
@@ -2097,8 +2146,10 @@ export default function TodayPage() {
                       include_in_book: true,
                       created_at: new Date().toISOString(),
                       updated_at: new Date().toISOString(),
-                    });
+                    }).select("id").single();
                     setTotalMemories(prev => prev + 1);
+                    const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
+                    showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
                   }
                   setSavingWin(false);
                   setWinText("");
@@ -2110,6 +2161,95 @@ export default function TodayPage() {
               >
                 {savingWin ? "Saving..." : "Save"}
               </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Capture toast with Edit shortcut ──────────────── */}
+      {captureToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+          <div className="bg-[#2d5a3d] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap flex items-center gap-3">
+            <span>{captureToast.message}</span>
+            {captureToast.memoryId && (
+              <button
+                onClick={async () => {
+                  const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", captureToast.memoryId!).single();
+                  if (data) {
+                    const m = data as { id: string; title: string | null; caption: string | null; child_id: string | null; type: string };
+                    openEditSheet(m.id, m.title ?? "", m.caption ?? "", m.child_id ?? "", m.type);
+                  }
+                }}
+                className="text-white/70 hover:text-white text-xs font-medium transition-colors"
+              >
+                Edit →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit sheet ────────────────────────────────────── */}
+      {editSheet && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setEditSheet(null)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-[#2d2926]">Edit Memory</h2>
+                <button onClick={() => setEditSheet(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Title</label>
+                <input value={editSheet.title} onChange={(e) => setEditSheet({ ...editSheet, title: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Note</label>
+                <input value={editSheet.caption} onChange={(e) => setEditSheet({ ...editSheet, caption: e.target.value })} placeholder="Optional note"
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63]" />
+              </div>
+              {children.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                  <div className="flex gap-2 flex-wrap">
+                    <button type="button" onClick={() => setEditSheet({ ...editSheet, child_id: "" })}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${!editSheet.child_id ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}>
+                      Everyone
+                    </button>
+                    {children.map((c) => (
+                      <button key={c.id} type="button" onClick={() => setEditSheet({ ...editSheet, child_id: c.id })}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${editSheet.child_id === c.id ? "text-white border-transparent" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}
+                        style={editSheet.child_id === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : {}}>
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <button onClick={saveEditSheet} disabled={editSaving}
+                className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+                {editSaving ? "Saving…" : "Save changes"}
+              </button>
+              {!editDeleteConfirm ? (
+                <button onClick={() => setEditDeleteConfirm(true)}
+                  className="w-full text-center text-sm text-red-400 hover:text-red-500 transition-colors py-1">
+                  Delete
+                </button>
+              ) : (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2">
+                  <p className="text-sm text-[#2d2926] text-center">Delete this memory? This can&apos;t be undone.</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditDeleteConfirm(false)}
+                      className="flex-1 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
+                    <button onClick={deleteFromEditSheet} disabled={editDeleting}
+                      className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+                      {editDeleting ? "Deleting…" : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </>
