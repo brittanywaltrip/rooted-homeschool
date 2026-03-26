@@ -55,6 +55,11 @@ function NavLink({
   );
 }
 
+function nameInitial(name: string): string {
+  const stripped = name.replace(/^the\s+/i, "").replace(/\s+family$/i, "").trim();
+  return stripped ? stripped.charAt(0).toUpperCase() : "🌿";
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <ProfileProvider>
@@ -329,9 +334,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           {profileData.family_photo_url ? (
             <img src={profileData.family_photo_url} alt="" className="w-10 h-10 rounded-full object-cover" />
           ) : profileData.first_name ? (
-            profileData.first_name.charAt(0).toUpperCase()
+            nameInitial(profileData.first_name)
           ) : displayName ? (
-            displayName.charAt(0).toUpperCase()
+            nameInitial(displayName)
           ) : '🌿'}
         </Link>
       </div>
@@ -367,10 +372,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[#7a6f65] hover:bg-red-50 hover:text-red-600 w-full transition-colors"
         >
           <div className="w-4 h-4 rounded-full bg-[#e8f0e9] flex items-center justify-center shrink-0 text-[9px] font-bold text-[#5c7f63]">
-            {(() => {
-              const words = displayName.replace(/\bfamily\b/gi, "").trim().split(/\s+/).filter(Boolean);
-              return words.length > 0 ? words[words.length - 1].charAt(0).toUpperCase() : "🌿";
-            })()}
+            {nameInitial(displayName)}
           </div>
           Sign Out
         </button>
@@ -419,9 +421,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               {profileData.family_photo_url ? (
                 <img src={profileData.family_photo_url} alt="" className="w-10 h-10 rounded-full object-cover" />
               ) : profileData.first_name ? (
-                profileData.first_name.charAt(0).toUpperCase()
+                nameInitial(profileData.first_name)
               ) : displayName ? (
-                displayName.charAt(0).toUpperCase()
+                nameInitial(displayName)
               ) : '🌿'}
             </Link>
           </div>
