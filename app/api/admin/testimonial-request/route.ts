@@ -4,12 +4,12 @@ import { Resend } from "resend";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
-const FOUNDING_NAMES = [
-  "Amanda Deardorff",
-  "Amber Hudson Slaughter",
-  "Donna Ward",
-  "Lacie Hawkins",
-  "Joselyn Minchey",
+const FOUNDING_MEMBERS: { name: string; email?: string }[] = [
+  { name: "Amanda Deardorff" },
+  { name: "Amber Hudson Slaughter", email: "amannda86@yahoo.com" },
+  { name: "Donna Ward",             email: "dward67@yahoo.com" },
+  { name: "Lacie Hawkins",          email: "lacey.medio@gmail.com" },
+  { name: "Joselyn Minchey",        email: "jpirtlaw@gmail.com" },
 ];
 
 const supabaseAdmin = createClient(
@@ -28,37 +28,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Look up founding members by display_name or first_name + last_name
-  const { data: profiles } = await supabaseAdmin
-    .from("profiles")
-    .select("id, display_name, first_name, last_name");
+  // Look up founding members by their known email addresses
+  const { data: authList } = await supabaseAdmin.auth.admin.listUsers();
+  const allUsers = authList?.users ?? [];
+  const emailToUser = new Map(allUsers.map((u) => [u.email?.toLowerCase(), u]));
 
-  if (!profiles) {
-    return NextResponse.json({ error: "Could not load profiles" }, { status: 500 });
-  }
-
-  // Match names to profiles
   const matched: { id: string; name: string; email: string }[] = [];
   const notFound: string[] = [];
 
-  for (const name of FOUNDING_NAMES) {
-    const nameLower = name.toLowerCase();
-    const profile = profiles.find((p) => {
-      const display = (p.display_name ?? "").toLowerCase();
-      const full = `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim().toLowerCase();
-      return display === nameLower || full === nameLower;
-    });
-
-    if (profile) {
-      // Look up email from auth.users via admin API
-      const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(profile.id);
-      if (authUser?.user?.email) {
-        matched.push({ id: profile.id, name, email: authUser.user.email });
+  for (const member of FOUNDING_MEMBERS) {
+    if (member.email) {
+      // Direct email lookup
+      const authUser = emailToUser.get(member.email.toLowerCase());
+      if (authUser?.email) {
+        matched.push({ id: authUser.id, name: member.name, email: authUser.email });
       } else {
-        notFound.push(`${name} (no email in auth)`);
+        notFound.push(`${member.name} (${member.email} not found in auth)`);
       }
     } else {
-      notFound.push(name);
+      // Fallback: name-based profile search (for Amanda Deardorff)
+      const [firstName, ...rest] = member.name.split(" ");
+      const lastName = rest.join(" ");
+      const { data: profiles } = await supabaseAdmin
+        .from("profiles")
+        .select("id")
+        .ilike("first_name", `%${firstName}%`)
+        .ilike("last_name", `%${lastName}%`);
+      const profile = profiles?.[0];
+      if (profile) {
+        const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(profile.id);
+        if (authUser?.user?.email) {
+          matched.push({ id: profile.id, name: member.name, email: authUser.user.email });
+        } else {
+          notFound.push(`${member.name} (no email in auth)`);
+        }
+      } else {
+        notFound.push(member.name);
+      }
     }
   }
 
