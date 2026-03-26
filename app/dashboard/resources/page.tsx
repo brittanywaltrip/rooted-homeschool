@@ -496,14 +496,14 @@ export default function ResourcesPage() {
       <div>
         <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Discover</p>
         <h1 className="text-3xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>Resources {"\uD83C\uDF3F"}</h1>
-        <p className="text-sm text-[#7a6f65] mt-1">Curated for your homeschool, updated weekly.</p>
-        <p className="text-[10px] text-[#b5aca4] mt-0.5">Updated every Monday</p>
+        <p className="text-sm text-[#7a6f65] mt-1">Curated for your homeschool.</p>
+
       </div>
 
       {/* ── 2. This Week's Free Picks ───────────────────────────── */}
       <div>
         <h2 className="text-lg font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>This Week&apos;s Free Picks {"\u2B50"}</h2>
-        <p className="text-xs text-[#7a6f65] mb-4">Exclusive finds — updated every week</p>
+        <p className="text-xs text-[#7a6f65] mb-4">Exclusive finds for your homeschool</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {filteredFreshDrops.map((drop, i) => {
             const col = PICK_CARD_COLORS[i % PICK_CARD_COLORS.length];

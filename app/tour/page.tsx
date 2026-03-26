@@ -87,9 +87,9 @@ const FEATURES: {
     label: "Resources",
     emoji: "📚",
     headline: "Curated resources, just for you",
-    sub: "Free picks filtered for your state, updated every week — zero prep required.",
+    sub: "Free picks filtered for your state — zero prep required.",
     bullets: [
-      "Free picks updated every week — textbooks, activities, and virtual field trips",
+      "Free picks — textbooks, activities, and virtual field trips",
       "Filtered for your state's requirements automatically",
       "Field trips, printables, and zero-prep activities ready to use today",
     ],
