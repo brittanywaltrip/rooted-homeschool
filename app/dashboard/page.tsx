@@ -459,6 +459,7 @@ export default function TodayPage() {
   const [ftType, setFtType] = useState<"field_trip" | "project" | "activity">("field_trip");
   const [ftSaving, setFtSaving] = useState(false);
   const captureFileRef = useRef<HTMLInputElement>(null);
+  const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
   const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
@@ -795,10 +796,30 @@ export default function TodayPage() {
       .maybeSingle();
     setOnThisDayMemory(otdData as typeof onThisDayMemory);
 
+    // ── Today's story ──────────────────────────────────────────────────
+    const { data: storyData } = await supabase
+      .from("memories")
+      .select("id, type, title, caption, child_id, photo_url, include_in_book, created_at")
+      .eq("user_id", effectiveUserId)
+      .eq("date", today)
+      .order("created_at", { ascending: false });
+    setTodayStory((storyData ?? []) as typeof todayStory);
+
     setLoading(false);
   }, [today, effectiveUserId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  async function refreshTodayStory() {
+    if (!effectiveUserId) return;
+    const { data } = await supabase
+      .from("memories")
+      .select("id, type, title, caption, child_id, photo_url, include_in_book, created_at")
+      .eq("user_id", effectiveUserId)
+      .eq("date", today)
+      .order("created_at", { ascending: false });
+    setTodayStory((data ?? []) as typeof todayStory);
+  }
 
   // ── Lesson actions ────────────────────────────────────────────────────────
 
@@ -980,7 +1001,7 @@ export default function TodayPage() {
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
-    loadData();
+    loadData(); refreshTodayStory();
   }
 
   // ── Capture toast + edit sheet helpers ────────────────────────────────────
@@ -1007,7 +1028,7 @@ export default function TodayPage() {
     }).eq("id", editSheet.id);
     setEditSaving(false); setEditSheet(null);
     showCaptureToast("✏️ Updated 🌿", null);
-    loadData();
+    loadData(); refreshTodayStory();
   }
 
   async function deleteFromEditSheet() {
@@ -1016,7 +1037,7 @@ export default function TodayPage() {
     await supabase.from("memories").delete().eq("id", editSheet.id);
     setEditDeleting(false); setEditSheet(null);
     showCaptureToast("🗑️ Deleted", null);
-    loadData();
+    loadData(); refreshTodayStory();
   }
 
   // ── Activity edit/delete ──────────────────────────────────────────────────
@@ -1171,10 +1192,66 @@ export default function TodayPage() {
                 date: today, include_in_book: false,
               }).select("id").single();
               showCaptureToast("📸 Memory saved 🌿", (ins as { id: string } | null)?.id ?? null);
-              loadData();
+              loadData(); refreshTodayStory();
             }}
           />
         </>
+      )}
+
+      {/* ── Today's Story ────────────────────────────────────── */}
+      {todayStory.length > 0 && (
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2 px-0.5">Today&apos;s Story</p>
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
+            {todayStory.map((m) => {
+              const icons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🗒️", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
+              const icon = icons[m.type] ?? "🌿";
+              const child = m.child_id ? children.find((c) => c.id === m.child_id) : null;
+              const ago = (() => {
+                const diff = Math.round((Date.now() - new Date(m.created_at).getTime()) / 60000);
+                if (diff < 1) return "just now";
+                if (diff < 60) return `${diff}m ago`;
+                const hrs = Math.round(diff / 60);
+                return `${hrs}h ago`;
+              })();
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={async () => {
+                    const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", m.id).single();
+                    if (data) {
+                      const d = data as { id: string; title: string | null; caption: string | null; child_id: string | null; type: string };
+                      openEditSheet(d.id, d.title ?? "", d.caption ?? "", d.child_id ?? "", d.type);
+                    }
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors"
+                >
+                  <span className="text-lg shrink-0">{icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-medium text-[#2d2926] truncate">
+                        {m.title || (m.type === "photo" ? "Photo" : m.type.charAt(0).toUpperCase() + m.type.slice(1).replace("_", " "))}
+                      </p>
+                      {m.include_in_book && <span className="text-[10px] shrink-0">🔖</span>}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {child && (
+                        <>
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
+                          <span className="text-[11px] text-[#7a6f65]">{child.name}</span>
+                          <span className="text-[11px] text-[#c8bfb5]">·</span>
+                        </>
+                      )}
+                      <span className="text-[11px] text-[#c8bfb5]">{ago}</span>
+                    </div>
+                  </div>
+                  <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* ── AI Family Update Prompt ────────────────────────────── */}
@@ -1875,7 +1952,7 @@ export default function TodayPage() {
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild("");
-                  loadData();
+                  loadData(); refreshTodayStory();
                 }}
                 className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {ftSaving ? "Saving…" : "Save"}
@@ -2168,6 +2245,7 @@ export default function TodayPage() {
                   setWinText("");
                   setWinChild("");
                   setShowWinSheet(false);
+                  refreshTodayStory();
                 }}
                 disabled={savingWin || !winText.trim()}
                 className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
