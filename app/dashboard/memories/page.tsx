@@ -184,7 +184,8 @@ export default function MemoriesPage() {
         .select("*")
         .eq("user_id", effectiveUserId)
         .gte("created_at", dateFloor)
-        .order("date", { ascending: false }),
+        .order("date", { ascending: false })
+        .order("created_at", { ascending: false }),
       supabase
         .from("daily_reflections")
         .select("id, date, reflection, is_private, updated_at")
