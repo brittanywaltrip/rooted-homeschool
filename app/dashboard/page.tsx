@@ -451,6 +451,19 @@ export default function TodayPage() {
   const [lastPhoto, setLastPhoto] = useState<{ id: string; title: string; photo_url: string; date: string; child_id: string | null } | null>(null);
   const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null } | null>(null);
   const [showWinSheet, setShowWinSheet] = useState(false);
+  const [showCaptureMenu, setShowCaptureMenu] = useState(false);
+  const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
+  const [ftTitle, setFtTitle] = useState("");
+  const [ftNote, setFtNote] = useState("");
+  const [ftChild, setFtChild] = useState("");
+  const [ftType, setFtType] = useState<"field_trip" | "project" | "activity">("field_trip");
+  const [ftSaving, setFtSaving] = useState(false);
+  const captureFileRef = useRef<HTMLInputElement>(null);
+  const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
+  const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editDeleting, setEditDeleting] = useState(false);
+  const [editDeleteConfirm, setEditDeleteConfirm] = useState(false);
   const [winText, setWinText] = useState("");
   const [winType, setWinType] = useState<"win" | "quote">("win");
   const [winChild, setWinChild] = useState("");
@@ -960,15 +973,50 @@ export default function TodayPage() {
     setSavingBook(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingBook(false); return; }
-    const payload = { title: bookTitle.trim(), child_id: bookChild || undefined, date: today };
-    const { data } = await supabase
-      .from("app_events").insert({ user_id: user.id, type: "book_read", payload })
-      .select("id, payload").single();
-    if (data) {
-      setTodayBooks((prev) => [...prev, data as unknown as BookLog]);
-      if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
-    }
+    const { data: inserted } = await supabase.from("memories").insert({
+      user_id: user.id, type: "book", title: bookTitle.trim(),
+      child_id: bookChild || null, date: today, include_in_book: true,
+    }).select("id").single();
+    if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
+    showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
+    loadData();
+  }
+
+  // ── Capture toast + edit sheet helpers ────────────────────────────────────
+
+  function showCaptureToast(message: string, memoryId: string | null) {
+    setCaptureToast({ message, memoryId });
+    setTimeout(() => setCaptureToast(null), 4000);
+  }
+
+  function openEditSheet(id: string, title: string, caption: string, childId: string, type: string) {
+    setEditSheet({ id, title, caption, child_id: childId, type });
+    setEditDeleteConfirm(false);
+    setCaptureToast(null);
+  }
+
+  async function saveEditSheet() {
+    if (!editSheet) return;
+    setEditSaving(true);
+    await supabase.from("memories").update({
+      title: editSheet.title.trim() || null,
+      caption: editSheet.caption.trim() || null,
+      child_id: editSheet.child_id || null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", editSheet.id);
+    setEditSaving(false); setEditSheet(null);
+    showCaptureToast("✏️ Updated 🌿", null);
+    loadData();
+  }
+
+  async function deleteFromEditSheet() {
+    if (!editSheet) return;
+    setEditDeleting(true);
+    await supabase.from("memories").delete().eq("id", editSheet.id);
+    setEditDeleting(false); setEditSheet(null);
+    showCaptureToast("🗑️ Deleted", null);
+    loadData();
   }
 
   // ── Activity edit/delete ──────────────────────────────────────────────────
@@ -1066,101 +1114,67 @@ export default function TodayPage() {
           <>
             <p className="text-[32px] font-bold text-white leading-tight mt-1">{totalMemories} 🌿</p>
             <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.55)" }}>memories in your story</p>
+            {activeDaysThisMonth > 0 && (
+              <div className="inline-block mt-2.5 px-2.5 py-1 rounded-full text-[10px] font-medium" style={{ background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.7)" }}>
+                {activeDaysThisMonth} day{activeDaysThisMonth !== 1 ? "s" : ""} active in {new Date().toLocaleDateString("en-US", { month: "long" })}
+              </div>
+            )}
           </>
         ) : (
-          <p className="text-[16px] font-semibold text-white leading-snug mt-2 mb-1">Your story is just beginning 🌿</p>
-        )}
-        {activeDaysThisMonth > 0 && (
-          <div className="inline-block mt-2.5 px-2.5 py-1 rounded-full text-[10px] font-medium" style={{ background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.7)" }}>
-            {activeDaysThisMonth} day{activeDaysThisMonth !== 1 ? "s" : ""} active in {new Date().toLocaleDateString("en-US", { month: "long" })}
-          </div>
+          <>
+            <p className="text-[14px] text-white/80 leading-relaxed mt-2 mb-2" style={{ fontFamily: "Georgia, serif" }}>
+              {[
+                "Kids make 100 drawings a week — you can't keep them all, but you can keep this one 📸",
+                "What made them laugh today? You'll want to remember this. ✍️",
+                "Snap something small. You'll treasure it later. 📸",
+                "A book, a face, a moment — anything counts. 🌿",
+                "Five years from now you'll wish you took this photo. Take it now. 📸",
+                "What did they discover today? Write it down before you forget. ✍️",
+                "Every ordinary day is worth remembering. 🌿",
+              ][new Date().getDay()]}
+            </p>
+            <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.4)" }}>Your story starts today</p>
+          </>
         )}
       </div>
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
 
-      {/* ── Last Captured ────────────────────────────────────── */}
-      {lastPhoto ? (
-        <Link href="/dashboard/memories" className="block relative rounded-2xl overflow-hidden" style={{ height: 130 }}>
-          <img src={lastPhoto.photo_url} alt="" className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-          {(() => {
-            const child = children.find(c => c.id === lastPhoto.child_id);
-            return child ? (
-              <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
-                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
-                <span className="text-[11px] font-medium text-white/90">{child.name}</span>
-              </div>
-            ) : null;
-          })()}
-          <span className="absolute bottom-3 right-3 text-[11px] text-white/70">
-            {(() => {
-              const d = Math.round((Date.now() - new Date(lastPhoto.date + "T12:00:00").getTime()) / 86400000);
-              return d === 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`;
-            })()}
-          </span>
-          <p className="absolute bottom-8 left-3 text-[12px] font-medium text-white/90 truncate max-w-[70%]">{lastPhoto.title}</p>
-        </Link>
-      ) : (
-        <button
-          onClick={() => {
-            const fab = document.querySelector<HTMLButtonElement>('[aria-label="Log a memory"]');
-            fab?.click();
-          }}
-          className="w-full rounded-2xl p-5 text-left" style={{ height: 130, background: "#f5f2ec", border: "1.5px dashed #d4cdc4" }}
-        >
-          <p className="text-[13px] text-[#7a6f65] leading-relaxed">
-            {[
-              "Kids make 100 drawings a week — keep this one 📸",
-              "What made them laugh today? You'll want to remember this.",
-              "Snap something small. You'll treasure it later.",
-              "A book, a face, a moment — anything. Tap to capture.",
-            ][new Date().getDay() % 4]}
-          </p>
-        </button>
-      )}
-
-      {/* ── On This Day ──────────────────────────────────────── */}
-      {onThisDayMemory && (
-        <Link href="/dashboard/memories" className="block rounded-2xl px-4 py-3.5" style={{ background: "#f5f0fa", border: "1.5px solid #d9bee8" }}>
-          <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#ede4f5", color: "#7a4a9e" }}>
-            One year ago today
-          </span>
-          <p className="text-sm font-medium text-[#2d2926]">{onThisDayMemory.title}</p>
-          <div className="flex items-center justify-between mt-1.5">
-            <span className="text-xs text-[#7a6f65]">
-              {(() => {
-                const child = children.find(c => c.id === onThisDayMemory.child_id);
-                const dateLabel = new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-                return child ? `${child.name} · ${dateLabel}` : dateLabel;
-              })()}
-            </span>
-            <span className="text-xs font-medium" style={{ color: "#7a4a9e" }}>See the memory →</span>
-          </div>
-        </Link>
-      )}
-
-      {/* ── Two Capture Buttons ──────────────────────────────── */}
+      {/* ── Capture a Memory button ──────────────────────────── */}
       {!isPartner && (
-        <div className="flex gap-3">
+        <>
           <button
-            onClick={() => {
-              const fab = document.querySelector<HTMLButtonElement>('[aria-label="Log a memory"]');
-              fab?.click();
-            }}
-            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+            onClick={() => setShowCaptureMenu(true)}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
             style={{ background: "#2d5a3d" }}
           >
-            📸 Capture photo
+            ✚ Capture a memory
           </button>
-          <button
-            onClick={() => setShowWinSheet(true)}
-            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-colors hover:opacity-90"
-            style={{ background: "#fdf6ec", border: "1.5px solid #e8c878", color: "#7a5a1a" }}
-          >
-            ✍️ Log a win
-          </button>
-        </div>
+          <input
+            ref={captureFileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (e.target) e.target.value = "";
+              if (!file) return;
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) return;
+              const path = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+              const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
+              if (upErr) return;
+              const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+              const { data: ins } = await supabase.from("memories").insert({
+                user_id: user.id, type: "photo", title: null,
+                photo_url: urlData.publicUrl, child_id: null,
+                date: today, include_in_book: false,
+              }).select("id").single();
+              showCaptureToast("📸 Memory saved 🌿", (ins as { id: string } | null)?.id ?? null);
+              loadData();
+            }}
+          />
+        </>
       )}
 
       {/* ── AI Family Update Prompt ────────────────────────────── */}
@@ -1676,77 +1690,6 @@ export default function TodayPage() {
         </button>
       )}
 
-      {memoryMoment && memoryMoment.kind === "recent" && memoryMoment.memory && (
-        <button
-          type="button"
-          onClick={() => setLightboxMemory(memoryMoment.memory!)}
-          className="w-full bg-white rounded-2xl overflow-hidden transition-colors hover:bg-[#fefcf9] text-left"
-          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
-        >
-          {memoryMoment.memory.photo_url ? (
-            <div className="relative aspect-square bg-[#1a2e1f]">
-              <img src={memoryMoment.memory.photo_url} alt="" className="w-full h-full object-contain" />
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-4 pb-3 pt-8">
-                <p className="text-white text-sm font-semibold leading-snug truncate">{memoryMoment.memory.title || "Memory"}</p>
-                <p className="text-white/70 text-[11px] mt-0.5">
-                  {(() => {
-                    const memDate = new Date(memoryMoment.memory!.date + "T12:00:00");
-                    const diffDays = Math.round((new Date().getTime() - memDate.getTime()) / (1000 * 60 * 60 * 24));
-                    if (diffDays === 0) return "Captured today";
-                    if (diffDays === 1) return "Captured yesterday";
-                    if (diffDays < 7) return `${diffDays} days ago`;
-                    if (diffDays < 30) return `${Math.round(diffDays / 7)} week${Math.round(diffDays / 7) !== 1 ? "s" : ""} ago`;
-                    return memDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                  })()}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="p-4">
-              <div className="flex gap-3 items-center">
-                <div className="w-14 h-14 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-2xl">📸</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-[#2d2926] leading-snug truncate">{memoryMoment.memory.title || "Memory"}</p>
-                  <p className="text-xs text-[#7a6f65] mt-0.5">
-                    {(() => {
-                      const memDate = new Date(memoryMoment.memory!.date + "T12:00:00");
-                      const diffDays = Math.round((new Date().getTime() - memDate.getTime()) / (1000 * 60 * 60 * 24));
-                      if (diffDays === 0) return "Captured today";
-                      if (diffDays === 1) return "Captured yesterday";
-                      if (diffDays < 7) return `${diffDays} days ago`;
-                      return memDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                    })()}
-                  </p>
-                </div>
-                <span className="text-[#c8bfb5] text-lg shrink-0">›</span>
-              </div>
-            </div>
-          )}
-        </button>
-      )}
-
-      {memoryMoment && memoryMoment.kind === "empty" && !isPartner && (
-        <button
-          onClick={() => setShowLogModal(true)}
-          className="w-full bg-white rounded-2xl p-5 text-left transition-colors hover:bg-[#fefcf9]"
-          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
-        >
-          <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest mb-2">Capture a Memory</p>
-          <div className="flex gap-3 items-center">
-            <div className="w-12 h-12 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-xl">
-              📸
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-[#2d2926] leading-snug">
-                What&apos;s one thing worth remembering today? 📸
-              </p>
-              <p className="text-xs text-[#9e958d] mt-0.5">
-                A drawing, a moment, something they said.
-              </p>
-            </div>
-          </div>
-        </button>
-      )}
 
       {/* ── Did You Know card (school days only) ────────── */}
       {isSchoolDay && !activeVacation && (
@@ -1784,7 +1727,7 @@ export default function TodayPage() {
               <img
                 src={lightboxMemory.photo_url}
                 alt={lightboxMemory.title || "Memory"}
-                className="max-h-[70vh] w-full object-contain rounded-xl"
+                className="max-h-[70vh] w-full object-contain rounded-xl bg-[#1a2e1f]"
               />
             ) : (
               <div className="w-full aspect-square max-w-xs bg-[#1a2e1f] rounded-xl flex items-center justify-center text-7xl">
@@ -1806,6 +1749,138 @@ export default function TodayPage() {
             >
               Open in Memories →
             </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ── Capture menu bottom sheet ───────────────────── */}
+      {showCaptureMenu && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowCaptureMenu(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="flex items-center justify-between px-5 pb-2">
+              <h2 className="font-bold text-[#2d2926] text-sm">Capture a memory</h2>
+              <button onClick={() => setShowCaptureMenu(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+            </div>
+            <div className="px-4 pb-6 space-y-1">
+              <button
+                onClick={() => { setShowCaptureMenu(false); captureFileRef.current?.click(); }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
+              >
+                <span className="text-2xl">📸</span>
+                <div>
+                  <p className="text-sm font-semibold text-[#2d2926]">Photo</p>
+                  <p className="text-xs text-[#7a6f65]">Snap something to remember</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setShowCaptureMenu(false); setShowWinSheet(true); }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
+              >
+                <span className="text-2xl">✍️</span>
+                <div>
+                  <p className="text-sm font-semibold text-[#2d2926]">Win or moment</p>
+                  <p className="text-xs text-[#7a6f65]">Type or speak it out loud</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setShowCaptureMenu(false); setShowBookModal(true); }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
+              >
+                <span className="text-2xl">📖</span>
+                <div>
+                  <p className="text-sm font-semibold text-[#2d2926]">Book</p>
+                  <p className="text-xs text-[#7a6f65]">Log what they&apos;re reading</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setShowCaptureMenu(false); setShowFieldTripSheet(true); }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
+              >
+                <span className="text-2xl">🌿</span>
+                <div>
+                  <p className="text-sm font-semibold text-[#2d2926]">Field trip or project</p>
+                  <p className="text-xs text-[#7a6f65]">Document something they did</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Field trip / project sheet ────────────────────── */}
+      {showFieldTripSheet && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-[#2d2926]">🌿 Log an Activity</h2>
+              <button onClick={() => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); }} className="text-[#b5aca4] hover:text-[#7a6f65]">✕</button>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What did they do?</label>
+              <input value={ftTitle} onChange={(e) => setFtTitle(e.target.value)} placeholder="e.g. Visited the science museum" autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Note (optional)</label>
+              <input value={ftNote} onChange={(e) => setFtNote(e.target.value)} placeholder="Any details worth remembering"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63]" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Type</label>
+              <div className="flex gap-2">
+                {([["field_trip", "🗺️ Field trip"], ["project", "🔬 Project"], ["activity", "🎵 Activity"]] as const).map(([val, label]) => (
+                  <button key={val} type="button" onClick={() => setFtType(val)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-colors ${ftType === val ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {children.length > 1 && (
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                <div className="flex gap-2 flex-wrap">
+                  <button type="button" onClick={() => setFtChild("")}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${!ftChild ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}>
+                    Everyone
+                  </button>
+                  {children.map((c) => (
+                    <button key={c.id} type="button" onClick={() => setFtChild(c.id)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${ftChild === c.id ? "text-white border-transparent" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}
+                      style={ftChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : {}}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); }}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
+              <button
+                disabled={ftSaving || !ftTitle.trim()}
+                onClick={async () => {
+                  setFtSaving(true);
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (user) {
+                    const { data: ins } = await supabase.from("memories").insert({
+                      user_id: user.id, type: ftType, title: ftTitle.trim(),
+                      caption: ftNote.trim() || null, child_id: ftChild || null,
+                      date: today, include_in_book: false,
+                    }).select("id").single();
+                    const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
+                    showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null);
+                  }
+                  setFtSaving(false); setShowFieldTripSheet(false);
+                  setFtTitle(""); setFtNote(""); setFtChild("");
+                  loadData();
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                {ftSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2075,7 +2150,7 @@ export default function TodayPage() {
                   setSavingWin(true);
                   const { data: { user } } = await supabase.auth.getUser();
                   if (user) {
-                    await supabase.from("memories").insert({
+                    const { data: ins } = await supabase.from("memories").insert({
                       user_id: user.id,
                       child_id: winChild || null,
                       date: localDateStr(new Date()),
@@ -2084,8 +2159,10 @@ export default function TodayPage() {
                       include_in_book: true,
                       created_at: new Date().toISOString(),
                       updated_at: new Date().toISOString(),
-                    });
+                    }).select("id").single();
                     setTotalMemories(prev => prev + 1);
+                    const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
+                    showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
                   }
                   setSavingWin(false);
                   setWinText("");
@@ -2097,6 +2174,95 @@ export default function TodayPage() {
               >
                 {savingWin ? "Saving..." : "Save"}
               </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Capture toast with Edit shortcut ──────────────── */}
+      {captureToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+          <div className="bg-[#2d5a3d] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap flex items-center gap-3">
+            <span>{captureToast.message}</span>
+            {captureToast.memoryId && (
+              <button
+                onClick={async () => {
+                  const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", captureToast.memoryId!).single();
+                  if (data) {
+                    const m = data as { id: string; title: string | null; caption: string | null; child_id: string | null; type: string };
+                    openEditSheet(m.id, m.title ?? "", m.caption ?? "", m.child_id ?? "", m.type);
+                  }
+                }}
+                className="text-white/70 hover:text-white text-xs font-medium transition-colors"
+              >
+                Edit →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit sheet ────────────────────────────────────── */}
+      {editSheet && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setEditSheet(null)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-[#2d2926]">Edit Memory</h2>
+                <button onClick={() => setEditSheet(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Title</label>
+                <input value={editSheet.title} onChange={(e) => setEditSheet({ ...editSheet, title: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Note</label>
+                <input value={editSheet.caption} onChange={(e) => setEditSheet({ ...editSheet, caption: e.target.value })} placeholder="Optional note"
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63]" />
+              </div>
+              {children.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                  <div className="flex gap-2 flex-wrap">
+                    <button type="button" onClick={() => setEditSheet({ ...editSheet, child_id: "" })}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${!editSheet.child_id ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}>
+                      Everyone
+                    </button>
+                    {children.map((c) => (
+                      <button key={c.id} type="button" onClick={() => setEditSheet({ ...editSheet, child_id: c.id })}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${editSheet.child_id === c.id ? "text-white border-transparent" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}
+                        style={editSheet.child_id === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : {}}>
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <button onClick={saveEditSheet} disabled={editSaving}
+                className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+                {editSaving ? "Saving…" : "Save changes"}
+              </button>
+              {!editDeleteConfirm ? (
+                <button onClick={() => setEditDeleteConfirm(true)}
+                  className="w-full text-center text-sm text-red-400 hover:text-red-500 transition-colors py-1">
+                  Delete
+                </button>
+              ) : (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2">
+                  <p className="text-sm text-[#2d2926] text-center">Delete this memory? This can&apos;t be undone.</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditDeleteConfirm(false)}
+                      className="flex-1 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
+                    <button onClick={deleteFromEditSheet} disabled={editDeleting}
+                      className="flex-1 py-2 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+                      {editDeleting ? "Deleting…" : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </>
