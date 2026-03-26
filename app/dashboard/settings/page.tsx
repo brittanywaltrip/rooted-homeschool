@@ -1521,6 +1521,61 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {/* QR Code */}
+            <div>
+              <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your QR Code</p>
+              <div className="flex justify-center">
+                <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`}
+                    alt="Referral QR code"
+                    width={160}
+                    height={160}
+                    className="rounded-lg"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-[#6366f1] text-center mt-2">Screenshot to share anywhere</p>
+            </div>
+
+            {/* Download cards */}
+            <div>
+              <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Download Your Cards</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`);
+                    const { cardHtml } = await res.json();
+                    const blob = new Blob([cardHtml], { type: 'text/html' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `${affiliateData.code}_card.html`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
+                >
+                  🖨️ Print card
+                </button>
+                <button
+                  onClick={async () => {
+                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`);
+                    const { shareHtml } = await res.json();
+                    const blob = new Blob([shareHtml], { type: 'text/html' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `${affiliateData.code}_share.html`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
+                >
+                  📱 Share card
+                </button>
+              </div>
+              <p className="text-[10px] text-[#a0a0b8] text-center mt-2">Open in Chrome and print to PDF for best results</p>
+            </div>
+
             {/* Partner since */}
             <p className="text-xs text-[#6366f1] text-center">
               Partner since {new Date(affiliateData.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
