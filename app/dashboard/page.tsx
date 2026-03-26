@@ -1143,18 +1143,28 @@ export default function TodayPage() {
           </>
         ) : (
           <>
-            <p className="text-[14px] text-white/80 leading-relaxed mt-2 mb-2" style={{ fontFamily: "Georgia, serif" }}>
-              {[
-                "Kids make 100 drawings a week — you can't keep them all, but you can keep this one 📸",
-                "What made them laugh today? You'll want to remember this. ✍️",
-                "Snap something small. You'll treasure it later. 📸",
-                "A book, a face, a moment — anything counts. 🌿",
-                "Five years from now you'll wish you took this photo. Take it now. 📸",
-                "What did they discover today? Write it down before you forget. ✍️",
-                "Every ordinary day is worth remembering. 🌿",
-              ][new Date().getDay()]}
+            <p className="text-[20px] text-white font-bold leading-snug mt-2 mb-2" style={{ fontFamily: "Georgia, serif" }}>
+              Your homeschool story starts here 🌿
             </p>
-            <p className="text-[10px]" style={{ color: "rgba(255,255,255,0.4)" }}>Your story starts today</p>
+            <p className="text-[12px] mb-3" style={{ color: "rgba(255,255,255,0.6)" }}>
+              Capture anything — big milestones or small everyday moments.
+            </p>
+            <div className="space-y-1.5 mb-3">
+              {[
+                ["📸", "Photos & drawings"],
+                ["✍️", "Wins & moments"],
+                ["📖", "Books they're reading"],
+                ["🗺️", "Field trips & projects"],
+              ].map(([icon, label]) => (
+                <div key={label} className="flex items-center gap-2.5">
+                  <span className="text-sm">{icon}</span>
+                  <span className="text-sm" style={{ color: "rgba(255,255,255,0.8)" }}>{label}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] italic" style={{ color: "rgba(255,255,255,0.45)" }}>
+              Tap the button below to add your first memory.
+            </p>
           </>
         )}
       </div>
@@ -1972,40 +1982,42 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Book modal ────────────────────────────────────── */}
+      {/* ── Book sheet ────────────────────────────────────── */}
       {showBookModal && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold text-[#2d2926]">📖 Log a Book</h2>
-              <button onClick={() => setShowBookModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Book title *</label>
-              <input value={bookTitle} onChange={(e) => setBookTitle(e.target.value)} placeholder="e.g. Charlotte's Web" autoFocus
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-            </div>
-            {children.length > 0 && (
-              <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who read it?</label>
-                <select value={bookChild} onChange={(e) => setBookChild(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
-                  <option value="">Everyone / unassigned</option>
-                  {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowBookModal(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-[#2d2926]">📖 Log a Book</h2>
+                <button onClick={() => setShowBookModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
               </div>
-            )}
-            <p className="text-xs text-[#7a6f65] bg-[#e8f0e9] rounded-xl px-3 py-2">
-              🍃 This book will add a leaf to {bookChild ? children.find((c) => c.id === bookChild)?.name + "'s" : "the"} garden tree.
-            </p>
-            <div className="flex gap-2">
-              <button onClick={() => setShowBookModal(false)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
-              <button onClick={saveBook} disabled={savingBook || !bookTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Book title *</label>
+                <input value={bookTitle} onChange={(e) => setBookTitle(e.target.value)} placeholder="e.g. Charlotte's Web" autoFocus
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              </div>
+              {children.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who read it?</label>
+                  <select value={bookChild} onChange={(e) => setBookChild(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
+                    <option value="">Everyone / unassigned</option>
+                    {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <p className="text-xs text-[#7a6f65] bg-[#e8f0e9] rounded-xl px-3 py-2">
+                🍃 This book will add a leaf to {bookChild ? children.find((c) => c.id === bookChild)?.name + "&apos;s" : "the"} garden tree.
+              </p>
+              <button onClick={saveBook} disabled={savingBook || !bookTitle.trim()}
+                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
                 {savingBook ? "Saving…" : "Log Book 🍃"}
               </button>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* ── Edit Lesson modal ─────────────────────────────── */}
