@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Sparkles, Download, X, ArrowRight, MoreHorizontal, Trash2, Pencil, Heart } from "lucide-react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { Sparkles, Download, X, ArrowRight, MoreHorizontal, Trash2, Pencil, Heart, Search, Mic, BookmarkCheck } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -22,6 +22,7 @@ type MemoryRow = {
   caption: string | null;
   photo_url: string | null;
   include_in_book: boolean;
+  favorite: boolean;
   page_order: number | null;
   created_at: string;
   updated_at: string;
@@ -72,6 +73,7 @@ function legacyToMemory(e: LegacyEvent): MemoryRow {
     caption: e.payload.description ?? (e.payload.author ? `by ${e.payload.author}` : null),
     photo_url: e.payload.photo_url ?? null,
     include_in_book: false,
+    favorite: false,
     page_order: null,
     created_at: e.created_at,
     updated_at: e.created_at,
@@ -110,12 +112,19 @@ export default function MemoriesPage() {
   const [children, setChildren] = useState<Child[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPro, setIsPro] = useState<boolean | null>(null);
-  // Filter: "all" | "family" | child id
+  // Filter: "all" | "family" | "favorites" | child id
   const [filter, setFilter] = useState("all");
+
+  // Search
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // Detail / lightbox
   const [selectedMemory, setSelectedMemory] = useState<MemoryRow | null>(null);
   const [hearted, setHearted] = useState<Set<string>>(new Set());
+
+  // Lightbox inline delete confirm
+  const [lightboxDeleteConfirm, setLightboxDeleteConfirm] = useState(false);
 
   // Menu
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -252,13 +261,64 @@ export default function MemoriesPage() {
     });
   }
 
-  // ── Filter ──────────────────────────────────────────────────────────────────
+  // ── Toggle favorite in DB ─────────────────────────────────────────────────
+
+  async function toggleFavorite(m: MemoryRow, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    const newVal = !m.favorite;
+    setMemories((prev) => prev.map((mem) => (mem.id === m.id ? { ...mem, favorite: newVal } : mem)));
+    if (selectedMemory?.id === m.id) setSelectedMemory({ ...m, favorite: newVal });
+    await supabase.from("memories").update({ favorite: newVal }).eq("id", m.id);
+  }
+
+  // ── Toggle yearbook in DB ─────────────────────────────────────────────────
+
+  async function toggleYearbook(m: MemoryRow) {
+    const newVal = !m.include_in_book;
+    setMemories((prev) => prev.map((mem) => (mem.id === m.id ? { ...mem, include_in_book: newVal } : mem)));
+    if (selectedMemory?.id === m.id) setSelectedMemory({ ...m, include_in_book: newVal });
+    await supabase.from("memories").update({ include_in_book: newVal, updated_at: new Date().toISOString() }).eq("id", m.id);
+  }
+
+  // ── Filter + Search ──────────────────────────────────────────────────────
 
   const filtered = memories.filter((m) => {
-    if (filter === "all") return true;
-    if (filter === "family") return !m.child_id;
-    return m.child_id === filter;
+    // Filter by child / family / favorites
+    if (filter === "favorites" && !m.favorite) return false;
+    if (filter === "family" && m.child_id) return false;
+    if (filter !== "all" && filter !== "family" && filter !== "favorites" && m.child_id !== filter) return false;
+
+    // Search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const title = (m.title ?? "").toLowerCase();
+      const caption = (m.caption ?? "").toLowerCase();
+      const child = childName(m.child_id).toLowerCase();
+      if (!title.includes(q) && !caption.includes(q) && !child.includes(q)) return false;
+    }
+
+    return true;
   });
+
+  // ── Voice search (Web Speech API) ─────────────────────────────────────────
+
+  function startVoiceSearch() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const W = window as any;
+    const SpeechRecognition = W.SpeechRecognition ?? W.webkitSpeechRecognition;
+    if (!SpeechRecognition) { alert("Voice search is not supported in this browser."); return; }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setSearchQuery(transcript);
+      searchRef.current?.focus();
+    };
+    recognition.start();
+  }
 
   // ── Edit handlers ─────────────────────────────────────────────────────────
 
@@ -271,6 +331,7 @@ export default function MemoriesPage() {
     setEditInBook(m.include_in_book);
     setMenuId(null);
     setSelectedMemory(null);
+    setLightboxDeleteConfirm(false);
   }
 
   async function saveEdit() {
@@ -303,6 +364,7 @@ export default function MemoriesPage() {
     setDeleteTarget(m);
     setMenuId(null);
     setSelectedMemory(null);
+    setLightboxDeleteConfirm(false);
   }
 
   async function confirmDelete() {
@@ -331,6 +393,35 @@ export default function MemoriesPage() {
     setMemories((prev) => prev.filter((m) => m.id !== deleteTarget.id));
     setDeleting(false);
     setDeleteTarget(null);
+  }
+
+  // Delete from lightbox
+  async function confirmLightboxDelete() {
+    if (!selectedMemory) return;
+    setDeleting(true);
+
+    if (selectedMemory.photo_url) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const url = selectedMemory.photo_url;
+        const buckets = ["memories", "memory-photos"];
+        for (const bucket of buckets) {
+          const marker = `/storage/v1/object/public/${bucket}/`;
+          const idx = url.indexOf(marker);
+          if (idx !== -1) {
+            const path = url.slice(idx + marker.length);
+            await supabase.storage.from(bucket).remove([path]);
+            break;
+          }
+        }
+      }
+    }
+
+    await supabase.from("memories").delete().eq("id", selectedMemory.id);
+    setMemories((prev) => prev.filter((m) => m.id !== selectedMemory.id));
+    setDeleting(false);
+    setSelectedMemory(null);
+    setLightboxDeleteConfirm(false);
   }
 
   // ── Reflection handlers ────────────────────────────────────────────────────
@@ -437,6 +528,16 @@ export default function MemoriesPage() {
         >
           All
         </button>
+        <button
+          onClick={() => setFilter("favorites")}
+          className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5 ${
+            filter === "favorites"
+              ? "bg-[#5c7f63] text-white"
+              : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+          }`}
+        >
+          <Heart size={13} className={filter === "favorites" ? "fill-white" : ""} /> Favorites
+        </button>
         {children.map((c) => (
           <button
             key={c.id}
@@ -452,6 +553,37 @@ export default function MemoriesPage() {
         ))}
       </div>
 
+      {/* ── Search bar ──────────────────────────────────────── */}
+      <div className="relative">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#b5aca4] pointer-events-none" />
+        <input
+          ref={searchRef}
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search memories..."
+          className="w-full pl-9 pr-16 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+        />
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+          {searchQuery && (
+            <button
+              onClick={() => { setSearchQuery(""); searchRef.current?.focus(); }}
+              className="p-1 rounded-full hover:bg-[#f0ede8] text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
+              aria-label="Clear search"
+            >
+              <X size={14} />
+            </button>
+          )}
+          <button
+            onClick={startVoiceSearch}
+            className="p-1 rounded-full hover:bg-[#f0ede8] text-[#b5aca4] hover:text-[#5c7f63] transition-colors"
+            aria-label="Voice search"
+          >
+            <Mic size={14} />
+          </button>
+        </div>
+      </div>
+
       {/* Free user upgrade banner */}
       {!isPro && !loading && (
         <UpgradePrompt
@@ -462,7 +594,7 @@ export default function MemoriesPage() {
       )}
 
       {/* ── Reflections section (when filter = all, show recent) ── */}
-      {filter === "all" && reflections.length > 0 && (
+      {filter === "all" && !searchQuery && reflections.length > 0 && (
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-2">📝 Reflections</p>
           <div className="space-y-2">
@@ -491,13 +623,29 @@ export default function MemoriesPage() {
           <span className="text-3xl animate-pulse">📷</span>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-          <span className="text-4xl mb-3">🌸</span>
-          <p className="font-medium text-[#2d2926] mb-1">No memories yet</p>
-          <p className="text-sm text-[#7a6f65] max-w-xs">
-            Start logging photos, projects, and books to build your family&apos;s story.
-          </p>
-        </div>
+        searchQuery.trim() ? (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+            <span className="text-4xl mb-3">📸</span>
+            <p className="font-medium text-[#2d2926] mb-1">No memories found for &lsquo;{searchQuery}&rsquo;</p>
+            <p className="text-sm text-[#7a6f65] max-w-xs mb-4">
+              Try a different search or capture a new memory.
+            </p>
+            <button
+              onClick={() => alert("More memory types coming soon")}
+              className="px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+            >
+              Capture a memory
+            </button>
+          </div>
+        ) : (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+            <span className="text-4xl mb-3">🌸</span>
+            <p className="font-medium text-[#2d2926] mb-1">No memories yet</p>
+            <p className="text-sm text-[#7a6f65] max-w-xs">
+              Start logging photos, projects, and books to build your family&apos;s story.
+            </p>
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-3 gap-[2px] rounded-2xl overflow-hidden">
           {(() => {
@@ -515,7 +663,7 @@ export default function MemoriesPage() {
                 <button
                   key={m.id}
                   className="group relative aspect-square bg-[#f0ede8] focus:outline-none text-left overflow-hidden"
-                  onClick={() => setSelectedMemory(m)}
+                  onClick={() => { setSelectedMemory(m); setLightboxDeleteConfirm(false); }}
                 >
                   {/* Photo or type tile */}
                   {m.photo_url ? (
@@ -556,11 +704,29 @@ export default function MemoriesPage() {
                     {!m.child_id && <span className="text-[6px] leading-none">👨‍👩‍👧‍👦</span>}
                   </div>
 
+                  {/* Top-right icons: favorite + yearbook */}
+                  <div className="absolute top-1 right-1 flex items-center gap-0.5">
+                    {!isPartner && (
+                      <button
+                        onClick={(e) => toggleFavorite(m, e)}
+                        className="w-5 h-5 rounded-full bg-black/30 flex items-center justify-center transition-opacity"
+                        aria-label={m.favorite ? "Remove from favorites" : "Add to favorites"}
+                      >
+                        <Heart size={10} className={m.favorite ? "text-red-400 fill-red-400" : "text-white"} />
+                      </button>
+                    )}
+                    {m.include_in_book && (
+                      <div className="w-5 h-5 rounded-full bg-black/30 flex items-center justify-center">
+                        <BookmarkCheck size={10} className="text-[#5c7f63]" />
+                      </div>
+                    )}
+                  </div>
+
                   {/* ··· menu button */}
                   {!isPartner && (
                     <button
                       onClick={(e) => { e.stopPropagation(); setMenuId(menuId === m.id ? null : m.id); }}
-                      className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity"
+                      className="absolute top-7 right-1.5 w-5 h-5 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity"
                       aria-label="More options"
                     >
                       <MoreHorizontal size={12} className="text-white" />
@@ -570,7 +736,7 @@ export default function MemoriesPage() {
                   {/* Dropdown menu */}
                   {menuId === m.id && (
                     <div
-                      className="absolute top-7 right-1.5 bg-white rounded-xl shadow-lg border border-[#e8e2d9] z-20 overflow-hidden"
+                      className="absolute top-[52px] right-1.5 bg-white rounded-xl shadow-lg border border-[#e8e2d9] z-20 overflow-hidden"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <button onClick={() => openEdit(m)} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#2d2926] hover:bg-[#f8f6f3] transition-colors">
@@ -597,7 +763,7 @@ export default function MemoriesPage() {
       {selectedMemory && (
         <div
           className="fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-4"
-          onClick={() => { setSelectedMemory(null); setMenuId(null); }}
+          onClick={() => { setSelectedMemory(null); setMenuId(null); setLightboxDeleteConfirm(false); }}
         >
           <div
             className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto"
@@ -646,7 +812,14 @@ export default function MemoriesPage() {
                   <p className="text-[11px] text-[#b5aca4]">{formatDate(selectedMemory.date)}</p>
                 </div>
                 <button
-                  onClick={() => { setSelectedMemory(null); setMenuId(null); }}
+                  onClick={() => toggleFavorite(selectedMemory)}
+                  className="shrink-0 p-1"
+                  aria-label={selectedMemory.favorite ? "Remove from favorites" : "Add to favorites"}
+                >
+                  <Heart size={20} className={selectedMemory.favorite ? "text-red-400 fill-red-400" : "text-[#c8bfb5]"} />
+                </button>
+                <button
+                  onClick={() => { setSelectedMemory(null); setMenuId(null); setLightboxDeleteConfirm(false); }}
                   className="text-[#b5aca4] hover:text-[#7a6f65] shrink-0"
                 >
                   <X size={20} />
@@ -686,6 +859,7 @@ export default function MemoriesPage() {
                 </span>
               )}
 
+              {/* ── Action buttons: Edit, Yearbook, Delete ── */}
               {!isPartner && (
                 <div className="flex gap-2 pt-1">
                   <button
@@ -695,12 +869,36 @@ export default function MemoriesPage() {
                     <Pencil size={14} /> Edit
                   </button>
                   <button
-                    onClick={() => openDelete(selectedMemory)}
-                    className="flex-1 py-2.5 rounded-xl border border-red-200 text-sm font-medium text-red-400 hover:bg-red-50 transition-colors flex items-center justify-center gap-1.5"
+                    onClick={() => toggleYearbook(selectedMemory)}
+                    className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+                      selectedMemory.include_in_book
+                        ? "border-[#5c7f63] bg-[#e8f0e9] text-[#5c7f63]"
+                        : "border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8]"
+                    }`}
                   >
-                    <Trash2 size={14} /> Delete
+                    <BookmarkCheck size={14} /> Yearbook
                   </button>
+                  {!lightboxDeleteConfirm ? (
+                    <button
+                      onClick={() => setLightboxDeleteConfirm(true)}
+                      className="flex-1 py-2.5 rounded-xl border border-red-200 text-sm font-medium text-red-400 hover:bg-red-50 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <Trash2 size={14} /> Delete
+                    </button>
+                  ) : (
+                    <button
+                      onClick={confirmLightboxDelete}
+                      disabled={deleting}
+                      className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <Trash2 size={14} /> {deleting ? "Deleting…" : "Confirm?"}
+                    </button>
+                  )}
                 </div>
+              )}
+
+              {lightboxDeleteConfirm && !deleting && (
+                <p className="text-xs text-red-400 text-center">Delete this memory? This can&apos;t be undone.</p>
               )}
             </div>
           </div>

@@ -20,6 +20,7 @@ function UpgradePageInner() {
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('')
+  const [foundingCount, setFoundingCount] = useState<number | null>(null)
   const refParam = searchParams.get('ref')
   const refCode = refParam || (typeof window !== 'undefined' ? localStorage.getItem('rooted_ref') : null)
 
@@ -47,6 +48,11 @@ function UpgradePageInner() {
 
 
     loadUserProfile()
+
+    // Live founding member count
+    supabase.from('profiles').select('id', { count: 'exact', head: true })
+      .eq('plan_type', 'founding_family')
+      .then(({ count }) => { if (typeof count === 'number') setFoundingCount(count) })
   }, [])
 
   useEffect(() => {
@@ -200,6 +206,11 @@ function UpgradePageInner() {
               {countdown && (
                 <p className="text-xs font-semibold mt-2 text-[#a08040]">
                   ⏳ {countdown}
+                </p>
+              )}
+              {foundingCount !== null && (
+                <p className="text-xs font-semibold mt-1.5 text-[#5c7f63]">
+                  🌱 {foundingCount} of 200 spots claimed
                 </p>
               )}
             </div>

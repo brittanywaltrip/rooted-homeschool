@@ -7,6 +7,9 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { checkAndAwardBadges } from "@/lib/badges";
+import BadgeNotification from "@/components/BadgeNotification";
+import type { BadgeDef } from "@/lib/badges";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -433,6 +436,7 @@ export default function TodayPage() {
   const [savingActivityEdit,    setSavingActivityEdit]    = useState(false);
 
   const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
+  const [earnedBadge,            setEarnedBadge]            = useState<BadgeDef | null>(null);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
@@ -901,6 +905,16 @@ export default function TodayPage() {
       setAllDoneBanner(false);
     }
     await refreshLeafCounts();
+
+    // Check for new activity badges (fire-and-forget)
+    if (!current) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        checkAndAwardBadges(user.id).then((badge) => {
+          if (badge) setEarnedBadge(badge);
+        });
+      }
+    }
   }
 
   function openEdit(lesson: Lesson) {
@@ -2345,6 +2359,11 @@ export default function TodayPage() {
             🌟 {childDoneToast}&apos;s done for today!
           </div>
         </div>
+      )}
+
+      {/* ── Badge notification ──────────────────────────── */}
+      {earnedBadge && (
+        <BadgeNotification badge={earnedBadge} onDone={() => setEarnedBadge(null)} />
       )}
 
       </div>
