@@ -283,10 +283,12 @@ export default function MemoriesPage() {
   // ── Filter + Search ──────────────────────────────────────────────────────
 
   const filtered = memories.filter((m) => {
-    // Filter by child / family / favorites
+    // Filter by child / family / favorites / yearbook / type
     if (filter === "favorites" && !m.favorite) return false;
+    if (filter === "yearbook" && !m.include_in_book) return false;
     if (filter === "family" && m.child_id) return false;
-    if (filter !== "all" && filter !== "family" && filter !== "favorites" && m.child_id !== filter) return false;
+    if (filter.startsWith("type:") && m.type !== filter.slice(5)) return false;
+    if (filter !== "all" && filter !== "family" && filter !== "favorites" && filter !== "yearbook" && !filter.startsWith("type:") && m.child_id !== filter) return false;
 
     // Search
     if (searchQuery.trim()) {
@@ -467,7 +469,7 @@ export default function MemoriesPage() {
 
   return (
     <>
-    <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Capture photos, projects, and books." />
+    <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Photos, drawings, wins, books, field trips — everything." />
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
       {/* Header link */}
@@ -538,6 +540,25 @@ export default function MemoriesPage() {
         >
           <Heart size={13} className={filter === "favorites" ? "fill-white" : ""} /> Favorites
         </button>
+        {([
+          ["yearbook", "🔖 Yearbook"],
+          ["type:photo", "Photos"],
+          ["type:book", "Books"],
+          ["type:win", "Wins"],
+          ["type:drawing", "Drawings"],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setFilter(filter === key ? "all" : key)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              filter === key
+                ? "bg-[#5c7f63] text-white"
+                : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
         {children.map((c) => (
           <button
             key={c.id}
@@ -626,16 +647,16 @@ export default function MemoriesPage() {
         searchQuery.trim() ? (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
             <span className="text-4xl mb-3">📸</span>
-            <p className="font-medium text-[#2d2926] mb-1">No memories found for &lsquo;{searchQuery}&rsquo;</p>
+            <p className="font-medium text-[#2d2926] mb-1">No memories found for &lsquo;{searchQuery}&rsquo; 📸</p>
             <p className="text-sm text-[#7a6f65] max-w-xs mb-4">
               Try a different search or capture a new memory.
             </p>
-            <button
-              onClick={() => alert("More memory types coming soon")}
-              className="px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+            <Link
+              href="/dashboard"
+              className="px-5 py-2.5 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] text-white text-sm font-semibold transition-colors"
             >
-              Capture a memory
-            </button>
+              Capture a memory →
+            </Link>
           </div>
         ) : (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
@@ -672,6 +693,8 @@ export default function MemoriesPage() {
                     <div className={`w-full h-full flex flex-col items-center justify-center px-2 ${
                       m.type === "book" ? "bg-[#FDF3E3]"
                         : m.type === "quote" ? "bg-[#F5EFF8]"
+                        : m.type === "win" ? "bg-[#FDF6EC]"
+                        : m.type === "drawing" ? "bg-[#FFF5E6]"
                         : "bg-[#EAF6EE]"
                     }`}>
                       {m.type === "book" ? (
@@ -683,8 +706,20 @@ export default function MemoriesPage() {
                       ) : m.type === "quote" ? (
                         <>
                           <span className="text-5xl leading-none font-serif text-[#c49edd]">&ldquo;</span>
-                          <p className="text-[10px] italic text-[#4a2d6a] text-center line-clamp-3">{m.title ?? "Quote"}</p>
+                          <p className="text-[10px] italic text-[#4a2d6a] text-center line-clamp-3">{m.title ?? "Moment"}</p>
                           {m.child_id && <p className="text-[9px] text-[#a07ab8] mt-1">{childName(m.child_id)}</p>}
+                        </>
+                      ) : m.type === "win" ? (
+                        <>
+                          <span className="text-4xl mb-1">🏆</span>
+                          <p className="text-[11px] font-semibold text-[#7a4f1a] text-center line-clamp-2">{m.title ?? "Win"}</p>
+                          <p className="text-[9px] italic text-[#c8a96e] mt-0.5">Win</p>
+                        </>
+                      ) : m.type === "drawing" ? (
+                        <>
+                          <span className="text-4xl mb-1">🎨</span>
+                          <p className="text-[11px] font-semibold text-[#8B4513] text-center line-clamp-2">{m.title ?? "Drawing"}</p>
+                          <p className="text-[9px] italic text-[#C4956A] mt-0.5">Drawing</p>
                         </>
                       ) : (
                         <>
