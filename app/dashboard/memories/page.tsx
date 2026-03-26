@@ -7,6 +7,7 @@ import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
 import UpgradePrompt from "@/components/UpgradePrompt";
+import MilestonePrompt from "@/components/MilestonePrompt";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -124,6 +125,9 @@ export default function MemoriesPage() {
   const [deleteTarget, setDeleteTarget] = useState<MemoryRow | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Milestone prompt
+  const [milestonePrompt, setMilestonePrompt] = useState<{ milestone: string; message: string; badgeEmoji: string } | null>(null);
+
   // Reflection view
   const [viewingReflection, setViewingReflection] = useState<Reflection | null>(null);
   const [editingReflection, setEditingReflection] = useState(false);
@@ -186,6 +190,23 @@ export default function MemoriesPage() {
 
     setLoading(false);
   }, [effectiveUserId]);
+
+  // ── Milestone prompt for free users ─────────────────────────────────────────
+  useEffect(() => {
+    if (isPro !== false || memories.length === 0) return;
+    const shown: string[] = JSON.parse(localStorage.getItem("rooted_milestones_shown") || "[]");
+    const milestones: { at: number; milestone: string; message: string; badgeEmoji: string }[] = [
+      { at: 10, milestone: "10 memories captured", badgeEmoji: "\uD83C\uDF3F", message: "Your family\u2019s story is growing. Upgrade to keep every memory forever." },
+      { at: 25, milestone: "25 memories \u2014 you\u2019re really doing this", badgeEmoji: "\uD83C\uDF1F", message: "Most families never get this far. Lock in the founding price before it\u2019s gone." },
+      { at: 50, milestone: "50 memories. This is something special.", badgeEmoji: "\uD83C\uDF3B", message: "Half a hundred moments saved. Imagine looking back on these in ten years." },
+    ];
+    const hit = milestones.filter((m) => memories.length >= m.at && !shown.includes(String(m.at)));
+    if (hit.length > 0) {
+      const m = hit[hit.length - 1];
+      setMilestonePrompt({ milestone: m.milestone, message: m.message, badgeEmoji: m.badgeEmoji });
+      localStorage.setItem("rooted_milestones_shown", JSON.stringify([...shown, String(m.at)]));
+    }
+  }, [memories, isPro]);
 
   useEffect(() => {
     load();
@@ -896,6 +917,15 @@ export default function MemoriesPage() {
 
       <div className="h-4" />
     </div>
+
+    {milestonePrompt && (
+      <MilestonePrompt
+        milestone={milestonePrompt.milestone}
+        message={milestonePrompt.message}
+        badgeEmoji={milestonePrompt.badgeEmoji}
+        onDismiss={() => setMilestonePrompt(null)}
+      />
+    )}
 
     </>
   );
