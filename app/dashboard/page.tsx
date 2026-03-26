@@ -459,6 +459,9 @@ export default function TodayPage() {
   const [drawingTitle, setDrawingTitle] = useState("");
   const [drawingChild, setDrawingChild] = useState("");
   const [savingDrawing, setSavingDrawing] = useState(false);
+  const [drawingFile, setDrawingFile] = useState<File | null>(null);
+  const [drawingPreview, setDrawingPreview] = useState<string | null>(null);
+  const drawingFileRef = useRef<HTMLInputElement>(null);
   const [showCaptureMenu, setShowCaptureMenu] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [ftTitle, setFtTitle] = useState("");
@@ -1029,11 +1032,21 @@ export default function TodayPage() {
     setSavingDrawing(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingDrawing(false); return; }
+    let photoUrl: string | null = null;
+    if (drawingFile) {
+      const path = `${user.id}/${Date.now()}-${drawingFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, drawingFile, { contentType: drawingFile.type, upsert: false });
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+        photoUrl = urlData.publicUrl;
+      }
+    }
     const { data: inserted } = await supabase.from("memories").insert({
       user_id: user.id, type: "drawing", title: drawingTitle.trim(),
-      child_id: drawingChild || null, date: today, include_in_book: true,
+      photo_url: photoUrl, child_id: drawingChild || null, date: today, include_in_book: true,
     }).select("id").single();
-    setDrawingTitle(""); setDrawingChild(""); setSavingDrawing(false); setShowDrawingSheet(false);
+    setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
+    setSavingDrawing(false); setShowDrawingSheet(false);
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null);
     loadData(); refreshTodayStory();
     checkAndAwardBadges(user.id);
@@ -2402,18 +2415,47 @@ export default function TodayPage() {
       {/* ── Log a Drawing Sheet ──────────────────────────── */}
       {showDrawingSheet && (
         <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowDrawingSheet(false)} />
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowDrawingSheet(false); setDrawingFile(null); setDrawingPreview(null); }} />
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="font-bold text-[#2d2926]">🎨 Log a Drawing</h2>
-                <button onClick={() => setShowDrawingSheet(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+                <button onClick={() => { setShowDrawingSheet(false); setDrawingFile(null); setDrawingPreview(null); }} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
               </div>
               <div>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What did they draw? *</label>
                 <input value={drawingTitle} onChange={(e) => setDrawingTitle(e.target.value)} placeholder="e.g. A rainbow butterfly" autoFocus
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Photo of the drawing (optional)</label>
+                <input ref={drawingFileRef} type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setDrawingFile(file);
+                    const reader = new FileReader();
+                    reader.onload = () => setDrawingPreview(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                {drawingPreview ? (
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={drawingPreview} alt="Drawing preview" className="w-full h-40 object-cover rounded-xl border border-[#e8e2d9]" />
+                    <button onClick={() => { setDrawingFile(null); setDrawingPreview(null); if (drawingFileRef.current) drawingFileRef.current.value = ""; }}
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 text-white flex items-center justify-center text-sm hover:bg-black/70 transition-colors">
+                      ×
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => drawingFileRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-4 rounded-xl border-2 border-dashed border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors">
+                    <span className="text-lg">📸</span>
+                    <span className="text-sm">Snap a photo of the drawing</span>
+                  </button>
+                )}
               </div>
               {children.length > 0 && (
                 <div>
