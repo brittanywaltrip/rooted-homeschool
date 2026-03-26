@@ -455,6 +455,10 @@ export default function TodayPage() {
   const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null } | null>(null);
   const [onThisDayTier, setOnThisDayTier] = useState<1 | 2 | null>(null);
   const [showWinSheet, setShowWinSheet] = useState(false);
+  const [showDrawingSheet, setShowDrawingSheet] = useState(false);
+  const [drawingTitle, setDrawingTitle] = useState("");
+  const [drawingChild, setDrawingChild] = useState("");
+  const [savingDrawing, setSavingDrawing] = useState(false);
   const [showCaptureMenu, setShowCaptureMenu] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [ftTitle, setFtTitle] = useState("");
@@ -1016,6 +1020,21 @@ export default function TodayPage() {
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
+    loadData(); refreshTodayStory();
+    checkAndAwardBadges(user.id);
+  }
+
+  async function saveDrawing() {
+    if (!drawingTitle.trim()) return;
+    setSavingDrawing(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingDrawing(false); return; }
+    const { data: inserted } = await supabase.from("memories").insert({
+      user_id: user.id, type: "drawing", title: drawingTitle.trim(),
+      child_id: drawingChild || null, date: today, include_in_book: true,
+    }).select("id").single();
+    setDrawingTitle(""); setDrawingChild(""); setSavingDrawing(false); setShowDrawingSheet(false);
+    showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null);
     loadData(); refreshTodayStory();
     checkAndAwardBadges(user.id);
   }
@@ -1957,7 +1976,7 @@ export default function TodayPage() {
                 </div>
               </button>
               <button
-                onClick={() => { setShowCaptureMenu(false); captureTypeRef.current = "drawing"; captureFileRef.current?.click(); }}
+                onClick={() => { setShowCaptureMenu(false); setShowDrawingSheet(true); }}
                 className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
               >
                 <span className="text-2xl">🎨</span>
@@ -2267,6 +2286,152 @@ export default function TodayPage() {
             <button onClick={() => setShowPwaModal(false)} className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors">Got it!</button>
           </div>
         </div>
+      )}
+
+      {/* ── Log a Win Sheet ──────────────────────────────────── */}
+      {showWinSheet && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowWinSheet(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto"
+            style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-[#2d2926]">✍️ Log a Win</h2>
+                <button onClick={() => setShowWinSheet(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+              </div>
+
+              {/* Type pills */}
+              <div className="flex gap-2">
+                <button onClick={() => setWinType("win")}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "win" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
+                  🏆 Win
+                </button>
+                <button onClick={() => setWinType("quote")}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "quote" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
+                  ✍️ Moment
+                </button>
+              </div>
+
+              {/* Text input + mic */}
+              <div className="relative">
+                <textarea
+                  value={winText}
+                  onChange={(e) => setWinText(e.target.value)}
+                  placeholder={winType === "win" ? "What went great today?" : "Something they said or did..."}
+                  rows={3}
+                  className="w-full px-3 py-2.5 pr-12 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
+                />
+                <button
+                  onClick={() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+                    if (!SR) return;
+                    if (isListening) return;
+                    const recognition = new SR();
+                    recognition.lang = "en-US";
+                    recognition.interimResults = false;
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    recognition.onresult = (e: any) => {
+                      const transcript = e.results[0]?.[0]?.transcript ?? "";
+                      setWinText((prev: string) => (prev ? prev + " " : "") + transcript);
+                    };
+                    recognition.onend = () => setIsListening(false);
+                    recognition.onerror = () => setIsListening(false);
+                    setIsListening(true);
+                    recognition.start();
+                  }}
+                  className={`absolute right-2 top-2 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${isListening ? "bg-red-100 text-red-500" : "bg-[#f0ede8] text-[#7a6f65] hover:bg-[#e8e2d9]"}`}
+                  aria-label="Voice input"
+                >
+                  🎤
+                </button>
+              </div>
+
+              {/* Child selector */}
+              {children.length > 0 && (
+                <div className="flex gap-2 flex-wrap">
+                  {children.map(c => (
+                    <button key={c.id} onClick={() => setWinChild(winChild === c.id ? "" : c.id)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${winChild === c.id ? "text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}
+                      style={winChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : undefined}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Save button */}
+              <button
+                onClick={async () => {
+                  if (!winText.trim()) return;
+                  setSavingWin(true);
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (user) {
+                    const { data: ins } = await supabase.from("memories").insert({
+                      user_id: user.id,
+                      child_id: winChild || null,
+                      date: localDateStr(new Date()),
+                      type: winType,
+                      title: winText.trim(),
+                      include_in_book: true,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    }).select("id").single();
+                    setTotalMemories(prev => prev + 1);
+                    const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
+                    showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
+                    checkAndAwardBadges(user.id);
+                  }
+                  setSavingWin(false);
+                  setWinText("");
+                  setWinChild("");
+                  setShowWinSheet(false);
+                  loadData(); refreshTodayStory();
+                }}
+                disabled={savingWin || !winText.trim()}
+                className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+              >
+                {savingWin ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Log a Drawing Sheet ──────────────────────────── */}
+      {showDrawingSheet && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowDrawingSheet(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-[#2d2926]">🎨 Log a Drawing</h2>
+                <button onClick={() => setShowDrawingSheet(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What did they draw? *</label>
+                <input value={drawingTitle} onChange={(e) => setDrawingTitle(e.target.value)} placeholder="e.g. A rainbow butterfly" autoFocus
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              </div>
+              {children.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who made it?</label>
+                  <select value={drawingChild} onChange={(e) => setDrawingChild(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
+                    <option value="">Everyone / unassigned</option>
+                    {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <button onClick={saveDrawing} disabled={savingDrawing || !drawingTitle.trim()}
+                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+                {savingDrawing ? "Saving…" : "Save Drawing 🎨"}
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── Capture toast with Edit shortcut ──────────────── */}
