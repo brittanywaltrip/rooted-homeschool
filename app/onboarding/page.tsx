@@ -412,14 +412,14 @@ function StepFirstMemory({
     if (!error) {
       const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
       const today = toDateStr(new Date());
-      await supabase.from("app_events").insert({
+      await supabase.from("memories").insert({
         user_id: userId,
-        type: "memory_photo",
-        payload: {
-          photo_url: urlData.publicUrl,
-          title: "Our first memory",
-          date: today,
-        },
+        type: "photo",
+        title: "Our first memory",
+        photo_url: urlData.publicUrl,
+        child_id: null,
+        date: today,
+        include_in_book: false,
       });
       setSaved(true);
     }

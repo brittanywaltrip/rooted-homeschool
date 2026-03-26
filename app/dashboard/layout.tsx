@@ -209,11 +209,15 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    await supabase.from("app_events").insert({
-      user_id: user.id, type: "memory_photo",
-      payload: { photo_url: urlData.publicUrl, title: fabCaption.trim() || undefined, child_id: fabChildId || undefined, date: today },
+    await supabase.from("memories").insert({
+      user_id: user.id,
+      type: "photo",
+      title: fabCaption.trim() || null,
+      photo_url: urlData.publicUrl,
+      child_id: fabChildId || null,
+      date: today,
+      include_in_book: false,
     });
-    await supabase.rpc("increment_photo_count", { p_user_id: user.id });
     setFabSaving(false); closeFabSheet();
     setLeafBurst(true); setTimeout(() => setLeafBurst(false), 1200);
     setFabToast("Memory saved 🌿"); setTimeout(() => setFabToast(null), 2000);
