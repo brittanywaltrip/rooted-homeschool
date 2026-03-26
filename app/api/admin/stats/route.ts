@@ -43,19 +43,19 @@ export async function GET(req: Request) {
 
   // App usage counts + lessons per user
   const [
-    { count: totalLessons },
-    { count: totalMemories },
-    { count: totalReports },
+    { data: totalLessonsData },
+    { data: totalMemoriesData },
+    { data: totalReportsData },
     lessonsResult,
     childrenResult,
     weekLessonsResult,
     lastWeekLessonsResult,
     memoriesResult,
   ] = await Promise.all([
-    supabaseAdmin.from('lessons').select('*', { count: 'exact', head: true }).eq('completed', true),
-    supabaseAdmin.from('app_events').select('*', { count: 'exact', head: true })
+    supabaseAdmin.from('lessons').select('id').eq('completed', true),
+    supabaseAdmin.from('app_events').select('id')
       .in('type', ['memory_photo', 'memory_project', 'memory_book']),
-    supabaseAdmin.from('app_events').select('*', { count: 'exact', head: true })
+    supabaseAdmin.from('app_events').select('id')
       .eq('type', 'report_generated'),
     // All completed lessons with user_id + completed_at
     supabaseAdmin.from('lessons').select('user_id, completed_at').eq('completed', true),
@@ -239,9 +239,9 @@ export async function GET(req: Request) {
     weekSignups,
     foundingFamilies,
     standardSubs,
-    totalLessons:  totalLessons  ?? 0,
-    totalMemories: totalMemories ?? 0,
-    totalReports:  totalReports  ?? 0,
+    totalLessons:  totalLessonsData?.length  ?? 0,
+    totalMemories: totalMemoriesData?.length ?? 0,
+    totalReports:  totalReportsData?.length  ?? 0,
     recentSignups,
     // Children insights
     totalChildren,

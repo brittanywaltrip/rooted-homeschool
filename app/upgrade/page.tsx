@@ -50,9 +50,9 @@ function UpgradePageInner() {
     loadUserProfile()
 
     // Live founding member count
-    supabase.from('profiles').select('id', { count: 'exact', head: true })
+    supabase.from('profiles').select('id')
       .eq('plan_type', 'founding_family')
-      .then(({ count }) => { if (typeof count === 'number') setFoundingCount(count) })
+      .then(({ data }) => { if (data) setFoundingCount(data.length) })
   }, [])
 
   useEffect(() => {

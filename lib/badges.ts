@@ -56,40 +56,42 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeDef | nu
 
   // Fetch counts from both memories table and app_events (legacy)
   const [
-    { count: memCount },
-    { count: memPhotoCount },
-    { count: memDrawingCount },
-    { count: memBookCount },
-    { count: memWinCount },
-    { count: legacyCount },
-    { count: legacyPhotoCount },
-    { count: legacyBookCount },
-    { count: legacyWinCount },
-    { count: inBookCount },
+    { data: memData },
+    { data: memPhotoData },
+    { data: memDrawingData },
+    { data: memBookData },
+    { data: memWinData },
+    { data: legacyData },
+    { data: legacyPhotoData },
+    { data: legacyBookData },
+    { data: legacyWinData },
+    { data: inBookData },
   ] = await Promise.all([
     // memories table counts
-    supabase.from("memories").select("id", { count: "exact", head: true }).eq("user_id", userId),
-    supabase.from("memories").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("type", "photo"),
-    supabase.from("memories").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("type", "drawing"),
-    supabase.from("memories").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("type", "book"),
-    supabase.from("memories").select("id", { count: "exact", head: true }).eq("user_id", userId).in("type", ["win", "moment"]),
+    supabase.from("memories").select("id").eq("user_id", userId),
+    supabase.from("memories").select("id").eq("user_id", userId).eq("type", "photo"),
+    supabase.from("memories").select("id").eq("user_id", userId).eq("type", "drawing"),
+    supabase.from("memories").select("id").eq("user_id", userId).eq("type", "book"),
+    supabase.from("memories").select("id").eq("user_id", userId).in("type", ["win", "moment"]),
     // app_events legacy counts
-    supabase.from("app_events").select("id", { count: "exact", head: true }).eq("user_id", userId)
+    supabase.from("app_events").select("id").eq("user_id", userId)
       .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"]),
-    supabase.from("app_events").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("type", "memory_photo"),
-    supabase.from("app_events").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("type", "memory_book"),
-    supabase.from("app_events").select("id", { count: "exact", head: true }).eq("user_id", userId)
+    supabase.from("app_events").select("id").eq("user_id", userId).eq("type", "memory_photo"),
+    supabase.from("app_events").select("id").eq("user_id", userId).eq("type", "memory_book"),
+    supabase.from("app_events").select("id").eq("user_id", userId)
       .in("type", ["memory_activity", "memory_project"]),
     // yearbook curator count
-    supabase.from("memories").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("include_in_book", true),
+    supabase.from("memories").select("id").eq("user_id", userId).eq("include_in_book", true),
   ]);
 
-  const totalMemories = (memCount ?? 0) + (legacyCount ?? 0);
-  const totalPhotosAndDrawings = (memPhotoCount ?? 0) + (memDrawingCount ?? 0) + (legacyPhotoCount ?? 0);
-  const totalDrawings = memDrawingCount ?? 0;
-  const totalBooks = (memBookCount ?? 0) + (legacyBookCount ?? 0);
-  const totalWins = (memWinCount ?? 0) + (legacyWinCount ?? 0);
-  const totalInBook = inBookCount ?? 0;
+  const memCount = memData?.length ?? 0;
+  const legacyCount = legacyData?.length ?? 0;
+  const totalMemories = memCount + legacyCount;
+  const totalPhotosAndDrawings = (memPhotoData?.length ?? 0) + (memDrawingData?.length ?? 0) + (legacyPhotoData?.length ?? 0);
+  const totalDrawings = memDrawingData?.length ?? 0;
+  const totalBooks = (memBookData?.length ?? 0) + (legacyBookData?.length ?? 0);
+  const totalWins = (memWinData?.length ?? 0) + (legacyWinData?.length ?? 0);
+  const totalInBook = inBookData?.length ?? 0;
 
   // Check "showing_up" — 5+ distinct active days this month
   const monthStart = new Date();
@@ -133,12 +135,13 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeDef | nu
   const yearAgoEnd = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate() + 3);
   const yStart = yearAgoStart.toISOString().slice(0, 10);
   const yEnd = yearAgoEnd.toISOString().slice(0, 10);
-  const { count: onThisDayCount } = await supabase
+  const { data: onThisDayData } = await supabase
     .from("memories")
-    .select("id", { count: "exact", head: true })
+    .select("id")
     .eq("user_id", userId)
     .gte("date", yStart)
     .lte("date", yEnd);
+  const onThisDayCount = onThisDayData?.length ?? 0;
 
   const checks: { id: string; met: boolean }[] = [
     { id: "story_begun",     met: totalMemories >= 1 },

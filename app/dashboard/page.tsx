@@ -617,14 +617,14 @@ export default function TodayPage() {
       // Check if user had lessons last month
       const prevStart = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-01`;
       const prevEnd = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-31`;
-      const { count: prevMonthLessons } = await supabase
+      const { data: prevMonthData } = await supabase
         .from("lessons")
-        .select("id", { count: "exact", head: true })
+        .select("id")
         .eq("user_id", effectiveUserId)
         .eq("completed", true)
         .gte("date", prevStart)
         .lte("date", prevEnd);
-      if ((prevMonthLessons ?? 0) > 0) setShowFamilyUpdate(true);
+      if ((prevMonthData?.length ?? 0) > 0) setShowFamilyUpdate(true);
     }
 
     const { data: childrenData } = await supabase
@@ -632,17 +632,17 @@ export default function TodayPage() {
       .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order");
     setChildren(childrenData ?? []);
 
-    const [{ data: lessonsData }, { count: totalLessons }] = await Promise.all([
+    const [{ data: lessonsData }, { data: allLessonsData }] = await Promise.all([
       supabase
         .from("lessons")
         .select("id, title, completed, child_id, hours, subjects(name, color), curriculum_goal_id, lesson_number, goal_id")
         .eq("user_id", effectiveUserId)
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
-      supabase.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", effectiveUserId),
+      supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
     ]);
     const loadedLessons = (lessonsData as unknown as Lesson[]) ?? [];
     setLessons(loadedLessons);
-    setHasAnyLessons((totalLessons ?? 0) > 0);
+    setHasAnyLessons((allLessonsData?.length ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
 
     // Auto-select first incomplete child
@@ -726,12 +726,12 @@ export default function TodayPage() {
     const nowForSY = new Date();
     const syYear = nowForSY.getMonth() >= schoolYearStartMonth ? nowForSY.getFullYear() : nowForSY.getFullYear() - 1;
     const syStart = `${syYear}-08-01`;
-    const { count: memCount } = await supabase
+    const { data: memCountData } = await supabase
       .from("memories")
-      .select("id", { count: "exact", head: true })
+      .select("id")
       .eq("user_id", effectiveUserId)
       .gte("date", syStart);
-    setTotalMemories(memCount ?? 0);
+    setTotalMemories(memCountData?.length ?? 0);
 
     // ── Active days this month ─────────────────────────────────────────
     const monthStart = `${nowForSY.getFullYear()}-${String(nowForSY.getMonth() + 1).padStart(2, "0")}-01`;
