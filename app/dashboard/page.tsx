@@ -1153,16 +1153,44 @@ export default function TodayPage() {
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
 
-      {/* ── Capture a Memory button ──────────────────────────── */}
+      {/* ── Daily inspiration prompt (active users) ──────────── */}
+      {!isPartner && totalMemories > 0 && (() => {
+        const prompts = [
+          "Did they build or create something today? Log it. 🎨",
+          "Read anything good this week? Add it to their story. 📖",
+          "Did they go somewhere new? Log the field trip. 🗺️",
+          "Something funny or sweet happened — write it down. ✍️",
+          "A drawing worth keeping? Snap it before it gets lost. 📸",
+          "What did they figure out today? That's a win. 🏆",
+          "An ordinary moment you'll want to remember someday. 📸",
+        ];
+        return (
+          <div className="rounded-xl px-3.5 py-2.5" style={{ background: "#2d5a3d" }}>
+            <p className="text-xs text-center" style={{ color: "rgba(255,255,255,0.75)" }}>
+              {prompts[new Date().getDay()]}
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* ── Capture buttons ──────────────────────────────────── */}
       {!isPartner && (
         <>
-          <button
-            onClick={() => setShowCaptureMenu(true)}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-            style={{ background: "#2d5a3d" }}
-          >
-            ✚ Capture a memory
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+              style={{ background: "#2d5a3d" }}
+            >
+              📸 Capture a photo
+            </button>
+            <button
+              onClick={() => setShowCaptureMenu(true)}
+              className="w-full text-center text-sm text-[#9a8f85] hover:text-[#7a6f65] transition-colors py-1"
+            >
+              Or log a win, book, drawing, field trip →
+            </button>
+          </div>
           <input
             ref={captureFileRef}
             type="file"
