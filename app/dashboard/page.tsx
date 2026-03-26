@@ -2272,14 +2272,13 @@ export default function TodayPage() {
       {/* ── Log a Win Sheet ──────────────────────────────────── */}
       {showWinSheet && (
         <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowWinSheet(false)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto"
-            style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowWinSheet(false); setWinText(""); setWinChild(""); }} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="font-bold text-[#2d2926]">✍️ Log a Win</h2>
-                <button onClick={() => setShowWinSheet(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+                <button onClick={() => { setShowWinSheet(false); setWinText(""); setWinChild(""); }} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
               </div>
 
               {/* Type pills */}
@@ -2363,6 +2362,7 @@ export default function TodayPage() {
                       setSavingWin(false);
                       return;
                     }
+                    console.log("[Win save] Success — id:", (ins as { id: string } | null)?.id, "type:", winType, "closing sheet + refreshing story");
                     setTotalMemories(prev => prev + 1);
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
                     showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
@@ -2371,6 +2371,7 @@ export default function TodayPage() {
                     setWinText("");
                     setWinChild("");
                     setShowWinSheet(false);
+                    loadData();
                     refreshTodayStory();
                   } catch (err) {
                     console.error("Win save error:", err);
