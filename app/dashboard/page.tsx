@@ -50,6 +50,19 @@ type ActivityItem = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+const INSPIRATION_PROMPTS = [
+  "What did you learn today? 🌱",
+  "What made you laugh today? 😊",
+  "What's something new you tried this week? 🌿",
+  "What was the best part of your morning? ☀️",
+  "What book are you loving right now? 📖",
+  "What's something kind someone did today? 💛",
+  "What would you teach someone else? 🌟",
+  "What surprised you today? ✨",
+  "What are you most proud of this week? 🏆",
+  "What memory do you want to hold onto? 🕰️",
+];
+
 const DID_YOU_KNOW = [
   "Homeschool students score 15–30% higher on standardized tests on average 📚",
   "Kids retain 90% more when they teach what they've learned to someone else 🌱",
@@ -452,8 +465,8 @@ export default function TodayPage() {
   const [totalMemories, setTotalMemories] = useState(0);
   const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
   const [lastPhoto, setLastPhoto] = useState<{ id: string; title: string; photo_url: string; date: string; child_id: string | null } | null>(null);
-  const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null } | null>(null);
-  const [onThisDayTier, setOnThisDayTier] = useState<1 | 2 | null>(null);
+  const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null; photo_url: string | null } | null>(null);
+  const [onThisDayTier, setOnThisDayTier] = useState<1 | 2 | 3>(3);
   const [showWinSheet, setShowWinSheet] = useState(false);
   const [showDrawingSheet, setShowDrawingSheet] = useState(false);
   const [drawingTitle, setDrawingTitle] = useState("");
@@ -771,10 +784,11 @@ export default function TodayPage() {
     const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
     const { data: tier1Data } = await supabase
       .from("memories")
-      .select("id, title, date, child_id")
+      .select("id, title, date, child_id, photo_url")
       .eq("user_id", effectiveUserId)
       .gte("date", localDateStr(otdStart))
       .lte("date", localDateStr(otdEnd))
+      .order("date", { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -784,12 +798,12 @@ export default function TodayPage() {
       // Award full_circle badge on Tier 1 match
       checkAndAwardBadges(effectiveUserId);
     } else {
-      // Tier 2: ±60 days of today last year
-      const tier2Start = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 60);
-      const tier2End = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 60);
+      // Tier 2: same month last year
+      const tier2Start = new Date(lastYear, otdNow.getMonth(), 1);
+      const tier2End = new Date(lastYear, otdNow.getMonth() + 1, 0); // last day of month
       const { data: tier2Data } = await supabase
         .from("memories")
-        .select("id, title, date, child_id")
+        .select("id, title, date, child_id, photo_url")
         .eq("user_id", effectiveUserId)
         .gte("date", localDateStr(tier2Start))
         .lte("date", localDateStr(tier2End))
@@ -801,9 +815,9 @@ export default function TodayPage() {
         setOnThisDayMemory(tier2Data as typeof onThisDayMemory);
         setOnThisDayTier(2);
       } else {
-        // Tier 3: nothing — hide section
+        // Tier 3: brand new user — show inspiration prompt
         setOnThisDayMemory(null);
-        setOnThisDayTier(null);
+        setOnThisDayTier(3);
       }
     }
 
@@ -1864,23 +1878,31 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* ── Memory Moment Card ─────────────────────────────── */}
-      {/* ── On This Day ──────────────────────────────────────── */}
+      {/* ── On This Day — 3-tier system ─────────────────────── */}
       {onThisDayMemory && onThisDayTier === 1 && (
-        <Link href="/dashboard/memories" className="block rounded-2xl px-4 py-3.5" style={{ background: "#f5f0fa", border: "1.5px solid #d9bee8" }}>
-          <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#ede4f5", color: "#7a4a9e" }}>
-            One year ago today
-          </span>
-          <p className="text-sm font-medium text-[#2d2926]">{onThisDayMemory.title}</p>
-          <div className="flex items-center justify-between mt-1.5">
-            <span className="text-xs text-[#7a6f65]">
-              {(() => {
-                const child = children.find(c => c.id === onThisDayMemory.child_id);
-                const dateLabel = new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-                return child ? `${child.name} · ${dateLabel}` : dateLabel;
-              })()}
+        <Link href="/dashboard/memories" className="block rounded-2xl overflow-hidden" style={{ background: "#f5f0fa", border: "1.5px solid #d9bee8" }}>
+          {onThisDayMemory.photo_url && (
+            <img
+              src={onThisDayMemory.photo_url}
+              alt={onThisDayMemory.title || "Memory from last year"}
+              className="w-full h-44 object-cover"
+            />
+          )}
+          <div className="px-4 py-3.5">
+            <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#ede4f5", color: "#7a4a9e" }}>
+              🕰️ On This Day last year...
             </span>
-            <span className="text-xs font-medium" style={{ color: "#7a4a9e" }}>See the memory →</span>
+            <p className="text-sm font-medium text-[#2d2926]">{onThisDayMemory.title}</p>
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-xs text-[#7a6f65]">
+                {(() => {
+                  const child = children.find(c => c.id === onThisDayMemory.child_id);
+                  const dateLabel = new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                  return child ? `${child.name} · ${dateLabel}` : dateLabel;
+                })()}
+              </span>
+              <span className="text-xs font-medium" style={{ color: "#7a4a9e" }}>See the memory →</span>
+            </div>
           </div>
         </Link>
       )}
@@ -1901,6 +1923,14 @@ export default function TodayPage() {
             <span className="text-xs font-medium" style={{ color: "#9a7ab8" }}>See the memory →</span>
           </div>
         </Link>
+      )}
+      {!onThisDayMemory && onThisDayTier === 3 && (
+        <div className="rounded-2xl px-4 py-3.5" style={{ background: "#fefcf9", border: "1.5px solid #e8e2d9" }}>
+          <p className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "#7a6f65" }}>Daily prompt</p>
+          <p className="text-sm text-[#5c5248] leading-relaxed">
+            {INSPIRATION_PROMPTS[Math.floor((Date.now() / 86400000)) % INSPIRATION_PROMPTS.length]}
+          </p>
+        </div>
       )}
 
 

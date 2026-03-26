@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
 import PageHero from "@/app/components/PageHero";
-import { checkAndAwardBadges, checkFoundingBadge } from "@/lib/badges";
+import { checkAndAwardBadges, checkFoundingBadge, ACTIVITY_BADGES, type BadgeDef } from "@/lib/badges";
 
 function treeEmoji(leaves: number): string {
   const s = getStageFromLeaves(leaves);
@@ -218,6 +218,8 @@ export default function GardenPage() {
   const [profile, setProfile]           = useState<{ plan_type?: string; subscription_status?: string } | null>(null);
   const [isAffiliate, setIsAffiliate]   = useState(false);
   const [badgeCelebration, setBadgeCelebration] = useState<string | null>(null);
+  const [earnedActivityBadgeIds, setEarnedActivityBadgeIds] = useState<Set<string>>(new Set());
+  const [badgeNotification, setBadgeNotification] = useState<BadgeDef | null>(null);
 
   const todayStr = toDateStr(new Date());
   const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
@@ -279,25 +281,42 @@ export default function GardenPage() {
       const seenBadges = new Set(JSON.parse(localStorage.getItem(seenBadgesKey) ?? "[]") as string[]);
       const newBadge = BADGES.find(b => b.check(totalLeaves) && !seenBadges.has(b.id));
       if (newBadge) {
-        // Mark all currently earned badges as seen
         const allEarned = BADGES.filter(b => b.check(totalLeaves)).map(b => b.id);
         localStorage.setItem(seenBadgesKey, JSON.stringify(allEarned));
         setBadgeCelebration(newBadge.label);
         setTimeout(() => setBadgeCelebration(null), 3000);
       } else if (seenBadges.size === 0 && totalLeaves > 0) {
-        // First visit with leaves — seed the seen badges so we don't celebrate old ones
         const allEarned = BADGES.filter(b => b.check(totalLeaves)).map(b => b.id);
         localStorage.setItem(seenBadgesKey, JSON.stringify(allEarned));
       }
 
-      // Check activity-based badges + founding family badge (notifications via global listener)
-      checkAndAwardBadges(effectiveUserId);
-      checkFoundingBadge(effectiveUserId);
+      // Check activity-based badges + founding family badge, then fetch earned set
+      await Promise.all([
+        checkAndAwardBadges(effectiveUserId),
+        checkFoundingBadge(effectiveUserId),
+      ]);
+      const { data: badgeRows } = await supabase
+        .from("user_badges")
+        .select("badge_id")
+        .eq("user_id", effectiveUserId);
+      setEarnedActivityBadgeIds(new Set((badgeRows ?? []).map((b: { badge_id: string }) => b.badge_id)));
 
       setLoading(false);
     }
     load();
   }, [effectiveUserId]);
+
+  // Listen for badge-earned events and show slide-up notification
+  useEffect(() => {
+    function onBadgeEarned(e: Event) {
+      const badge = (e as CustomEvent<BadgeDef>).detail;
+      setBadgeNotification(badge);
+      setEarnedActivityBadgeIds((prev) => new Set([...prev, badge.id]));
+      setTimeout(() => setBadgeNotification(null), 4500);
+    }
+    window.addEventListener("badge-earned", onBadgeEarned);
+    return () => window.removeEventListener("badge-earned", onBadgeEarned);
+  }, []);
 
   const [tipDismissed, setTipDismissed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -320,8 +339,11 @@ export default function GardenPage() {
     ? ((selectedLeaves - selectedStage.min) / (nextStage.min - selectedStage.min)) * 100
     : 100;
 
+  // Keep leaf-count badge lists for the celebration overlay
   const earnedBadges = BADGES.filter((b) => b.check(selectedLeaves));
   const lockedBadges = BADGES.filter((b) => !b.check(selectedLeaves));
+  // Suppress unused lint — these are used in the JSX badges section
+  void lockedBadges;
 
   if (loading) {
     return (
@@ -585,103 +607,124 @@ export default function GardenPage() {
       )}
 
       {/* ── Badges ────────────────────────────────────────── */}
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-          Badges {earnedBadges.length > 0 && `· ${earnedBadges.length} earned`}
-        </h2>
+      {(() => {
+        // Merge leaf-count badges + activity badges into one unified display
+        const allBadges: { id: string; emoji: string; label: string; earned: boolean; message?: string }[] = [];
 
-        {/* Founding Member badge — only for founding members */}
-        {(profile?.plan_type === 'founding_family' || profile?.subscription_status === 'founding') && (
-          <div className="mb-3">
-            <p className="text-xs text-[#b8823a] font-medium mb-2">⭐ Founding Member</p>
-            <div className="flex flex-wrap gap-2">
-              <div className="flex flex-col items-center gap-1.5">
-                <div
-                  className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl shadow-sm"
-                  style={{ background: 'linear-gradient(135deg, #b8823a 0%, #e8b87a 50%, #b8823a 100%)' }}
-                  title="Founding Member"
-                >
-                  ⭐
-                </div>
-                <span className="text-[10px] font-semibold text-[#b8823a] text-center leading-tight">
-                  Founding<br />Member
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
+        // Activity badges from user_badges table
+        for (const ab of ACTIVITY_BADGES) {
+          allBadges.push({ id: ab.id, emoji: ab.emoji, label: ab.label, earned: earnedActivityBadgeIds.has(ab.id), message: ab.message });
+        }
 
-        {/* Rooted Partner badge — only for affiliates */}
-        {isAffiliate && (
-          <div className="mb-3">
-            <p className="text-xs text-[#4338ca] font-medium mb-2">🤝 Rooted Partner</p>
-            <div className="flex flex-wrap gap-2">
-              <div className="flex flex-col items-center gap-1.5">
-                <div
-                  className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl shadow-sm"
-                  style={{
-                    background: 'linear-gradient(135deg, #4338ca 0%, #818cf8 50%, #4338ca 100%)',
-                    boxShadow: '0 4px 12px rgba(67,56,202,0.3)'
-                  }}
-                  title="Rooted Partner"
-                >
-                  🤝
-                </div>
-                <span className="text-[10px] font-semibold text-[#4338ca] text-center leading-tight">
-                  Rooted<br />Partner
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
+        // Leaf-count badges (only if not already covered by activity badge id)
+        const activityIds = new Set(ACTIVITY_BADGES.map((b) => b.id));
+        for (const lb of BADGES) {
+          if (!activityIds.has(lb.id)) {
+            allBadges.push({ id: lb.id, emoji: lb.emoji, label: lb.label, earned: lb.check(selectedLeaves) });
+          }
+        }
 
-        {earnedBadges.length > 0 && (
-          <div className="mb-3">
-            <p className="text-xs text-[#5c7f63] font-medium mb-2">✨ Earned</p>
-            <div className="flex flex-wrap gap-2">
-              {earnedBadges.map((badge) => (
-                <div
-                  key={badge.id}
-                  className="badge-float flex flex-col items-center bg-gradient-to-b from-[#e8f0e9] to-[#d4ead4] border border-[#b8d9bc] rounded-2xl px-4 py-3 min-w-[72px]"
-                >
-                  <span className="text-2xl mb-1">{badge.emoji}</span>
-                  <span className="text-[10px] font-semibold text-[#3d5c42] text-center leading-tight">
-                    {badge.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        // Rooted Partner (special)
+        if (isAffiliate) {
+          allBadges.push({ id: "rooted_partner", emoji: "🤝", label: "Rooted Partner", earned: true, message: "A true partner in the Rooted community." });
+        }
 
-        {lockedBadges.length > 0 && (
+        const earned = allBadges.filter((b) => b.earned);
+        const locked = allBadges.filter((b) => !b.earned);
+        const totalEarned = earned.length;
+
+        // Badge SVG illustrations
+        const BADGE_SVG: Record<string, React.ReactNode> = {
+          story_begun: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="sb-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#e8f5e9"/><stop offset="100%" stopColor="#a5d6a7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#sb-bg)"/><path d="M32 48 C32 48 32 28 32 24 C32 18 28 14 28 14" stroke="#5c7f63" strokeWidth="2.5" fill="none" strokeLinecap="round"/><ellipse cx="28" cy="14" rx="6" ry="9" fill="#66bb6a" opacity="0.85" transform="rotate(-15 28 14)"/><ellipse cx="36" cy="18" rx="5" ry="8" fill="#81c784" opacity="0.8" transform="rotate(20 36 18)"/><circle cx="32" cy="48" r="3" fill="#8d6e63" opacity="0.6"/></svg>
+          ),
+          first_leaf: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="fl-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#f1f8e9"/><stop offset="100%" stopColor="#c5e1a5"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#fl-bg)"/><path d="M32 50 Q32 35 24 22 Q30 20 32 12 Q34 20 40 22 Q32 35 32 50Z" fill="#66bb6a" stroke="#43a047" strokeWidth="1"/><path d="M32 48 L32 18" stroke="#43a047" strokeWidth="1.5" fill="none" strokeLinecap="round"/><path d="M32 30 Q27 26 24 22" stroke="#43a047" strokeWidth="1" fill="none" opacity="0.6"/><path d="M32 30 Q37 26 40 22" stroke="#43a047" strokeWidth="1" fill="none" opacity="0.6"/></svg>
+          ),
+          first_win: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="fw-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#fff8e1"/><stop offset="100%" stopColor="#ffe082"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#fw-bg)"/><path d="M22 18h20l-3 16h-14z" fill="#ffd54f" stroke="#f9a825" strokeWidth="1.5"/><rect x="28" y="34" width="8" height="6" rx="1" fill="#f9a825"/><rect x="24" y="40" width="16" height="3" rx="1.5" fill="#f9a825"/><path d="M18 18l-2 10 6-4z" fill="#ffb300" opacity="0.7"/><path d="M46 18l2 10-6-4z" fill="#ffb300" opacity="0.7"/></svg>
+          ),
+          bookworm_begins: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="bb-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#e8f5e9"/><stop offset="100%" stopColor="#a5d6a7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#bb-bg)"/><rect x="18" y="20" width="28" height="24" rx="2" fill="#8d6e63" opacity="0.2"/><path d="M32 18v28" stroke="#5c7f63" strokeWidth="1.5"/><path d="M20 20 Q26 24 32 20" fill="#81c784" stroke="#66bb6a" strokeWidth="1"/><path d="M32 20 Q38 24 44 20" fill="#a5d6a7" stroke="#81c784" strokeWidth="1"/><path d="M20 28 Q26 32 32 28" fill="#81c784" stroke="#66bb6a" strokeWidth="0.8" opacity="0.6"/><path d="M32 28 Q38 32 44 28" fill="#a5d6a7" stroke="#81c784" strokeWidth="0.8" opacity="0.6"/></svg>
+          ),
+          shutter: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="sh-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#e3f2fd"/><stop offset="100%" stopColor="#90caf9"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#sh-bg)"/><rect x="16" y="22" width="32" height="22" rx="4" fill="#42a5f5" opacity="0.8"/><circle cx="32" cy="33" r="8" fill="#e3f2fd" stroke="#1e88e5" strokeWidth="1.5"/><circle cx="32" cy="33" r="5" fill="#bbdefb"/><circle cx="30" cy="31" r="1.5" fill="white" opacity="0.8"/><rect x="26" y="20" width="12" height="4" rx="2" fill="#1e88e5" opacity="0.6"/></svg>
+          ),
+          showing_up: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="su-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#fff3e0"/><stop offset="100%" stopColor="#ffcc80"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#su-bg)"/><path d="M32 46 Q28 34 22 28 Q28 30 32 16 Q36 30 42 28 Q36 34 32 46Z" fill="#ff7043" opacity="0.85"/><path d="M32 46 Q30 38 26 34 Q30 36 32 24 Q34 36 38 34 Q34 38 32 46Z" fill="#ffab40" opacity="0.9"/><path d="M32 46 Q31 40 29 38 Q31 39 32 32 Q33 39 35 38 Q33 40 32 46Z" fill="#ffe082"/></svg>
+          ),
+          gallery_wall: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="gw-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#f3e5f5"/><stop offset="100%" stopColor="#ce93d8"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#gw-bg)"/><rect x="12" y="18" width="16" height="12" rx="2" fill="#ab47bc" opacity="0.3" stroke="#ab47bc" strokeWidth="1"/><rect x="36" y="18" width="16" height="12" rx="2" fill="#ab47bc" opacity="0.3" stroke="#ab47bc" strokeWidth="1"/><rect x="20" y="34" width="24" height="14" rx="2" fill="#ab47bc" opacity="0.3" stroke="#ab47bc" strokeWidth="1"/><circle cx="20" cy="24" r="3" fill="#e1bee7"/><path d="M14 28l4-4 4 3 3-2 3 3" stroke="#ce93d8" strokeWidth="1" fill="none"/></svg>
+          ),
+          author: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="au-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#e8f5e9"/><stop offset="100%" stopColor="#a5d6a7"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#au-bg)"/><path d="M24 16l-4 32h24l-4-32z" fill="#8d6e63" opacity="0.15" stroke="#5d4037" strokeWidth="1"/><path d="M26 16v32" stroke="#5d4037" strokeWidth="0.8" opacity="0.4"/><path d="M28 22h10M28 26h10M28 30h8M28 34h10M28 38h6" stroke="#5c7f63" strokeWidth="1.2" strokeLinecap="round" opacity="0.5"/><path d="M38 14l2 8-6-2z" fill="#66bb6a" opacity="0.7"/></svg>
+          ),
+          full_circle: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="fc-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#e0f2f1"/><stop offset="100%" stopColor="#80cbc4"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#fc-bg)"/><circle cx="32" cy="32" r="16" fill="none" stroke="#26a69a" strokeWidth="2.5" strokeDasharray="4 3"/><path d="M40 24l2-4M42 20l-1 2" stroke="#26a69a" strokeWidth="2" strokeLinecap="round"/><circle cx="32" cy="32" r="4" fill="#26a69a" opacity="0.3"/><path d="M28 28l4 4 4-4" stroke="#26a69a" strokeWidth="1.5" fill="none" strokeLinecap="round" opacity="0.6"/></svg>
+          ),
+          founding_family: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="ff-bg" cx="50%" cy="35%" r="55%"><stop offset="0%" stopColor="#fff8e1"/><stop offset="100%" stopColor="#ffe082"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#ff-bg)"/><path d="M32 12l4 10h10l-8 6 3 10-9-7-9 7 3-10-8-6h10z" fill="#f9a825" stroke="#f57f17" strokeWidth="1" strokeLinejoin="round"/><circle cx="32" cy="28" r="3" fill="#fff8e1" opacity="0.6"/></svg>
+          ),
+          rooted: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="rt-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#e8f5e9"/><stop offset="100%" stopColor="#81c784"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#rt-bg)"/><path d="M32 44v-20" stroke="#5d4037" strokeWidth="3" strokeLinecap="round"/><circle cx="32" cy="18" r="12" fill="#43a047" opacity="0.8"/><circle cx="26" cy="16" r="7" fill="#66bb6a" opacity="0.7"/><circle cx="38" cy="16" r="7" fill="#66bb6a" opacity="0.7"/><circle cx="32" cy="12" r="6" fill="#81c784" opacity="0.8"/><path d="M32 44 Q28 50 22 52" stroke="#8d6e63" strokeWidth="1.5" fill="none" opacity="0.5"/><path d="M32 44 Q36 50 42 52" stroke="#8d6e63" strokeWidth="1.5" fill="none" opacity="0.5"/><path d="M32 44 Q32 50 32 54" stroke="#8d6e63" strokeWidth="1.5" fill="none" opacity="0.5"/></svg>
+          ),
+          rooted_partner: (
+            <svg viewBox="0 0 64 64" className="w-full h-full"><defs><radialGradient id="rp-bg" cx="50%" cy="40%" r="55%"><stop offset="0%" stopColor="#e8eaf6"/><stop offset="100%" stopColor="#9fa8da"/></radialGradient></defs><circle cx="32" cy="32" r="30" fill="url(#rp-bg)"/><path d="M22 32 Q22 24 28 24 L28 28 Q24 28 24 32 Q24 36 28 36 L36 36 Q40 36 40 32 Q40 28 36 28 L36 24 Q42 24 42 32 Q42 40 36 40 L28 40 Q22 40 22 32Z" fill="#5c6bc0" opacity="0.7"/></svg>
+          ),
+        };
+
+        return (
           <div>
-            <p className="text-xs text-[#b5aca4] font-medium mb-2">🔒 Locked</p>
-            <div className="flex flex-wrap gap-2">
-              {lockedBadges.map((badge) => (
-                <div key={badge.id} className="relative group">
-                  <div className="flex flex-col items-center bg-[#f0ede8] border border-[#e8e2d9] rounded-2xl px-4 py-3 min-w-[72px] opacity-50">
-                    <span className="text-2xl mb-1 grayscale">{badge.emoji}</span>
-                    <span className="text-[10px] font-medium text-[#7a6f65] text-center leading-tight">
-                      {badge.label}
-                    </span>
-                  </div>
-                  <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[160px] rounded-lg bg-[#2d2926] px-2.5 py-1.5 text-center text-[11px] text-white leading-snug opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10">
-                    {badge.tooltip}
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#2d2926]" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
+              Badges {totalEarned > 0 && `\u00b7 ${totalEarned} earned`}
+            </h2>
 
-        {earnedBadges.length === 0 && lockedBadges.length === 0 && (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-8 text-center">
-            <p className="text-sm text-[#7a6f65]">Complete lessons to earn your first badge! 🌟</p>
+            {earned.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs text-[#5c7f63] font-medium mb-2">Earned</p>
+                <div className="flex flex-wrap gap-3">
+                  {earned.map((badge) => (
+                    <div key={badge.id} className="badge-float flex flex-col items-center w-[76px]">
+                      <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-sm border border-[#b8d9bc] bg-gradient-to-b from-[#e8f0e9] to-[#d4ead4] p-1">
+                        {BADGE_SVG[badge.id] ?? (
+                          <div className="w-full h-full rounded-xl bg-gradient-to-b from-[#e8f0e9] to-[#d4ead4] flex items-center justify-center text-2xl">{badge.emoji}</div>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-semibold text-[#3d5c42] text-center leading-tight mt-1.5">
+                        {badge.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {locked.length > 0 && (
+              <div>
+                <p className="text-xs text-[#b5aca4] font-medium mb-2">Undiscovered</p>
+                <div className="flex flex-wrap gap-3">
+                  {locked.map((badge) => (
+                    <div key={badge.id} className="flex flex-col items-center w-[76px]">
+                      <div className="w-16 h-16 rounded-2xl overflow-hidden p-1">
+                        <svg viewBox="0 0 64 64" className="w-full h-full"><circle cx="32" cy="32" r="29" fill="none" stroke="#e8e2d9" strokeWidth="2" strokeDasharray="4 4"/><circle cx="32" cy="32" r="24" fill="#faf8f4"/><text x="32" y="38" textAnchor="middle" fontSize="20" fill="#c8bfb5" fontFamily="serif" fontStyle="italic">?</text></svg>
+                      </div>
+                      <span className="text-[10px] font-medium text-[#c8bfb5] text-center leading-tight mt-1.5">
+                        ???
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {earned.length === 0 && locked.length === 0 && (
+              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-8 text-center">
+                <p className="text-sm text-[#7a6f65]">Start logging lessons and memories to earn badges! 🌟</p>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        );
+      })()}
 
       {/* ── Your Stats ─────────────────────────────── */}
       {(() => {
@@ -774,10 +817,9 @@ export default function GardenPage() {
       <div className="h-4" />
       </div>
 
-      {/* Badge celebration overlay */}
+      {/* Leaf badge celebration overlay */}
       {badgeCelebration && (
         <div className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center">
-          {/* Particles */}
           {Array.from({ length: 12 }).map((_, i) => (
             <span
               key={i}
@@ -793,7 +835,6 @@ export default function GardenPage() {
               {["⭐", "🌟", "✨", "🎉", "🏅"][i % 5]}
             </span>
           ))}
-          {/* Badge name */}
           <div
             className="bg-white/95 border border-[#e8e2d9] rounded-2xl px-6 py-4 text-center shadow-xl"
             style={{ animation: "badge-pop 2s ease-out forwards" }}
@@ -804,6 +845,30 @@ export default function GardenPage() {
           </div>
         </div>
       )}
+
+      {/* Activity badge slide-up notification */}
+      {badgeNotification && (
+        <div
+          className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2"
+          style={{ animation: "slide-up-badge 0.4s ease-out forwards" }}
+        >
+          <div className="bg-[#1e3d29] text-white rounded-2xl shadow-xl px-5 py-4 flex items-center gap-4 max-w-sm">
+            <span className="text-3xl shrink-0">{badgeNotification.emoji}</span>
+            <div>
+              <p className="text-sm font-bold">{badgeNotification.label} earned!</p>
+              <p className="text-xs text-white/75 mt-0.5 leading-relaxed">{badgeNotification.message}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Slide-up animation keyframes */}
+      <style jsx global>{`
+        @keyframes slide-up-badge {
+          from { transform: translate(-50%, 100%); opacity: 0; }
+          to   { transform: translate(-50%, 0);    opacity: 1; }
+        }
+      `}</style>
 
     </>
   );
