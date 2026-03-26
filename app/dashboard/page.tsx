@@ -450,6 +450,7 @@ export default function TodayPage() {
   const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
   const [lastPhoto, setLastPhoto] = useState<{ id: string; title: string; photo_url: string; date: string; child_id: string | null } | null>(null);
   const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null } | null>(null);
+  const [onThisDayTier, setOnThisDayTier] = useState<1 | 2 | null>(null);
   const [showWinSheet, setShowWinSheet] = useState(false);
   const [showCaptureMenu, setShowCaptureMenu] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
@@ -750,12 +751,14 @@ export default function TodayPage() {
       .maybeSingle();
     setLastPhoto(lastPhotoData as typeof lastPhoto);
 
-    // ── On This Day (±3 days, last year) ───────────────────────────────
+    // ── On This Day — 3-tier system ─────────────────────────────────────
     const otdNow = new Date();
     const lastYear = otdNow.getFullYear() - 1;
+
+    // Tier 1: ±3 days of today last year
     const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
     const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
-    const { data: otdData } = await supabase
+    const { data: tier1Data } = await supabase
       .from("memories")
       .select("id, title, date, child_id")
       .eq("user_id", effectiveUserId)
@@ -763,7 +766,35 @@ export default function TodayPage() {
       .lte("date", localDateStr(otdEnd))
       .limit(1)
       .maybeSingle();
-    setOnThisDayMemory(otdData as typeof onThisDayMemory);
+
+    if (tier1Data) {
+      setOnThisDayMemory(tier1Data as typeof onThisDayMemory);
+      setOnThisDayTier(1);
+      // Award full_circle badge on Tier 1 match
+      checkAndAwardBadges(effectiveUserId);
+    } else {
+      // Tier 2: ±60 days of today last year
+      const tier2Start = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 60);
+      const tier2End = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 60);
+      const { data: tier2Data } = await supabase
+        .from("memories")
+        .select("id, title, date, child_id")
+        .eq("user_id", effectiveUserId)
+        .gte("date", localDateStr(tier2Start))
+        .lte("date", localDateStr(tier2End))
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (tier2Data) {
+        setOnThisDayMemory(tier2Data as typeof onThisDayMemory);
+        setOnThisDayTier(2);
+      } else {
+        // Tier 3: nothing — hide section
+        setOnThisDayMemory(null);
+        setOnThisDayTier(null);
+      }
+    }
 
     // ── Today's story ──────────────────────────────────────────────────
     const { data: storyData } = await supabase
@@ -1757,7 +1788,7 @@ export default function TodayPage() {
 
       {/* ── Memory Moment Card ─────────────────────────────── */}
       {/* ── On This Day ──────────────────────────────────────── */}
-      {onThisDayMemory && (
+      {onThisDayMemory && onThisDayTier === 1 && (
         <Link href="/dashboard/memories" className="block rounded-2xl px-4 py-3.5" style={{ background: "#f5f0fa", border: "1.5px solid #d9bee8" }}>
           <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#ede4f5", color: "#7a4a9e" }}>
             One year ago today
@@ -1772,6 +1803,24 @@ export default function TodayPage() {
               })()}
             </span>
             <span className="text-xs font-medium" style={{ color: "#7a4a9e" }}>See the memory →</span>
+          </div>
+        </Link>
+      )}
+      {onThisDayMemory && onThisDayTier === 2 && (
+        <Link href="/dashboard/memories" className="block rounded-2xl px-4 py-3.5" style={{ background: "#faf8fc", border: "1.5px solid #e4d8ee" }}>
+          <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#f0eaf5", color: "#9a7ab8" }}>
+            A memory from {new Date(onThisDayMemory.date + "T12:00:00").toLocaleString("default", { month: "long" })} last year
+          </span>
+          <p className="text-sm font-medium text-[#2d2926]">{onThisDayMemory.title}</p>
+          <div className="flex items-center justify-between mt-1.5">
+            <span className="text-xs text-[#7a6f65]">
+              {(() => {
+                const child = children.find(c => c.id === onThisDayMemory.child_id);
+                const dateLabel = new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                return child ? `${child.name} · ${dateLabel}` : dateLabel;
+              })()}
+            </span>
+            <span className="text-xs font-medium" style={{ color: "#9a7ab8" }}>See the memory →</span>
           </div>
         </Link>
       )}
