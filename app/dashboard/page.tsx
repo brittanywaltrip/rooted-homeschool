@@ -1201,7 +1201,7 @@ export default function TodayPage() {
       {/* ── Today's Story ────────────────────────────────────── */}
       {todayStory.length > 0 && (
         <div>
-          <p className="text-[9px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2 px-0.5">Today&apos;s Story</p>
+          <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
             {todayStory.map((m) => {
               const icons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🗒️", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
@@ -1849,6 +1849,16 @@ export default function TodayPage() {
                 <div>
                   <p className="text-sm font-semibold text-[#2d2926]">Photo</p>
                   <p className="text-xs text-[#7a6f65]">Snap something to remember</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setShowCaptureMenu(false); captureFileRef.current?.click(); }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
+              >
+                <span className="text-2xl">🎨</span>
+                <div>
+                  <p className="text-sm font-semibold text-[#2d2926]">Drawing or artwork</p>
+                  <p className="text-xs text-[#7a6f65]">Keep one before it gets lost</p>
                 </div>
               </button>
               <button
