@@ -460,12 +460,13 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         </nav>
 
 
-        {/* ── Floating Camera FAB ───────────────────────────────── */}
-        {!partnerCtx.isPartner && !fabUrl && (
+        {/* ── Floating Camera FAB (hidden on Today page) ────────── */}
+        {!partnerCtx.isPartner && !fabUrl && pathname !== "/dashboard" && (
           <button onClick={openFabPicker}
-            className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all hover:shadow-xl"
-            style={{ backgroundColor: "#2d5a3d" }} aria-label="Log a memory">
-            <Camera size={22} className="text-white" strokeWidth={2.2} />
+            className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 w-14 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 shadow-lg active:scale-90 transition-all hover:shadow-xl"
+            style={{ backgroundColor: "#2d5a3d" }} aria-label="Capture a memory">
+            <Camera size={20} className="text-white" strokeWidth={2.2} />
+            <span className="text-white leading-none" style={{ fontSize: 9 }}>Capture</span>
           </button>
         )}
         <input ref={fabFileRef} type="file" accept="image/*" className="hidden"
