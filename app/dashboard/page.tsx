@@ -459,6 +459,7 @@ export default function TodayPage() {
   const [ftType, setFtType] = useState<"field_trip" | "project" | "activity">("field_trip");
   const [ftSaving, setFtSaving] = useState(false);
   const captureFileRef = useRef<HTMLInputElement>(null);
+  const captureTypeRef = useRef<"photo" | "drawing">("photo");
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
   const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
@@ -1196,12 +1197,15 @@ export default function TodayPage() {
               const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
               if (upErr) return;
               const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+              const memType = captureTypeRef.current;
               const { data: ins } = await supabase.from("memories").insert({
-                user_id: user.id, type: "photo", title: null,
+                user_id: user.id, type: memType, title: null,
                 photo_url: urlData.publicUrl, child_id: null,
                 date: today, include_in_book: false,
               }).select("id").single();
-              showCaptureToast("📸 Memory saved 🌿", (ins as { id: string } | null)?.id ?? null);
+              const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
+              showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
+              captureTypeRef.current = "photo"; // reset
               loadData(); refreshTodayStory();
             }}
           />
@@ -1852,7 +1856,7 @@ export default function TodayPage() {
             </div>
             <div className="px-4 pb-6 space-y-1">
               <button
-                onClick={() => { setShowCaptureMenu(false); captureFileRef.current?.click(); }}
+                onClick={() => { setShowCaptureMenu(false); captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
                 className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
               >
                 <span className="text-2xl">📸</span>
@@ -1862,7 +1866,7 @@ export default function TodayPage() {
                 </div>
               </button>
               <button
-                onClick={() => { setShowCaptureMenu(false); captureFileRef.current?.click(); }}
+                onClick={() => { setShowCaptureMenu(false); captureTypeRef.current = "drawing"; captureFileRef.current?.click(); }}
                 className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
               >
                 <span className="text-2xl">🎨</span>

@@ -80,15 +80,21 @@ function legacyToMemory(e: LegacyEvent): MemoryRow {
 
 const TYPE_EMOJI: Record<string, string> = {
   photo: "📷",
+  drawing: "🎨",
   book: "📖",
-  project: "📁",
+  win: "🏆",
+  quote: "🗒️",
+  project: "🔬",
   field_trip: "🗺️",
   activity: "🎵",
 };
 
 const TYPE_LABEL: Record<string, string> = {
   photo: "Photo",
+  drawing: "Drawing",
   book: "Book",
+  win: "Win",
+  quote: "Moment",
   project: "Project",
   field_trip: "Field Trip",
   activity: "Activity",
