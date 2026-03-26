@@ -6,6 +6,9 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
 import PageHero from "@/app/components/PageHero";
+import { checkAndAwardBadges } from "@/lib/badges";
+import BadgeNotification from "@/components/BadgeNotification";
+import type { BadgeDef } from "@/lib/badges";
 
 function treeEmoji(leaves: number): string {
   const s = getStageFromLeaves(leaves);
@@ -217,6 +220,7 @@ export default function GardenPage() {
   const [profile, setProfile]           = useState<{ plan_type?: string; subscription_status?: string } | null>(null);
   const [isAffiliate, setIsAffiliate]   = useState(false);
   const [badgeCelebration, setBadgeCelebration] = useState<string | null>(null);
+  const [activityBadge, setActivityBadge] = useState<BadgeDef | null>(null);
 
   const todayStr = toDateStr(new Date());
   const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
@@ -287,6 +291,11 @@ export default function GardenPage() {
         localStorage.setItem(seenBadgesKey, JSON.stringify(allEarned));
       }
 
+      // Check activity-based badges
+      checkAndAwardBadges(effectiveUserId).then((badge) => {
+        if (badge) setActivityBadge(badge);
+      });
+
       setLoading(false);
     }
     load();
@@ -332,7 +341,7 @@ export default function GardenPage() {
       <PageHero
         overline="Your Family's"
         title="Garden 🌿"
-        subtitle="Every lesson learned grows a leaf."
+        subtitle="Every lesson and memory grows a leaf."
       />
       <div className="max-w-3xl px-4 pt-5 pb-7 space-y-6">
 
@@ -796,6 +805,11 @@ export default function GardenPage() {
             <p className="text-xs text-[#5c7f63] mt-0.5">{badgeCelebration}</p>
           </div>
         </div>
+      )}
+
+      {/* ── Activity badge notification ──────────────────── */}
+      {activityBadge && (
+        <BadgeNotification badge={activityBadge} onDone={() => setActivityBadge(null)} />
       )}
     </>
   );
