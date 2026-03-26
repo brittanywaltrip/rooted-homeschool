@@ -451,6 +451,14 @@ export default function TodayPage() {
   const [lastPhoto, setLastPhoto] = useState<{ id: string; title: string; photo_url: string; date: string; child_id: string | null } | null>(null);
   const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null } | null>(null);
   const [showWinSheet, setShowWinSheet] = useState(false);
+  const [showCaptureMenu, setShowCaptureMenu] = useState(false);
+  const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
+  const [ftTitle, setFtTitle] = useState("");
+  const [ftNote, setFtNote] = useState("");
+  const [ftChild, setFtChild] = useState("");
+  const [ftType, setFtType] = useState<"field_trip" | "project" | "activity">("field_trip");
+  const [ftSaving, setFtSaving] = useState(false);
+  const captureFileRef = useRef<HTMLInputElement>(null);
   const [winText, setWinText] = useState("");
   const [winType, setWinType] = useState<"win" | "quote">("win");
   const [winChild, setWinChild] = useState("");
@@ -960,15 +968,13 @@ export default function TodayPage() {
     setSavingBook(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingBook(false); return; }
-    const payload = { title: bookTitle.trim(), child_id: bookChild || undefined, date: today };
-    const { data } = await supabase
-      .from("app_events").insert({ user_id: user.id, type: "book_read", payload })
-      .select("id, payload").single();
-    if (data) {
-      setTodayBooks((prev) => [...prev, data as unknown as BookLog]);
-      if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
-    }
+    await supabase.from("memories").insert({
+      user_id: user.id, type: "book", title: bookTitle.trim(),
+      child_id: bookChild || null, date: today, include_in_book: true,
+    });
+    if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
+    loadData();
   }
 
   // ── Activity edit/delete ──────────────────────────────────────────────────
@@ -1079,88 +1085,40 @@ export default function TodayPage() {
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
 
-      {/* ── Last Captured ────────────────────────────────────── */}
-      {lastPhoto ? (
-        <Link href="/dashboard/memories" className="block relative rounded-2xl overflow-hidden" style={{ height: 130 }}>
-          <img src={lastPhoto.photo_url} alt="" className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-          {(() => {
-            const child = children.find(c => c.id === lastPhoto.child_id);
-            return child ? (
-              <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
-                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
-                <span className="text-[11px] font-medium text-white/90">{child.name}</span>
-              </div>
-            ) : null;
-          })()}
-          <span className="absolute bottom-3 right-3 text-[11px] text-white/70">
-            {(() => {
-              const d = Math.round((Date.now() - new Date(lastPhoto.date + "T12:00:00").getTime()) / 86400000);
-              return d === 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`;
-            })()}
-          </span>
-          <p className="absolute bottom-8 left-3 text-[12px] font-medium text-white/90 truncate max-w-[70%]">{lastPhoto.title}</p>
-        </Link>
-      ) : (
-        <button
-          onClick={() => {
-            const fab = document.querySelector<HTMLButtonElement>('[aria-label="Log a memory"]');
-            fab?.click();
-          }}
-          className="w-full rounded-2xl p-5 text-left" style={{ height: 130, background: "#f5f2ec", border: "1.5px dashed #d4cdc4" }}
-        >
-          <p className="text-[13px] text-[#7a6f65] leading-relaxed">
-            {[
-              "Kids make 100 drawings a week — keep this one 📸",
-              "What made them laugh today? You'll want to remember this.",
-              "Snap something small. You'll treasure it later.",
-              "A book, a face, a moment — anything. Tap to capture.",
-            ][new Date().getDay() % 4]}
-          </p>
-        </button>
-      )}
-
-      {/* ── On This Day ──────────────────────────────────────── */}
-      {onThisDayMemory && (
-        <Link href="/dashboard/memories" className="block rounded-2xl px-4 py-3.5" style={{ background: "#f5f0fa", border: "1.5px solid #d9bee8" }}>
-          <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#ede4f5", color: "#7a4a9e" }}>
-            One year ago today
-          </span>
-          <p className="text-sm font-medium text-[#2d2926]">{onThisDayMemory.title}</p>
-          <div className="flex items-center justify-between mt-1.5">
-            <span className="text-xs text-[#7a6f65]">
-              {(() => {
-                const child = children.find(c => c.id === onThisDayMemory.child_id);
-                const dateLabel = new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-                return child ? `${child.name} · ${dateLabel}` : dateLabel;
-              })()}
-            </span>
-            <span className="text-xs font-medium" style={{ color: "#7a4a9e" }}>See the memory →</span>
-          </div>
-        </Link>
-      )}
-
-      {/* ── Two Capture Buttons ──────────────────────────────── */}
+      {/* ── Capture a Memory button ──────────────────────────── */}
       {!isPartner && (
-        <div className="flex gap-3">
+        <>
           <button
-            onClick={() => {
-              const fab = document.querySelector<HTMLButtonElement>('[aria-label="Log a memory"]');
-              fab?.click();
-            }}
-            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+            onClick={() => setShowCaptureMenu(true)}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
             style={{ background: "#2d5a3d" }}
           >
-            📸 Capture photo
+            ✚ Capture a memory
           </button>
-          <button
-            onClick={() => setShowWinSheet(true)}
-            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-colors hover:opacity-90"
-            style={{ background: "#fdf6ec", border: "1.5px solid #e8c878", color: "#7a5a1a" }}
-          >
-            ✍️ Log a win
-          </button>
-        </div>
+          <input
+            ref={captureFileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (e.target) e.target.value = "";
+              if (!file) return;
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) return;
+              const path = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+              const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
+              if (upErr) return;
+              const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+              await supabase.from("memories").insert({
+                user_id: user.id, type: "photo", title: null,
+                photo_url: urlData.publicUrl, child_id: null,
+                date: today, include_in_book: false,
+              });
+              loadData();
+            }}
+          />
+        </>
       )}
 
       {/* ── AI Family Update Prompt ────────────────────────────── */}
@@ -1676,77 +1634,6 @@ export default function TodayPage() {
         </button>
       )}
 
-      {memoryMoment && memoryMoment.kind === "recent" && memoryMoment.memory && (
-        <button
-          type="button"
-          onClick={() => setLightboxMemory(memoryMoment.memory!)}
-          className="w-full bg-white rounded-2xl overflow-hidden transition-colors hover:bg-[#fefcf9] text-left"
-          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
-        >
-          {memoryMoment.memory.photo_url ? (
-            <div className="relative aspect-square bg-[#1a2e1f]">
-              <img src={memoryMoment.memory.photo_url} alt="" className="w-full h-full object-contain" />
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-4 pb-3 pt-8">
-                <p className="text-white text-sm font-semibold leading-snug truncate">{memoryMoment.memory.title || "Memory"}</p>
-                <p className="text-white/70 text-[11px] mt-0.5">
-                  {(() => {
-                    const memDate = new Date(memoryMoment.memory!.date + "T12:00:00");
-                    const diffDays = Math.round((new Date().getTime() - memDate.getTime()) / (1000 * 60 * 60 * 24));
-                    if (diffDays === 0) return "Captured today";
-                    if (diffDays === 1) return "Captured yesterday";
-                    if (diffDays < 7) return `${diffDays} days ago`;
-                    if (diffDays < 30) return `${Math.round(diffDays / 7)} week${Math.round(diffDays / 7) !== 1 ? "s" : ""} ago`;
-                    return memDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                  })()}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="p-4">
-              <div className="flex gap-3 items-center">
-                <div className="w-14 h-14 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-2xl">📸</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-[#2d2926] leading-snug truncate">{memoryMoment.memory.title || "Memory"}</p>
-                  <p className="text-xs text-[#7a6f65] mt-0.5">
-                    {(() => {
-                      const memDate = new Date(memoryMoment.memory!.date + "T12:00:00");
-                      const diffDays = Math.round((new Date().getTime() - memDate.getTime()) / (1000 * 60 * 60 * 24));
-                      if (diffDays === 0) return "Captured today";
-                      if (diffDays === 1) return "Captured yesterday";
-                      if (diffDays < 7) return `${diffDays} days ago`;
-                      return memDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                    })()}
-                  </p>
-                </div>
-                <span className="text-[#c8bfb5] text-lg shrink-0">›</span>
-              </div>
-            </div>
-          )}
-        </button>
-      )}
-
-      {memoryMoment && memoryMoment.kind === "empty" && !isPartner && (
-        <button
-          onClick={() => setShowLogModal(true)}
-          className="w-full bg-white rounded-2xl p-5 text-left transition-colors hover:bg-[#fefcf9]"
-          style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
-        >
-          <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest mb-2">Capture a Memory</p>
-          <div className="flex gap-3 items-center">
-            <div className="w-12 h-12 rounded-xl bg-[#f5f0eb] flex items-center justify-center shrink-0 text-xl">
-              📸
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-[#2d2926] leading-snug">
-                What&apos;s one thing worth remembering today? 📸
-              </p>
-              <p className="text-xs text-[#9e958d] mt-0.5">
-                A drawing, a moment, something they said.
-              </p>
-            </div>
-          </div>
-        </button>
-      )}
 
       {/* ── Did You Know card (school days only) ────────── */}
       {isSchoolDay && !activeVacation && (
@@ -1806,6 +1693,132 @@ export default function TodayPage() {
             >
               Open in Memories →
             </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ── Capture menu bottom sheet ───────────────────── */}
+      {showCaptureMenu && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowCaptureMenu(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-4 pb-6 space-y-1">
+              <button
+                onClick={() => { setShowCaptureMenu(false); captureFileRef.current?.click(); }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
+              >
+                <span className="text-2xl">📸</span>
+                <div>
+                  <p className="text-sm font-semibold text-[#2d2926]">Photo</p>
+                  <p className="text-xs text-[#7a6f65]">Snap something to remember</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setShowCaptureMenu(false); setShowWinSheet(true); }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
+              >
+                <span className="text-2xl">✍️</span>
+                <div>
+                  <p className="text-sm font-semibold text-[#2d2926]">Win or moment</p>
+                  <p className="text-xs text-[#7a6f65]">Type or speak it out loud</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setShowCaptureMenu(false); setShowBookModal(true); }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
+              >
+                <span className="text-2xl">📖</span>
+                <div>
+                  <p className="text-sm font-semibold text-[#2d2926]">Book</p>
+                  <p className="text-xs text-[#7a6f65]">Log what they&apos;re reading</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setShowCaptureMenu(false); setShowFieldTripSheet(true); }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
+              >
+                <span className="text-2xl">🌿</span>
+                <div>
+                  <p className="text-sm font-semibold text-[#2d2926]">Field trip or project</p>
+                  <p className="text-xs text-[#7a6f65]">Document something they did</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Field trip / project sheet ────────────────────── */}
+      {showFieldTripSheet && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-[#2d2926]">🌿 Log an Activity</h2>
+              <button onClick={() => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); }} className="text-[#b5aca4] hover:text-[#7a6f65]">✕</button>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What did they do?</label>
+              <input value={ftTitle} onChange={(e) => setFtTitle(e.target.value)} placeholder="e.g. Visited the science museum" autoFocus
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Note (optional)</label>
+              <input value={ftNote} onChange={(e) => setFtNote(e.target.value)} placeholder="Any details worth remembering"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63]" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Type</label>
+              <div className="flex gap-2">
+                {([["field_trip", "🗺️ Field trip"], ["project", "🔬 Project"], ["activity", "🎵 Activity"]] as const).map(([val, label]) => (
+                  <button key={val} type="button" onClick={() => setFtType(val)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-colors ${ftType === val ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {children.length > 1 && (
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                <div className="flex gap-2 flex-wrap">
+                  <button type="button" onClick={() => setFtChild("")}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${!ftChild ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}>
+                    Everyone
+                  </button>
+                  {children.map((c) => (
+                    <button key={c.id} type="button" onClick={() => setFtChild(c.id)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${ftChild === c.id ? "text-white border-transparent" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}
+                      style={ftChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : {}}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); }}
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
+              <button
+                disabled={ftSaving || !ftTitle.trim()}
+                onClick={async () => {
+                  setFtSaving(true);
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (user) {
+                    await supabase.from("memories").insert({
+                      user_id: user.id, type: ftType, title: ftTitle.trim(),
+                      caption: ftNote.trim() || null, child_id: ftChild || null,
+                      date: today, include_in_book: false,
+                    });
+                  }
+                  setFtSaving(false); setShowFieldTripSheet(false);
+                  setFtTitle(""); setFtNote(""); setFtChild("");
+                  loadData();
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                {ftSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         </div>
       )}
