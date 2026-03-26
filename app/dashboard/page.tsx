@@ -1648,7 +1648,7 @@ export default function TodayPage() {
       {/* ── Memory Moment Card ─────────────────────────────── */}
       {memoryMoment && memoryMoment.kind === "on_this_day" && memoryMoment.memory && (
         <Link
-          href="/dashboard/memories"
+          href={`/dashboard/memories?open=${memoryMoment.memory.id}`}
           className="block bg-white rounded-2xl p-4 transition-colors hover:bg-[#fefcf9]"
           style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
         >
@@ -1676,12 +1676,12 @@ export default function TodayPage() {
 
       {memoryMoment && memoryMoment.kind === "recent" && memoryMoment.memory && (
         <Link
-          href="/dashboard/memories"
+          href={`/dashboard/memories?open=${memoryMoment.memory.id}`}
           className="block bg-white rounded-2xl overflow-hidden transition-colors hover:bg-[#fefcf9]"
           style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
         >
           {memoryMoment.memory.photo_url ? (
-            <div className="relative aspect-[4/3] bg-[#f0ede8]">
+            <div className="relative aspect-square bg-[#f0ede8]">
               <img src={memoryMoment.memory.photo_url} alt="" className="w-full h-full object-cover" />
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-4 pb-3 pt-8">
                 <p className="text-white text-sm font-semibold leading-snug truncate">{memoryMoment.memory.title || "Memory"}</p>

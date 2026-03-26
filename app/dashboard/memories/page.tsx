@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Sparkles, Download, X, ArrowRight, MoreHorizontal, Trash2, Pencil, Heart } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
@@ -96,6 +97,7 @@ const TYPE_LABEL: Record<string, string> = {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MemoriesPage() {
+  const searchParams = useSearchParams();
   const { isPartner, effectiveUserId } = usePartner();
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [reflections, setReflections] = useState<Reflection[]>([]);
@@ -190,6 +192,14 @@ export default function MemoriesPage() {
 
     setLoading(false);
   }, [effectiveUserId]);
+
+  // ── Open lightbox from ?open= URL param ──────────────────────────────────────
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (!openId || loading || memories.length === 0) return;
+    const match = memories.find((m) => m.id === openId);
+    if (match) setSelectedMemory(match);
+  }, [searchParams, loading, memories]);
 
   // ── Milestone prompt for free users ─────────────────────────────────────────
   useEffect(() => {
