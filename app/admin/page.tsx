@@ -182,6 +182,10 @@ export default function AdminPage() {
   const [sendingReengage, setSendingReengage] = useState(false);
   const [reengageSent, setReengageSent] = useState(false);
 
+  // Testimonial request
+  const [sendingTestimonial, setSendingTestimonial] = useState(false);
+  const [testimonialResult, setTestimonialResult] = useState<{ sent: number; errors: string[]; notFound: string[] } | null>(null);
+
   const fetchData = async (accessToken: string) => {
     setRefreshing(true);
     const res = await fetch("/api/admin/summary", {
@@ -641,6 +645,58 @@ export default function AdminPage() {
                 className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
               >
                 {sendingReengage ? "Sending…" : `Send re-engagement emails → (${reengageCount})`}
+              </button>
+            )}
+          </div>
+        </section>
+
+        {/* Section 3f — Testimonial Requests */}
+        <section>
+          <SectionHeader emoji="💬" title="Testimonial Requests" />
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+            <p className="text-sm text-[#7a6f65] mb-3">
+              Send a personal email to 5 Founding Members asking for a 1-2 sentence quote about Rooted.
+            </p>
+            <p className="text-xs text-[#b5aca4] mb-3">
+              Amanda Deardorff, Amber Hudson Slaughter, Donna Ward, Lacie Hawkins, Joselyn Minchey
+            </p>
+            {testimonialResult ? (
+              <div className="space-y-1">
+                <p className="text-sm text-[#5c7f63] font-medium">
+                  Sent {testimonialResult.sent} testimonial request{testimonialResult.sent !== 1 ? "s" : ""}!
+                </p>
+                {testimonialResult.notFound.length > 0 && (
+                  <p className="text-xs text-[#b5aca4]">Not found: {testimonialResult.notFound.join(", ")}</p>
+                )}
+                {testimonialResult.errors.length > 0 && (
+                  <p className="text-xs text-red-400">Errors: {testimonialResult.errors.join(", ")}</p>
+                )}
+              </div>
+            ) : (
+              <button
+                onClick={async () => {
+                  setSendingTestimonial(true);
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const res = await fetch("/api/admin/testimonial-request", {
+                      method: "POST",
+                      headers: { Authorization: `Bearer ${session?.access_token}` },
+                    });
+                    const json = await res.json();
+                    if (res.ok) {
+                      setTestimonialResult({ sent: json.sent, errors: json.errors ?? [], notFound: json.notFound ?? [] });
+                    } else {
+                      setTestimonialResult({ sent: 0, errors: [json.error ?? "Unknown error"], notFound: json.notFound ?? [] });
+                    }
+                  } catch {
+                    setTestimonialResult({ sent: 0, errors: ["Network error"], notFound: [] });
+                  }
+                  setSendingTestimonial(false);
+                }}
+                disabled={sendingTestimonial}
+                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              >
+                {sendingTestimonial ? "Sending…" : "Request testimonials →"}
               </button>
             )}
           </div>
