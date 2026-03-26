@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   if (!usage.allowed) {
     const message = isPro
       ? `You've reached your 50 AI generations for this month. Your limit resets on ${usage.resetDate}.`
-      : "AI features are available on Pro. Upgrade for $39/year — less than one curriculum book. 🌿"
+      : `You've used your free update this month. Upgrade to Founding Family for unlimited updates — your limit resets on ${usage.resetDate}.`
     return NextResponse.json({ error: message }, { status: 403 })
   }
 

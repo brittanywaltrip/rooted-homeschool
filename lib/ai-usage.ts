@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 
-const FREE_LIMIT = 0
+const FREE_LIMIT = 1
 const PRO_LIMIT = 50
 
 function getMonthString(): string {
@@ -20,9 +20,7 @@ export async function checkAndIncrementAIUsage(
 ): Promise<{ allowed: boolean; remaining: number; resetDate: string }> {
   const resetDate = getResetDate()
 
-  if (!isPro) {
-    return { allowed: false, remaining: 0, resetDate }
-  }
+  const limit = isPro ? PRO_LIMIT : FREE_LIMIT
 
   const month = getMonthString()
   const supabase = createClient(
@@ -40,7 +38,7 @@ export async function checkAndIncrementAIUsage(
 
   const currentCount = data?.count ?? 0
 
-  if (currentCount >= PRO_LIMIT) {
+  if (currentCount >= limit) {
     return { allowed: false, remaining: 0, resetDate }
   }
 
@@ -52,5 +50,5 @@ export async function checkAndIncrementAIUsage(
       { onConflict: 'user_id,month' }
     )
 
-  return { allowed: true, remaining: PRO_LIMIT - (currentCount + 1), resetDate }
+  return { allowed: true, remaining: limit - (currentCount + 1), resetDate }
 }

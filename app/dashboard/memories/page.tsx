@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Sparkles, Download, X, ArrowRight, MoreHorizontal, Trash2, Pencil, Heart, Search, Mic, BookmarkCheck } from "lucide-react";
+import { Sparkles, X, MoreHorizontal, Trash2, Pencil, Heart, Search, Mic, BookmarkCheck } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -521,39 +521,21 @@ export default function MemoriesPage() {
         </button>
       </div>
 
-      {/* AI Year in Review */}
-      <Link
-        href={isPro ? "/dashboard/year-in-review" : "/dashboard/pricing"}
-        className="block bg-gradient-to-br from-[#e8f0e9] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5 hover:from-[#ddeade] hover:to-[#c5e0c8] transition-colors group"
-      >
-        <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#5c7f63] flex items-center justify-center shrink-0">
-            <Sparkles size={16} className="text-white" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold text-[#2d2926] text-sm mb-0.5">AI Year in Review ✨</h3>
-            <p className="text-xs text-[#5c6e5d] leading-relaxed">
-              See your family&apos;s stats, read an AI-written story of your homeschool year, and
-              print a beautiful keepsake to share with grandparents.
-            </p>
-            <span className="inline-flex items-center gap-1 mt-2 text-[10px] font-semibold text-[#5c7f63] bg-white/70 px-2.5 py-1 rounded-full group-hover:bg-white transition-colors">
-              {isPro ? (<>Open Year in Review <ArrowRight size={10} /></>) : "🔒 Pro Feature"}
-            </span>
-          </div>
-          <Download size={16} className="text-[#5c7f63] shrink-0 mt-0.5" />
-        </div>
-      </Link>
-
       {/* Family Update CTA */}
       <Link
         href="/dashboard/family-update"
-        className="flex items-center justify-between bg-[#eef5ee] border border-[#b8d9bc] rounded-2xl px-4 py-4 hover:bg-[#e4f0e4] transition-colors"
+        className="flex items-center justify-between bg-[#eef5ee] border border-[#b8d9bc] rounded-2xl px-4 py-4 hover:bg-[#e4f0e4] transition-colors group"
       >
-        <div>
-          <p className="text-sm font-semibold text-[#2d2926]">Generate your family update ✨</p>
-          <p className="text-xs text-[#7a6f65] mt-0.5">An AI-written summary to share with grandparents</p>
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-[#5c7f63] flex items-center justify-center shrink-0">
+            <Sparkles size={16} className="text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-[#2d2926]">Your family update ✨</p>
+            <p className="text-xs text-[#7a6f65] mt-0.5">Generate a warm AI summary of your homeschool week to share with family and friends.</p>
+          </div>
         </div>
-        <span className="text-[#5c7f63] text-lg shrink-0">→</span>
+        <span className="text-[#5c7f63] text-lg shrink-0 group-hover:translate-x-0.5 transition-transform">Open →</span>
       </Link>
 
       {/* ── Child filter bar ─────────────────────────────────── */}
