@@ -840,6 +840,19 @@ export default function TodayPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Refresh today's story when user returns to tab (e.g. after camera app)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshTodayStory();
+        loadData();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadData]);
+
   async function refreshTodayStory() {
     if (!effectiveUserId) return;
     const { data } = await supabase
@@ -1037,7 +1050,8 @@ export default function TodayPage() {
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
-    loadData(); refreshTodayStory();
+    await refreshTodayStory();
+    await loadData();
     checkAndAwardBadges(user.id);
   }
 
@@ -1062,7 +1076,8 @@ export default function TodayPage() {
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null);
-    loadData(); refreshTodayStory();
+    await refreshTodayStory();
+    await loadData();
     checkAndAwardBadges(user.id);
   }
 
@@ -1090,7 +1105,8 @@ export default function TodayPage() {
     }).eq("id", editSheet.id);
     setEditSaving(false); setEditSheet(null);
     showCaptureToast("✏️ Updated 🌿", null);
-    loadData(); refreshTodayStory();
+    await refreshTodayStory();
+    await loadData();
   }
 
   async function deleteFromEditSheet() {
@@ -1099,7 +1115,8 @@ export default function TodayPage() {
     await supabase.from("memories").delete().eq("id", editSheet.id);
     setEditDeleting(false); setEditSheet(null);
     showCaptureToast("🗑️ Deleted", null);
-    loadData(); refreshTodayStory();
+    await refreshTodayStory();
+    await loadData();
   }
 
   // ── Activity edit/delete ──────────────────────────────────────────────────
@@ -1332,7 +1349,8 @@ export default function TodayPage() {
               const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
               showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
               captureTypeRef.current = "photo"; // reset
-              loadData(); refreshTodayStory();
+              await refreshTodayStory();
+              await loadData();
               checkAndAwardBadges(user.id);
             }}
           />
@@ -2133,7 +2151,8 @@ export default function TodayPage() {
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild("");
-                  loadData(); refreshTodayStory();
+                  await refreshTodayStory();
+                  await loadData();
                 }}
                 className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {ftSaving ? "Saving…" : "Save"}
@@ -2430,7 +2449,8 @@ export default function TodayPage() {
                   setWinText("");
                   setWinChild("");
                   setShowWinSheet(false);
-                  loadData(); refreshTodayStory();
+                  await refreshTodayStory();
+                  await loadData();
                 }}
                 disabled={savingWin || !winText.trim()}
                 className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
@@ -2719,8 +2739,8 @@ export default function TodayPage() {
                     setWinText("");
                     setWinChild("");
                     setShowWinSheet(false);
-                    loadData();
-                    refreshTodayStory();
+                    await refreshTodayStory();
+                    await loadData();
                   } catch (err) {
                     console.error("Win save error:", err);
                     setSavingWin(false);
