@@ -138,6 +138,10 @@ export default function MemoriesPage() {
   const [editChild, setEditChild] = useState("");
   const [editInBook, setEditInBook] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
+  const [editPhotoRemoved, setEditPhotoRemoved] = useState(false);
+  const editPhotoRef = useRef<HTMLInputElement>(null);
 
   // Delete state
   const [deleteTarget, setDeleteTarget] = useState<MemoryRow | null>(null);
@@ -341,6 +345,9 @@ export default function MemoriesPage() {
     setEditDate(m.date);
     setEditChild(m.child_id ?? "");
     setEditInBook(m.include_in_book);
+    setEditPhotoFile(null);
+    setEditPhotoPreview(m.photo_url ?? null);
+    setEditPhotoRemoved(false);
     setMenuId(null);
     setSelectedMemory(null);
     setLightboxDeleteConfirm(false);
@@ -349,7 +356,23 @@ export default function MemoriesPage() {
   async function saveEdit() {
     if (!editing) return;
     setEditSaving(true);
-    const updates = {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setEditSaving(false); return; }
+
+    let photoUrl: string | null | undefined = undefined;
+    if (editPhotoFile) {
+      const path = `${user.id}/${Date.now()}-${editPhotoFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, editPhotoFile, { contentType: editPhotoFile.type, upsert: false });
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+        photoUrl = urlData.publicUrl;
+      }
+    } else if (editPhotoRemoved) {
+      photoUrl = null;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updates: Record<string, any> = {
       title: editTitle.trim() || null,
       caption: editCaption.trim() || null,
       date: editDate,
@@ -357,6 +380,8 @@ export default function MemoriesPage() {
       include_in_book: editInBook,
       updated_at: new Date().toISOString(),
     };
+    if (photoUrl !== undefined) updates.photo_url = photoUrl;
+
     const { data } = await supabase
       .from("memories")
       .update(updates)
@@ -1005,6 +1030,41 @@ export default function MemoriesPage() {
                   rows={2}
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                 />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Photo</label>
+                <input ref={editPhotoRef} type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setEditPhotoFile(file);
+                    setEditPhotoRemoved(false);
+                    const reader = new FileReader();
+                    reader.onload = () => setEditPhotoPreview(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                {editPhotoPreview ? (
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={editPhotoPreview} alt="Memory photo" className="w-full h-32 object-cover rounded-xl border border-[#e8e2d9]" />
+                    <button onClick={() => { setEditPhotoFile(null); setEditPhotoPreview(null); setEditPhotoRemoved(true); if (editPhotoRef.current) editPhotoRef.current.value = ""; }}
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 text-white flex items-center justify-center text-sm hover:bg-black/70 transition-colors">
+                      ×
+                    </button>
+                    <button onClick={() => editPhotoRef.current?.click()}
+                      className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg bg-black/50 text-white text-xs hover:bg-black/70 transition-colors">
+                      Change photo
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => editPhotoRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl border-2 border-dashed border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors">
+                    <span className="text-lg">📸</span>
+                    <span className="text-sm">Add a photo (optional)</span>
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
