@@ -1681,8 +1681,8 @@ export default function TodayPage() {
           style={{ boxShadow: "0 2px 12px rgba(139,119,101,0.10), 0 1px 3px rgba(139,119,101,0.06)" }}
         >
           {memoryMoment.memory.photo_url ? (
-            <div className="relative aspect-square bg-[#f0ede8]">
-              <img src={memoryMoment.memory.photo_url} alt="" className="w-full h-full object-cover" />
+            <div className="relative aspect-square bg-[#1a2e1f]">
+              <img src={memoryMoment.memory.photo_url} alt="" className="w-full h-full object-contain" />
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-4 pb-3 pt-8">
                 <p className="text-white text-sm font-semibold leading-snug truncate">{memoryMoment.memory.title || "Memory"}</p>
                 <p className="text-white/70 text-[11px] mt-0.5">
