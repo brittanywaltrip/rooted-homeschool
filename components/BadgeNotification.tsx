@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import type { BadgeDef } from "@/lib/badges";
 
 interface BadgeNotificationProps {
@@ -13,11 +13,8 @@ export default function BadgeNotification({ badge, onDone }: BadgeNotificationPr
   const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
-    // Slide in
     const showTimer = setTimeout(() => setVisible(true), 50);
-    // Start exit
     const exitTimer = setTimeout(() => setLeaving(true), 3600);
-    // Clean up
     const doneTimer = setTimeout(onDone, 4000);
     return () => { clearTimeout(showTimer); clearTimeout(exitTimer); clearTimeout(doneTimer); };
   }, [onDone]);
@@ -43,4 +40,26 @@ export default function BadgeNotification({ badge, onDone }: BadgeNotificationPr
       </div>
     </div>
   );
+}
+
+/**
+ * Global listener that renders BadgeNotification when a 'badge-earned' event fires.
+ * Add this once in the dashboard layout.
+ */
+export function BadgeNotificationListener() {
+  const [badge, setBadge] = useState<BadgeDef | null>(null);
+
+  const handleDone = useCallback(() => setBadge(null), []);
+
+  useEffect(() => {
+    function onBadge(e: Event) {
+      const detail = (e as CustomEvent<BadgeDef>).detail;
+      if (detail) setBadge(detail);
+    }
+    window.addEventListener("badge-earned", onBadge);
+    return () => window.removeEventListener("badge-earned", onBadge);
+  }, []);
+
+  if (!badge) return null;
+  return <BadgeNotification badge={badge} onDone={handleDone} />;
 }

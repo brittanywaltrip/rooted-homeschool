@@ -8,6 +8,8 @@ import { supabase } from "@/lib/supabase";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
 import { ProfileProvider, useProfile } from "@/lib/profile-context";
+import { BadgeNotificationListener } from "@/components/BadgeNotification";
+import { checkAndAwardBadges } from "@/lib/badges";
 
 const navItems = [
   { label: "Today",     href: "/dashboard",           icon: Sun      },
@@ -226,6 +228,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     setFabSaving(false); closeFabSheet();
     setLeafBurst(true); setTimeout(() => setLeafBurst(false), 1200);
     setFabToast("Memory saved 🌿"); setTimeout(() => setFabToast(null), 2000);
+    checkAndAwardBadges(user.id);
   }
 
   if (checking) {
@@ -552,6 +555,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             <div className="bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">{fabToast}</div>
           </div>
         )}
+
+        <BadgeNotificationListener />
       </div>
     </PartnerContext.Provider>
   );

@@ -8,8 +8,6 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
-import BadgeNotification from "@/components/BadgeNotification";
-import type { BadgeDef } from "@/lib/badges";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -436,7 +434,6 @@ export default function TodayPage() {
   const [savingActivityEdit,    setSavingActivityEdit]    = useState(false);
 
   const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
-  const [earnedBadge,            setEarnedBadge]            = useState<BadgeDef | null>(null);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
@@ -906,14 +903,10 @@ export default function TodayPage() {
     }
     await refreshLeafCounts();
 
-    // Check for new activity badges (fire-and-forget)
+    // Check for new activity badges (fire-and-forget, notification via global listener)
     if (!current) {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        checkAndAwardBadges(user.id).then((badge) => {
-          if (badge) setEarnedBadge(badge);
-        });
-      }
+      if (user) checkAndAwardBadges(user.id);
     }
   }
 
@@ -984,6 +977,7 @@ export default function TodayPage() {
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
     loadData(); refreshTodayStory();
+    checkAndAwardBadges(user.id);
   }
 
   // ── Capture toast + edit sheet helpers ────────────────────────────────────
@@ -1216,6 +1210,7 @@ export default function TodayPage() {
               showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
               captureTypeRef.current = "photo"; // reset
               loadData(); refreshTodayStory();
+              checkAndAwardBadges(user.id);
             }}
           />
         </>
@@ -1976,6 +1971,7 @@ export default function TodayPage() {
                     }).select("id").single();
                     const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
                     showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null);
+                    checkAndAwardBadges(user.id);
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild("");
@@ -2270,6 +2266,7 @@ export default function TodayPage() {
                     setTotalMemories(prev => prev + 1);
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
                     showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
+                    checkAndAwardBadges(user.id);
                   }
                   setSavingWin(false);
                   setWinText("");
@@ -2387,11 +2384,6 @@ export default function TodayPage() {
             🌟 {childDoneToast}&apos;s done for today!
           </div>
         </div>
-      )}
-
-      {/* ── Badge notification ──────────────────────────── */}
-      {earnedBadge && (
-        <BadgeNotification badge={earnedBadge} onDone={() => setEarnedBadge(null)} />
       )}
 
       </div>
