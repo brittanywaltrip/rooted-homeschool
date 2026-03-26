@@ -20,7 +20,8 @@ function UpgradePageInner() {
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('')
-  const refCode = searchParams.get('ref')
+  const refParam = searchParams.get('ref')
+  const refCode = refParam || (typeof window !== 'undefined' ? localStorage.getItem('rooted_ref') : null)
 
   useEffect(() => {
     async function loadUserProfile() {
@@ -49,10 +50,13 @@ function UpgradePageInner() {
   }, [])
 
   useEffect(() => {
+    if (refParam) {
+      localStorage.setItem('rooted_ref', refParam)
+    }
     if (refCode) {
       fetch(`/api/affiliate/track-click?code=${refCode}`).catch(() => {})
     }
-  }, [refCode])
+  }, [refParam, refCode])
 
   useEffect(() => {
     const deadline = new Date('2026-04-30T00:00:00').getTime()
@@ -97,6 +101,7 @@ function UpgradePageInner() {
       }
 
       if (json.url) {
+        localStorage.removeItem('rooted_ref')
         window.location.href = json.url
       } else {
         setError('No checkout URL returned. Please try again.')
