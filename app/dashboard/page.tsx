@@ -7,7 +7,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
-import PageHero from "@/app/components/PageHero";
+// PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -445,6 +445,16 @@ export default function TodayPage() {
   const [daysLearning,           setDaysLearning]           = useState<number | null>(null);
   const [familyPhotoUrl,         setFamilyPhotoUrl]         = useState<string | null>(null);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
+  const [totalMemories, setTotalMemories] = useState(0);
+  const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
+  const [lastPhoto, setLastPhoto] = useState<{ id: string; title: string; photo_url: string; date: string; child_id: string | null } | null>(null);
+  const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null } | null>(null);
+  const [showWinSheet, setShowWinSheet] = useState(false);
+  const [winText, setWinText] = useState("");
+  const [winType, setWinType] = useState<"win" | "quote">("win");
+  const [winChild, setWinChild] = useState("");
+  const [savingWin, setSavingWin] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
     lessons: { title: string; childId: string | null; subjectName: string | null }[];
@@ -718,6 +728,59 @@ export default function TodayPage() {
       setMemoryMoment({ kind: "empty" });
     }
 
+    // ── Book Cover: total memories this school year ────────────────────
+    const schoolYearStartMonth = 7; // August (0-indexed July = school year start)
+    const nowForSY = new Date();
+    const syYear = nowForSY.getMonth() >= schoolYearStartMonth ? nowForSY.getFullYear() : nowForSY.getFullYear() - 1;
+    const syStart = `${syYear}-08-01`;
+    const { count: memCount } = await supabase
+      .from("memories")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", effectiveUserId)
+      .gte("date", syStart);
+    setTotalMemories(memCount ?? 0);
+
+    // ── Active days this month ─────────────────────────────────────────
+    const monthStart = `${nowForSY.getFullYear()}-${String(nowForSY.getMonth() + 1).padStart(2, "0")}-01`;
+    const monthEnd = localDateStr(nowForSY);
+    const [{ data: monthLessons }, { data: monthMemories }] = await Promise.all([
+      supabase.from("lessons").select("date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true).gte("scheduled_date", monthStart).lte("scheduled_date", monthEnd),
+      supabase.from("memories").select("date").eq("user_id", effectiveUserId).gte("date", monthStart).lte("date", monthEnd),
+    ]);
+    const activeDates = new Set<string>();
+    (monthLessons ?? []).forEach((l: { date?: string; scheduled_date?: string }) => {
+      const d = l.date ?? l.scheduled_date;
+      if (d) activeDates.add(d);
+    });
+    (monthMemories ?? []).forEach((m: { date: string }) => { if (m.date) activeDates.add(m.date); });
+    setActiveDaysThisMonth(activeDates.size);
+
+    // ── Last captured photo ────────────────────────────────────────────
+    const { data: lastPhotoData } = await supabase
+      .from("memories")
+      .select("id, title, photo_url, date, child_id")
+      .eq("user_id", effectiveUserId)
+      .not("photo_url", "is", null)
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setLastPhoto(lastPhotoData as typeof lastPhoto);
+
+    // ── On This Day (±3 days, last year) ───────────────────────────────
+    const otdNow = new Date();
+    const lastYear = otdNow.getFullYear() - 1;
+    const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
+    const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
+    const { data: otdData } = await supabase
+      .from("memories")
+      .select("id, title, date, child_id")
+      .eq("user_id", effectiveUserId)
+      .gte("date", localDateStr(otdStart))
+      .lte("date", localDateStr(otdEnd))
+      .limit(1)
+      .maybeSingle();
+    setOnThisDayMemory(otdData as typeof onThisDayMemory);
+
     setLoading(false);
   }, [today, effectiveUserId]);
 
@@ -988,41 +1051,116 @@ export default function TodayPage() {
 
   return (
     <>
-      {/* ── Hero Header ──────────────────────────────────────── */}
-      <PageHero
-        overline={formatDateHero(new Date())}
-        title={activeVacation
-          ? `${familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} are` : "You're"} away 🌴`
-          : buildGreeting(firstName || familyName, { allDone, isSchoolDay: isSchoolDay && !activeVacation, streak })}
-        subtitle={activeVacation ? `${activeVacation.name} · Back ${new Date(activeVacation.end_date + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}` : undefined}
-        bgColor={activeVacation ? "#1a6b8a" : undefined}
-      >
-        {totalToday > 0 && isSchoolDay && !activeVacation && (
-          <div className="flex items-center gap-2 rounded-xl px-3 py-2 mt-3" style={{ background: "rgba(255,255,255,0.10)" }}>
-            <span className="text-[12px]" style={{ color: "rgba(255,255,255,0.70)" }}>Today&apos;s lessons</span>
-            <div className="flex-1 rounded-full overflow-hidden" style={{ height: 3, background: "rgba(255,255,255,0.20)" }}>
-              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${progressPct}%`, background: "#a8d4aa" }} />
-            </div>
-            <span className="text-[12px] font-semibold text-white">{completedToday} / {totalToday}</span>
+      {/* ── Book Cover Card ──────────────────────────────────── */}
+      <div className="mx-5 mt-5 rounded-2xl p-4 relative overflow-hidden" style={{ background: "#2d5a3d" }}>
+        <div className="absolute top-2 right-3 text-[80px] leading-none select-none pointer-events-none" style={{ opacity: 0.06 }} aria-hidden>🌿</div>
+        <p className="text-[9px] font-medium tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>
+          {(() => {
+            const n = new Date();
+            const syY = n.getMonth() >= 7 ? n.getFullYear() : n.getFullYear() - 1;
+            return `${syY}–${syY + 1}`;
+          })()} · {familyName || "My Family"}
+        </p>
+        {totalMemories > 0 ? (
+          <>
+            <p className="text-[32px] font-bold text-white leading-tight mt-1">{totalMemories} 🌿</p>
+            <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.55)" }}>memories in your story</p>
+          </>
+        ) : (
+          <p className="text-[16px] font-semibold text-white leading-snug mt-2 mb-1">Your story is just beginning 🌿</p>
+        )}
+        {activeDaysThisMonth > 0 && (
+          <div className="inline-block mt-2.5 px-2.5 py-1 rounded-full text-[10px] font-medium" style={{ background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.7)" }}>
+            {activeDaysThisMonth} day{activeDaysThisMonth !== 1 ? "s" : ""} active in {new Date().toLocaleDateString("en-US", { month: "long" })}
           </div>
         )}
-
-        {/* Streak */}
-        {streak >= 2 && isSchoolDay && !activeVacation && (
-          <p className="text-[11px] mt-2 text-center" style={{ color: "rgba(255,255,255,0.6)" }}>
-            🌱 {streak} day streak
-          </p>
-        )}
-
-        {/* Days learning milestone — shows once per month */}
-        {daysLearning && !activeVacation && (
-          <p className="text-[11px] mt-1 text-center" style={{ color: "rgba(255,255,255,0.5)" }}>
-            {familyName ? `The ${familyName.replace(/^The\s+/i, "").replace(/\s+family$/i, "")} family has` : "You've"} been learning together for {daysLearning} days 🌱
-          </p>
-        )}
-      </PageHero>
+      </div>
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
+
+      {/* ── Last Captured ────────────────────────────────────── */}
+      {lastPhoto ? (
+        <Link href="/dashboard/memories" className="block relative rounded-2xl overflow-hidden" style={{ height: 130 }}>
+          <img src={lastPhoto.photo_url} alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+          {(() => {
+            const child = children.find(c => c.id === lastPhoto.child_id);
+            return child ? (
+              <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
+                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
+                <span className="text-[11px] font-medium text-white/90">{child.name}</span>
+              </div>
+            ) : null;
+          })()}
+          <span className="absolute bottom-3 right-3 text-[11px] text-white/70">
+            {(() => {
+              const d = Math.round((Date.now() - new Date(lastPhoto.date + "T12:00:00").getTime()) / 86400000);
+              return d === 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`;
+            })()}
+          </span>
+          <p className="absolute bottom-8 left-3 text-[12px] font-medium text-white/90 truncate max-w-[70%]">{lastPhoto.title}</p>
+        </Link>
+      ) : (
+        <button
+          onClick={() => {
+            const fab = document.querySelector<HTMLButtonElement>('[aria-label="Log a memory"]');
+            fab?.click();
+          }}
+          className="w-full rounded-2xl p-5 text-left" style={{ height: 130, background: "#f5f2ec", border: "1.5px dashed #d4cdc4" }}
+        >
+          <p className="text-[13px] text-[#7a6f65] leading-relaxed">
+            {[
+              "Kids make 100 drawings a week — keep this one 📸",
+              "What made them laugh today? You'll want to remember this.",
+              "Snap something small. You'll treasure it later.",
+              "A book, a face, a moment — anything. Tap to capture.",
+            ][new Date().getDay() % 4]}
+          </p>
+        </button>
+      )}
+
+      {/* ── On This Day ──────────────────────────────────────── */}
+      {onThisDayMemory && (
+        <Link href="/dashboard/memories" className="block rounded-2xl px-4 py-3.5" style={{ background: "#f5f0fa", border: "1.5px solid #d9bee8" }}>
+          <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#ede4f5", color: "#7a4a9e" }}>
+            One year ago today
+          </span>
+          <p className="text-sm font-medium text-[#2d2926]">{onThisDayMemory.title}</p>
+          <div className="flex items-center justify-between mt-1.5">
+            <span className="text-xs text-[#7a6f65]">
+              {(() => {
+                const child = children.find(c => c.id === onThisDayMemory.child_id);
+                const dateLabel = new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                return child ? `${child.name} · ${dateLabel}` : dateLabel;
+              })()}
+            </span>
+            <span className="text-xs font-medium" style={{ color: "#7a4a9e" }}>See the memory →</span>
+          </div>
+        </Link>
+      )}
+
+      {/* ── Two Capture Buttons ──────────────────────────────── */}
+      {!isPartner && (
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              const fab = document.querySelector<HTMLButtonElement>('[aria-label="Log a memory"]');
+              fab?.click();
+            }}
+            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+            style={{ background: "#2d5a3d" }}
+          >
+            📸 Capture photo
+          </button>
+          <button
+            onClick={() => setShowWinSheet(true)}
+            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-colors hover:opacity-90"
+            style={{ background: "#fdf6ec", border: "1.5px solid #e8c878", color: "#7a5a1a" }}
+          >
+            ✍️ Log a win
+          </button>
+        </div>
+      )}
 
       {/* ── AI Family Update Prompt ────────────────────────────── */}
       {showFamilyUpdate && (
@@ -1807,6 +1945,113 @@ export default function TodayPage() {
             <button onClick={() => setShowPwaModal(false)} className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors">Got it!</button>
           </div>
         </div>
+      )}
+
+      {/* ── Log a Win Sheet ──────────────────────────────────── */}
+      {showWinSheet && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowWinSheet(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto"
+            style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-[#2d2926]">✍️ Log a Win</h2>
+                <button onClick={() => setShowWinSheet(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+              </div>
+
+              {/* Type pills */}
+              <div className="flex gap-2">
+                <button onClick={() => setWinType("win")}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "win" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
+                  🏆 Win
+                </button>
+                <button onClick={() => setWinType("quote")}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "quote" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
+                  ✍️ Moment
+                </button>
+              </div>
+
+              {/* Text input + mic */}
+              <div className="relative">
+                <textarea
+                  value={winText}
+                  onChange={(e) => setWinText(e.target.value)}
+                  placeholder={winType === "win" ? "What went great today?" : "Something they said or did..."}
+                  rows={3}
+                  className="w-full px-3 py-2.5 pr-12 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
+                />
+                <button
+                  onClick={() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+                    if (!SR) return;
+                    if (isListening) return;
+                    const recognition = new SR();
+                    recognition.lang = "en-US";
+                    recognition.interimResults = false;
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    recognition.onresult = (e: any) => {
+                      const transcript = e.results[0]?.[0]?.transcript ?? "";
+                      setWinText((prev: string) => (prev ? prev + " " : "") + transcript);
+                    };
+                    recognition.onend = () => setIsListening(false);
+                    recognition.onerror = () => setIsListening(false);
+                    setIsListening(true);
+                    recognition.start();
+                  }}
+                  className={`absolute right-2 top-2 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${isListening ? "bg-red-100 text-red-500" : "bg-[#f0ede8] text-[#7a6f65] hover:bg-[#e8e2d9]"}`}
+                  aria-label="Voice input"
+                >
+                  🎤
+                </button>
+              </div>
+
+              {/* Child selector */}
+              {children.length > 0 && (
+                <div className="flex gap-2 flex-wrap">
+                  {children.map(c => (
+                    <button key={c.id} onClick={() => setWinChild(winChild === c.id ? "" : c.id)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${winChild === c.id ? "text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}
+                      style={winChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : undefined}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Save button */}
+              <button
+                onClick={async () => {
+                  if (!winText.trim()) return;
+                  setSavingWin(true);
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (user) {
+                    await supabase.from("memories").insert({
+                      user_id: user.id,
+                      child_id: winChild || null,
+                      date: localDateStr(new Date()),
+                      type: winType,
+                      title: winText.trim(),
+                      include_in_book: true,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    });
+                    setTotalMemories(prev => prev + 1);
+                  }
+                  setSavingWin(false);
+                  setWinText("");
+                  setWinChild("");
+                  setShowWinSheet(false);
+                }}
+                disabled={savingWin || !winText.trim()}
+                className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+              >
+                {savingWin ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       <FloatingLeaves active={celebrating} />
