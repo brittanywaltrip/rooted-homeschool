@@ -243,16 +243,19 @@ export default function AdminPage() {
     const weekStr = weekAgo.toISOString().split("T")[0];
 
     const [
-      { count: memTotal },
-      { count: memToday },
-      { count: memWeek },
+      { data: memTotalData },
+      { data: memTodayData },
+      { data: memWeekData },
       { data: memByType },
     ] = await Promise.all([
-      supabase.from("memories").select("id", { count: "exact", head: true }),
-      supabase.from("memories").select("id", { count: "exact", head: true }).gte("created_at", todayStr + "T00:00:00"),
-      supabase.from("memories").select("id", { count: "exact", head: true }).gte("created_at", weekStr + "T00:00:00"),
+      supabase.from("memories").select("id"),
+      supabase.from("memories").select("id").gte("created_at", todayStr + "T00:00:00"),
+      supabase.from("memories").select("id").gte("created_at", weekStr + "T00:00:00"),
       supabase.from("memories").select("type"),
     ]);
+    const memTotal = memTotalData?.length ?? 0;
+    const memToday = memTodayData?.length ?? 0;
+    const memWeek = memWeekData?.length ?? 0;
 
     const typeCounts: Record<string, number> = {};
     (memByType ?? []).forEach((r: { type: string }) => {
@@ -277,7 +280,7 @@ export default function AdminPage() {
       topLoggers.push({ name: (p as { display_name?: string; first_name?: string } | null)?.display_name || (p as { first_name?: string } | null)?.first_name || uid.slice(0, 8), count: cnt });
     }
 
-    setMemStats({ total: memTotal ?? 0, today: memToday ?? 0, thisWeek: memWeek ?? 0, byType: byTypeArr, topLoggers });
+    setMemStats({ total: memTotal, today: memToday, thisWeek: memWeek, byType: byTypeArr, topLoggers });
 
     // ── 7-day activity chart ──────────────────────────────
     const chartDays: { day: string; label: string; count: number }[] = [];
@@ -316,9 +319,9 @@ export default function AdminPage() {
 
     // ── Re-engagement count ───────────────────────────────
     const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-    const { count: reCount } = await supabase
+    const { data: reCountData } = await supabase
       .from("profiles")
-      .select("id", { count: "exact", head: true })
+      .select("id")
       .or("re_engagement_sent.eq.false,re_engagement_sent.is.null")
       .lte("created_at", threeDaysAgo.toISOString());
     // Filter to only those with 0 memories — approximate with userMemCounts

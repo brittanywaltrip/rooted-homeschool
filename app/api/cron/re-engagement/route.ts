@@ -78,21 +78,21 @@ export async function GET(req: NextRequest) {
 
   for (const user of users ?? []) {
     // Check 0 memories
-    const { count: memoryCount } = await supabase
+    const { data: memoryData } = await supabase
       .from('memories')
-      .select('*', { count: 'exact', head: true })
+      .select('id')
       .eq('user_id', user.id)
 
-    if ((memoryCount ?? 0) > 0) { skipped++; continue }
+    if ((memoryData?.length ?? 0) > 0) { skipped++; continue }
 
     // Check 0 lessons via app_events
-    const { count: lessonCount } = await supabase
+    const { data: lessonData } = await supabase
       .from('app_events')
-      .select('*', { count: 'exact', head: true })
+      .select('id')
       .eq('user_id', user.id)
       .like('type', 'lesson%')
 
-    if ((lessonCount ?? 0) > 0) { skipped++; continue }
+    if ((lessonData?.length ?? 0) > 0) { skipped++; continue }
 
     // Get email from auth
     const { data: authData } = await supabase.auth.admin.getUserById(user.id)
