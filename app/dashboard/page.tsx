@@ -2347,28 +2347,35 @@ export default function TodayPage() {
                 onClick={async () => {
                   if (!winText.trim()) return;
                   setSavingWin(true);
-                  const { data: { user } } = await supabase.auth.getUser();
-                  if (user) {
-                    const { data: ins } = await supabase.from("memories").insert({
+                  try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) { setSavingWin(false); return; }
+                    const { data: ins, error } = await supabase.from("memories").insert({
                       user_id: user.id,
                       child_id: winChild || null,
-                      date: localDateStr(new Date()),
+                      date: today,
                       type: winType,
                       title: winText.trim(),
-                      include_in_book: true,
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString(),
+                      include_in_book: false,
                     }).select("id").single();
+                    if (error) {
+                      console.error("Win save failed:", error);
+                      setSavingWin(false);
+                      return;
+                    }
                     setTotalMemories(prev => prev + 1);
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
                     showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
                     checkAndAwardBadges(user.id);
+                    setSavingWin(false);
+                    setWinText("");
+                    setWinChild("");
+                    setShowWinSheet(false);
+                    refreshTodayStory();
+                  } catch (err) {
+                    console.error("Win save error:", err);
+                    setSavingWin(false);
                   }
-                  setSavingWin(false);
-                  setWinText("");
-                  setWinChild("");
-                  setShowWinSheet(false);
-                  loadData(); refreshTodayStory();
                 }}
                 disabled={savingWin || !winText.trim()}
                 className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
