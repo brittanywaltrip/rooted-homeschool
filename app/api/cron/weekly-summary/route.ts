@@ -106,7 +106,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
   // Find active users: logged a memory or completed a lesson in the last 14 days
   const [{ data: recentMemories }, { data: recentLessons }] = await Promise.all([
     supabase.from('memories').select('user_id, type').gte('date', since14),
-    supabase.from('lessons').select('user_id').eq('completed', true).gte('completed_at', fourteenDaysAgo.toISOString()),
+    supabase.from('lessons').select('user_id').eq('completed', true).gte('scheduled_date', since14),
   ])
 
   const activeUserIds = new Set<string>()
@@ -118,8 +118,8 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
   // Fetch this week's data (last 7 days) for the email content
   const [{ data: weekMemories }, { data: weekLessons }] = await Promise.all([
     supabase.from('memories').select('user_id, type').gte('date', since7),
-    supabase.from('lessons').select('user_id, title, child_id, completed_at')
-      .eq('completed', true).gte('completed_at', sevenDaysAgo.toISOString()),
+    supabase.from('lessons').select('user_id, title, child_id')
+      .eq('completed', true).gte('scheduled_date', since7),
   ])
 
   // Fetch children for name mapping
@@ -160,9 +160,10 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
     .select('id, first_name')
     .in('id', userIds)
 
-  const { data: { users } } = await supabase.auth.admin.listUsers()
+  const { data: listData } = await supabase.auth.admin.listUsers()
+  const users = listData?.users ?? []
   const emailMap = new Map<string, string>()
-  for (const u of users ?? []) {
+  for (const u of users) {
     if (u.email) emailMap.set(u.id, u.email)
   }
 
