@@ -111,6 +111,7 @@ export default function MemoriesPage() {
   const [reflections, setReflections] = useState<Reflection[]>([]);
   const [children, setChildren] = useState<Child[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [isPro, setIsPro] = useState<boolean | null>(null);
   // Filter: "all" | "family" | "favorites" | child id
   const [filter, setFilter] = useState("all");
@@ -137,6 +138,10 @@ export default function MemoriesPage() {
   const [editChild, setEditChild] = useState("");
   const [editInBook, setEditInBook] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
+  const [editPhotoRemoved, setEditPhotoRemoved] = useState(false);
+  const editPhotoRef = useRef<HTMLInputElement>(null);
 
   // Delete state
   const [deleteTarget, setDeleteTarget] = useState<MemoryRow | null>(null);
@@ -152,10 +157,13 @@ export default function MemoriesPage() {
   const [reflectionDeleteConfirm, setReflectionDeleteConfirm] = useState(false);
   const [savingReflection, setSavingReflection] = useState(false);
 
+  useEffect(() => { document.title = "Memories \u00b7 Rooted"; }, []);
+
   // ── Load data ───────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     if (!effectiveUserId) return;
+    try {
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -180,7 +188,8 @@ export default function MemoriesPage() {
         .select("*")
         .eq("user_id", effectiveUserId)
         .gte("created_at", dateFloor)
-        .order("date", { ascending: false }),
+        .order("date", { ascending: false })
+        .order("created_at", { ascending: false }),
       supabase
         .from("daily_reflections")
         .select("id, date, reflection, is_private, updated_at")
@@ -205,7 +214,12 @@ export default function MemoriesPage() {
       setMemories((events ?? []).map((e) => legacyToMemory(e as unknown as LegacyEvent)));
     }
 
-    setLoading(false);
+    } catch (err) {
+      console.error("Failed to load memories:", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [effectiveUserId]);
 
   // ── Open lightbox from ?open= URL param ──────────────────────────────────────
@@ -283,10 +297,12 @@ export default function MemoriesPage() {
   // ── Filter + Search ──────────────────────────────────────────────────────
 
   const filtered = memories.filter((m) => {
-    // Filter by child / family / favorites
+    // Filter by child / family / favorites / yearbook / type
     if (filter === "favorites" && !m.favorite) return false;
+    if (filter === "yearbook" && !m.include_in_book) return false;
     if (filter === "family" && m.child_id) return false;
-    if (filter !== "all" && filter !== "family" && filter !== "favorites" && m.child_id !== filter) return false;
+    if (filter.startsWith("type:") && m.type !== filter.slice(5)) return false;
+    if (filter !== "all" && filter !== "family" && filter !== "favorites" && filter !== "yearbook" && !filter.startsWith("type:") && m.child_id !== filter) return false;
 
     // Search
     if (searchQuery.trim()) {
@@ -329,6 +345,9 @@ export default function MemoriesPage() {
     setEditDate(m.date);
     setEditChild(m.child_id ?? "");
     setEditInBook(m.include_in_book);
+    setEditPhotoFile(null);
+    setEditPhotoPreview(m.photo_url ?? null);
+    setEditPhotoRemoved(false);
     setMenuId(null);
     setSelectedMemory(null);
     setLightboxDeleteConfirm(false);
@@ -337,7 +356,23 @@ export default function MemoriesPage() {
   async function saveEdit() {
     if (!editing) return;
     setEditSaving(true);
-    const updates = {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setEditSaving(false); return; }
+
+    let photoUrl: string | null | undefined = undefined;
+    if (editPhotoFile) {
+      const path = `${user.id}/${Date.now()}-${editPhotoFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, editPhotoFile, { contentType: editPhotoFile.type, upsert: false });
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+        photoUrl = urlData.publicUrl;
+      }
+    } else if (editPhotoRemoved) {
+      photoUrl = null;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updates: Record<string, any> = {
       title: editTitle.trim() || null,
       caption: editCaption.trim() || null,
       date: editDate,
@@ -345,6 +380,8 @@ export default function MemoriesPage() {
       include_in_book: editInBook,
       updated_at: new Date().toISOString(),
     };
+    if (photoUrl !== undefined) updates.photo_url = photoUrl;
+
     const { data } = await supabase
       .from("memories")
       .update(updates)
@@ -467,11 +504,14 @@ export default function MemoriesPage() {
 
   return (
     <>
-    <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Capture photos, projects, and books." />
+    <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Photos, drawings, wins, books, field trips — everything." />
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
-      {/* Header link */}
-      <div className="flex justify-end -mt-2 mb--1">
+      {/* Header links */}
+      <div className="flex justify-end gap-4 -mt-2 mb--1">
+        <Link href="/dashboard/memories/yearbook" className="text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
+          📖 Yearbook
+        </Link>
         <button
           type="button"
           onClick={() => alert("More memory types coming soon")}
@@ -538,6 +578,25 @@ export default function MemoriesPage() {
         >
           <Heart size={13} className={filter === "favorites" ? "fill-white" : ""} /> Favorites
         </button>
+        {([
+          ["yearbook", "🔖 Yearbook"],
+          ["type:photo", "Photos"],
+          ["type:book", "Books"],
+          ["type:win", "Wins"],
+          ["type:drawing", "Drawings"],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setFilter(filter === key ? "all" : key)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              filter === key
+                ? "bg-[#5c7f63] text-white"
+                : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
         {children.map((c) => (
           <button
             key={c.id}
@@ -618,7 +677,19 @@ export default function MemoriesPage() {
       )}
 
       {/* ── Memory grid ──────────────────────────────────────── */}
-      {loading ? (
+      {loadError ? (
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+          <span className="text-4xl mb-3">🌿</span>
+          <p className="font-medium text-[#2d2926] mb-1">Something went wrong loading your memories</p>
+          <p className="text-sm text-[#7a6f65] max-w-xs mb-4">Pull to refresh or try again.</p>
+          <button
+            onClick={() => { setLoadError(false); setLoading(true); load(); }}
+            className="px-4 py-2 rounded-xl bg-[#5c7f63] text-white text-sm font-medium hover:bg-[#3d5c42] transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      ) : loading ? (
         <div className="text-center py-16">
           <span className="text-3xl animate-pulse">📷</span>
         </div>
@@ -626,23 +697,34 @@ export default function MemoriesPage() {
         searchQuery.trim() ? (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
             <span className="text-4xl mb-3">📸</span>
-            <p className="font-medium text-[#2d2926] mb-1">No memories found for &lsquo;{searchQuery}&rsquo;</p>
+            <p className="font-medium text-[#2d2926] mb-1">No memories found for &lsquo;{searchQuery}&rsquo; 📸</p>
             <p className="text-sm text-[#7a6f65] max-w-xs mb-4">
               Try a different search or capture a new memory.
             </p>
-            <button
-              onClick={() => alert("More memory types coming soon")}
-              className="px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+            <Link
+              href="/dashboard"
+              className="px-5 py-2.5 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] text-white text-sm font-semibold transition-colors"
             >
-              Capture a memory
+              Capture a memory →
+            </Link>
+          </div>
+        ) : (filter !== "all" && memories.length > 0) ? (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+            <span className="text-4xl mb-3">🔍</span>
+            <p className="font-medium text-[#2d2926] mb-1">No memories match this filter</p>
+            <button
+              onClick={() => setFilter("all")}
+              className="text-sm text-[#5c7f63] font-medium mt-2 hover:underline"
+            >
+              Clear filter
             </button>
           </div>
         ) : (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-            <span className="text-4xl mb-3">🌸</span>
+            <span className="text-4xl mb-3">🌱</span>
             <p className="font-medium text-[#2d2926] mb-1">No memories yet</p>
             <p className="text-sm text-[#7a6f65] max-w-xs">
-              Start logging photos, projects, and books to build your family&apos;s story.
+              Tap Capture to add your first one.
             </p>
           </div>
         )
@@ -650,6 +732,7 @@ export default function MemoriesPage() {
         <div className="grid grid-cols-3 gap-[2px] rounded-2xl overflow-hidden">
           {(() => {
             let lastMonth = "";
+            let photoIdx = 0;
             return filtered.map((m) => {
               const month = m.date.slice(0, 7); // "YYYY-MM"
               const showHeader = month !== lastMonth;
@@ -667,33 +750,39 @@ export default function MemoriesPage() {
                 >
                   {/* Photo or type tile */}
                   {m.photo_url ? (
-                    <img src={m.photo_url} alt={m.title ?? "Memory"} className="w-full h-full object-cover" />
+                    <img src={m.photo_url} alt={m.title ?? "Memory"} loading={photoIdx++ < 6 ? "eager" : "lazy"} className="w-full h-full object-cover" />
                   ) : (
-                    <div className={`w-full h-full flex flex-col items-center justify-center px-2 ${
-                      m.type === "book" ? "bg-[#FDF3E3]"
-                        : m.type === "quote" ? "bg-[#F5EFF8]"
-                        : "bg-[#EAF6EE]"
-                    }`}>
-                      {m.type === "book" ? (
-                        <>
-                          <span className="text-4xl mb-1">📖</span>
-                          <p className="text-[11px] font-semibold text-[#7a4f1a] text-center line-clamp-2">{m.title ?? "Book"}</p>
-                          {m.caption && <p className="text-[10px] italic text-[#c8a96e] text-center line-clamp-1 mt-0.5">{m.caption}</p>}
-                        </>
-                      ) : m.type === "quote" ? (
-                        <>
-                          <span className="text-5xl leading-none font-serif text-[#c49edd]">&ldquo;</span>
-                          <p className="text-[10px] italic text-[#4a2d6a] text-center line-clamp-3">{m.title ?? "Quote"}</p>
-                          {m.child_id && <p className="text-[9px] text-[#a07ab8] mt-1">{childName(m.child_id)}</p>}
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-4xl mb-1">{TYPE_EMOJI[m.type] ?? "📷"}</span>
-                          <p className="text-[11px] font-semibold text-[#1a4d2e] text-center line-clamp-2">{m.title ?? TYPE_LABEL[m.type] ?? "Memory"}</p>
-                          <p className="text-[9px] italic text-[#4a8c65] mt-0.5">{TYPE_LABEL[m.type] ?? "Memory"}</p>
-                        </>
-                      )}
-                    </div>
+                    (() => {
+                      const tileConfig: Record<string, { gradient: string; textColor: string; subtextColor: string }> = {
+                        book:       { gradient: "linear-gradient(135deg, #F5E6C8 0%, #E8C87A 100%)", textColor: "#4a2e0a", subtextColor: "#7a5c2e" },
+                        win:        { gradient: "linear-gradient(135deg, #FDE8A0 0%, #F5C842 100%)", textColor: "#4a3200", subtextColor: "#7a5c1a" },
+                        drawing:    { gradient: "linear-gradient(135deg, #E8D5F5 0%, #C9A8E8 100%)", textColor: "#3d1f5c", subtextColor: "#6b4a8a" },
+                        quote:      { gradient: "linear-gradient(135deg, #F0E4F8 0%, #D4B8E8 100%)", textColor: "#3d1f5c", subtextColor: "#6b4a8a" },
+                        project:    { gradient: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)", textColor: "#1a3d1e", subtextColor: "#2d5a32" },
+                        field_trip: { gradient: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)", textColor: "#1a3d1e", subtextColor: "#2d5a32" },
+                        activity:   { gradient: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)", textColor: "#1a3d1e", subtextColor: "#2d5a32" },
+                      };
+                      const cfg = tileConfig[m.type] ?? tileConfig.project;
+                      const emoji = TYPE_EMOJI[m.type] ?? "📷";
+                      const title = m.title ?? TYPE_LABEL[m.type] ?? "Memory";
+                      return (
+                        <div className="w-full h-full relative overflow-hidden" style={{ background: cfg.gradient }}>
+                          {/* Subtle dot texture */}
+                          <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(circle, currentColor 0.5px, transparent 0.5px)", backgroundSize: "8px 8px", opacity: 0.06 }} />
+                          {/* Centered emoji */}
+                          <div className="absolute inset-0 flex items-center justify-center pb-6">
+                            <span className="text-5xl drop-shadow-sm">{emoji}</span>
+                          </div>
+                          {/* Bottom gradient overlay + text */}
+                          <div className="absolute inset-x-0 bottom-0 h-[45%]" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.35) 0%, transparent 100%)" }}>
+                            <div className="absolute bottom-0 inset-x-0 px-2 pb-2">
+                              <p className="text-[11px] font-semibold text-white text-center line-clamp-2 drop-shadow-sm">{title}</p>
+                              {m.caption && <p className="text-[10px] text-white/75 text-center line-clamp-1 mt-0.5">{m.caption}</p>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()
                   )}
 
                   {/* Child color dot */}
@@ -774,22 +863,29 @@ export default function MemoriesPage() {
               <img
                 src={selectedMemory.photo_url}
                 alt={selectedMemory.title ?? "Memory"}
+                loading="eager"
                 className="w-full rounded-t-3xl object-cover max-h-[50vh]"
               />
             ) : (
-              <div className={`w-full h-48 rounded-t-3xl flex flex-col items-center justify-center ${
-                selectedMemory.type === "book" ? "bg-[#FDF3E3]"
-                  : selectedMemory.type === "quote" ? "bg-[#F5EFF8]"
-                  : "bg-[#EAF6EE]"
-              }`}>
-                {selectedMemory.type === "book" ? (
-                  <span className="text-6xl">📖</span>
-                ) : selectedMemory.type === "quote" ? (
-                  <span className="text-7xl font-serif text-[#c49edd] leading-none">&ldquo;</span>
-                ) : (
-                  <span className="text-6xl">{TYPE_EMOJI[selectedMemory.type] ?? "📷"}</span>
-                )}
-              </div>
+              (() => {
+                const lbConfig: Record<string, string> = {
+                  book:       "linear-gradient(135deg, #F5E6C8 0%, #E8C87A 100%)",
+                  win:        "linear-gradient(135deg, #FDE8A0 0%, #F5C842 100%)",
+                  drawing:    "linear-gradient(135deg, #E8D5F5 0%, #C9A8E8 100%)",
+                  quote:      "linear-gradient(135deg, #F0E4F8 0%, #D4B8E8 100%)",
+                  project:    "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)",
+                  field_trip: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)",
+                  activity:   "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)",
+                };
+                return (
+                  <div className="w-full h-48 rounded-t-3xl relative overflow-hidden" style={{ background: lbConfig[selectedMemory.type] ?? lbConfig.project }}>
+                    <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(circle, currentColor 0.5px, transparent 0.5px)", backgroundSize: "10px 10px", opacity: 0.06 }} />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-6xl drop-shadow-sm">{TYPE_EMOJI[selectedMemory.type] ?? "📷"}</span>
+                    </div>
+                  </div>
+                );
+              })()
             )}
 
             <div className="p-5 space-y-3">
@@ -934,6 +1030,41 @@ export default function MemoriesPage() {
                   rows={2}
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                 />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Photo</label>
+                <input ref={editPhotoRef} type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setEditPhotoFile(file);
+                    setEditPhotoRemoved(false);
+                    const reader = new FileReader();
+                    reader.onload = () => setEditPhotoPreview(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                {editPhotoPreview ? (
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={editPhotoPreview} alt="Memory photo" className="w-full h-32 object-cover rounded-xl border border-[#e8e2d9]" />
+                    <button onClick={() => { setEditPhotoFile(null); setEditPhotoPreview(null); setEditPhotoRemoved(true); if (editPhotoRef.current) editPhotoRef.current.value = ""; }}
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 text-white flex items-center justify-center text-sm hover:bg-black/70 transition-colors">
+                      ×
+                    </button>
+                    <button onClick={() => editPhotoRef.current?.click()}
+                      className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg bg-black/50 text-white text-xs hover:bg-black/70 transition-colors">
+                      Change photo
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => editPhotoRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl border-2 border-dashed border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors">
+                    <span className="text-lg">📸</span>
+                    <span className="text-sm">Add a photo (optional)</span>
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

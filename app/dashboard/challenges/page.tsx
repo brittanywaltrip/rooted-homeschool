@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 const CHALLENGE_IDEAS = [
   { emoji: "📖", title: "Read 10 Books", desc: "Track a reading challenge this month" },
   { emoji: "🧮", title: "Math Facts Mastery", desc: "Practice multiplication tables daily" },
@@ -8,6 +10,8 @@ const CHALLENGE_IDEAS = [
 ];
 
 export default function ChallengesPage() {
+  useEffect(() => { document.title = "Challenges \u00b7 Rooted"; }, []);
+
   return (
     <div className="px-4 pt-8 pb-4 space-y-5">
       {/* Header */}

@@ -320,6 +320,8 @@ export default function GraduationPage() {
   const [transitioning, setTransitioning] = useState(false);
   const narrativeFetched = useRef(false);
 
+  useEffect(() => { document.title = "Graduation \u00b7 Rooted"; }, []);
+
   // ── Load all data ──────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {

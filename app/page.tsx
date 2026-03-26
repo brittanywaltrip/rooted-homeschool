@@ -411,7 +411,7 @@ export default function Home() {
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
-            The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all.
+            The homeschool years go by so fast. Rooted helps you capture the moments, plan your days, and build a keepsake your family will treasure forever.
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
@@ -441,7 +441,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
-              { number: "For You",  label: "Built for Families Like Yours", icon: "🌱" },
+              { number: "274+",    label: "Families Growing with Rooted", icon: "🌱" },
               { number: "5",       label: "Sections, All-in-One", icon: "✨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
               { number: "1-Click", label: "Progress Reports",  icon: "📋" },
@@ -583,6 +583,13 @@ export default function Home() {
                 color: "#f5ede0",
                 border: "#d4b896",
                 desc: "See exactly how much your kids have learned \u2014 then print it, share it with grandparents, or save it forever.",
+              },
+              {
+                emoji: "📖",
+                title: "Your Family Yearbook",
+                color: "#f5f0fa",
+                border: "#d9bee8",
+                desc: "Every win, book, photo, and field trip \u2014 beautifully arranged into a keepsake you\u2019ll treasure for years.",
               },
               {
                 emoji: "📚",
@@ -927,6 +934,12 @@ export default function Home() {
             >
               Claim Founding Price →
             </Link>
+            <p className="text-[11px] text-[#8b6f47] font-semibold mt-3">
+              🌱 Founding Family pricing ends April 30 — {(() => {
+                const diff = Math.max(0, Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000));
+                return `${diff} day${diff !== 1 ? "s" : ""} left`;
+              })()}
+            </p>
           </div>
 
           {/* Standard */}

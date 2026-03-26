@@ -102,6 +102,8 @@ export default function ProgressPage() {
   const [leafCounts,       setLeafCounts]        = useState<Record<string, number>>({});
   const [loading,          setLoading]           = useState(true);
 
+  useEffect(() => { document.title = "Progress \u00b7 Rooted"; }, []);
+
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
 

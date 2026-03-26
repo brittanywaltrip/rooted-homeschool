@@ -7,15 +7,15 @@ const supabaseAdmin = createClient(
 )
 
 export async function GET() {
-  const { count, error } = await supabaseAdmin
+  const { data: countData, error } = await supabaseAdmin
     .from('profiles')
-    .select('*', { count: 'exact', head: true })
+    .select('id')
     .eq('plan_type', 'founding_family')
     .eq('subscription_status', 'active')
 
-  if (error || count === null) {
+  if (error || !countData) {
     return NextResponse.json({ error: 'unavailable' }, { status: 500 })
   }
 
-  return NextResponse.json({ count })
+  return NextResponse.json({ count: countData.length })
 }

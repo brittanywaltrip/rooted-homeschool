@@ -100,6 +100,8 @@ export default function CalendarPage() {
 
   const detailRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => { document.title = "Calendar \u00b7 Rooted"; }, []);
+
   // ── Data loading ────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {

@@ -162,6 +162,26 @@ export default function AdminPage() {
   const [appFilter, setAppFilter] = useState<"pending" | "approved" | "declined">("pending");
   const [appProcessing, setAppProcessing] = useState<string | null>(null);
 
+  // Memory stats
+  const [memStats, setMemStats] = useState<{
+    total: number;
+    today: number;
+    thisWeek: number;
+    byType: { type: string; count: number }[];
+    topLoggers: { name: string; count: number }[];
+  } | null>(null);
+
+  // 7-day activity chart
+  const [activityChart, setActivityChart] = useState<{ day: string; label: string; count: number }[]>([]);
+
+  // Near freemium gate
+  const [nearGate, setNearGate] = useState<{ name: string; email: string; count: number }[]>([]);
+
+  // Re-engagement
+  const [reengageCount, setReengageCount] = useState(0);
+  const [sendingReengage, setSendingReengage] = useState(false);
+  const [reengageSent, setReengageSent] = useState(false);
+
   const fetchData = async (accessToken: string) => {
     setRefreshing(true);
     const res = await fetch("/api/admin/summary", {
@@ -216,6 +236,102 @@ export default function AdminPage() {
           .map(([date, count]) => ({ date, count }))
       );
     }
+
+    // ── Memory stats ─────────────────────────────────────
+    const todayStr = new Date().toISOString().split("T")[0];
+    const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekStr = weekAgo.toISOString().split("T")[0];
+
+    const [
+      { data: memTotalData },
+      { data: memTodayData },
+      { data: memWeekData },
+      { data: memByType },
+    ] = await Promise.all([
+      supabase.from("memories").select("id"),
+      supabase.from("memories").select("id").gte("created_at", todayStr + "T00:00:00"),
+      supabase.from("memories").select("id").gte("created_at", weekStr + "T00:00:00"),
+      supabase.from("memories").select("type"),
+    ]);
+    const memTotal = memTotalData?.length ?? 0;
+    const memToday = memTodayData?.length ?? 0;
+    const memWeek = memWeekData?.length ?? 0;
+
+    const typeCounts: Record<string, number> = {};
+    (memByType ?? []).forEach((r: { type: string }) => {
+      typeCounts[r.type] = (typeCounts[r.type] ?? 0) + 1;
+    });
+    const byTypeArr = Object.entries(typeCounts)
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // Top 5 memory loggers
+    const { data: allMems } = await supabase.from("memories").select("user_id");
+    const userMemCounts: Record<string, number> = {};
+    (allMems ?? []).forEach((m: { user_id: string }) => {
+      userMemCounts[m.user_id] = (userMemCounts[m.user_id] ?? 0) + 1;
+    });
+    const topUserIds = Object.entries(userMemCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5);
+    const topLoggers: { name: string; count: number }[] = [];
+    for (const [uid, cnt] of topUserIds) {
+      const { data: p } = await supabase.from("profiles").select("display_name, first_name").eq("id", uid).single();
+      topLoggers.push({ name: (p as { display_name?: string; first_name?: string } | null)?.display_name || (p as { first_name?: string } | null)?.first_name || uid.slice(0, 8), count: cnt });
+    }
+
+    setMemStats({ total: memTotal, today: memToday, thisWeek: memWeek, byType: byTypeArr, topLoggers });
+
+    // ── 7-day activity chart ──────────────────────────────
+    const chartDays: { day: string; label: string; count: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const ds = d.toISOString().split("T")[0];
+      const dayStart = ds + "T00:00:00";
+      const dayEnd = ds + "T23:59:59";
+      const [{ data: memUsers }, { data: lessonUsers }] = await Promise.all([
+        supabase.from("memories").select("user_id").gte("created_at", dayStart).lte("created_at", dayEnd),
+        supabase.from("lessons").select("user_id").eq("completed", true).gte("scheduled_date", ds).lte("scheduled_date", ds),
+      ]);
+      const uniq = new Set([
+        ...(memUsers ?? []).map((r: { user_id: string }) => r.user_id),
+        ...(lessonUsers ?? []).map((r: { user_id: string }) => r.user_id),
+      ]);
+      chartDays.push({ day: ds, label: d.toLocaleDateString("en-US", { weekday: "short" }), count: uniq.size });
+    }
+    setActivityChart(chartDays);
+
+    // ── Near freemium gate ────────────────────────────────
+    const { data: freeProfiles } = await supabase
+      .from("profiles")
+      .select("id, display_name, email, first_name")
+      .or("subscription_status.eq.free,subscription_status.is.null")
+      .not("plan_type", "in", "(founding_family,standard,monthly)");
+    const gateUsers: { name: string; email: string; count: number }[] = [];
+    for (const p of (freeProfiles ?? []) as { id: string; display_name?: string; email?: string; first_name?: string }[]) {
+      const cnt = userMemCounts[p.id] ?? 0;
+      if (cnt >= 40) {
+        gateUsers.push({ name: p.display_name || p.first_name || "Unknown", email: p.email || "", count: cnt });
+      }
+    }
+    gateUsers.sort((a, b) => b.count - a.count);
+    setNearGate(gateUsers);
+
+    // ── Re-engagement count ───────────────────────────────
+    const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    const { data: reCountData } = await supabase
+      .from("profiles")
+      .select("id")
+      .or("re_engagement_sent.eq.false,re_engagement_sent.is.null")
+      .lte("created_at", threeDaysAgo.toISOString());
+    // Filter to only those with 0 memories — approximate with userMemCounts
+    const { data: allProfiles } = await supabase
+      .from("profiles")
+      .select("id")
+      .or("re_engagement_sent.eq.false,re_engagement_sent.is.null")
+      .lte("created_at", threeDaysAgo.toISOString());
+    const noMemoryCount = (allProfiles ?? []).filter((p: { id: string }) => !userMemCounts[p.id]).length;
+    setReengageCount(noMemoryCount);
 
     setRefreshing(false);
   };
@@ -410,6 +526,123 @@ export default function AdminPage() {
             <StatCard label="Books Logged"         value={data.booksLogged} />
             <StatCard label="Memories Created"     value={data.memoriesCreated} />
             <StatCard label="Co-teachers Invited"  value={data.coTeachers} />
+          </div>
+        </section>
+
+        {/* Section 3b — Memory Stats */}
+        {memStats && (
+          <section>
+            <SectionHeader emoji="📸" title="Memories" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+              <StatCard label="Total Memories" value={memStats.total.toLocaleString()} />
+              <StatCard label="Today" value={memStats.today} />
+              <StatCard label="This Week" value={memStats.thisWeek} />
+            </div>
+            {memStats.byType.length > 0 && (
+              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 mb-4">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">By Type</p>
+                <div className="space-y-2">
+                  {memStats.byType.map(({ type, count }) => {
+                    const pct = memStats.total > 0 ? Math.round((count / memStats.total) * 100) : 0;
+                    return (
+                      <div key={type} className="flex items-center gap-3">
+                        <p className="text-sm text-[#2d2926] w-24 shrink-0 capitalize">{type.replace("_", " ")}</p>
+                        <div className="flex-1 bg-[#f0ede8] rounded-full h-2 overflow-hidden">
+                          <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="text-sm text-[#2d2926] w-10 text-right shrink-0">{count}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {memStats.topLoggers.length > 0 && (
+              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Top 5 Memory Loggers</p>
+                <div className="space-y-2">
+                  {memStats.topLoggers.map((u, i) => (
+                    <div key={i} className="flex items-center justify-between text-sm">
+                      <span className="text-[#2d2926]">{i + 1}. {u.name}</span>
+                      <span className="text-[#5c7f63] font-semibold">{u.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Section 3c — 7-Day Activity */}
+        {activityChart.length > 0 && (
+          <section>
+            <SectionHeader emoji="📊" title="7-Day Active Users" />
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+              <div className="flex items-end justify-between gap-2" style={{ height: 140 }}>
+                {(() => {
+                  const maxCount = Math.max(...activityChart.map((d) => d.count), 1);
+                  return activityChart.map((d) => {
+                    const h = Math.round((d.count / maxCount) * 100);
+                    return (
+                      <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
+                        <span className="text-xs font-semibold text-[#2d2926]">{d.count}</span>
+                        <div className="w-full max-w-[32px] rounded-t-lg transition-all" style={{ height: `${Math.max(h, 4)}%`, backgroundColor: "#5c7f63" }} />
+                        <span className="text-[10px] text-[#7a6f65]">{d.label}</span>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Section 3d — Near Freemium Gate */}
+        {nearGate.length > 0 && (
+          <section>
+            <SectionHeader emoji="⚠️" title={`Near Freemium Gate (${nearGate.length})`} />
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+              <p className="text-xs text-[#7a6f65] mb-3">Free users with 40+ memories — approaching the free plan limit</p>
+              <div className="space-y-2">
+                {nearGate.map((u) => (
+                  <div key={u.email} className="flex items-center justify-between text-sm">
+                    <div className="min-w-0">
+                      <span className="text-[#2d2926] font-medium">{u.name}</span>
+                      <span className="text-[#b5aca4] text-xs ml-2">{u.email}</span>
+                    </div>
+                    <span className="text-amber-600 font-semibold shrink-0 ml-2">{u.count} memories</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Section 3e — Re-engagement */}
+        <section>
+          <SectionHeader emoji="📬" title="Re-engagement" />
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+            <p className="text-sm text-[#2d2926] mb-3">
+              <span className="font-semibold">{reengageCount}</span> users qualify (signed up 3+ days ago, 0 memories, not yet emailed)
+            </p>
+            {reengageSent ? (
+              <p className="text-sm text-[#5c7f63] font-medium">Re-engagement emails sent!</p>
+            ) : (
+              <button
+                onClick={async () => {
+                  setSendingReengage(true);
+                  try {
+                    await fetch("/api/cron/reengagement", { method: "POST" });
+                    setReengageSent(true);
+                  } catch { /* ignore */ }
+                  setSendingReengage(false);
+                }}
+                disabled={sendingReengage || reengageCount === 0}
+                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              >
+                {sendingReengage ? "Sending…" : `Send re-engagement emails → (${reengageCount})`}
+              </button>
+            )}
           </div>
         </section>
 

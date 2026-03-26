@@ -34,28 +34,28 @@ ${bodyLines.map(l => `<p style="font-size:15px;line-height:1.6;color:#2d2926;mar
 }
 
 async function hasSubjects(userId: string): Promise<boolean> {
-  const { count } = await supabase
+  const { data } = await supabase
     .from('subjects')
-    .select('*', { count: 'exact', head: true })
+    .select('id')
     .eq('user_id', userId)
-  return (count ?? 0) > 0
+  return (data?.length ?? 0) > 0
 }
 
 async function hasLessons(userId: string): Promise<boolean> {
-  const { count } = await supabase
+  const { data } = await supabase
     .from('lessons')
-    .select('*', { count: 'exact', head: true })
+    .select('id')
     .eq('user_id', userId)
-  return (count ?? 0) > 0
+  return (data?.length ?? 0) > 0
 }
 
 async function alreadySent(userId: string, emailType: string): Promise<boolean> {
-  const { count } = await supabase
+  const { data } = await supabase
     .from('email_log')
-    .select('*', { count: 'exact', head: true })
+    .select('id')
     .eq('user_id', userId)
     .eq('email_type', emailType)
-  return (count ?? 0) > 0
+  return (data?.length ?? 0) > 0
 }
 
 async function logEmail(userId: string, emailType: string): Promise<void> {

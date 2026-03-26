@@ -355,6 +355,8 @@ export default function ResourcesPage() {
 
   const stateRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  useEffect(() => { document.title = "Resources \u00b7 Rooted"; }, []);
+
   // Load DB resources
   useEffect(() => { localStorage.setItem("rooted_visited_resources", "true"); }, []);
 

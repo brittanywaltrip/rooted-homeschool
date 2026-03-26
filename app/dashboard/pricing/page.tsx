@@ -46,6 +46,8 @@ function Cell({ value, highlight }: { value: string; highlight?: boolean }) {
 export default function DashboardPricingPage() {
   const [isPro, setIsPro] = useState<boolean | null>(null);
 
+  useEffect(() => { document.title = "Pricing \u00b7 Rooted"; }, []);
+
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { setIsPro(false); return; }

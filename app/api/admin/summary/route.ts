@@ -114,15 +114,18 @@ export async function GET(req: Request) {
 
   // Features
   const [
-    { count: vacationBlocks },
-    { count: booksLogged },
-    { count: memoriesCreated },
+    { data: vacationData },
+    { data: booksData },
+    { data: memoriesData },
   ] = await Promise.all([
-    supabaseAdmin.from("vacation_blocks").select("*", { count: "exact", head: true }),
-    supabaseAdmin.from("app_events").select("*", { count: "exact", head: true }).eq("type", "book_read"),
-    supabaseAdmin.from("app_events").select("*", { count: "exact", head: true })
+    supabaseAdmin.from("vacation_blocks").select("id"),
+    supabaseAdmin.from("app_events").select("id").eq("type", "book_read"),
+    supabaseAdmin.from("app_events").select("id")
       .in("type", ["memory_photo", "memory_project", "memory_book"]),
   ]);
+  const vacationBlocks = vacationData?.length ?? 0;
+  const booksLogged = booksData?.length ?? 0;
+  const memoriesCreated = memoriesData?.length ?? 0;
 
   const profileMap    = new Map(profiles?.map(p => [p.id, p]) ?? []);
   const TEST_EMAILS   = ["test@", "example.com"];
@@ -172,19 +175,21 @@ export async function GET(req: Request) {
   try {
     const tables = ['children', 'lessons', 'subjects', 'resources', 'daily_reflections', 'vacation_blocks'];
     const [
-      { count: totalSignups },
-      { count: completedOnboarding },
+      { data: signupsData },
+      { data: onboardedData },
       ...tableResults
     ] = await Promise.all([
-      supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }),
-      supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }).eq('onboarded', true),
+      supabaseAdmin.from('profiles').select('id'),
+      supabaseAdmin.from('profiles').select('id').eq('onboarded', true),
       ...tables.map(t => supabaseAdmin.from(t).select('user_id')),
     ]);
+    const totalSignups = signupsData?.length ?? 0;
+    const completedOnboarding = onboardedData?.length ?? 0;
     const [childRows, lessonRows, subjectRows, resourceRows, reflectionRows, vacationRows] = tableResults as { data: { user_id: string }[] | null }[];
     const uniq = (rows: { user_id: string }[] | null) => new Set(rows?.map(x => x.user_id) ?? []).size;
     funnel = {
-      totalSignups:        totalSignups        ?? 0,
-      completedOnboarding: completedOnboarding ?? 0,
+      totalSignups,
+      completedOnboarding,
       addedChild:          uniq(childRows.data),
       loggedLesson:        uniq(lessonRows.data),
       addedSubject:        uniq(subjectRows.data),

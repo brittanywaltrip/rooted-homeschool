@@ -1415,6 +1415,8 @@ export default function PrintablesPage() {
   const [perfWeekCert,  setPerfWeekCert]  = useState<PerfWeekCert | null>(null);
   const [downloadingCert, setDownloadingCert] = useState<string | null>(null);
 
+  useEffect(() => { document.title = "Printables \u00b7 Rooted"; }, []);
+
   useEffect(() => {
     async function load() {
       const { data: { session } } = await supabase.auth.getSession();

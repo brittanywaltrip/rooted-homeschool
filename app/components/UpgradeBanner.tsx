@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 
 export default function UpgradeBanner() {
   const [show, setShow] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => typeof window !== "undefined" && sessionStorage.getItem("rooted_banner_dismissed") === "1");
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -47,7 +47,7 @@ export default function UpgradeBanner() {
           Claim your spot →
         </Link>
         <button
-          onClick={() => setDismissed(true)}
+          onClick={() => { sessionStorage.setItem("rooted_banner_dismissed", "1"); setDismissed(true); }}
           className="text-white/50 hover:text-white text-lg leading-none transition-colors"
           aria-label="Dismiss"
         >

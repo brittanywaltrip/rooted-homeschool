@@ -91,6 +91,8 @@ export default function SchedulePage() {
 
   const isCurrentWeek = toDateStr(weekStart) === toDateStr(getMondayOf(new Date()));
 
+  useEffect(() => { document.title = "Schedule \u00b7 Rooted"; }, []);
+
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
     setLoading(true);

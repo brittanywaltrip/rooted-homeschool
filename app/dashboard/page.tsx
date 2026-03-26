@@ -8,8 +8,6 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
-import BadgeNotification from "@/components/BadgeNotification";
-import type { BadgeDef } from "@/lib/badges";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -385,6 +383,7 @@ export default function TodayPage() {
   const [hasAnyLessons,   setHasAnyLessons]   = useState(false);
   const [leafCounts,      setLeafCounts]      = useState<Record<string, number>>({});
   const [loading,         setLoading]         = useState(true);
+  const [loadError,       setLoadError]       = useState(false);
   const [celebrating,     setCelebrating]     = useState(false);
   const [childDoneToast,    setChildDoneToast]    = useState<string | null>(null);
   const [childDoneToastOut, setChildDoneToastOut] = useState(false);
@@ -400,6 +399,8 @@ export default function TodayPage() {
   const [savingBook,        setSavingBook]        = useState(false);
 
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  useEffect(() => { document.title = "Today \u00b7 Rooted"; }, []);
+
   useEffect(() => {
     if (sessionStorage.getItem("setup-banner-dismissed") === "1") setBannerDismissed(true);
   }, []);
@@ -436,7 +437,6 @@ export default function TodayPage() {
   const [savingActivityEdit,    setSavingActivityEdit]    = useState(false);
 
   const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
-  const [earnedBadge,            setEarnedBadge]            = useState<BadgeDef | null>(null);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
@@ -453,7 +453,15 @@ export default function TodayPage() {
   const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
   const [lastPhoto, setLastPhoto] = useState<{ id: string; title: string; photo_url: string; date: string; child_id: string | null } | null>(null);
   const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null } | null>(null);
+  const [onThisDayTier, setOnThisDayTier] = useState<1 | 2 | null>(null);
   const [showWinSheet, setShowWinSheet] = useState(false);
+  const [showDrawingSheet, setShowDrawingSheet] = useState(false);
+  const [drawingTitle, setDrawingTitle] = useState("");
+  const [drawingChild, setDrawingChild] = useState("");
+  const [savingDrawing, setSavingDrawing] = useState(false);
+  const [drawingFile, setDrawingFile] = useState<File | null>(null);
+  const [drawingPreview, setDrawingPreview] = useState<string | null>(null);
+  const drawingFileRef = useRef<HTMLInputElement>(null);
   const [showCaptureMenu, setShowCaptureMenu] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [ftTitle, setFtTitle] = useState("");
@@ -497,6 +505,7 @@ export default function TodayPage() {
 
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
+    try {
 
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
@@ -611,14 +620,14 @@ export default function TodayPage() {
       // Check if user had lessons last month
       const prevStart = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-01`;
       const prevEnd = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-31`;
-      const { count: prevMonthLessons } = await supabase
+      const { data: prevMonthData } = await supabase
         .from("lessons")
-        .select("id", { count: "exact", head: true })
+        .select("id")
         .eq("user_id", effectiveUserId)
         .eq("completed", true)
         .gte("date", prevStart)
         .lte("date", prevEnd);
-      if ((prevMonthLessons ?? 0) > 0) setShowFamilyUpdate(true);
+      if ((prevMonthData?.length ?? 0) > 0) setShowFamilyUpdate(true);
     }
 
     const { data: childrenData } = await supabase
@@ -626,17 +635,17 @@ export default function TodayPage() {
       .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order");
     setChildren(childrenData ?? []);
 
-    const [{ data: lessonsData }, { count: totalLessons }] = await Promise.all([
+    const [{ data: lessonsData }, { data: allLessonsData }] = await Promise.all([
       supabase
         .from("lessons")
         .select("id, title, completed, child_id, hours, subjects(name, color), curriculum_goal_id, lesson_number, goal_id")
         .eq("user_id", effectiveUserId)
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
-      supabase.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", effectiveUserId),
+      supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
     ]);
     const loadedLessons = (lessonsData as unknown as Lesson[]) ?? [];
     setLessons(loadedLessons);
-    setHasAnyLessons((totalLessons ?? 0) > 0);
+    setHasAnyLessons((allLessonsData?.length ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
 
     // Auto-select first incomplete child
@@ -720,12 +729,12 @@ export default function TodayPage() {
     const nowForSY = new Date();
     const syYear = nowForSY.getMonth() >= schoolYearStartMonth ? nowForSY.getFullYear() : nowForSY.getFullYear() - 1;
     const syStart = `${syYear}-08-01`;
-    const { count: memCount } = await supabase
+    const { data: memCountData } = await supabase
       .from("memories")
-      .select("id", { count: "exact", head: true })
+      .select("id")
       .eq("user_id", effectiveUserId)
       .gte("date", syStart);
-    setTotalMemories(memCount ?? 0);
+    setTotalMemories(memCountData?.length ?? 0);
 
     // ── Active days this month ─────────────────────────────────────────
     const monthStart = `${nowForSY.getFullYear()}-${String(nowForSY.getMonth() + 1).padStart(2, "0")}-01`;
@@ -753,12 +762,14 @@ export default function TodayPage() {
       .maybeSingle();
     setLastPhoto(lastPhotoData as typeof lastPhoto);
 
-    // ── On This Day (±3 days, last year) ───────────────────────────────
+    // ── On This Day — 3-tier system ─────────────────────────────────────
     const otdNow = new Date();
     const lastYear = otdNow.getFullYear() - 1;
+
+    // Tier 1: ±3 days of today last year
     const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
     const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
-    const { data: otdData } = await supabase
+    const { data: tier1Data } = await supabase
       .from("memories")
       .select("id, title, date, child_id")
       .eq("user_id", effectiveUserId)
@@ -766,7 +777,35 @@ export default function TodayPage() {
       .lte("date", localDateStr(otdEnd))
       .limit(1)
       .maybeSingle();
-    setOnThisDayMemory(otdData as typeof onThisDayMemory);
+
+    if (tier1Data) {
+      setOnThisDayMemory(tier1Data as typeof onThisDayMemory);
+      setOnThisDayTier(1);
+      // Award full_circle badge on Tier 1 match
+      checkAndAwardBadges(effectiveUserId);
+    } else {
+      // Tier 2: ±60 days of today last year
+      const tier2Start = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 60);
+      const tier2End = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 60);
+      const { data: tier2Data } = await supabase
+        .from("memories")
+        .select("id, title, date, child_id")
+        .eq("user_id", effectiveUserId)
+        .gte("date", localDateStr(tier2Start))
+        .lte("date", localDateStr(tier2End))
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (tier2Data) {
+        setOnThisDayMemory(tier2Data as typeof onThisDayMemory);
+        setOnThisDayTier(2);
+      } else {
+        // Tier 3: nothing — hide section
+        setOnThisDayMemory(null);
+        setOnThisDayTier(null);
+      }
+    }
 
     // ── Today's story ──────────────────────────────────────────────────
     const { data: storyData } = await supabase
@@ -777,7 +816,12 @@ export default function TodayPage() {
       .order("created_at", { ascending: false });
     setTodayStory((storyData ?? []) as typeof todayStory);
 
-    setLoading(false);
+    } catch (err) {
+      console.error("Failed to load dashboard data:", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [today, effectiveUserId]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -906,14 +950,10 @@ export default function TodayPage() {
     }
     await refreshLeafCounts();
 
-    // Check for new activity badges (fire-and-forget)
+    // Check for new activity badges (fire-and-forget, notification via global listener)
     if (!current) {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        checkAndAwardBadges(user.id).then((badge) => {
-          if (badge) setEarnedBadge(badge);
-        });
-      }
+      if (user) checkAndAwardBadges(user.id);
     }
   }
 
@@ -984,6 +1024,32 @@ export default function TodayPage() {
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
     loadData(); refreshTodayStory();
+    checkAndAwardBadges(user.id);
+  }
+
+  async function saveDrawing() {
+    if (!drawingTitle.trim()) return;
+    setSavingDrawing(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setSavingDrawing(false); return; }
+    let photoUrl: string | null = null;
+    if (drawingFile) {
+      const path = `${user.id}/${Date.now()}-${drawingFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, drawingFile, { contentType: drawingFile.type, upsert: false });
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+        photoUrl = urlData.publicUrl;
+      }
+    }
+    const { data: inserted } = await supabase.from("memories").insert({
+      user_id: user.id, type: "drawing", title: drawingTitle.trim(),
+      photo_url: photoUrl, child_id: drawingChild || null, date: today, include_in_book: true,
+    }).select("id").single();
+    setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
+    setSavingDrawing(false); setShowDrawingSheet(false);
+    showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null);
+    loadData(); refreshTodayStory();
+    checkAndAwardBadges(user.id);
   }
 
   // ── Capture toast + edit sheet helpers ────────────────────────────────────
@@ -1092,11 +1158,48 @@ export default function TodayPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-64 p-8">
-        <div className="flex flex-col items-center gap-3">
-          <span className="text-3xl animate-pulse">🌿</span>
-          <p className="text-sm text-[#7a6f65]">Tending your garden…</p>
+      <>
+        {/* Skeleton: Book Cover Card */}
+        <div className="mx-5 mt-5 rounded-2xl p-4 space-y-3" style={{ background: "#2d5a3d" }}>
+          <div className="w-24 h-2 rounded bg-white/10 animate-pulse" />
+          <div className="w-16 h-8 rounded bg-white/15 animate-pulse" />
+          <div className="w-40 h-3 rounded bg-white/10 animate-pulse" />
         </div>
+        <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-4">
+          {/* Skeleton: Capture button */}
+          <div className="w-full h-12 rounded-xl bg-[#e8e2d9] animate-pulse" />
+          {/* Skeleton: Greeting */}
+          <div className="space-y-2">
+            <div className="w-32 h-3 rounded bg-[#e8e2d9] animate-pulse" />
+            <div className="w-56 h-5 rounded bg-[#e8e2d9] animate-pulse" />
+          </div>
+          {/* Skeleton: Lesson rows */}
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+                <div className="w-5 h-5 rounded-md bg-[#e8e2d9] animate-pulse shrink-0" />
+                <div className="h-3 rounded bg-[#e8e2d9] animate-pulse flex-1" />
+                <div className="w-10 h-2.5 rounded bg-[#e8e2d9] animate-pulse shrink-0" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-64 p-8 text-center">
+        <span className="text-3xl mb-3">🌿</span>
+        <p className="text-sm font-medium text-[#2d2926] mb-1">Something went wrong loading your day</p>
+        <p className="text-xs text-[#7a6f65] mb-4">Pull to refresh or try again.</p>
+        <button
+          onClick={() => { setLoadError(false); setLoading(true); loadData(); }}
+          className="px-4 py-2 rounded-xl bg-[#5c7f63] text-white text-sm font-medium hover:bg-[#3d5c42] transition-colors"
+        >
+          Try again
+        </button>
       </div>
     );
   }
@@ -1153,16 +1256,44 @@ export default function TodayPage() {
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
 
-      {/* ── Capture a Memory button ──────────────────────────── */}
+      {/* ── Daily inspiration prompt (active users) ──────────── */}
+      {!isPartner && totalMemories > 0 && (() => {
+        const prompts = [
+          "Did they build or create something today? Log it. 🎨",
+          "Read anything good this week? Add it to their story. 📖",
+          "Did they go somewhere new? Log the field trip. 🗺️",
+          "Something funny or sweet happened — write it down. ✍️",
+          "A drawing worth keeping? Snap it before it gets lost. 📸",
+          "What did they figure out today? That's a win. 🏆",
+          "An ordinary moment you'll want to remember someday. 📸",
+        ];
+        return (
+          <div className="rounded-xl px-3.5 py-2.5" style={{ background: "#2d5a3d" }}>
+            <p className="text-xs text-center" style={{ color: "rgba(255,255,255,0.75)" }}>
+              {prompts[new Date().getDay()]}
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* ── Capture buttons ──────────────────────────────────── */}
       {!isPartner && (
         <>
-          <button
-            onClick={() => setShowCaptureMenu(true)}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-            style={{ background: "#2d5a3d" }}
-          >
-            ✚ Capture a memory
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+              style={{ background: "#2d5a3d" }}
+            >
+              📸 Capture a photo
+            </button>
+            <button
+              onClick={() => setShowCaptureMenu(true)}
+              className="w-full text-center text-sm text-[#9a8f85] hover:text-[#7a6f65] transition-colors py-1"
+            >
+              Or log a win, book, drawing, field trip →
+            </button>
+          </div>
           <input
             ref={captureFileRef}
             type="file"
@@ -1188,6 +1319,7 @@ export default function TodayPage() {
               showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
               captureTypeRef.current = "photo"; // reset
               loadData(); refreshTodayStory();
+              checkAndAwardBadges(user.id);
             }}
           />
         </>
@@ -1734,7 +1866,7 @@ export default function TodayPage() {
 
       {/* ── Memory Moment Card ─────────────────────────────── */}
       {/* ── On This Day ──────────────────────────────────────── */}
-      {onThisDayMemory && (
+      {onThisDayMemory && onThisDayTier === 1 && (
         <Link href="/dashboard/memories" className="block rounded-2xl px-4 py-3.5" style={{ background: "#f5f0fa", border: "1.5px solid #d9bee8" }}>
           <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#ede4f5", color: "#7a4a9e" }}>
             One year ago today
@@ -1749,6 +1881,24 @@ export default function TodayPage() {
               })()}
             </span>
             <span className="text-xs font-medium" style={{ color: "#7a4a9e" }}>See the memory →</span>
+          </div>
+        </Link>
+      )}
+      {onThisDayMemory && onThisDayTier === 2 && (
+        <Link href="/dashboard/memories" className="block rounded-2xl px-4 py-3.5" style={{ background: "#faf8fc", border: "1.5px solid #e4d8ee" }}>
+          <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#f0eaf5", color: "#9a7ab8" }}>
+            A memory from {new Date(onThisDayMemory.date + "T12:00:00").toLocaleString("default", { month: "long" })} last year
+          </span>
+          <p className="text-sm font-medium text-[#2d2926]">{onThisDayMemory.title}</p>
+          <div className="flex items-center justify-between mt-1.5">
+            <span className="text-xs text-[#7a6f65]">
+              {(() => {
+                const child = children.find(c => c.id === onThisDayMemory.child_id);
+                const dateLabel = new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                return child ? `${child.name} · ${dateLabel}` : dateLabel;
+              })()}
+            </span>
+            <span className="text-xs font-medium" style={{ color: "#9a7ab8" }}>See the memory →</span>
           </div>
         </Link>
       )}
@@ -1790,6 +1940,7 @@ export default function TodayPage() {
               <img
                 src={lightboxMemory.photo_url}
                 alt={lightboxMemory.title || "Memory"}
+                loading="eager"
                 className="max-h-[70vh] w-full object-contain rounded-xl bg-[#1a2e1f]"
               />
             ) : (
@@ -1838,7 +1989,7 @@ export default function TodayPage() {
                 </div>
               </button>
               <button
-                onClick={() => { setShowCaptureMenu(false); captureTypeRef.current = "drawing"; captureFileRef.current?.click(); }}
+                onClick={() => { setShowCaptureMenu(false); setShowDrawingSheet(true); }}
                 className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
               >
                 <span className="text-2xl">🎨</span>
@@ -1948,6 +2099,7 @@ export default function TodayPage() {
                     }).select("id").single();
                     const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
                     showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null);
+                    checkAndAwardBadges(user.id);
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild("");
@@ -2242,6 +2394,7 @@ export default function TodayPage() {
                     setTotalMemories(prev => prev + 1);
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
                     showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
+                    checkAndAwardBadges(user.id);
                   }
                   setSavingWin(false);
                   setWinText("");
@@ -2253,6 +2406,70 @@ export default function TodayPage() {
                 className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
               >
                 {savingWin ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Log a Drawing Sheet ──────────────────────────── */}
+      {showDrawingSheet && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowDrawingSheet(false); setDrawingFile(null); setDrawingPreview(null); }} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-[#2d2926]">🎨 Log a Drawing</h2>
+                <button onClick={() => { setShowDrawingSheet(false); setDrawingFile(null); setDrawingPreview(null); }} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">What did they draw? *</label>
+                <input value={drawingTitle} onChange={(e) => setDrawingTitle(e.target.value)} placeholder="e.g. A rainbow butterfly" autoFocus
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Photo of the drawing (optional)</label>
+                <input ref={drawingFileRef} type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setDrawingFile(file);
+                    const reader = new FileReader();
+                    reader.onload = () => setDrawingPreview(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                {drawingPreview ? (
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={drawingPreview} alt="Drawing preview" className="w-full h-40 object-cover rounded-xl border border-[#e8e2d9]" />
+                    <button onClick={() => { setDrawingFile(null); setDrawingPreview(null); if (drawingFileRef.current) drawingFileRef.current.value = ""; }}
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 text-white flex items-center justify-center text-sm hover:bg-black/70 transition-colors">
+                      ×
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => drawingFileRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-4 rounded-xl border-2 border-dashed border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors">
+                    <span className="text-lg">📸</span>
+                    <span className="text-sm">Snap a photo of the drawing</span>
+                  </button>
+                )}
+              </div>
+              {children.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who made it?</label>
+                  <select value={drawingChild} onChange={(e) => setDrawingChild(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
+                    <option value="">Everyone / unassigned</option>
+                    {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <button onClick={saveDrawing} disabled={savingDrawing || !drawingTitle.trim()}
+                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+                {savingDrawing ? "Saving…" : "Save Drawing 🎨"}
               </button>
             </div>
           </div>
@@ -2286,7 +2503,7 @@ export default function TodayPage() {
       {editSheet && (
         <>
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setEditSheet(null)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
               <div className="flex items-center justify-between">
@@ -2361,12 +2578,133 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Badge notification ──────────────────────────── */}
-      {earnedBadge && (
-        <BadgeNotification badge={earnedBadge} onDone={() => setEarnedBadge(null)} />
-      )}
-
       </div>
+
+      {/* ── Log a Win Sheet (outside content wrapper to avoid fixed positioning issues) */}
+      {showWinSheet && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowWinSheet(false); setWinText(""); setWinChild(""); }} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-[#2d2926]">✍️ Log a Win</h2>
+                <button onClick={() => { setShowWinSheet(false); setWinText(""); setWinChild(""); }} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+              </div>
+
+              {/* Type pills */}
+              <div className="flex gap-2">
+                <button onClick={() => setWinType("win")}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "win" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
+                  🏆 Win
+                </button>
+                <button onClick={() => setWinType("quote")}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "quote" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
+                  ✍️ Moment
+                </button>
+              </div>
+
+              {/* Text input + mic */}
+              <div className="relative">
+                <textarea
+                  value={winText}
+                  onChange={(e) => setWinText(e.target.value)}
+                  placeholder={winType === "win" ? "What went great today?" : "Something they said or did..."}
+                  rows={3}
+                  className="w-full px-3 py-2.5 pr-12 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
+                />
+                <button
+                  onClick={() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+                    if (!SR) return;
+                    if (isListening) return;
+                    const recognition = new SR();
+                    recognition.lang = "en-US";
+                    recognition.interimResults = false;
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    recognition.onresult = (e: any) => {
+                      const transcript = e.results[0]?.[0]?.transcript ?? "";
+                      setWinText((prev: string) => (prev ? prev + " " : "") + transcript);
+                    };
+                    recognition.onend = () => setIsListening(false);
+                    recognition.onerror = () => setIsListening(false);
+                    setIsListening(true);
+                    recognition.start();
+                  }}
+                  className={`absolute right-2 top-2 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${isListening ? "bg-red-100 text-red-500" : "bg-[#f0ede8] text-[#7a6f65] hover:bg-[#e8e2d9]"}`}
+                  aria-label="Voice input"
+                >
+                  🎤
+                </button>
+              </div>
+
+              {/* Child selector */}
+              {children.length > 0 && (
+                <div className="flex gap-2 flex-wrap">
+                  {children.map(c => (
+                    <button key={c.id} onClick={() => setWinChild(winChild === c.id ? "" : c.id)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${winChild === c.id ? "text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}
+                      style={winChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : undefined}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Save button */}
+              <button
+                onClick={async () => {
+                  if (!winText.trim()) return;
+                  setSavingWin(true);
+                  try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) { setSavingWin(false); return; }
+                    console.log("[Win save] user:", user.id, "winText:", winText.trim(), "winType:", winType, "childId:", winChild);
+                    const { data: ins, error } = await supabase.from("memories").insert({
+                      user_id: user.id,
+                      child_id: winChild || null,
+                      date: today,
+                      type: winType,
+                      title: winText.trim(),
+                      include_in_book: false,
+                    }).select("id").single();
+                    console.log("[Win save] result:", { data: ins, error });
+                    if (error) {
+                      console.error("[Win save] FAILED:", error.message, error.code, error.details, error.hint);
+                      setSavingWin(false);
+                      return;
+                    }
+                    if (!ins) {
+                      console.error("[Win save] No data returned — likely RLS policy blocking insert. Check that 'Users can insert own memories' policy exists on memories table.");
+                      setSavingWin(false);
+                      return;
+                    }
+                    console.log("[Win save] Success — id:", (ins as { id: string }).id, "type:", winType);
+                    setTotalMemories(prev => prev + 1);
+                    const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
+                    showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
+                    checkAndAwardBadges(user.id);
+                    setSavingWin(false);
+                    setWinText("");
+                    setWinChild("");
+                    setShowWinSheet(false);
+                    loadData();
+                    refreshTodayStory();
+                  } catch (err) {
+                    console.error("Win save error:", err);
+                    setSavingWin(false);
+                  }
+                }}
+                disabled={savingWin || !winText.trim()}
+                className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+              >
+                {savingWin ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

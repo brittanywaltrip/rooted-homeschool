@@ -123,6 +123,8 @@ export default function SettingsPage() {
     searchParams.get("section") === "children" ? "kids" : "family"
   );
 
+  useEffect(() => { document.title = "Settings \u00b7 Rooted"; }, []);
+
   // First / Last name
   const [firstName,      setFirstName]      = useState("");
   const [editingFirst,   setEditingFirst]   = useState(false);
@@ -211,6 +213,13 @@ export default function SettingsPage() {
   const [yearError,        setYearError]        = useState("");
   const [yearSuccessToast, setYearSuccessToast] = useState(false);
 
+  // Share with Family
+  const [familyInviteEmail, setFamilyInviteEmail] = useState("");
+  const [sendingInvite,     setSendingInvite]     = useState(false);
+  const [inviteSent,        setInviteSent]        = useState(false);
+  const [inviteError,       setInviteError]       = useState("");
+  const [familyInvites,     setFamilyInvites]     = useState<{ email: string; accepted: boolean; created_at: string }[]>([]);
+
   // ── Load data ─────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
@@ -268,9 +277,45 @@ export default function SettingsPage() {
         .order("created_at", { ascending: false });
       setAllAffiliates((allAff ?? []) as AffiliateRow[]);
     }
+
+    // Load family invites
+    const { data: invites } = await supabase
+      .from("family_invites")
+      .select("email, accepted, created_at")
+      .eq("owner_user_id", user.id)
+      .order("created_at", { ascending: false });
+    setFamilyInvites((invites ?? []) as { email: string; accepted: boolean; created_at: string }[]);
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function sendFamilyInvite() {
+    if (!familyInviteEmail.trim()) return;
+    setSendingInvite(true);
+    setInviteError("");
+    setInviteSent(false);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setInviteError("Not logged in"); setSendingInvite(false); return; }
+      const res = await fetch("/api/family/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: familyInviteEmail.trim(), ownerUserId: user.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setInviteError(json.error ?? "Failed to send invite");
+      } else {
+        setInviteSent(true);
+        setFamilyInviteEmail("");
+        setFamilyInvites((prev) => [{ email: familyInviteEmail.trim().toLowerCase(), accepted: false, created_at: new Date().toISOString() }, ...prev]);
+        setTimeout(() => setInviteSent(false), 3000);
+      }
+    } catch {
+      setInviteError("Network error");
+    }
+    setSendingInvite(false);
+  }
 
   function showCopiedToast(msg = "Copied!") {
     setCopiedToast(msg);
@@ -1119,6 +1164,55 @@ export default function SettingsPage() {
         </div>
       </section>}
 
+      {/* ── Share with Family ──────────────────────────────── */}
+      {activeTab === "family" && <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-[#2d2926]">Share with Family 🌿</h2>
+          <span className="h-px flex-1 bg-[#e8e2d9]" />
+        </div>
+
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
+          <p className="text-xs text-[#7a6f65] leading-relaxed">
+            Invite grandparents, aunts, uncles, or anyone who wants to follow your family&apos;s story. They&apos;ll get a beautiful read-only view of your memories and can leave hearts on the ones they love.
+          </p>
+
+          <div className="flex gap-2">
+            <input
+              type="email"
+              value={familyInviteEmail}
+              onChange={(e) => { setFamilyInviteEmail(e.target.value); setInviteError(""); }}
+              placeholder="grandma@email.com"
+              className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+              onKeyDown={(e) => { if (e.key === "Enter") sendFamilyInvite(); }}
+            />
+            <button
+              onClick={sendFamilyInvite}
+              disabled={sendingInvite || !familyInviteEmail.trim()}
+              className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors whitespace-nowrap"
+            >
+              {sendingInvite ? "Sending..." : "Send invite →"}
+            </button>
+          </div>
+
+          {inviteError && <p className="text-xs text-red-500">{inviteError}</p>}
+          {inviteSent && <p className="text-xs text-[#5c7f63] font-medium">Invite sent! They&apos;ll get an email with a link to your memories.</p>}
+
+          {familyInvites.length > 0 && (
+            <div className="space-y-2 pt-2 border-t border-[#f0ede8]">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Invited</p>
+              {familyInvites.map((inv) => (
+                <div key={inv.email} className="flex items-center justify-between text-sm">
+                  <span className="text-[#2d2926] truncate">{inv.email}</span>
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${inv.accepted ? "bg-[#e8f0e9] text-[#5c7f63]" : "bg-[#f0ede8] text-[#9a8f85]"}`}>
+                    {inv.accepted ? "Viewed" : "Pending"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>}
+
       {/* ── Co-teacher Access ───────────────────────────────── */}
       {activeTab === "family" && <section className="space-y-3">
         <div className="flex items-center gap-2">
@@ -1519,6 +1613,61 @@ export default function SettingsPage() {
                 <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats?.revenueDriven ?? '—'}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Revenue driven</p>
               </div>
+            </div>
+
+            {/* QR Code */}
+            <div>
+              <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your QR Code</p>
+              <div className="flex justify-center">
+                <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`}
+                    alt="Referral QR code"
+                    width={160}
+                    height={160}
+                    className="rounded-lg"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-[#6366f1] text-center mt-2">Screenshot to share anywhere</p>
+            </div>
+
+            {/* Download cards */}
+            <div>
+              <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Download Your Cards</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`);
+                    const { cardHtml } = await res.json();
+                    const blob = new Blob([cardHtml], { type: 'text/html' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `${affiliateData.code}_card.html`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
+                >
+                  🖨️ Print card
+                </button>
+                <button
+                  onClick={async () => {
+                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`);
+                    const { shareHtml } = await res.json();
+                    const blob = new Blob([shareHtml], { type: 'text/html' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `${affiliateData.code}_share.html`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
+                >
+                  📱 Share card
+                </button>
+              </div>
+              <p className="text-[10px] text-[#a0a0b8] text-center mt-2">Open in Chrome and print to PDF for best results</p>
             </div>
 
             {/* Partner since */}

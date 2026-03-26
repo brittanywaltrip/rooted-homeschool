@@ -83,6 +83,8 @@ export default function InsightsPage() {
   const [booksCount,      setBooksCount]       = useState(0);
   const [loading,         setLoading]         = useState(true);
 
+  useEffect(() => { document.title = "Insights \u00b7 Rooted"; }, []);
+
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
 

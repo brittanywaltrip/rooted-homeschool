@@ -36,19 +36,19 @@ export async function GET(req: NextRequest) {
 
   for (const user of allUsers ?? []) {
     // Skip if already received any reengagement email
-    const { count: anyEmailCount } = await supabase
+    const { data: anyEmailData } = await supabase
       .from('email_log')
-      .select('*', { count: 'exact', head: true })
+      .select('id')
       .eq('user_id', user.id)
       .like('email_type', 'reengagement%')
-    if ((anyEmailCount ?? 0) > 0) { skipped++; continue }
+    if ((anyEmailData?.length ?? 0) > 0) { skipped++; continue }
 
     // Skip if they already have subjects set up
-    const { count: subjectCount } = await supabase
+    const { data: subjectData } = await supabase
       .from('subjects')
-      .select('*', { count: 'exact', head: true })
+      .select('id')
       .eq('user_id', user.id)
-    if ((subjectCount ?? 0) > 0) { skipped++; continue }
+    if ((subjectData?.length ?? 0) > 0) { skipped++; continue }
 
     // Get email from auth
     const { data: authData } = await supabase.auth.admin.getUserById(user.id)
