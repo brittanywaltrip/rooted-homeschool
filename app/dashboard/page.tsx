@@ -483,12 +483,12 @@ export default function TodayPage() {
     try {
 
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, first_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
     ]);
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
-    setFirstName(authUser?.user_metadata?.first_name || "");
+    setFirstName((profile as { first_name?: string } | null)?.first_name || authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
@@ -1217,6 +1217,16 @@ export default function TodayPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-5 pt-3 pb-7 space-y-4">
+
+      {/* ── Greeting ──────────────────────────────────────────── */}
+      <p className="text-[16px] font-semibold text-[#3d5c42]">
+        {(() => {
+          const h = new Date().getHours();
+          const timeOfDay = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+          const name = firstName || familyName;
+          return name ? `${timeOfDay}, ${name}!` : `${timeOfDay}!`;
+        })()}
+      </p>
 
       {/* ── 1. Today's Lessons (compact, all children) ──────── */}
       {children.length > 0 && lessons.length > 0 && (
