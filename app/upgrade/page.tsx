@@ -20,7 +20,6 @@ function UpgradePageInner() {
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('')
-  const [foundingCount, setFoundingCount] = useState<number | null>(null)
   const refParam = searchParams.get('ref')
   const refCode = refParam || (typeof window !== 'undefined' ? localStorage.getItem('rooted_ref') : null)
 
@@ -49,10 +48,6 @@ function UpgradePageInner() {
 
     loadUserProfile()
 
-    // Live founding member count
-    supabase.from('profiles').select('id')
-      .eq('plan_type', 'founding_family')
-      .then(({ data }) => { if (data) setFoundingCount(data.length) })
   }, [])
 
   useEffect(() => {
@@ -212,9 +207,6 @@ function UpgradePageInner() {
                   ⏳ {countdown}
                 </p>
               )}
-              <p className="text-xs font-semibold text-[#5c7f63] mt-2">
-                {Math.max(foundingCount ?? 0, 6)} families have already joined as Founding Members
-              </p>
             </div>
 
             <ul className="space-y-2 mb-6 flex-1">
