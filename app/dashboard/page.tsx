@@ -63,41 +63,6 @@ const INSPIRATION_PROMPTS = [
   "What memory do you want to hold onto? 🕰️",
 ];
 
-const DID_YOU_KNOW = [
-  "Homeschool students score 15–30% higher on standardized tests on average 📚",
-  "Kids retain 90% more when they teach what they've learned to someone else 🌱",
-  "There are over 3.3 million homeschool students in the US — and growing 🌿",
-  "The average homeschool family spends just 3–4 hours a day on structured learning 🕐",
-  "Homeschool graduates are more likely to be civically engaged as adults 🗳️",
-  "Kids who learn at their own pace show stronger long-term retention 📖",
-  "Many colleges actively recruit homeschool graduates for their self-motivation 🎓",
-  "Reading aloud to children of any age strengthens vocabulary and comprehension 📗",
-  "Nature-based learning improves focus and reduces anxiety in children 🌲",
-  "Children learn best when they feel emotionally safe and unhurried 🏡",
-  "Asking 'what do you think?' develops critical thinking more than giving answers 💬",
-  "Music education strengthens math skills — even informally 🎵",
-  "Siblings who learn together develop stronger communication and empathy 👫",
-  "Hands-on projects create memories that reinforce learning for years 🔬",
-  "The best curriculum is the one your child will actually engage with 🌟",
-  "You don't have to do it all. Consistency beats perfection every time 🌱",
-  "Octopuses have three hearts, blue blood, and can open jars. They'd ace science 🐙",
-  "A group of flamingos is called a 'flamboyance.' You're welcome 🦩",
-  "Honey never expires — archaeologists found 3,000-year-old honey in Egypt still good 🍯",
-  "The shortest war in history lasted 38–45 minutes. Someone surrendered fast ⚔️",
-  "Bananas are technically berries. Strawberries are not. Botany is wild 🍌",
-  "The entire internet weighs about the same as a strawberry — in electrons 🍓",
-  "A day on Venus is longer than a year on Venus. Time is a construct 🪐",
-  "Wombats produce cube-shaped poop. Scientists are genuinely studying why 🐨",
-  "Cleopatra lived closer in time to the Moon landing than to the pyramids being built 🏛️",
-  "The word 'nerd' was first used by Dr. Seuss in 1950. He invented the nerd 🤓",
-  "Crows can recognize human faces and hold grudges for years 🐦‍⬛",
-  "Nintendo was founded in 1889. They started as a playing card company 🃏",
-  "Scotland's national animal is the unicorn 🦄",
-  "There are more possible games of chess than atoms in the observable universe ♟️",
-  "A bolt of lightning is five times hotter than the surface of the sun ⚡",
-  "Sloths can hold their breath longer than dolphins — up to 40 minutes 🦥",
-  "The smell of rain has a name: petrichor. One of the best words in English 🌧️",
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -382,9 +347,6 @@ function TodayLessonCard({
 
 export default function TodayPage() {
   const today = localDateStr(new Date());
-  const start = new Date(new Date().getFullYear(), 0, 0);
-  const dayOfYear = Math.floor((Date.now() - start.getTime()) / 86400000);
-  const [factIndex, setFactIndex] = useState(dayOfYear % DID_YOU_KNOW.length);
   const { isPartner, effectiveUserId } = usePartner();
 
   const [familyName,      setFamilyName]      = useState("");
@@ -852,6 +814,19 @@ export default function TodayPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Refresh today's story when user returns to tab (e.g. after camera app)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshTodayStory();
+        loadData();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadData]);
+
   async function refreshTodayStory() {
     if (!effectiveUserId) return;
     const { data } = await supabase
@@ -1042,15 +1017,17 @@ export default function TodayPage() {
     setSavingBook(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingBook(false); return; }
+    const nowB = new Date().toISOString();
     const { data: inserted } = await supabase.from("memories").insert({
       user_id: user.id, type: "book", title: bookTitle.trim(),
       child_id: bookChild || null, date: today, include_in_book: true,
+      created_at: nowB, updated_at: nowB,
     }).select("id").single();
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
-    // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
-    loadData(); refreshTodayStory();
+    await refreshTodayStory();
+    await loadData();
     checkAndAwardBadges(user.id);
   }
 
@@ -1068,15 +1045,17 @@ export default function TodayPage() {
         photoUrl = urlData.publicUrl;
       }
     }
+    const nowD = new Date().toISOString();
     const { data: inserted } = await supabase.from("memories").insert({
       user_id: user.id, type: "drawing", title: drawingTitle.trim(),
       photo_url: photoUrl, child_id: drawingChild || null, date: today, include_in_book: true,
+      created_at: nowD, updated_at: nowD,
     }).select("id").single();
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null);
-    // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
-    loadData(); refreshTodayStory();
+    await refreshTodayStory();
+    await loadData();
     checkAndAwardBadges(user.id);
   }
 
@@ -1104,8 +1083,8 @@ export default function TodayPage() {
     }).eq("id", editSheet.id);
     setEditSaving(false); setEditSheet(null);
     showCaptureToast("✏️ Updated 🌿", null);
-    // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
-    loadData(); refreshTodayStory();
+    await refreshTodayStory();
+    await loadData();
   }
 
   async function deleteFromEditSheet() {
@@ -1114,8 +1093,8 @@ export default function TodayPage() {
     await supabase.from("memories").delete().eq("id", editSheet.id);
     setEditDeleting(false); setEditSheet(null);
     showCaptureToast("🗑️ Deleted", null);
-    // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
-    loadData(); refreshTodayStory();
+    await refreshTodayStory();
+    await loadData();
   }
 
   // ── Activity edit/delete ──────────────────────────────────────────────────
@@ -1236,55 +1215,20 @@ export default function TodayPage() {
 
   return (
     <>
-      {/* ── Book Cover Card ──────────────────────────────────── */}
-      <div className="mx-5 mt-5 rounded-2xl p-4 relative overflow-hidden" style={{ background: "#2d5a3d" }}>
-        <div className="absolute top-2 right-3 text-[80px] leading-none select-none pointer-events-none" style={{ opacity: 0.06 }} aria-hidden>🌿</div>
-        <p className="text-[9px] font-medium tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.45)" }}>
-          {(() => {
-            const n = new Date();
-            const syY = n.getMonth() >= 7 ? n.getFullYear() : n.getFullYear() - 1;
-            return `${syY}–${syY + 1}`;
-          })()} · {familyName || "My Family"}
+      {/* ── Compact header line ──────────────────────────────── */}
+      <div className="mx-5 mt-4 flex items-center justify-between">
+        <p className="text-sm text-[#7a6f65]">
+          {totalMemories > 0 && <>{totalMemories} 🌿 memories</>}
+          {totalMemories > 0 && activeDaysThisMonth > 0 && <> · </>}
+          {activeDaysThisMonth > 0 && <>{activeDaysThisMonth} day{activeDaysThisMonth !== 1 ? "s" : ""} active in {new Date().toLocaleDateString("en-US", { month: "long" })}</>}
+          {totalMemories === 0 && activeDaysThisMonth === 0 && <>Welcome to Rooted 🌿</>}
         </p>
-        {totalMemories > 0 ? (
-          <>
-            <p className="text-[32px] font-bold text-white leading-tight mt-1">{totalMemories} 🌿</p>
-            <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.55)" }}>memories in your story</p>
-            {activeDaysThisMonth > 0 && (
-              <div className="inline-block mt-2.5 px-2.5 py-1 rounded-full text-[10px] font-medium" style={{ background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.7)" }}>
-                {activeDaysThisMonth} day{activeDaysThisMonth !== 1 ? "s" : ""} active in {new Date().toLocaleDateString("en-US", { month: "long" })}
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <p className="text-[20px] text-white font-bold leading-snug mt-2 mb-2" style={{ fontFamily: "Georgia, serif" }}>
-              Your homeschool story starts here 🌿
-            </p>
-            <p className="text-[12px] mb-3" style={{ color: "rgba(255,255,255,0.6)" }}>
-              Capture anything — big milestones or small everyday moments.
-            </p>
-            <div className="space-y-1.5 mb-3">
-              {[
-                ["📸", "Photos & drawings"],
-                ["✍️", "Wins & moments"],
-                ["📖", "Books they're reading"],
-                ["🗺️", "Field trips & projects"],
-              ].map(([icon, label]) => (
-                <div key={label} className="flex items-center gap-2.5">
-                  <span className="text-sm">{icon}</span>
-                  <span className="text-sm" style={{ color: "rgba(255,255,255,0.8)" }}>{label}</span>
-                </div>
-              ))}
-            </div>
-            <p className="text-[11px] italic" style={{ color: "rgba(255,255,255,0.45)" }}>
-              Tap the button below to add your first memory.
-            </p>
-          </>
-        )}
+        <p className="text-sm text-[#b5aca4] shrink-0 ml-3">
+          {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+        </p>
       </div>
 
-      <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
+      <div className="max-w-2xl mx-auto px-5 pt-3 pb-7 space-y-4">
 
       {/* ── Time-based greeting ────────────────────────────────── */}
       <p className="text-[16px] font-semibold text-[#3d5c42]">
@@ -1295,82 +1239,66 @@ export default function TodayPage() {
         })()}
       </p>
 
-      {/* ── Daily inspiration prompt (active users) ──────────── */}
-      {!isPartner && totalMemories > 0 && (() => {
-        const prompts = [
-          "Did they build or create something today? Log it. 🎨",
-          "Read anything good this week? Add it to their story. 📖",
-          "Did they go somewhere new? Log the field trip. 🗺️",
-          "Something funny or sweet happened — write it down. ✍️",
-          "A drawing worth keeping? Snap it before it gets lost. 📸",
-          "What did they figure out today? That's a win. 🏆",
-          "An ordinary moment you'll want to remember someday. 📸",
-        ];
-        return (
-          <div className="rounded-xl px-3.5 py-2.5" style={{ background: "#2d5a3d" }}>
-            <p className="text-xs text-center" style={{ color: "rgba(255,255,255,0.75)" }}>
-              {prompts[new Date().getDay()]}
-            </p>
-          </div>
-        );
-      })()}
-
-      {/* ── Capture buttons ──────────────────────────────────── */}
-      {!isPartner && (
-        <>
+      {/* ── 1. Today's Lessons (compact, all children) ──────── */}
+      {children.length > 0 && lessons.length > 0 && (
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S LESSONS</p>
           <div className="space-y-2">
-            <button
-              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-              style={{ background: "#2d5a3d" }}
-            >
-              📸 Capture a photo
-            </button>
-            <button
-              onClick={() => setShowCaptureMenu(true)}
-              className="w-full text-center text-sm text-[#9a8f85] hover:text-[#7a6f65] transition-colors py-1"
-            >
-              Or log a win, book, drawing, field trip →
-            </button>
+            {(() => {
+              const childIds = new Set(children.map(c => c.id));
+              const unassignedLessons = lessons.filter(l => !l.child_id || !childIds.has(l.child_id));
+              return (<>
+                {children.map(child => {
+                  const cl = lessons.filter(l => l.child_id === child.id);
+                  if (cl.length === 0) return null;
+                  const d = cl.filter(l => l.completed).length;
+                  const allDone = cl.length > 0 && d === cl.length;
+                  return (
+                    <div key={child.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+                      <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-[#f0ede8]">
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white"
+                          style={{ backgroundColor: child.color ?? "#5c7f63" }}>
+                          {child.name.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="flex-1 text-sm font-semibold text-[#2d2926]">{toTitleCase(child.name)}</span>
+                        <span className={`text-xs font-semibold ${allDone ? "text-[#3d5c42]" : "text-[#7a6f65]"}`}>
+                          {allDone ? "✓ Done" : `${d} of ${cl.length}`}
+                        </span>
+                      </div>
+                      <div className="p-2 space-y-1">
+                        {cl.map(lesson => (
+                          <TodayLessonCard key={lesson.id} lesson={lesson} childObj={child}
+                            onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {unassignedLessons.length > 0 && (
+                  <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+                    <div className="px-3.5 py-2.5 border-b border-[#f0ede8]">
+                      <span className="text-sm font-semibold text-[#7a6f65]">Unassigned</span>
+                    </div>
+                    <div className="p-2 space-y-1">
+                      {unassignedLessons.map(lesson => (
+                        <TodayLessonCard key={lesson.id} lesson={lesson} childObj={undefined}
+                          onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>);
+            })()}
           </div>
-          <input
-            ref={captureFileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (e.target) e.target.value = "";
-              if (!file) return;
-              const { data: { user } } = await supabase.auth.getUser();
-              if (!user) return;
-              const path = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-              const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
-              if (upErr) return;
-              const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-              const memType = captureTypeRef.current;
-              const { data: ins } = await supabase.from("memories").insert({
-                user_id: user.id, type: memType, title: null,
-                photo_url: urlData.publicUrl, child_id: null,
-                date: today, include_in_book: false,
-              }).select("id").single();
-              const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
-              showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
-              captureTypeRef.current = "photo"; // reset
-              // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
-              loadData(); refreshTodayStory();
-              checkAndAwardBadges(user.id);
-            }}
-          />
-        </>
+        </div>
       )}
 
-      {/* ── Today's Story ────────────────────────────────────── */}
+      {/* ── 2. Today's Story (compact — max 2 items) ──────── */}
       {todayStory.length > 0 && (
         <div>
           <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
-            {todayStory.map((m) => {
+            {todayStory.slice(0, 2).map((m) => {
               const icons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🗒️", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
               const icon = icons[m.type] ?? "🌿";
               const child = m.child_id ? children.find((c) => c.id === m.child_id) : null;
@@ -1392,39 +1320,29 @@ export default function TodayPage() {
                       openEditSheet(d.id, d.title ?? "", d.caption ?? "", d.child_id ?? "", d.type);
                     }
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[#faf8f5] transition-colors"
                 >
                   <span className="text-lg shrink-0">{icon}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-medium text-[#2d2926] truncate">
-                        {m.title || (m.type === "photo" ? "Photo" : m.type.charAt(0).toUpperCase() + m.type.slice(1).replace("_", " "))}
-                      </p>
-                      {m.include_in_book && <span className="text-[10px] shrink-0">🔖</span>}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {child && (
-                        <>
-                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
-                          <span className="text-[11px] text-[#7a6f65]">{child.name}</span>
-                          <span className="text-[11px] text-[#c8bfb5]">·</span>
-                        </>
-                      )}
-                      <span className="text-[11px] text-[#c8bfb5]">{ago}</span>
-                    </div>
+                    <p className="text-sm font-medium text-[#2d2926] truncate">
+                      {m.title || (m.type === "photo" ? "Photo" : m.type.charAt(0).toUpperCase() + m.type.slice(1).replace("_", " "))}
+                    </p>
+                    <span className="text-[11px] text-[#c8bfb5]">{ago}{child ? ` · ${child.name}` : ""}</span>
                   </div>
                   <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
                 </button>
               );
             })}
           </div>
+          <Link href="/dashboard/memories" className="block text-center text-xs text-[#5c7f63] font-medium mt-2 hover:underline">
+            See all memories →
+          </Link>
         </div>
       )}
 
       {/* ── Empty state: last memory + daily prompt ──────────── */}
       {!loading && lessons.length === 0 && todayStory.length === 0 && (
         <div className="space-y-3">
-          {/* Last memory card */}
           {lastMemory && (() => {
             const icons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🗒️", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
             const icon = icons[lastMemory.type] ?? "🌿";
@@ -1458,8 +1376,6 @@ export default function TodayPage() {
               </div>
             );
           })()}
-
-          {/* Daily prompt */}
           {(() => {
             const prompts = [
               "What did your family do together today?",
@@ -1470,8 +1386,7 @@ export default function TodayPage() {
               "What are you most proud of this week?",
               "What\u2019s one thing you want to remember from this week?",
             ];
-            const dayOfWeek = new Date().getDay();
-            const prompt = prompts[dayOfWeek];
+            const prompt = prompts[new Date().getDay()];
             return (
               <div>
                 <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S PROMPT</p>
@@ -1484,561 +1399,65 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── AI Family Update Prompt ────────────────────────────── */}
-      {showFamilyUpdate && (
-        <div className="flex items-center justify-between gap-3 rounded-2xl px-5 py-4" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
-          <Link href="/dashboard/family-update" onClick={() => {
-            const now = new Date();
-            const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-            const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-            localStorage.setItem(`family_update_seen_${prevMonthYear}_${prevMonth}`, "1");
-            setShowFamilyUpdate(false);
-          }} className="flex items-center gap-3 flex-1 min-w-0">
-            <span className="text-xl shrink-0">✨</span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-[#7a4a1a]">
-                Your {new Date(new Date().getFullYear(), new Date().getMonth() - 1).toLocaleDateString("en-US", { month: "long" })} family update is ready
-              </p>
-              <p className="text-xs text-[#a68a50]">See what your family accomplished this month →</p>
-            </div>
-          </Link>
-          <button
-            onClick={() => {
-              const now = new Date();
-              const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-              const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-              localStorage.setItem(`family_update_seen_${prevMonthYear}_${prevMonth}`, "1");
-              setShowFamilyUpdate(false);
-            }}
-            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[#a68a50] hover:bg-[#f0dda8]/50 transition-colors text-lg leading-none"
-          >×</button>
-        </div>
-      )}
-
-      {/* ── Setup Banner ─────────────────────────────────────── */}
-      {onboarded === true && children.length === 0 && !bannerDismissed && (
-        <div className="relative flex items-center justify-between gap-4 bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4">
-          <p className="text-sm text-[#2d2926] font-medium leading-snug">
-            🌱 Finish setting up your homeschool — you haven&apos;t added any children yet.
-          </p>
-          <div className="flex items-center gap-2 shrink-0">
-            <Link href="/onboarding" className="bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors whitespace-nowrap">
-              Add a Child →
-            </Link>
+      {/* ── 3. Capture button ──────────────────────────────────── */}
+      {!isPartner && (
+        <>
+          <div className="space-y-2">
             <button
-              onClick={() => { sessionStorage.setItem("setup-banner-dismissed", "1"); setBannerDismissed(true); }}
-              aria-label="Dismiss"
-              className="w-7 h-7 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#b8d9bc]/50 transition-colors text-lg leading-none"
-            >×</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Welcome Banner ─────────────────────────────────── */}
-      {children.length === 0 && onboarded !== true && !bannerDismissed && (
-        <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
-          <button
-            onClick={() => { sessionStorage.setItem("setup-banner-dismissed", "1"); setBannerDismissed(true); }}
-            aria-label="Dismiss"
-            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full text-[#5c7f63] hover:bg-[#b8d9bc]/50 transition-colors text-lg leading-none"
-          >×</button>
-          <h2 className="text-lg font-bold text-[#2d2926] mb-1">Welcome to Rooted! 🌿</h2>
-          <p className="text-sm text-[#5c7f63] mb-4">Let&apos;s get your family set up in 3 easy steps</p>
-          <div className="flex flex-col sm:flex-row gap-3 mb-4">
-            {[
-              { step: "1", label: "Add a child",                dest: "Onboarding", href: "/onboarding" },
-              { step: "2", label: "Add your curriculum",        dest: "Plan",        href: "/dashboard/plan" },
-              { step: "3", label: "Check off your first lesson", dest: "Today",      href: "#" },
-            ].map(({ step, label, dest, href }) => (
-              <Link key={step} href={href} className="flex-1 flex items-center gap-2.5 bg-white/70 hover:bg-white border border-[#b8d9bc] rounded-xl px-3.5 py-3 transition-colors">
-                <div className="w-7 h-7 rounded-full bg-[#5c7f63] text-white text-xs font-bold flex items-center justify-center shrink-0">{step}</div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-[#2d2926] leading-tight">{label}</p>
-                  <p className="text-[10px] text-[#7a6f65]">→ {dest}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-          <Link href="/onboarding" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm">
-            Add your first child →
-          </Link>
-        </div>
-      )}
-
-      {/* ── Vacation Banner ──────────────────────────────── */}
-      {activeVacation && (() => {
-        const backDate = new Date(activeVacation.end_date + "T00:00:00");
-        backDate.setDate(backDate.getDate() + 1);
-        const backLabel = backDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-        return (
-          <div className="rounded-2xl px-4 py-3" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
-            <p className="text-sm font-semibold text-[#7a4a1a]">🌴 {activeVacation.name} — no lessons today! Back on {backLabel}.</p>
-          </div>
-        );
-      })()}
-
-            {/* ── Curriculum setup nudge ───────────────────────── */}
-      {!isPartner && !nudgeDismissed && children.length > 0 && subjects.length === 0 && (
-        <div className="flex items-start justify-between gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
-          <div className="flex items-start gap-3 min-w-0">
-            <span className="text-xl shrink-0 mt-0.5">👋</span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-[#2d2926] leading-snug">Welcome to Rooted! Set up your curriculum to start seeing lessons here.</p>
-              <Link href="/dashboard/plan" className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-white bg-[#5c7f63] hover:bg-[#3d5c42] px-3 py-1.5 rounded-lg transition-colors">
-                Get started →
-              </Link>
-            </div>
-          </div>
-          <button
-            onClick={() => { localStorage.setItem("rooted_setup_nudge_dismissed", "1"); setNudgeDismissed(true); }}
-            aria-label="Dismiss"
-            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors text-lg leading-none mt-0.5"
-          >×</button>
-        </div>
-      )}
-
-      {/* ── Child Pills + Card Stack (only when children exist) ── */}
-      {children.length > 0 && <>
-      {lessons.length > 0 && !activeVacation && isSchoolDay && (
-        <div className="flex gap-2 overflow-x-auto pb-1 mb-4 px-4">
-          {children.map((child) => {
-            const childLessons = lessons.filter(l => l.child_id === child.id);
-            if (childLessons.length === 0) return null;
-            const childDone = childLessons.every(l => l.completed);
-            const isActive = selectedChild === child.id;
-            return (
-              <button
-                key={child.id}
-                onClick={() => setSelectedChild(child.id)}
-                className={`px-4 py-1.5 rounded-full text-sm font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
-                  isActive
-                    ? 'bg-[#3d5c42] text-white'
-                    : childDone
-                    ? 'bg-[#e8f5ea] border border-[#b8d9bc] text-[#3d5c42]'
-                    : 'bg-white border border-[#e8e2d9] text-[#7a6f65]'
-                }`}>
-                {child.name}
-                {childDone && <span className="text-[11px]">✓</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── Today's Sections ─────────────────────────────── */}
-      <div>
-        {allDoneBanner && lessons.length > 0 && lessons.every(l => l.completed) && (
-          <>
-            <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
-              <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
-              <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
-            </div>
-            <button
-              onClick={() => setShowLogModal(true)}
-              className="mb-4 w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-[#5c7f63] hover:bg-[#faf8f5] transition-colors text-left"
+              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+              style={{ background: "#2d5a3d" }}
             >
-              <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0 text-lg">📸</div>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-[#2d2926]">Capture today&apos;s memory</p>
-                <p className="text-xs text-[#7a6f65]">What did you do today? Add a photo, book, or note.</p>
-              </div>
-              <span className="text-[#c8bfb5] text-lg">›</span>
+              📸 Capture a memory
             </button>
-          </>
-
-        )}
-        {(() => {
-          const childIds = new Set(children.map((c) => c.id));
-          const unassignedLessons = lessons.filter((l) => !l.child_id || !childIds.has(l.child_id));
-          const hasAnyContent     = childrenWithLessons.length > 0 || unassignedLessons.length > 0;
-
-          if (!hasAnyContent) {
-            // Priority: vacation > non-school-day > no content
-            if (activeVacation) return (
-              <div className="rounded-2xl px-4 py-3" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
-                <p className="text-sm font-semibold text-[#7a4a1a]">🌴 <strong>{activeVacation.name}</strong> · No lessons today — enjoy your time off!</p>
-              </div>
-            );
-            if (!isSchoolDay) {
-              const dow = new Date().getDay();
-              const isWeekend = dow === 0 || dow === 6;
-
-              // Find the next school day name from the profile's school_days
-              const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-              let resumeDay = "";
-              if (schoolDaysArr.length > 0) {
-                for (let offset = 1; offset <= 7; offset++) {
-                  const checkDay = dayNames[(dow + offset) % 7];
-                  if (schoolDaysArr.includes(checkDay)) {
-                    resumeDay = checkDay.charAt(0).toUpperCase() + checkDay.slice(1);
-                    break;
-                  }
-                }
+            <button
+              onClick={() => setShowCaptureMenu(true)}
+              className="w-full text-center text-xs text-[#9a8f85] hover:text-[#7a6f65] transition-colors py-0.5"
+            >
+              Or log a win, book, drawing, field trip →
+            </button>
+          </div>
+          <input
+            ref={captureFileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) { console.error("[Photo capture] No user session"); return; }
+                const path = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+                const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
+                if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); return; }
+                const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+                const memType = captureTypeRef.current;
+                const now = new Date().toISOString();
+                const { data: ins, error: insErr } = await supabase.from("memories").insert({
+                  user_id: user.id, type: memType, title: null,
+                  photo_url: urlData.publicUrl, child_id: null,
+                  date: today, include_in_book: false,
+                  created_at: now, updated_at: now,
+                }).select("id").single();
+                if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); return; }
+                const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
+                showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
+                captureTypeRef.current = "photo"; // reset
+                setTotalMemories(prev => prev + 1);
+                await refreshTodayStory();
+                await loadData();
+                checkAndAwardBadges(user.id);
+              } finally {
+                if (e.target) e.target.value = "";
               }
-
-              return (
-                <div className="py-8 flex flex-col items-center text-center">
-                  {/* Leaf illustration */}
-                  <svg width="64" height="64" viewBox="0 0 64 64" className="mb-3 opacity-30">
-                    <path d="M32 8 C16 20, 8 36, 16 52 C24 48, 28 40, 32 32 C36 40, 40 48, 48 52 C56 36, 48 20, 32 8Z" fill="#5c7f63" />
-                    <line x1="32" y1="12" x2="32" y2="56" stroke="#3d5c42" strokeWidth="1.5" opacity="0.5" />
-                  </svg>
-                  <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
-                    {isWeekend ? "Enjoy your weekend! 🌿" : "No school today"}
-                  </p>
-                  <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
-                    School resumes {resumeDay || "Monday"}.
-                  </p>
-
-                  {/* Log memory prompt */}
-                  <button
-                    onClick={() => setShowLogModal(true)}
-                    className="w-full max-w-sm bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-[#5c7f63] hover:bg-[#faf8f5] transition-colors text-left mb-5"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0 text-lg">📸</div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-[#2d2926]">Days off make the best memories</p>
-                      <p className="text-xs text-[#7a6f65]">Field trips, books, nature walks — log it →</p>
-                    </div>
-                  </button>
-
-                  {upcomingDay && (
-                    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 w-full max-w-sm text-left">
-                      <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
-                        Coming up {new Date(upcomingDay.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" })}
-                      </p>
-                      <div className="space-y-1.5">
-                        {upcomingDay.lessons.slice(0, 4).map((l, i) => (
-                          <div key={i} className="flex items-center gap-2 text-sm">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#5c7f63] shrink-0" />
-                            <span className="text-[#2d2926] truncate">{l.title}</span>
-                          </div>
-                        ))}
-                        {upcomingDay.lessons.length > 4 && (
-                          <p className="text-xs text-[#b5aca4]">+{upcomingDay.lessons.length - 4} more</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            }
-            if (subjects.length === 0) return (
-              <div className="py-8 flex flex-col items-center text-center">
-                <span className="text-[52px] block mb-2">🌿</span>
-                <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
-                  {firstName ? `Ready to start, ${firstName}?` : "Ready to start?"}
-                </p>
-                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">Set up your curriculum and your first lessons will appear right here.</p>
-                <Link href="/dashboard/plan?openWizard=true" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
-                  Set Up Curriculum →
-                </Link>
-              </div>
-            );
-            return (
-              <div className="py-8 flex flex-col items-center text-center">
-                <span className="text-[40px] block mb-2">📋</span>
-                <p className="text-[17px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
-                  No lessons scheduled today
-                </p>
-                <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
-                  Set up your curriculum to get daily lessons here automatically.
-                </p>
-                <Link href="/dashboard/plan?openWizard=true" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
-                  Set Up Your Curriculum →
-                </Link>
-              </div>
-            );
-          }
-
-          // Card-per-child system
-          const activeChild = selectedChild ? children.find(c => c.id === selectedChild) : childrenWithLessons[0];
-          if (!activeChild) return (
-            <div className="py-8 flex flex-col items-center text-center">
-              <span className="text-[40px] block mb-2">📋</span>
-              <p className="text-[17px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
-                No lessons scheduled today
-              </p>
-              <p className="text-[13px] text-[#9e958d] mt-1 mb-5 px-4 max-w-xs">
-                Set up your curriculum to get daily lessons here automatically.
-              </p>
-              <Link href="/dashboard/plan?openWizard=true" className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
-                Set Up Your Curriculum →
-              </Link>
-            </div>
-          );
-
-          // Large family summary mode (4+ kids, no child selected via pill)
-          if (childrenWithLessons.length >= 4 && !selectedChild) {
-            return (
-              <div className="space-y-2">
-                {childrenWithLessons.map(child => {
-                  const cl = lessons.filter(l => l.child_id === child.id);
-                  const d = cl.filter(l => l.completed).length;
-                  const t = cl.length;
-                  const done = t > 0 && d === t;
-                  return (
-                    <button key={child.id} onClick={() => setSelectedChild(child.id)}
-                      className="w-full flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5 hover:border-[#5c7f63] transition-colors text-left">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white"
-                        style={{ backgroundColor: child.color ?? "#5c7f63" }}>
-                        {child.name.charAt(0).toUpperCase()}
-                      </div>
-                      <span className="flex-1 text-sm font-medium text-[#2d2926]">{toTitleCase(child.name)}</span>
-                      <span className={`text-sm font-semibold ${done ? "text-[#3d5c42]" : "text-[#7a6f65]"}`}>
-                        {done ? "✓" : `${d}/${t}`}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          }
-
-          // Single child card view
-          const childLessons = lessons.filter(l => l.child_id === activeChild.id);
-          const childBooks = todayBooks.filter(b => b.payload.child_id === activeChild.id);
-          const childMems = todayMemoryEvents.filter(e => e.payload.child_id === activeChild.id);
-          const done = childLessons.filter(l => l.completed).length;
-          const total = childLessons.length;
-          const childAllDone = total > 0 && done === total;
-
-          // Find next incomplete child for "Next" button
-          const nextChild = childrenWithLessons.find(c =>
-            c.id !== activeChild.id && !lessons.filter(l => l.child_id === c.id).every(l => l.completed)
-          );
-
-          return (
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
-              {/* Card header */}
-              <div className="flex items-center gap-3 px-4 py-3 border-b border-[#f0ede8]">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold text-white"
-                  style={{ backgroundColor: activeChild.color ?? "#5c7f63" }}>
-                  {activeChild.name.charAt(0).toUpperCase()}
-                </div>
-                <span className="flex-1 text-sm font-semibold text-[#2d2926]">
-                  {toTitleCase(activeChild.name)}
-                  {activeChild.birthday && (() => {
-                    const bd = new Date(activeChild.birthday + "T12:00:00");
-                    const now = new Date();
-                    return bd.getMonth() === now.getMonth() && bd.getDate() === now.getDate() ? " 🎂" : "";
-                  })()}
-                </span>
-                <span className={`text-sm font-semibold ${childAllDone ? "text-[#3d5c42]" : "text-[#7a6f65]"}`}>
-                  {childAllDone ? "✓ Done" : `${done}/${total}`}
-                </span>
-              </div>
-
-              {/* Lessons */}
-              <div className="p-3 space-y-2">
-                {childLessons.map(lesson => (
-                  <TodayLessonCard key={lesson.id} lesson={lesson} childObj={activeChild}
-                    onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                ))}
-                {childBooks.map(b => (
-                  <button key={b.id}
-                    onClick={() => !isPartner && openActivityEdit({ type: "book", id: b.id, title: b.payload.title, childId: b.payload.child_id ?? "" })}
-                    className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
-                    <span className="text-lg shrink-0">📖</span>
-                    <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{b.payload.title}</p>
-                    <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full shrink-0">Book</span>
-                  </button>
-                ))}
-                {childMems.map(e => (
-                  <button key={e.id}
-                    onClick={() => !isPartner && openActivityEdit({ type: "memory", id: e.id, title: e.payload.title ?? "Memory", childId: e.payload.child_id ?? "", memoryType: e.type })}
-                    className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9] rounded-xl px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors">
-                    <span className="text-lg shrink-0">{e.type === "memory_book" ? "📖" : e.type === "memory_project" ? "🔬" : "📷"}</span>
-                    <p className="flex-1 text-sm font-medium text-[#2d2926] truncate">{e.payload.title ?? "Memory"}</p>
-                  </button>
-                ))}
-              </div>
-
-              {/* Next child button */}
-              {childAllDone && nextChild && (
-                <button
-                  onClick={() => setSelectedChild(nextChild.id)}
-                  className="w-full px-4 py-3 border-t border-[#e8e2d9] bg-[#e8f5ea] text-sm font-semibold text-[#3d5c42] hover:bg-[#d4ead4] transition-colors"
-                >
-                  Next: {toTitleCase(nextChild.name)} →
-                </button>
-              )}
-
-              {/* Unassigned lessons */}
-              {unassignedLessons.length > 0 && (
-                <div className="px-3 pb-3 space-y-2">
-                  <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-widest px-1">Unassigned</p>
-                  {unassignedLessons.map(lesson => (
-                    <TodayLessonCard key={lesson.id} lesson={lesson} childObj={undefined}
-                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })()}
-      </div>
-      </>}
-
-      {/* ── Welcome prompt (new users with children but no lessons ever) ─── */}
-      {children.length > 0 && !hasAnyLessons && Object.values(leafCounts).reduce((a, b) => a + b, 0) === 0 && (
-        <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-5">
-          <div className="flex items-start gap-4">
-            <span className="text-3xl">🌱</span>
-            <div className="flex-1">
-              <h3 className="font-bold text-[#2d2926] mb-1">Welcome to Rooted{familyName ? `, ${familyName}` : ""}! Here&apos;s where to start:</h3>
-              <p className="text-sm text-[#5c7f63] mb-3 leading-relaxed">Your garden is planted and ready to grow. Every lesson you log earns a leaf 🍃</p>
-              <ol className="text-sm text-[#3d5c42] space-y-1.5">
-                <li className="flex items-start gap-2"><span>1️⃣</span><span><strong>Log today&apos;s lessons</strong> — tap a lesson card to check it off and earn your first leaf</span></li>
-                <li className="flex items-start gap-2"><span>2️⃣</span><span><strong>Set a Finish Line goal</strong> — track if you&apos;re on pace to finish your curriculum on time 🎯</span></li>
-                <li className="flex items-start gap-2"><span>3️⃣</span><span><strong>Explore Resources</strong> — free field trips, discounts, and printables curated for homeschoolers 📚</span></li>
-              </ol>
-            </div>
-          </div>
-        </div>
+            }}
+          />
+        </>
       )}
 
-
-      {/* ── Coming Up ──────────────────────────────────────── */}
-      {showUpcoming && upcomingDay && (() => {
-        const upcomingDate = new Date(upcomingDay.date + "T00:00:00");
-        const dayName      = upcomingDate.toLocaleDateString("en-US", { weekday: "long" });
-        const fullLabel    = upcomingDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-        const msFromNow    = upcomingDate.getTime() - new Date().setHours(0, 0, 0, 0);
-        const daysFromNow  = Math.round(msFromNow / 86400000);
-        const headerLabel  = daysFromNow === 1 ? "Tomorrow 🌱" : `Next school day · ${dayName} 🌱`;
-
-        // Check if a vacation block starts on the upcoming day
-        const vacOnDay = allVacationBlocks.find(
-          (b) => upcomingDay.date >= b.start_date && upcomingDay.date <= b.end_date
-        );
-        if (vacOnDay) {
-          return (
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4] mb-2">
-                Coming Up · {dayName.toUpperCase()}
-              </p>
-              <p className="text-sm text-[#7a4a1a]">🌴 {vacOnDay.name} starts {fullLabel}</p>
-            </div>
-          );
-        }
-
-        // Group lessons by child, collect subject names per child
-        const byChild = new Map<string, { childId: string | null; subjects: Set<string> }>();
-        for (const l of upcomingDay.lessons) {
-          const key = l.childId ?? "__unassigned__";
-          if (!byChild.has(key)) byChild.set(key, { childId: l.childId, subjects: new Set() });
-          if (l.subjectName) byChild.get(key)!.subjects.add(l.subjectName);
-        }
-
-        return (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[#b5aca4] mb-2.5">
-              {headerLabel}
-            </p>
-            <div className="space-y-2">
-              {Array.from(byChild.values()).map(({ childId, subjects }) => {
-                const child    = children.find((c) => c.id === childId);
-                const subList  = Array.from(subjects).join(", ");
-                return (
-                  <div key={childId ?? "__unassigned__"} className="flex items-center gap-2.5">
-                    {child ? (
-                      <div
-                        className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white"
-                        style={{ backgroundColor: child.color ?? "#5c7f63" }}
-                      >
-                        {child.name.charAt(0).toUpperCase()}
-                      </div>
-                    ) : (
-                      <div className="w-6 h-6 rounded-full bg-[#e8e2d9] flex items-center justify-center shrink-0 text-[10px] font-bold text-[#7a6f65]">?</div>
-                    )}
-                    <span className="text-sm text-[#2d2926] truncate">
-                      {child ? toTitleCase(child.name) : "Unassigned"}
-                      {subList && <span className="text-[#7a6f65]"> · {subList}</span>}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="text-[11px] text-[#b5aca4] mt-2">
-              {upcomingDay.lessons.length} lesson{upcomingDay.lessons.length !== 1 ? "s" : ""} across {byChild.size} kid{byChild.size !== 1 ? "s" : ""}
-            </p>
-          </div>
-        );
-      })()}
-
-      {/* ── On This Day — 3-tier system ─────────────────────── */}
-      {onThisDayMemory && onThisDayTier === 1 && (
-        <Link href="/dashboard/memories" className="block rounded-2xl overflow-hidden" style={{ background: "#f5f0fa", border: "1.5px solid #d9bee8" }}>
-          {onThisDayMemory.photo_url && (
-            <img
-              src={onThisDayMemory.photo_url}
-              alt={onThisDayMemory.title || "Memory from last year"}
-              className="w-full h-44 object-cover"
-            />
-          )}
-          <div className="px-4 py-3.5">
-            <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#ede4f5", color: "#7a4a9e" }}>
-              🕰️ On This Day last year...
-            </span>
-            <p className="text-sm font-medium text-[#2d2926]">{onThisDayMemory.title}</p>
-            <div className="flex items-center justify-between mt-1.5">
-              <span className="text-xs text-[#7a6f65]">
-                {(() => {
-                  const child = children.find(c => c.id === onThisDayMemory.child_id);
-                  const dateLabel = new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-                  return child ? `${child.name} · ${dateLabel}` : dateLabel;
-                })()}
-              </span>
-              <span className="text-xs font-medium" style={{ color: "#7a4a9e" }}>See the memory →</span>
-            </div>
-          </div>
-        </Link>
-      )}
-      {onThisDayMemory && onThisDayTier === 2 && (
-        <Link href="/dashboard/memories" className="block rounded-2xl px-4 py-3.5" style={{ background: "#faf8fc", border: "1.5px solid #e4d8ee" }}>
-          <span className="inline-block text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2" style={{ background: "#f0eaf5", color: "#9a7ab8" }}>
-            A memory from {new Date(onThisDayMemory.date + "T12:00:00").toLocaleString("default", { month: "long" })} last year
-          </span>
-          <p className="text-sm font-medium text-[#2d2926]">{onThisDayMemory.title}</p>
-          <div className="flex items-center justify-between mt-1.5">
-            <span className="text-xs text-[#7a6f65]">
-              {(() => {
-                const child = children.find(c => c.id === onThisDayMemory.child_id);
-                const dateLabel = new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-                return child ? `${child.name} · ${dateLabel}` : dateLabel;
-              })()}
-            </span>
-            <span className="text-xs font-medium" style={{ color: "#9a7ab8" }}>See the memory →</span>
-          </div>
-        </Link>
-      )}
-      {!onThisDayMemory && onThisDayTier === 3 && (
-        <div className="rounded-2xl px-4 py-3.5" style={{ background: "#fefcf9", border: "1.5px solid #e8e2d9" }}>
-          <p className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "#7a6f65" }}>Daily prompt</p>
-          <p className="text-sm text-[#5c5248] leading-relaxed">
-            {INSPIRATION_PROMPTS[Math.floor((Date.now() / 86400000)) % INSPIRATION_PROMPTS.length]}
-          </p>
-        </div>
-      )}
-
-
-      {/* ── Did You Know card (school days only) ────────── */}
-      {isSchoolDay && !activeVacation && (
-        <button
-          onClick={() => setFactIndex((factIndex + 1) % DID_YOU_KNOW.length)}
-          className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 text-left hover:bg-[#faf8f5] transition-colors"
-        >
-          <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">Did you know?</p>
-          <p className="text-[13px] text-[#5c5248] leading-relaxed border-l-2 border-[#3d5c42] pl-3">
-            {DID_YOU_KNOW[factIndex]}
-          </p>
-        </button>
-      )}
-
-      <div className="h-4" />
-
-      {/* Floating log button removed — replaced by persistent camera FAB in layout */}
+      <div className="h-2" />
 
       {/* ── Inline lightbox ──────────────────────────────── */}
       {lightboxMemory && (
@@ -2211,10 +1630,12 @@ export default function TodayPage() {
                   setFtSaving(true);
                   const { data: { user } } = await supabase.auth.getUser();
                   if (user) {
+                    const nowFt = new Date().toISOString();
                     const { data: ins } = await supabase.from("memories").insert({
                       user_id: user.id, type: ftType, title: ftTitle.trim(),
                       caption: ftNote.trim() || null, child_id: ftChild || null,
                       date: today, include_in_book: false,
+                      created_at: nowFt, updated_at: nowFt,
                     }).select("id").single();
                     const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
                     showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null);
@@ -2222,8 +1643,8 @@ export default function TodayPage() {
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild("");
-                  // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
-                  loadData(); refreshTodayStory();
+                  await refreshTodayStory();
+                  await loadData();
                 }}
                 className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {ftSaving ? "Saving…" : "Save"}
@@ -2430,7 +1851,7 @@ export default function TodayPage() {
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="font-bold text-[#2d2926]">✍️ Log a Win</h2>
+                <h2 className="font-bold text-[#2d2926]">{winType === "win" ? "🏆 Log a Win" : "💛 Capture a Moment"}</h2>
                 <button onClick={() => setShowWinSheet(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
               </div>
 
@@ -2451,7 +1872,7 @@ export default function TodayPage() {
                 <textarea
                   value={winText}
                   onChange={(e) => setWinText(e.target.value)}
-                  placeholder={winType === "win" ? "What went great today?" : "Something they said or did..."}
+                  placeholder={winType === "win" ? "What did they accomplish today?" : "What do you want to remember?"}
                   rows={3}
                   className="w-full px-3 py-2.5 pr-12 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                 />
@@ -2520,8 +1941,8 @@ export default function TodayPage() {
                   setWinText("");
                   setWinChild("");
                   setShowWinSheet(false);
-                  // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
-                  loadData(); refreshTodayStory();
+                  await refreshTodayStory();
+                  await loadData();
                 }}
                 disabled={savingWin || !winText.trim()}
                 className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
@@ -2709,7 +2130,7 @@ export default function TodayPage() {
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="font-bold text-[#2d2926]">✍️ Log a Win</h2>
+                <h2 className="font-bold text-[#2d2926]">{winType === "win" ? "🏆 Log a Win" : "💛 Capture a Moment"}</h2>
                 <button onClick={() => { setShowWinSheet(false); setWinText(""); setWinChild(""); }} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
               </div>
 
@@ -2730,7 +2151,7 @@ export default function TodayPage() {
                 <textarea
                   value={winText}
                   onChange={(e) => setWinText(e.target.value)}
-                  placeholder={winType === "win" ? "What went great today?" : "Something they said or did..."}
+                  placeholder={winType === "win" ? "What did they accomplish today?" : "What do you want to remember?"}
                   rows={3}
                   className="w-full px-3 py-2.5 pr-12 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                 />
@@ -2782,6 +2203,7 @@ export default function TodayPage() {
                     const { data: { user } } = await supabase.auth.getUser();
                     if (!user) { setSavingWin(false); return; }
                     console.log("[Win save] user:", user.id, "winText:", winText.trim(), "winType:", winType, "childId:", winChild);
+                    const nowW = new Date().toISOString();
                     const { data: ins, error } = await supabase.from("memories").insert({
                       user_id: user.id,
                       child_id: winChild || null,
@@ -2789,6 +2211,7 @@ export default function TodayPage() {
                       type: winType,
                       title: winText.trim(),
                       include_in_book: false,
+                      created_at: nowW, updated_at: nowW,
                     }).select("id").single();
                     console.log("[Win save] result:", { data: ins, error });
                     if (error) {
@@ -2810,9 +2233,8 @@ export default function TodayPage() {
                     setWinText("");
                     setWinChild("");
                     setShowWinSheet(false);
-                    // REGRESSION: must await refreshTodayStory() then await loadData() after every save — do not remove or make fire-and-forget
-                    loadData();
-                    refreshTodayStory();
+                    await refreshTodayStory();
+                    await loadData();
                   } catch (err) {
                     console.error("Win save error:", err);
                     setSavingWin(false);
