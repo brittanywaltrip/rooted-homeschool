@@ -814,6 +814,13 @@ export default function TodayPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Refresh when FAB saves a memory from layout
+  useEffect(() => {
+    const handler = () => { refreshTodayStory(); loadData(); };
+    window.addEventListener("rooted:memory-saved", handler);
+    return () => window.removeEventListener("rooted:memory-saved", handler);
+  }, [loadData]);
+
   // Refresh today's story when user returns to tab (e.g. after camera app)
   useEffect(() => {
     const handleVisibility = () => {
@@ -1397,64 +1404,6 @@ export default function TodayPage() {
             );
           })()}
         </div>
-      )}
-
-      {/* ── 3. Capture button ──────────────────────────────────── */}
-      {!isPartner && (
-        <>
-          <div className="space-y-2">
-            <button
-              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-              style={{ background: "#2d5a3d" }}
-            >
-              📸 Capture a memory
-            </button>
-            <button
-              onClick={() => setShowCaptureMenu(true)}
-              className="w-full text-center text-xs text-[#9a8f85] hover:text-[#7a6f65] transition-colors py-0.5"
-            >
-              Or log a win, book, drawing, field trip →
-            </button>
-          </div>
-          <input
-            ref={captureFileRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) { console.error("[Photo capture] No user session"); return; }
-                const path = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-                const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
-                if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); return; }
-                const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-                const memType = captureTypeRef.current;
-                const now = new Date().toISOString();
-                const { data: ins, error: insErr } = await supabase.from("memories").insert({
-                  user_id: user.id, type: memType, title: null,
-                  photo_url: urlData.publicUrl, child_id: null,
-                  date: today, include_in_book: false,
-                  created_at: now, updated_at: now,
-                }).select("id").single();
-                if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); return; }
-                const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
-                showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
-                captureTypeRef.current = "photo"; // reset
-                setTotalMemories(prev => prev + 1);
-                await refreshTodayStory();
-                await loadData();
-                checkAndAwardBadges(user.id);
-              } finally {
-                if (e.target) e.target.value = "";
-              }
-            }}
-          />
-        </>
       )}
 
       <div className="h-2" />

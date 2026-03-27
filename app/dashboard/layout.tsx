@@ -208,27 +208,33 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   async function saveFabPhoto() {
     if (!fabFile || fabSaving) return;
     setFabSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setFabSaving(false); return; }
-    const path = `${user.id}/${Date.now()}-${fabFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-    const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, fabFile, { contentType: fabFile.type, upsert: false });
-    if (upErr) { setFabSaving(false); return; }
-    const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    await supabase.from("memories").insert({
-      user_id: user.id,
-      type: "photo",
-      title: fabCaption.trim() || null,
-      photo_url: urlData.publicUrl,
-      child_id: fabChildId || null,
-      date: today,
-      include_in_book: false,
-    });
-    setFabSaving(false); closeFabSheet();
-    setLeafBurst(true); setTimeout(() => setLeafBurst(false), 1200);
-    setFabToast("Memory saved 🌿"); setTimeout(() => setFabToast(null), 2000);
-    checkAndAwardBadges(user.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setFabSaving(false); return; }
+      const path = `${user.id}/${Date.now()}-${fabFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, fabFile, { contentType: fabFile.type, upsert: false });
+      if (upErr) { setFabSaving(false); setFabToast("Upload failed — check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
+      const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const { error: insErr } = await supabase.from("memories").insert({
+        user_id: user.id,
+        type: "photo",
+        title: fabCaption.trim() || null,
+        photo_url: urlData.publicUrl,
+        child_id: fabChildId || null,
+        date: today,
+        include_in_book: false,
+      });
+      if (insErr) { setFabSaving(false); setFabToast("Upload failed — check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
+      setFabSaving(false); closeFabSheet();
+      window.dispatchEvent(new CustomEvent("rooted:memory-saved", { detail: { type: "photo" } }));
+      setLeafBurst(true); setTimeout(() => setLeafBurst(false), 1200);
+      setFabToast("Memory saved 🌿"); setTimeout(() => setFabToast(null), 2000);
+      checkAndAwardBadges(user.id);
+    } catch {
+      setFabSaving(false); setFabToast("Upload failed — check your connection and try again"); setTimeout(() => setFabToast(null), 3000);
+    }
   }
 
   if (checking) {
@@ -465,8 +471,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         </nav>
 
 
-        {/* ── Floating Camera FAB (hidden on Today page) ────────── */}
-        {!partnerCtx.isPartner && !fabUrl && pathname !== "/dashboard" && (
+        {/* ── Floating Camera FAB ────────────────────────────────── */}
+        {!partnerCtx.isPartner && !fabUrl && (
           <button onClick={openFabPicker}
             className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 w-14 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 shadow-lg active:scale-90 transition-all hover:shadow-xl"
             style={{ backgroundColor: "#2d5a3d" }} aria-label="Capture a memory">
