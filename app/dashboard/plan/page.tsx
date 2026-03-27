@@ -23,6 +23,7 @@ type CurriculumGoal = {
   current_lesson: number | null;
   target_date: string | null;
   school_days: string[] | null;
+  created_at: string | null;
 };
 type Lesson  = {
   id: string;
@@ -205,34 +206,38 @@ function LessonCard({
         setIsDragging(true);
       }}
       onDragEnd={() => setIsDragging(false)}
-      className={`group rounded-xl p-2 border-l-[3px] transition-all relative ${
+      className={`group relative transition-all border-b border-[#f2ede6] last:border-b-0 ${
         isDragging
-          ? "opacity-50 shadow-none cursor-grabbing"
+          ? "opacity-50 cursor-grabbing"
           : canDrag
           ? "cursor-grab"
           : "cursor-pointer"
-      } ${!isDragging && lesson.completed ? "opacity-55" : ""} ${!isDragging && !lesson.completed ? "shadow-sm" : ""}`}
-      style={{ borderLeftColor: borderColor, backgroundColor: lesson.completed ? "#f0f7f1" : "white" }}
+      } ${!isDragging && lesson.completed ? "opacity-55" : ""}`}
+      style={{ padding: "7px 12px" }}
       onClick={() => !isDragging && setPopoverOpen((v) => !v)}
     >
-      <div className="flex items-start gap-1.5">
-        {canDrag && (
-          <span className="opacity-0 group-hover:opacity-100 text-[#b5aca4] text-[14px] leading-none mt-0.5 transition-opacity shrink-0 select-none cursor-grab">⠿</span>
-        )}
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggle(lesson.id, lesson.completed); }}
-          className={`mt-0.5 w-[15px] h-[15px] rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-            lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5] hover:border-[#5c7f63]"
-          }`}
-          aria-label={lesson.completed ? "Mark incomplete" : "Mark complete"}
-        >
-          {lesson.completed && (
+      <div className="flex items-center gap-2">
+        {/* Color dot OR green check */}
+        {lesson.completed ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggle(lesson.id, lesson.completed); }}
+            className="w-[16px] h-[16px] rounded-full bg-[#2d5a1b] flex items-center justify-center shrink-0 transition-colors"
+            aria-label="Mark incomplete"
+          >
             <svg viewBox="0 0 8 7" className="w-2 h-1.5">
               <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          )}
-        </button>
+          </button>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggle(lesson.id, lesson.completed); }}
+            className="w-[8px] h-[8px] rounded-full shrink-0 transition-colors hover:ring-2 hover:ring-[#5c7f63]/30"
+            style={{ backgroundColor: childObj?.color ?? borderColor }}
+            aria-label="Mark complete"
+          />
+        )}
 
+        {/* Lesson name + subject below */}
         <div className="flex-1 min-w-0">
           <p className={`text-[11px] font-semibold leading-tight ${
             lesson.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"
@@ -240,28 +245,25 @@ function LessonCard({
             {lesson.title}
           </p>
           {lesson.subjects && (
-            <span className="inline-block text-[9px] mt-1 font-semibold px-1.5 py-0.5 rounded-full leading-none"
-              style={{ backgroundColor: subStyle.bg, color: subStyle.text }}>
+            <p className="text-[10px] leading-tight mt-0.5" style={{ color: "#bbb" }}>
               {lesson.subjects.name}
-            </span>
+            </p>
           )}
-          <div className="flex gap-1 mt-1 flex-wrap items-center">
-            {childObj && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white leading-none"
-                style={{ backgroundColor: childObj.color ?? "#5c7f63" }}>
-                {childObj.name.charAt(0).toUpperCase()}
-              </span>
-            )}
-            {lesson.hours != null && lesson.hours > 0 && (
-              <span className="text-[9px] text-[#b5aca4] font-medium">{lesson.hours}h</span>
-            )}
-          </div>
         </div>
 
+        {/* Child avatar */}
+        {childObj && (
+          <span className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0"
+            style={{ backgroundColor: childObj.color ?? "#5c7f63" }}>
+            {childObj.name.charAt(0).toUpperCase()}
+          </span>
+        )}
+
+        {/* Menu */}
         {!isPartner && (
           <div className="relative shrink-0">
             <button onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-              className="w-5 h-5 rounded flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-xs leading-none"
+              className="w-5 h-5 rounded flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-xs leading-none opacity-0 group-hover:opacity-100"
               aria-label="Lesson options">
               ···
             </button>
@@ -384,7 +386,7 @@ function DayColumn({
         ) : <span className="mt-1 h-3" />}
       </div>
 
-      <div className="flex-1 p-1.5 space-y-1.5 min-h-[120px]">
+      <div className="flex-1 min-h-[120px]">
         {lessons.map((l) => (
           <LessonCard key={l.id} lesson={l} childObj={children.find((c) => c.id === l.child_id)}
             onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} isPartner={isPartner} />
@@ -490,7 +492,7 @@ export default function PlanPage() {
       supabase.from("profiles").select("onboarded, school_days").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at").eq("user_id", effectiveUserId).order("created_at"),
       supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
       supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
@@ -1267,13 +1269,78 @@ export default function PlanPage() {
                     )}
 
                     {/* Finish line date or nudge */}
-                    {targetDateLabel ? (
+                    {targetDateLabel && (
                       <p className="text-[10px] text-[#7a6f65]">
                         🎯 Finish line: <span className="font-medium">{targetDateLabel}</span>
                       </p>
-                    ) : (
-                      <span className="text-xs text-[#b5aca4]">No finish line set</span>
                     )}
+
+                    {/* Projected finish date */}
+                    {(() => {
+                      const goal = group.goalData;
+                      const currentLesson = goal?.current_lesson ?? completedCount;
+                      const totalLessons = goal?.total_lessons ?? group.totalCount;
+                      const lessonsRemaining = totalLessons - currentLesson;
+                      const createdAt = goal?.created_at;
+
+                      if (lessonsRemaining <= 0) return null;
+
+                      const startDate = createdAt ? new Date(createdAt) : null;
+                      if (!startDate) return <p style={{ fontSize: 11, color: "#aaa" }}>Log more lessons to see your pace</p>;
+
+                      const daysSinceCreated = Math.max(1, (Date.now() - startDate.getTime()) / 86400000);
+                      const weeksActive = Math.max(1, daysSinceCreated / 7);
+                      const weeklyPace = currentLesson / weeksActive;
+
+                      if (weeklyPace < 0.5) {
+                        return <p style={{ fontSize: 11, color: "#aaa" }}>Log more lessons to see your pace</p>;
+                      }
+
+                      const daysToFinish = (lessonsRemaining / weeklyPace) * 7;
+                      const projectedFinish = new Date(Date.now() + daysToFinish * 86400000);
+                      const thisYear = new Date().getFullYear();
+                      const fmtDate = (d: Date) => {
+                        const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+                        if (d.getFullYear() !== thisYear) opts.year = "numeric";
+                        return d.toLocaleDateString("en-US", opts);
+                      };
+                      const projectedLabel = fmtDate(projectedFinish);
+
+                      const targetDate = goal?.target_date ? new Date(goal.target_date + "T00:00:00") : null;
+
+                      if (targetDate) {
+                        const diffDays = Math.round((projectedFinish.getTime() - targetDate.getTime()) / 86400000);
+                        if (diffDays > 14) {
+                          return <p style={{ fontSize: 11, color: "#8a6d00" }}>Behind pace · projected {projectedLabel}</p>;
+                        }
+                        return <p style={{ fontSize: 11, color: "#2D5a1B" }}>✓ On track · finishes {projectedLabel}</p>;
+                      }
+
+                      return (
+                        <div>
+                          <p style={{ fontSize: 11, color: "#aaa" }}>Projected finish: {projectedLabel}</p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditWizardData({
+                                goalId: group.goalId ?? undefined,
+                                childId: group.childId ?? "",
+                                curricName: group.curricName,
+                                subjectLabel: goal?.subject_label ?? group.subjectName ?? null,
+                                totalLessons: goal?.total_lessons ?? group.totalCount,
+                                currentLesson: goal?.current_lesson ?? completedCount,
+                                targetDate: goal?.target_date ?? "",
+                                schoolDays: goal?.school_days ?? [],
+                              });
+                            }}
+                            style={{ fontSize: 11, color: "#5c7f63", marginTop: 2 }}
+                            className="hover:underline"
+                          >
+                            Set a goal date in edit →
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
             );
           })}
