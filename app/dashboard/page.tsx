@@ -1475,7 +1475,7 @@ export default function TodayPage() {
       })()}
 
             {/* ── Curriculum setup nudge ───────────────────────── */}
-      {!isPartner && !nudgeDismissed && children.length > 0 && subjects.length === 0 && (
+      {!isPartner && !nudgeDismissed && children.length > 0 && subjects.length === 0 && lessons.length === 0 && (
         <div className="flex items-start justify-between gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3.5">
           <div className="flex items-start gap-3 min-w-0">
             <span className="text-xl shrink-0 mt-0.5">👋</span>
@@ -1607,7 +1607,7 @@ export default function TodayPage() {
                 </div>
               );
             }
-            if (subjects.length === 0) return (
+            if (subjects.length === 0 && lessons.length === 0) return (
               <div className="py-8 flex flex-col items-center text-center">
                 <span className="text-[52px] block mb-2">🌿</span>
                 <p className="text-[20px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
