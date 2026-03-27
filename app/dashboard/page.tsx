@@ -823,12 +823,15 @@ export default function TodayPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Refresh when FAB saves a memory from layout
+  // Poll for new memories (e.g. FAB photo saved from layout)
   useEffect(() => {
-    const handler = () => { refreshTodayStory(); loadData(); };
-    window.addEventListener("rooted:memory-saved", handler);
-    return () => window.removeEventListener("rooted:memory-saved", handler);
-  }, [loadData]);
+    const interval = setInterval(() => {
+      refreshTodayStory();
+      loadData();
+    }, 15000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Refresh today's story when user returns to tab (e.g. after camera app)
   useEffect(() => {
