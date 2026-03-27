@@ -831,189 +831,6 @@ export default function PlanPage() {
     </PageHero>
     <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
 
-      {/* Child filter pills removed — curriculum cards already show child */}
-
-      {/* ── Manage Curriculum (collapsible by child) ──────── */}
-      {!isPartner && curricGroups.length > 0 && (() => {
-        const visibleCurricGroups = selectedChild
-          ? curricGroups.filter(g => g.childId === selectedChild)
-          : curricGroups;
-        if (visibleCurricGroups.length === 0) return null;
-
-        // Group by child
-        const groupsByChild = new Map<string, { child: Child | undefined; groups: CurriculumGroup[] }>();
-        for (const g of visibleCurricGroups) {
-          const key = g.childId ?? "__unassigned__";
-          if (!groupsByChild.has(key)) groupsByChild.set(key, { child: children.find((c) => c.id === g.childId), groups: [] });
-          groupsByChild.get(key)!.groups.push(g);
-        }
-
-        return (
-        <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">Your Curricula</p>
-          {Array.from(groupsByChild.entries()).map(([childKey, { child, groups: childGroups }]) => {
-            const isCollapsed = collapsedChildren.has(childKey);
-            const subjectCount = childGroups.length;
-            const totalAll = childGroups.reduce((s, g) => s + g.totalCount, 0);
-            const completedAll = childGroups.reduce((s, g) => s + (g.totalCount - g.remainingCount), 0);
-            const avgPct = totalAll > 0 ? Math.round((completedAll / totalAll) * 100) : 0;
-            const childName = child?.name ?? "Unassigned";
-            const childColor = child?.color ?? "#7a6f65";
-
-            return (
-              <div key={childKey}>
-                {/* ── Child collapsible header ── */}
-                <button
-                  onClick={() => setCollapsedChildren((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(childKey)) next.delete(childKey); else next.add(childKey);
-                    return next;
-                  })}
-                  className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9] rounded-2xl px-4 py-3 hover:bg-[#faf9f7] transition-colors text-left"
-                >
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white text-sm font-bold"
-                    style={{ backgroundColor: childColor }}>
-                    {childName.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[#2d2926] truncate">{childName}</p>
-                    <p className="text-xs text-[#7a6f65] mt-0.5">
-                      {subjectCount} {subjectCount === 1 ? "subject" : "subjects"}
-                      <span className="mx-1.5 text-[#e8e2d9]">|</span>
-                      <span className="text-[#5c7f63] font-semibold">{avgPct}% complete</span>
-                    </p>
-                  </div>
-                  <ChevronDown size={18} className={`shrink-0 text-[#b5aca4] transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`} />
-                </button>
-
-                {/* ── Collapsible cards ── */}
-                <div
-                  className="overflow-hidden transition-all duration-200 ease-in-out"
-                  style={{ maxHeight: isCollapsed ? "0px" : `${childGroups.length * 250}px`, opacity: isCollapsed ? 0 : 1 }}
-                >
-                  <div className="space-y-2 pt-2">
-          {childGroups.map((group) => {
-            const subStyle = getSubjectStyle(group.subjectName ?? undefined);
-            const completedCount = group.totalCount - group.remainingCount;
-            const pct = group.totalCount > 0 ? Math.round((completedCount / group.totalCount) * 100) : 0;
-            const paceStatus = calcPaceStatus(group.remainingCount, group.goalData?.target_date ?? null, group.goalData?.school_days ?? null);
-            const targetDateLabel = group.goalData?.target_date
-              ? new Date(group.goalData.target_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-              : null;
-            return (
-                  <div key={group.key} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3 space-y-2">
-                    <div className="flex items-center gap-3">
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-semibold text-[#2d2926] truncate">{group.curricName}</p>
-                          {group.subjectName && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                              style={{ backgroundColor: subStyle.bg, color: subStyle.text }}>
-                              {group.subjectName}
-                            </span>
-                          )}
-                          {paceStatus && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                              style={{ backgroundColor: paceStatus.bg, color: paceStatus.color }}>
-                              {paceStatus.label}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-[#7a6f65] mt-0.5">
-                          <span className="text-[#5c7f63] font-semibold">{group.remainingCount} remaining</span>
-                          <span className="text-[#b5aca4]"> / {group.totalCount} total</span>
-                        </p>
-                      </div>
-
-                      {/* ··· Menu */}
-                      <div className="relative shrink-0">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setExpandedCurricMenu(expandedCurricMenu === group.key ? null : group.key); }}
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors text-sm font-bold">
-                          ···
-                        </button>
-                        {expandedCurricMenu === group.key && (
-                          <>
-                            <div className="fixed inset-0 z-20" onClick={() => setExpandedCurricMenu(null)} />
-                            <div className="absolute right-0 top-8 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[120px]">
-                              <button onClick={() => {
-                                setExpandedCurricMenu(null);
-                                setEditWizardData({
-                                  goalId: group.goalId ?? undefined,
-                                  childId: group.childId ?? "",
-                                  curricName: group.curricName,
-                                  subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
-                                  totalLessons: group.goalData?.total_lessons ?? group.totalCount,
-                                  currentLesson: group.goalData?.current_lesson ?? completedCount,
-                                  targetDate: group.goalData?.target_date ?? "",
-                                  schoolDays: group.goalData?.school_days ?? [],
-                                });
-                              }}
-                                className="w-full text-left px-3 py-2.5 text-xs text-[#2d2926] hover:bg-[#f8f7f4] transition-colors">✏️ Edit</button>
-                              <button onClick={() => { setExpandedCurricMenu(null); setDeleteConfirmGroup(group); }}
-                                className="w-full text-left px-3 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">🗑 Remove</button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Progress bar */}
-                    {group.totalCount > 0 && (
-                      <div className="h-1.5 bg-[#f0ede8] rounded-full overflow-hidden">
-                        <div className="h-full bg-[#5c7f63] rounded-full transition-all" style={{ width: `${pct}%` }} />
-                      </div>
-                    )}
-
-                    {/* Finish line date or nudge */}
-                    {targetDateLabel ? (
-                      <p className="text-[10px] text-[#7a6f65]">
-                        🎯 Finish line: <span className="font-medium">{targetDateLabel}</span>
-                      </p>
-                    ) : (
-                      <span className="text-xs text-[#b5aca4]">No finish line set</span>
-                    )}
-                  </div>
-            );
-          })}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        );
-      })()}
-
-      {/* ── Curriculum empty state ───────────────────────────── */}
-      {!loading && !isPartner && curricGroups.length === 0 && curriculumGoals.length === 0 && subjects.length === 0 && (
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-8 flex flex-col items-center text-center">
-          <span className="text-4xl mb-4">🌱</span>
-          <h2 className="text-xl font-semibold text-[#3d5c42] mb-2">Your plan is ready to grow!</h2>
-          <p className="text-sm text-[#7a6f65] leading-relaxed max-w-sm mx-auto mb-6">
-            Start by setting up your curriculum. Add your subjects, lessons, and schedule — it only takes a few minutes and sets the foundation for everything in Rooted.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-5">
-            <button
-              onClick={() => setShowCreateWizard(true)}
-              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
-            >
-              Set Up Curriculum →
-            </button>
-            <a
-              href="https://rootedhomeschoolapp.com/tour"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
-            >
-              Watch how it works
-            </a>
-          </div>
-          <p className="text-xs text-[#b5aca4]">💡 Tip: Most families get set up in under 5 minutes</p>
-        </div>
-      )}
-
       {/* ── Week / Month toggle ──────────────────────────────── */}
       <div className="flex items-center gap-1 bg-[#f0ede8] rounded-full p-1 w-fit">
         <button
@@ -1343,6 +1160,187 @@ export default function PlanPage() {
       )}
 
 
+      {/* ── Manage Curriculum (collapsible by child) ──────── */}
+      {!isPartner && curricGroups.length > 0 && (() => {
+        const visibleCurricGroups = selectedChild
+          ? curricGroups.filter(g => g.childId === selectedChild)
+          : curricGroups;
+        if (visibleCurricGroups.length === 0) return null;
+
+        // Group by child
+        const groupsByChild = new Map<string, { child: Child | undefined; groups: CurriculumGroup[] }>();
+        for (const g of visibleCurricGroups) {
+          const key = g.childId ?? "__unassigned__";
+          if (!groupsByChild.has(key)) groupsByChild.set(key, { child: children.find((c) => c.id === g.childId), groups: [] });
+          groupsByChild.get(key)!.groups.push(g);
+        }
+
+        return (
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">Your Curricula</p>
+          {Array.from(groupsByChild.entries()).map(([childKey, { child, groups: childGroups }]) => {
+            const isCollapsed = collapsedChildren.has(childKey);
+            const subjectCount = childGroups.length;
+            const totalAll = childGroups.reduce((s, g) => s + g.totalCount, 0);
+            const completedAll = childGroups.reduce((s, g) => s + (g.totalCount - g.remainingCount), 0);
+            const avgPct = totalAll > 0 ? Math.round((completedAll / totalAll) * 100) : 0;
+            const childName = child?.name ?? "Unassigned";
+            const childColor = child?.color ?? "#7a6f65";
+
+            return (
+              <div key={childKey}>
+                {/* ── Child collapsible header ── */}
+                <button
+                  onClick={() => setCollapsedChildren((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(childKey)) next.delete(childKey); else next.add(childKey);
+                    return next;
+                  })}
+                  className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9] rounded-2xl px-4 py-3 hover:bg-[#faf9f7] transition-colors text-left"
+                >
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white text-sm font-bold"
+                    style={{ backgroundColor: childColor }}>
+                    {childName.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[#2d2926] truncate">{childName}</p>
+                    <p className="text-xs text-[#7a6f65] mt-0.5">
+                      {subjectCount} {subjectCount === 1 ? "subject" : "subjects"}
+                      <span className="mx-1.5 text-[#e8e2d9]">|</span>
+                      <span className="text-[#5c7f63] font-semibold">{avgPct}% complete</span>
+                    </p>
+                  </div>
+                  <ChevronDown size={18} className={`shrink-0 text-[#b5aca4] transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`} />
+                </button>
+
+                {/* ── Collapsible cards ── */}
+                <div
+                  className="overflow-hidden transition-all duration-200 ease-in-out"
+                  style={{ maxHeight: isCollapsed ? "0px" : `${childGroups.length * 250}px`, opacity: isCollapsed ? 0 : 1 }}
+                >
+                  <div className="space-y-2 pt-2">
+          {childGroups.map((group) => {
+            const subStyle = getSubjectStyle(group.subjectName ?? undefined);
+            const completedCount = group.totalCount - group.remainingCount;
+            const pct = group.totalCount > 0 ? Math.round((completedCount / group.totalCount) * 100) : 0;
+            const paceStatus = calcPaceStatus(group.remainingCount, group.goalData?.target_date ?? null, group.goalData?.school_days ?? null);
+            const targetDateLabel = group.goalData?.target_date
+              ? new Date(group.goalData.target_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+              : null;
+            return (
+                  <div key={group.key} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-3">
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-[#2d2926] truncate">{group.curricName}</p>
+                          {group.subjectName && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                              style={{ backgroundColor: subStyle.bg, color: subStyle.text }}>
+                              {group.subjectName}
+                            </span>
+                          )}
+                          {paceStatus && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                              style={{ backgroundColor: paceStatus.bg, color: paceStatus.color }}>
+                              {paceStatus.label}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#7a6f65] mt-0.5">
+                          <span className="text-[#5c7f63] font-semibold">{group.remainingCount} remaining</span>
+                          <span className="text-[#b5aca4]"> / {group.totalCount} total</span>
+                        </p>
+                      </div>
+
+                      {/* ··· Menu */}
+                      <div className="relative shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setExpandedCurricMenu(expandedCurricMenu === group.key ? null : group.key); }}
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors text-sm font-bold">
+                          ···
+                        </button>
+                        {expandedCurricMenu === group.key && (
+                          <>
+                            <div className="fixed inset-0 z-20" onClick={() => setExpandedCurricMenu(null)} />
+                            <div className="absolute right-0 top-8 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[120px]">
+                              <button onClick={() => {
+                                setExpandedCurricMenu(null);
+                                setEditWizardData({
+                                  goalId: group.goalId ?? undefined,
+                                  childId: group.childId ?? "",
+                                  curricName: group.curricName,
+                                  subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
+                                  totalLessons: group.goalData?.total_lessons ?? group.totalCount,
+                                  currentLesson: group.goalData?.current_lesson ?? completedCount,
+                                  targetDate: group.goalData?.target_date ?? "",
+                                  schoolDays: group.goalData?.school_days ?? [],
+                                });
+                              }}
+                                className="w-full text-left px-3 py-2.5 text-xs text-[#2d2926] hover:bg-[#f8f7f4] transition-colors">✏️ Edit</button>
+                              <button onClick={() => { setExpandedCurricMenu(null); setDeleteConfirmGroup(group); }}
+                                className="w-full text-left px-3 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">🗑 Remove</button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Progress bar */}
+                    {group.totalCount > 0 && (
+                      <div className="h-1.5 bg-[#f0ede8] rounded-full overflow-hidden">
+                        <div className="h-full bg-[#5c7f63] rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                    )}
+
+                    {/* Finish line date or nudge */}
+                    {targetDateLabel ? (
+                      <p className="text-[10px] text-[#7a6f65]">
+                        🎯 Finish line: <span className="font-medium">{targetDateLabel}</span>
+                      </p>
+                    ) : (
+                      <span className="text-xs text-[#b5aca4]">No finish line set</span>
+                    )}
+                  </div>
+            );
+          })}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        );
+      })()}
+
+      {/* ── Curriculum empty state ───────────────────────────── */}
+      {!loading && !isPartner && curricGroups.length === 0 && curriculumGoals.length === 0 && subjects.length === 0 && allLessons.length === 0 && (
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-8 flex flex-col items-center text-center">
+          <span className="text-4xl mb-4">🌱</span>
+          <h2 className="text-xl font-semibold text-[#3d5c42] mb-2">Your plan is ready to grow!</h2>
+          <p className="text-sm text-[#7a6f65] leading-relaxed max-w-sm mx-auto mb-6">
+            Start by setting up your curriculum. Add your subjects, lessons, and schedule — it only takes a few minutes and sets the foundation for everything in Rooted.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-5">
+            <button
+              onClick={() => setShowCreateWizard(true)}
+              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
+            >
+              Set Up Curriculum →
+            </button>
+            <a
+              href="https://rootedhomeschoolapp.com/tour"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+            >
+              Watch how it works
+            </a>
+          </div>
+          <p className="text-xs text-[#b5aca4]">💡 Tip: Most families get set up in under 5 minutes</p>
+        </div>
+      )}
+
       {/* ══════════════════════════════════════════════════════
           ADD A BREAK MODAL
       ══════════════════════════════════════════════════════ */}
@@ -1429,6 +1427,18 @@ export default function PlanPage() {
         <div className="space-y-3 pt-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4]">Manage</p>
 
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setShowCreateWizard(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-white hover:bg-[#e8f0e9] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
+              + New Curriculum
+            </button>
+            <button
+              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+              className="flex items-center gap-1.5 text-xs font-semibold text-[#7a6f65] bg-white hover:bg-[#f0ede8] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
+              + Add Break / Vacation
+            </button>
+          </div>
+
           {/* Existing vacation blocks */}
           {vacationBlocks.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -1446,18 +1456,6 @@ export default function PlanPage() {
               })}
             </div>
           )}
-
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setShowCreateWizard(true)}
-              className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-white hover:bg-[#e8f0e9] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
-              + New Curriculum
-            </button>
-            <button
-              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
-              className="flex items-center gap-1.5 text-xs font-semibold text-[#7a6f65] bg-white hover:bg-[#f0ede8] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
-              + Add Break / Vacation
-            </button>
-          </div>
         </div>
       )}
 
