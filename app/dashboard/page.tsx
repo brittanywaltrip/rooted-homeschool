@@ -462,6 +462,7 @@ export default function TodayPage() {
     date: string;
     lessons: { title: string; childId: string | null; subjectName: string | null }[];
   } | null>(null);
+  const [upcomingDays,           setUpcomingDays]           = useState<{ date: string; count: number }[]>([]);
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
@@ -696,8 +697,16 @@ export default function TodayPage() {
           subjectName: l.subjects?.name ?? null,
         })),
       });
+      // Build upcoming days pills (next 2 days with lessons)
+      const dayMap = new Map<string, number>();
+      for (const r of rows) {
+        const d = r.scheduled_date ?? "";
+        if (d) dayMap.set(d, (dayMap.get(d) ?? 0) + 1);
+      }
+      setUpcomingDays(Array.from(dayMap.entries()).slice(0, 2).map(([date, count]) => ({ date, count })));
     } else {
       setUpcomingDay(null);
+      setUpcomingDays([]);
     }
 
     // ── Book Cover: total memories this school year ────────────────────
@@ -1391,6 +1400,37 @@ export default function TodayPage() {
           </div>
         );
       })()}
+
+      {/* ── Empty state: no lessons today ──────────────────────── */}
+      {children.length > 0 && hasAnyLessons && lessons.length === 0 && (
+        <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e8e0d4", padding: 16, textAlign: "center" }}>
+          <p style={{ fontSize: 13, color: "#9a8f85" }}>
+            {(() => { const dow = new Date().getDay(); return dow === 0 || dow === 6 ? "Enjoy your day off! 🌿" : "No lessons scheduled today 🌿"; })()}
+          </p>
+        </div>
+      )}
+
+      {/* ── Coming Up — next 2 days with lessons ──────────── */}
+      {upcomingDays.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">COMING UP</p>
+          <div className="flex gap-2">
+            {upcomingDays.map(({ date, count }) => {
+              const d = new Date(date + "T12:00:00");
+              const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
+              return (
+                <Link
+                  key={date}
+                  href="/dashboard/plan"
+                  style={{ background: "#fff", border: "0.5px solid #e8e0d4", borderRadius: 20, padding: "5px 12px", fontSize: 11, color: "#7a6f65", fontWeight: 500 }}
+                >
+                  {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           NEW USER STATE — no memories, no curriculum

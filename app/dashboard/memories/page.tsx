@@ -252,7 +252,12 @@ export default function MemoriesPage() {
     load();
     const onVisible = () => { if (document.visibilityState === 'visible') load(); };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    const onMemorySaved = () => load();
+    window.addEventListener('rooted:memory-saved', onMemorySaved);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('rooted:memory-saved', onMemorySaved);
+    };
   }, [load]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
