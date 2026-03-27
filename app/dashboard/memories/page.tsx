@@ -535,7 +535,7 @@ export default function MemoriesPage() {
             <p className="text-xs text-[#7a6f65] mt-0.5">Generate a warm AI summary of your homeschool week to share with family and friends.</p>
           </div>
         </div>
-        <span className="text-[#5c7f63] text-lg shrink-0 group-hover:translate-x-0.5 transition-transform">Open →</span>
+        <span className="bg-[#3d5c42] text-white text-sm font-medium px-4 py-1.5 rounded-full shrink-0 group-hover:bg-[#2d5a3d] transition-colors">Open →</span>
       </Link>
 
       {/* ── Child filter bar ─────────────────────────────────── */}
