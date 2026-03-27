@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   }
 
   // Look up founding members by their known email addresses
-  const { data: authList } = await supabaseAdmin.auth.admin.listUsers();
+  const { data: authList } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
   const allUsers = authList?.users ?? [];
   const emailToUser = new Map(allUsers.map((u) => [u.email?.toLowerCase(), u]));
 
