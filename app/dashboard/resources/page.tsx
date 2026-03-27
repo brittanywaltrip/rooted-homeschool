@@ -490,15 +490,8 @@ export default function ResourcesPage() {
 
   return (
     <>
+    <PageHero overline="Discover" title="Resources 🌿" subtitle="Curated for your homeschool." />
     <div className="max-w-3xl px-4 pt-6 pb-8 space-y-8" style={{ background: "#faf9f6" }}>
-
-      {/* ── 1. Header ──────────────────────────────────────────── */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Discover</p>
-        <h1 className="text-3xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>Resources {"\uD83C\uDF3F"}</h1>
-        <p className="text-sm text-[#7a6f65] mt-1">Curated for your homeschool.</p>
-
-      </div>
 
       {/* ── 2. This Week's Free Picks ───────────────────────────── */}
       <div>
