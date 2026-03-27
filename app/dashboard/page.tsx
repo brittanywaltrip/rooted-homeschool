@@ -1341,31 +1341,37 @@ export default function TodayPage() {
             ref={captureFileRef}
             type="file"
             accept="image/*"
+            capture="environment"
             className="hidden"
             onChange={async (e) => {
               const file = e.target.files?.[0];
-              if (e.target) e.target.value = "";
               if (!file) return;
-              const { data: { user } } = await supabase.auth.getUser();
-              if (!user) return;
-              const path = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-              const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
-              if (upErr) return;
-              const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-              const memType = captureTypeRef.current;
-              const now = new Date().toISOString();
-              const { data: ins } = await supabase.from("memories").insert({
-                user_id: user.id, type: memType, title: null,
-                photo_url: urlData.publicUrl, child_id: null,
-                date: today, include_in_book: false,
-                created_at: now, updated_at: now,
-              }).select("id").single();
-              const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
-              showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
-              captureTypeRef.current = "photo"; // reset
-              await refreshTodayStory();
-              await loadData();
-              checkAndAwardBadges(user.id);
+              try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) { console.error("[Photo capture] No user session"); return; }
+                const path = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+                const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
+                if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); return; }
+                const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+                const memType = captureTypeRef.current;
+                const now = new Date().toISOString();
+                const { data: ins, error: insErr } = await supabase.from("memories").insert({
+                  user_id: user.id, type: memType, title: null,
+                  photo_url: urlData.publicUrl, child_id: null,
+                  date: today, include_in_book: false,
+                  created_at: now, updated_at: now,
+                }).select("id").single();
+                if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); return; }
+                const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
+                showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
+                captureTypeRef.current = "photo"; // reset
+                setTotalMemories(prev => prev + 1);
+                await refreshTodayStory();
+                await loadData();
+                checkAndAwardBadges(user.id);
+              } finally {
+                if (e.target) e.target.value = "";
+              }
             }}
           />
         </>
