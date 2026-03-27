@@ -1286,6 +1286,15 @@ export default function TodayPage() {
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
 
+      {/* ── Time-based greeting ────────────────────────────────── */}
+      <p className="text-[16px] font-semibold text-[#3d5c42]">
+        {(() => {
+          const h = new Date().getHours();
+          const timeOfDay = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+          return familyName ? `${timeOfDay}, ${familyName}!` : `${timeOfDay}!`;
+        })()}
+      </p>
+
       {/* ── Daily inspiration prompt (active users) ──────────── */}
       {!isPartner && totalMemories > 0 && (() => {
         const prompts = [
