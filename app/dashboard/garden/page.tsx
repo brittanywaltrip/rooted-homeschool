@@ -802,16 +802,6 @@ export default function GardenPage() {
           </div>
           <span className="text-[#5c7f63] text-lg">↗</span>
         </Link>
-        <Link
-          href="/dashboard/year-in-review"
-          className="flex items-center justify-between bg-white border border-[#e8e2d9] rounded-xl px-4 py-3 hover:bg-[#f8f7f4] transition-colors"
-        >
-          <div>
-            <p className="text-sm font-semibold text-[#2d2926]">Year in Review</p>
-            <p className="text-xs text-[#7a6f65] mt-0.5">AI-generated annual keepsake ✨</p>
-          </div>
-          <span className="text-[#5c7f63] text-lg">↗</span>
-        </Link>
       </div>
 
       <div className="h-4" />
