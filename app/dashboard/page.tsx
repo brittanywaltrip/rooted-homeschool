@@ -2303,7 +2303,7 @@ export default function TodayPage() {
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="font-bold text-[#2d2926]">✍️ Log a Win</h2>
+                <h2 className="font-bold text-[#2d2926]">{winType === "win" ? "🏆 Log a Win" : "💛 Capture a Moment"}</h2>
                 <button onClick={() => setShowWinSheet(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
               </div>
 
@@ -2324,7 +2324,7 @@ export default function TodayPage() {
                 <textarea
                   value={winText}
                   onChange={(e) => setWinText(e.target.value)}
-                  placeholder={winType === "win" ? "What went great today?" : "Something they said or did..."}
+                  placeholder={winType === "win" ? "What did they accomplish today?" : "What do you want to remember?"}
                   rows={3}
                   className="w-full px-3 py-2.5 pr-12 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                 />
@@ -2582,7 +2582,7 @@ export default function TodayPage() {
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="font-bold text-[#2d2926]">✍️ Log a Win</h2>
+                <h2 className="font-bold text-[#2d2926]">{winType === "win" ? "🏆 Log a Win" : "💛 Capture a Moment"}</h2>
                 <button onClick={() => { setShowWinSheet(false); setWinText(""); setWinChild(""); }} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
               </div>
 
@@ -2603,7 +2603,7 @@ export default function TodayPage() {
                 <textarea
                   value={winText}
                   onChange={(e) => setWinText(e.target.value)}
-                  placeholder={winType === "win" ? "What went great today?" : "Something they said or did..."}
+                  placeholder={winType === "win" ? "What did they accomplish today?" : "What do you want to remember?"}
                   rows={3}
                   className="w-full px-3 py-2.5 pr-12 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                 />
