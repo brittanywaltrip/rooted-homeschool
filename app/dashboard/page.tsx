@@ -465,6 +465,7 @@ export default function TodayPage() {
   const [totalMemories, setTotalMemories] = useState(0);
   const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
   const [lastPhoto, setLastPhoto] = useState<{ id: string; title: string; photo_url: string; date: string; child_id: string | null } | null>(null);
+  const [lastMemory, setLastMemory] = useState<{ id: string; type: string; title: string | null; date: string; child_id: string | null } | null>(null);
   const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null; photo_url: string | null } | null>(null);
   const [onThisDayTier, setOnThisDayTier] = useState<1 | 2 | 3>(3);
   const [showWinSheet, setShowWinSheet] = useState(false);
@@ -774,6 +775,17 @@ export default function TodayPage() {
       .limit(1)
       .maybeSingle();
     setLastPhoto(lastPhotoData as typeof lastPhoto);
+
+    // ── Last memory (any type) for empty state ───────────────────────────
+    const { data: lastMemData } = await supabase
+      .from("memories")
+      .select("id, type, title, date, child_id")
+      .eq("user_id", effectiveUserId)
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setLastMemory(lastMemData as typeof lastMemory);
 
     // ── On This Day — 3-tier system ─────────────────────────────────────
     const otdNow = new Date();
@@ -1397,6 +1409,69 @@ export default function TodayPage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ── Empty state: last memory + daily prompt ──────────── */}
+      {!loading && lessons.length === 0 && todayStory.length === 0 && (
+        <div className="space-y-3">
+          {/* Last memory card */}
+          {lastMemory && (() => {
+            const icons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🗒️", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
+            const icon = icons[lastMemory.type] ?? "🌿";
+            const child = lastMemory.child_id ? children.find((c) => c.id === lastMemory.child_id) : null;
+            const memDate = new Date(lastMemory.date + "T00:00:00");
+            const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+            const diffDays = Math.round((todayDate.getTime() - memDate.getTime()) / 86400000);
+            const dateLabel = diffDays === 0 ? "Today" : diffDays === 1 ? "Yesterday" : memDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            const meta = [dateLabel, child?.name].filter(Boolean).join(" · ");
+            return (
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">LAST MEMORY</p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", lastMemory.id).single();
+                    if (data) {
+                      setEditSheet({ id: data.id, title: data.title ?? "", caption: data.caption ?? "", child_id: data.child_id ?? "", type: data.type });
+                      setEditDeleteConfirm(false);
+                    }
+                  }}
+                  className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9]/50 rounded-[14px] px-3.5 py-3 text-left hover:bg-[#faf9f7] transition-colors"
+                >
+                  <span className="text-xl shrink-0">{icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-[#2d2926] truncate">{lastMemory.title ?? "Untitled"}</p>
+                    <p className="text-[11px] text-[#b5aca4] mt-0.5">{meta}</p>
+                  </div>
+                  <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* Daily prompt */}
+          {(() => {
+            const prompts = [
+              "What did your family do together today?",
+              "What made your kids laugh this week?",
+              "What\u2019s something they\u2019re getting really good at?",
+              "What did you do today that you want to remember?",
+              "What\u2019s a moment from this week worth writing down?",
+              "What are you most proud of this week?",
+              "What\u2019s one thing you want to remember from this week?",
+            ];
+            const dayOfWeek = new Date().getDay();
+            const prompt = prompts[dayOfWeek];
+            return (
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S PROMPT</p>
+                <div className="bg-white border border-[#e8e2d9]/50 rounded-[14px] px-3.5 py-3">
+                  <p className="text-[13px] text-[#7a6f65] italic leading-relaxed">&ldquo;{prompt}&rdquo;</p>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
