@@ -987,7 +987,7 @@ export default function PlanPage() {
       })()}
 
       {/* ── Curriculum empty state ───────────────────────────── */}
-      {!loading && !isPartner && curricGroups.length === 0 && (
+      {!loading && !isPartner && curricGroups.length === 0 && curriculumGoals.length === 0 && subjects.length === 0 && (
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-8 flex flex-col items-center text-center">
           <span className="text-4xl mb-4">🌱</span>
           <h2 className="text-xl font-semibold text-[#3d5c42] mb-2">Your plan is ready to grow!</h2>
@@ -1013,45 +1013,6 @@ export default function PlanPage() {
           <p className="text-xs text-[#b5aca4]">💡 Tip: Most families get set up in under 5 minutes</p>
         </div>
       )}
-
-      {/* ── Breaks & Holidays ────────────────────────────────── */}
-      {!isPartner && (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">Breaks &amp; Holidays</p>
-
-          {/* Saved blocks as chips */}
-          {vacationBlocks.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {vacationBlocks.map((block) => {
-                const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                return (
-                  <div key={block.id} className="flex items-center gap-1.5 bg-[#fef9e8] border border-[#f0dda8] rounded-full px-3 py-1.5 text-sm text-[#7a4a1a]">
-                    <span>🌴 {block.name} · {s}–{e}</span>
-                    <button onClick={() => deleteVacationBlock(block.id)} className="text-[#c8bfb5] hover:text-red-400 transition-colors ml-0.5" aria-label="Remove break">
-                      <X size={12} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <button
-            onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
-            className="flex items-center gap-1.5 text-xs font-semibold text-[#7a4a1a] bg-[#fef9e8] hover:bg-[#fef0d0] px-3 py-1.5 rounded-full transition-colors border border-[#f0dda8]"
-          >
-            <Plus size={12} strokeWidth={2.5} />Add a Break
-          </button>
-          <button
-            onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
-            className="px-4 py-2 bg-[#e0f0f7] border border-[#b0d5e8] text-[#0C447C] text-sm font-semibold rounded-full hover:bg-[#c8e4f0] transition-colors"
-          >
-            + Add vacation
-          </button>
-        </div>
-      )}
-
 
       {/* ── Week / Month toggle ──────────────────────────────── */}
       <div className="flex items-center gap-1 bg-[#f0ede8] rounded-full p-1 w-fit">
@@ -1467,6 +1428,25 @@ export default function PlanPage() {
       {!isPartner && (
         <div className="space-y-3 pt-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4]">Manage</p>
+
+          {/* Existing vacation blocks */}
+          {vacationBlocks.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {vacationBlocks.map((block) => {
+                const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                return (
+                  <div key={block.id} className="flex items-center gap-1.5 bg-[#fef9e8] border border-[#f0dda8] rounded-full px-3 py-1.5 text-sm text-[#7a4a1a]">
+                    <span>🌴 {block.name} · {s}–{e}</span>
+                    <button onClick={() => deleteVacationBlock(block.id)} className="text-[#c8bfb5] hover:text-red-400 transition-colors ml-0.5" aria-label="Remove break">
+                      <X size={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
             <button onClick={() => setShowCreateWizard(true)}
               className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-white hover:bg-[#e8f0e9] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
