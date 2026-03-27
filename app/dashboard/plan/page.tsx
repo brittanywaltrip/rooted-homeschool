@@ -1206,8 +1206,12 @@ export default function PlanPage() {
                     <p className="text-sm font-semibold text-[#2d2926] truncate">{childName}</p>
                     <p className="text-xs text-[#7a6f65] mt-0.5">
                       {subjectCount} {subjectCount === 1 ? "subject" : "subjects"}
-                      <span className="mx-1.5 text-[#e8e2d9]">|</span>
-                      <span className="text-[#5c7f63] font-semibold">{avgPct}% complete</span>
+                      {avgPct >= 10 && (
+                        <>
+                          <span className="mx-1.5 text-[#e8e2d9]">|</span>
+                          <span className="text-[#5c7f63] font-semibold">{avgPct}% complete</span>
+                        </>
+                      )}
                     </p>
                   </div>
                   <ChevronDown size={18} className={`shrink-0 text-[#b5aca4] transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`} />
@@ -1286,8 +1290,8 @@ export default function PlanPage() {
                       </div>
                     </div>
 
-                    {/* Progress bar */}
-                    {group.totalCount > 0 && (
+                    {/* Progress bar — only show when 10%+ to avoid discouraging new users */}
+                    {group.totalCount > 0 && pct >= 10 && (
                       <div className="h-1.5 bg-[#f0ede8] rounded-full overflow-hidden">
                         <div className="h-full bg-[#5c7f63] rounded-full transition-all" style={{ width: `${pct}%` }} />
                       </div>
