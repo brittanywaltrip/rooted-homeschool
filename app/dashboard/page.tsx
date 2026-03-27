@@ -1172,6 +1172,9 @@ export default function TodayPage() {
 
   const childrenWithLessons = children.filter(c => lessons.some(l => l.child_id === c.id));
 
+  // Expanded child panel for lesson swipe
+  const [expandedChild, setExpandedChild] = useState<string | null>(null);
+
   if (loading) {
     return (
       <>
@@ -1222,92 +1225,258 @@ export default function TodayPage() {
 
   return (
     <>
-      {/* ── Compact header line ──────────────────────────────── */}
-      <div className="mx-5 mt-4 flex items-center justify-between">
-        <p className="text-sm text-[#7a6f65]">
-          {totalMemories > 0 && <>{totalMemories} 🌿 memories</>}
-          {totalMemories > 0 && activeDaysThisMonth > 0 && <> · </>}
-          {activeDaysThisMonth > 0 && <>{activeDaysThisMonth} day{activeDaysThisMonth !== 1 ? "s" : ""} active in {new Date().toLocaleDateString("en-US", { month: "long" })}</>}
-          {totalMemories === 0 && activeDaysThisMonth === 0 && <>Welcome to Rooted 🌿</>}
+      {/* ═══════════════════════════════════════════════════════════
+          HEADER CARD — dark green, leaf watermark
+         ═══════════════════════════════════════════════════════════ */}
+      <div
+        className="mx-[10px] mt-[10px] relative overflow-hidden"
+        style={{ backgroundColor: "#2D5a1B", borderRadius: 16, padding: 16 }}
+      >
+        {/* Leaf watermark */}
+        <span
+          className="absolute select-none pointer-events-none"
+          style={{ top: -8, right: -4, fontSize: 80, opacity: 0.1, lineHeight: 1 }}
+          aria-hidden
+        >🌿</span>
+
+        {/* Eyebrow: family name */}
+        {familyName && (
+          <p style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+            {familyName}
+          </p>
+        )}
+
+        {/* Greeting */}
+        <p style={{ fontFamily: "Lora, Georgia, serif", fontWeight: 700, fontSize: 22, color: "#fff", lineHeight: 1.25 }}>
+          {(() => {
+            const h = new Date().getHours();
+            const tod = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+            return firstName ? `${tod}, ${firstName}` : tod;
+          })()}
         </p>
-        <p className="text-sm text-[#b5aca4] shrink-0 ml-3">
-          {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
-        </p>
+
+        {/* Date + stats row */}
+        <div className="flex items-center justify-between mt-2">
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+            {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+          </span>
+          {totalMemories > 0 && (
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+              {totalMemories} memories{activeDaysThisMonth > 0 ? ` · ${activeDaysThisMonth} day${activeDaysThisMonth !== 1 ? "s" : ""} active` : ""}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-5 pt-3 pb-7 space-y-4">
+      <div className="max-w-2xl mx-auto px-5 pt-4 pb-7 space-y-5">
 
-      {/* ── Time-based greeting ────────────────────────────────── */}
-      <p className="text-[16px] font-semibold text-[#3d5c42]">
-        {(() => {
-          const h = new Date().getHours();
-          const timeOfDay = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
-          return familyName ? `${timeOfDay}, ${familyName}!` : `${timeOfDay}!`;
-        })()}
-      </p>
-
-      {/* ── 1. Today's Lessons (compact, all children) ──────── */}
-      {children.length > 0 && lessons.length > 0 && (
+      {/* ═══════════════════════════════════════════════════════════
+          LESSON SWIPE — horizontal child cards + expandable panel
+         ═══════════════════════════════════════════════════════════ */}
+      {hasAnyLessons && lessons.length > 0 && (
         <div>
-          <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S LESSONS</p>
-          <div className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S LESSONS</p>
+
+          {/* Horizontal scrollable child cards */}
+          <div className="flex gap-2.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}>
+            <style>{`.flex::-webkit-scrollbar { display: none; }`}</style>
             {(() => {
               const childIds = new Set(children.map(c => c.id));
-              const unassignedLessons = lessons.filter(l => !l.child_id || !childIds.has(l.child_id));
-              return (<>
-                {children.map(child => {
-                  const cl = lessons.filter(l => l.child_id === child.id);
-                  if (cl.length === 0) return null;
-                  const d = cl.filter(l => l.completed).length;
-                  const allDone = cl.length > 0 && d === cl.length;
-                  return (
-                    <div key={child.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
-                      <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-[#f0ede8]">
-                        <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white"
-                          style={{ backgroundColor: child.color ?? "#5c7f63" }}>
-                          {child.name.charAt(0).toUpperCase()}
-                        </div>
-                        <span className="flex-1 text-sm font-semibold text-[#2d2926]">{toTitleCase(child.name)}</span>
-                        <span className={`text-xs font-semibold ${allDone ? "text-[#3d5c42]" : "text-[#7a6f65]"}`}>
-                          {allDone ? "✓ Done" : `${d} of ${cl.length}`}
-                        </span>
+              const cardsToRender: { id: string; name: string; color: string | null; lessons: Lesson[] }[] = [];
+              children.forEach(child => {
+                const cl = lessons.filter(l => l.child_id === child.id);
+                if (cl.length > 0) cardsToRender.push({ id: child.id, name: child.name, color: child.color, lessons: cl });
+              });
+              const unassigned = lessons.filter(l => !l.child_id || !childIds.has(l.child_id));
+              if (unassigned.length > 0) cardsToRender.push({ id: "__unassigned", name: "Unassigned", color: "#9a8f85", lessons: unassigned });
+
+              return cardsToRender.map(card => {
+                const done = card.lessons.filter(l => l.completed).length;
+                const total = card.lessons.length;
+                const cardAllDone = done === total;
+                const noneStarted = done === 0;
+                const isExpanded = expandedChild === card.id;
+
+                const borderColor = cardAllDone ? "#b8d89a" : noneStarted ? "#e8d58a" : "#e8e2d9";
+                const bgColor = cardAllDone ? "#f4faf0" : noneStarted ? "#fffcf5" : "#fff";
+
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={() => setExpandedChild(isExpanded ? null : card.id)}
+                    className="shrink-0 text-left transition-all"
+                    style={{
+                      minWidth: 108, background: bgColor, borderRadius: 14,
+                      border: `1px solid ${borderColor}`, padding: "10px 12px",
+                      outline: isExpanded ? `2px solid #2D5a1B` : "none",
+                      outlineOffset: -1,
+                    }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                        style={{ backgroundColor: card.color ?? "#5c7f63" }}
+                      >
+                        {card.name.charAt(0).toUpperCase()}
                       </div>
-                      <div className="p-2 space-y-1">
-                        {cl.map(lesson => (
-                          <TodayLessonCard key={lesson.id} lesson={lesson} childObj={child}
-                            onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                        ))}
-                      </div>
+                      <span className="text-xs font-bold text-[#2d2926] truncate">{toTitleCase(card.name)}</span>
                     </div>
-                  );
-                })}
-                {unassignedLessons.length > 0 && (
-                  <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
-                    <div className="px-3.5 py-2.5 border-b border-[#f0ede8]">
-                      <span className="text-sm font-semibold text-[#7a6f65]">Unassigned</span>
+                    {/* Progress bar */}
+                    <div className="w-full h-[3px] rounded-full mb-1.5" style={{ backgroundColor: "#ece8e0" }}>
+                      <div className="h-full rounded-full transition-all" style={{ width: `${total > 0 ? (done / total) * 100 : 0}%`, backgroundColor: "#2D5a1B" }} />
                     </div>
-                    <div className="p-2 space-y-1">
-                      {unassignedLessons.map(lesson => (
-                        <TodayLessonCard key={lesson.id} lesson={lesson} childObj={undefined}
-                          onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>);
+                    <p className={`text-[10px] font-semibold ${cardAllDone ? "text-[#3d5c42]" : "text-[#9a8f85]"}`}>
+                      {cardAllDone ? "✓ All done" : `${done} of ${total} done`}
+                    </p>
+                  </button>
+                );
+              });
             })()}
+          </div>
+          <p className="text-[9px] text-[#c8bfb5] text-center mt-1.5">tap a card to see lessons · swipe for more kids</p>
+
+          {/* Expanded inline lesson panel */}
+          {expandedChild && (() => {
+            const childObj = children.find(c => c.id === expandedChild);
+            const childIds = new Set(children.map(c => c.id));
+            const cl = expandedChild === "__unassigned"
+              ? lessons.filter(l => !l.child_id || !childIds.has(l.child_id))
+              : lessons.filter(l => l.child_id === expandedChild);
+            if (cl.length === 0) return null;
+            return (
+              <div className="mt-2 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-2 space-y-1">
+                {cl.map(lesson => (
+                  <TodayLessonCard
+                    key={lesson.id} lesson={lesson}
+                    childObj={expandedChild === "__unassigned" ? undefined : childObj}
+                    onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
+                  />
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          NEW USER STATE — no memories, no curriculum
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && totalMemories === 0 && !hasAnyLessons && (
+        <div>
+          <div className="bg-white border border-[#e8e2d9] rounded-[14px] overflow-hidden divide-y divide-[#f0ede8]">
+            {[
+              { icon: "📸", title: "Snap your first photo", sub: "Tap the camera button anytime", action: () => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); } },
+              { icon: "✍️", title: "Log a win or moment", sub: "Big or small, it all belongs here", action: () => setShowWinSheet(true) },
+              { icon: "📖", title: "Add a book you're reading", sub: "Build your family library", action: () => setShowBookModal(true) },
+              { icon: "📋", title: "Set up your curriculum", sub: "Lessons auto-schedule in Plan", action: null, href: "/dashboard/plan" },
+              { icon: "🌱", title: "Watch your garden grow", sub: "Every lesson and memory grows a leaf", action: null, href: "/dashboard/garden" },
+            ].map((row) => {
+              const inner = (
+                <div className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-[#faf8f5] transition-colors">
+                  <span className="text-xl shrink-0">{row.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-[#2d2926]">{row.title}</p>
+                    <p className="text-[11px] text-[#9a8f85]">{row.sub}</p>
+                  </div>
+                  <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
+                </div>
+              );
+              if ((row as { href?: string }).href) {
+                return <Link key={row.title} href={(row as { href: string }).href}>{inner}</Link>;
+              }
+              return <button key={row.title} type="button" className="w-full text-left" onClick={row.action ?? undefined}>{inner}</button>;
+            })}
           </div>
         </div>
       )}
 
-      {/* ── 2. Today's Story (compact — max 2 items) ──────── */}
-      {todayStory.length > 0 && (
+      {/* ═══════════════════════════════════════════════════════════
+          LAST CAPTURED HERO — most recent memory photo card
+         ═══════════════════════════════════════════════════════════ */}
+      {totalMemories > 0 && lastMemory && (
         <div>
-          <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
-            {todayStory.slice(0, 2).map((m) => {
-              const icons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🗒️", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
-              const icon = icons[m.type] ?? "🌿";
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">LAST CAPTURED</p>
+          <button
+            type="button"
+            className="relative w-full overflow-hidden text-left"
+            style={{ height: 160, borderRadius: 16 }}
+            onClick={async () => {
+              const mem = lastPhoto ?? lastMemory;
+              if (!mem) return;
+              if ((mem as typeof lastPhoto)?.photo_url) {
+                setLightboxMemory({ id: mem.id, title: (mem as typeof lastPhoto)?.title ?? "Memory", photo_url: (mem as typeof lastPhoto)?.photo_url ?? null, date: mem.date, type: (mem as typeof lastMemory)?.type ?? "photo" });
+              } else {
+                const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", mem.id).single();
+                if (data) openEditSheet(data.id, data.title ?? "", data.caption ?? "", data.child_id ?? "", data.type);
+              }
+            }}
+          >
+            {/* Background */}
+            {lastPhoto?.photo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={lastPhoto.photo_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+            ) : (
+              <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #4a8c28, #0a2206)" }} />
+            )}
+
+            {/* Gradient overlay from bottom */}
+            <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 60%)" }} />
+
+            {/* Type pill (top-left) */}
+            <div className="absolute top-2.5 left-2.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+              <span style={{ fontSize: 10, color: "#fff" }}>
+                {({ photo: "📸 Photo", book: "📖 Book", win: "⭐ Win", quote: "⭐ Win", drawing: "🎨 Drawing", field_trip: "🗺️ Trip", project: "🗺️ Trip", activity: "🗺️ Trip" } as Record<string, string>)[lastMemory.type] ?? "🌿 Memory"}
+              </span>
+            </div>
+
+            {/* Tap pill (top-right) */}
+            <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+              <span style={{ fontSize: 10, color: "#fff" }}>tap to view →</span>
+            </div>
+
+            {/* Bottom overlay text */}
+            <div className="absolute bottom-0 left-0 right-0 px-3.5 pb-3">
+              <p style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>
+                {new Date(lastMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                {lastMemory.child_id && children.find(c => c.id === lastMemory.child_id) ? ` · ${children.find(c => c.id === lastMemory.child_id)!.name}` : ""}
+              </p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
+                {lastMemory.title ?? (lastMemory.type === "photo" ? "Photo memory" : lastMemory.type.charAt(0).toUpperCase() + lastMemory.type.slice(1).replace("_", " "))}
+              </p>
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          CAME BACK STATE — soft amber nudge if lessons unchecked after 2pm
+         ═══════════════════════════════════════════════════════════ */}
+      {hasAnyLessons && lessons.length > 0 && completedToday === 0 && new Date().getHours() >= 14 && isSchoolDay && !activeVacation && (
+        <Link
+          href="/dashboard/plan"
+          className="flex items-center gap-3 px-4 py-3 rounded-[14px] transition-colors hover:opacity-90"
+          style={{ backgroundColor: "#FFFBF0", border: "1px solid #E8D58A" }}
+        >
+          <span className="text-lg shrink-0">📋</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-[#7a4a1a]">{totalToday} lesson{totalToday !== 1 ? "s were" : " was"} scheduled today</p>
+            <p className="text-[11px] text-[#b5944a]">No pressure — pick up in Plan →</p>
+          </div>
+        </Link>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TODAY'S STORY — all memories logged today
+         ═══════════════════════════════════════════════════════════ */}
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
+        {todayStory.length > 0 ? (
+          <div className="bg-white border border-[#e8e2d9] rounded-[14px] overflow-hidden divide-y divide-[#f0ede8]">
+            {todayStory.map((m) => {
+              const typeIcons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🏆", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
+              const typeBgs: Record<string, string> = { win: "#f0e8f4", quote: "#f0e8f4", book: "#fef8ee", drawing: "#e8f0f8", field_trip: "#e8f5ea", project: "#e8f5ea" };
+              const icon = typeIcons[m.type] ?? "🌿";
               const child = m.child_id ? children.find((c) => c.id === m.child_id) : null;
               const ago = (() => {
                 const diff = Math.round((Date.now() - new Date(m.created_at).getTime()) / 60000);
@@ -1316,6 +1485,8 @@ export default function TodayPage() {
                 const hrs = Math.round(diff / 60);
                 return `${hrs}h ago`;
               })();
+              const typeLabel = m.type === "field_trip" ? "Trip" : m.type === "quote" ? "Moment" : m.type.charAt(0).toUpperCase() + m.type.slice(1);
+
               return (
                 <button
                   key={m.id}
@@ -1327,83 +1498,153 @@ export default function TodayPage() {
                       openEditSheet(d.id, d.title ?? "", d.caption ?? "", d.child_id ?? "", d.type);
                     }
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[#faf8f5] transition-colors"
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-[#faf8f5] transition-colors"
                 >
-                  <span className="text-lg shrink-0">{icon}</span>
+                  {/* Thumbnail */}
+                  {m.photo_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.photo_url} alt="" className="w-[42px] h-[42px] rounded-lg object-cover shrink-0" />
+                  ) : (
+                    <div
+                      className="w-[42px] h-[42px] rounded-lg flex items-center justify-center shrink-0 text-lg"
+                      style={{ backgroundColor: typeBgs[m.type] ?? "#f0ede8" }}
+                    >{icon}</div>
+                  )}
+                  {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#2d2926] truncate">
-                      {m.title || (m.type === "photo" ? "Photo" : m.type.charAt(0).toUpperCase() + m.type.slice(1).replace("_", " "))}
+                    <p className="text-xs font-bold text-[#2d2926] truncate">
+                      {m.title || (m.type === "photo" ? "Photo" : typeLabel)}
                     </p>
-                    <span className="text-[11px] text-[#c8bfb5]">{ago}{child ? ` · ${child.name}` : ""}</span>
+                    <p className="text-[10px] text-[#9a8f85] truncate">{typeLabel}{child ? ` · ${child.name}` : ""}</p>
                   </div>
-                  <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
+                  {/* Time */}
+                  <span className="text-[10px] text-[#c8bfb5] shrink-0">{ago}</span>
+                  {/* Favorite heart */}
+                  <span className="text-[#e0dbd5] text-sm shrink-0 ml-1">♡</span>
                 </button>
               );
             })}
           </div>
+        ) : (
+          <div className="bg-white border border-[#e8e2d9] rounded-[14px] py-8 text-center">
+            <span className="text-3xl">🌿</span>
+            <p className="text-[13px] font-medium text-[#2d2926] mt-2">Nothing yet today.</p>
+            <p className="text-[11px] text-[#9a8f85] mt-0.5">Every day is a fresh start</p>
+          </div>
+        )}
+        {todayStory.length > 0 && (
           <Link href="/dashboard/memories" className="block text-center text-xs text-[#5c7f63] font-medium mt-2 hover:underline">
             See all memories →
           </Link>
+        )}
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          ON THIS DAY — purple card, show only for Tier 1 or 2 matches (1+ year)
+         ═══════════════════════════════════════════════════════════ */}
+      {onThisDayMemory && onThisDayTier <= 2 && (
+        <div>
+          <div
+            className="overflow-hidden"
+            style={{ backgroundColor: "#F0EAF8", border: "1px solid #D4B8E8", borderRadius: 14, padding: "14px 16px" }}
+          >
+            <p style={{ fontSize: 9, fontWeight: 700, color: "#8B6CAF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+              ON THIS DAY · {onThisDayTier === 1 ? "1 YEAR AGO" : new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase()}
+            </p>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#4A2A6A", marginBottom: 8 }}>
+              {onThisDayMemory.title ?? "A memory from this time last year"}
+            </p>
+            {onThisDayMemory.photo_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={onThisDayMemory.photo_url} alt=""
+                className="w-full object-cover rounded-lg mb-2"
+                style={{ height: 68 }}
+              />
+            )}
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ backgroundColor: "#E0D0F0", color: "#6B4E8A" }}>
+                🔄 Full circle
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setLightboxMemory({
+                    id: onThisDayMemory.id,
+                    title: onThisDayMemory.title ?? "Memory",
+                    photo_url: onThisDayMemory.photo_url,
+                    date: onThisDayMemory.date,
+                    type: "photo",
+                  });
+                }}
+                className="text-[10px] font-semibold hover:underline"
+                style={{ color: "#8B6CAF" }}
+              >
+                View memory →
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* ── Empty state: last memory + daily prompt ──────────── */}
-      {!loading && lessons.length === 0 && todayStory.length === 0 && (
-        <div className="space-y-3">
-          {lastMemory && (() => {
-            const icons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🗒️", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
-            const icon = icons[lastMemory.type] ?? "🌿";
-            const child = lastMemory.child_id ? children.find((c) => c.id === lastMemory.child_id) : null;
-            const memDate = new Date(lastMemory.date + "T00:00:00");
-            const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
-            const diffDays = Math.round((todayDate.getTime() - memDate.getTime()) / 86400000);
-            const dateLabel = diffDays === 0 ? "Today" : diffDays === 1 ? "Yesterday" : memDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-            const meta = [dateLabel, child?.name].filter(Boolean).join(" · ");
-            return (
-              <div>
-                <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">LAST MEMORY</p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", lastMemory.id).single();
-                    if (data) {
-                      setEditSheet({ id: data.id, title: data.title ?? "", caption: data.caption ?? "", child_id: data.child_id ?? "", type: data.type });
-                      setEditDeleteConfirm(false);
-                    }
-                  }}
-                  className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9]/50 rounded-[14px] px-3.5 py-3 text-left hover:bg-[#faf9f7] transition-colors"
-                >
-                  <span className="text-xl shrink-0">{icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-[#2d2926] truncate">{lastMemory.title ?? "Untitled"}</p>
-                    <p className="text-[11px] text-[#b5aca4] mt-0.5">{meta}</p>
-                  </div>
-                  <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
-                </button>
-              </div>
-            );
-          })()}
-          {(() => {
-            const prompts = [
-              "What did your family do together today?",
-              "What made your kids laugh this week?",
-              "What\u2019s something they\u2019re getting really good at?",
-              "What did you do today that you want to remember?",
-              "What\u2019s a moment from this week worth writing down?",
-              "What are you most proud of this week?",
-              "What\u2019s one thing you want to remember from this week?",
-            ];
-            const prompt = prompts[new Date().getDay()];
-            return (
-              <div>
-                <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S PROMPT</p>
-                <div className="bg-white border border-[#e8e2d9]/50 rounded-[14px] px-3.5 py-3">
-                  <p className="text-[13px] text-[#7a6f65] italic leading-relaxed">&ldquo;{prompt}&rdquo;</p>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
+      {/* ═══════════════════════════════════════════════════════════
+          CAPTURE BUTTON — always visible for non-partner users
+         ═══════════════════════════════════════════════════════════ */}
+      {!isPartner && (
+        <>
+          <div className="space-y-2">
+            <button
+              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+              style={{ background: "#2d5a3d" }}
+            >
+              📸 Capture a memory
+            </button>
+            <button
+              onClick={() => setShowCaptureMenu(true)}
+              className="w-full text-center text-xs text-[#9a8f85] hover:text-[#7a6f65] transition-colors py-0.5"
+            >
+              Or log a win, book, drawing, field trip →
+            </button>
+          </div>
+          <input
+            ref={captureFileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) { console.error("[Photo capture] No user session"); return; }
+                const path = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+                const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
+                if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); return; }
+                const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+                const memType = captureTypeRef.current;
+                const now = new Date().toISOString();
+                const { data: ins, error: insErr } = await supabase.from("memories").insert({
+                  user_id: user.id, type: memType, title: null,
+                  photo_url: urlData.publicUrl, child_id: null,
+                  date: today, include_in_book: false,
+                  created_at: now, updated_at: now,
+                }).select("id").single();
+                if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); return; }
+                const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
+                showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
+                captureTypeRef.current = "photo"; // reset
+                setTotalMemories(prev => prev + 1);
+                await refreshTodayStory();
+                await loadData();
+                checkAndAwardBadges(user.id);
+              } finally {
+                if (e.target) e.target.value = "";
+              }
+            }}
+          />
+        </>
       )}
 
       <div className="h-2" />
