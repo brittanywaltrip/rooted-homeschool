@@ -1273,24 +1273,58 @@ export default function TodayPage() {
       {/* ═══════════════════════════════════════════════════════════
           LESSON SWIPE — horizontal child cards + expandable panel
          ═══════════════════════════════════════════════════════════ */}
-      {hasAnyLessons && lessons.length > 0 && (
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S LESSONS</p>
+      {hasAnyLessons && lessons.length > 0 && (() => {
+        const childIds = new Set(children.map(c => c.id));
+        const cardsToRender: { id: string; name: string; color: string | null; lessons: Lesson[] }[] = [];
+        children.forEach(child => {
+          const cl = lessons.filter(l => l.child_id === child.id);
+          if (cl.length > 0) cardsToRender.push({ id: child.id, name: child.name, color: child.color, lessons: cl });
+        });
+        const unassigned = lessons.filter(l => !l.child_id || !childIds.has(l.child_id));
+        if (unassigned.length > 0) cardsToRender.push({ id: "__unassigned", name: "Unassigned", color: "#9a8f85", lessons: unassigned });
 
-          {/* Horizontal scrollable child cards */}
-          <div className="flex gap-2.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}>
-            <style>{`.flex::-webkit-scrollbar { display: none; }`}</style>
-            {(() => {
-              const childIds = new Set(children.map(c => c.id));
-              const cardsToRender: { id: string; name: string; color: string | null; lessons: Lesson[] }[] = [];
-              children.forEach(child => {
-                const cl = lessons.filter(l => l.child_id === child.id);
-                if (cl.length > 0) cardsToRender.push({ id: child.id, name: child.name, color: child.color, lessons: cl });
-              });
-              const unassigned = lessons.filter(l => !l.child_id || !childIds.has(l.child_id));
-              if (unassigned.length > 0) cardsToRender.push({ id: "__unassigned", name: "Unassigned", color: "#9a8f85", lessons: unassigned });
+        // ── Single child: inline card (no swipe track) ──────────────
+        if (cardsToRender.length === 1) {
+          const card = cardsToRender[0];
+          const childObj = children.find(c => c.id === card.id);
+          return (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S LESSONS</p>
+              <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e8e0d4" }}>
+                {/* Child header */}
+                <div className="flex items-center gap-2 px-3.5 py-2.5 border-b" style={{ borderColor: "#f0ede8" }}>
+                  <div
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                    style={{ backgroundColor: card.color ?? "#5c7f63" }}
+                  >
+                    {card.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-xs font-bold text-[#2d2926]">{toTitleCase(card.name)}</span>
+                </div>
+                {/* Lesson rows */}
+                <div className="p-2 space-y-1">
+                  {card.lessons.map(lesson => (
+                    <TodayLessonCard
+                      key={lesson.id} lesson={lesson}
+                      childObj={card.id === "__unassigned" ? undefined : childObj}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        }
 
-              return cardsToRender.map(card => {
+        // ── Multiple children: horizontal swipe track ───────────────
+        return (
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S LESSONS</p>
+
+            {/* Horizontal scrollable child cards */}
+            <div className="flex gap-2.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}>
+              <style>{`.flex::-webkit-scrollbar { display: none; }`}</style>
+              {cardsToRender.map(card => {
                 const done = card.lessons.filter(l => l.completed).length;
                 const total = card.lessons.length;
                 const cardAllDone = done === total;
@@ -1331,33 +1365,32 @@ export default function TodayPage() {
                     </p>
                   </button>
                 );
-              });
+              })}
+            </div>
+            <p className="text-[9px] text-[#c8bfb5] text-center mt-1.5">tap a card to see lessons · swipe for more kids</p>
+
+            {/* Expanded inline lesson panel */}
+            {expandedChild && (() => {
+              const childObj = children.find(c => c.id === expandedChild);
+              const cl = expandedChild === "__unassigned"
+                ? lessons.filter(l => !l.child_id || !childIds.has(l.child_id))
+                : lessons.filter(l => l.child_id === expandedChild);
+              if (cl.length === 0) return null;
+              return (
+                <div className="mt-2 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-2 space-y-1">
+                  {cl.map(lesson => (
+                    <TodayLessonCard
+                      key={lesson.id} lesson={lesson}
+                      childObj={expandedChild === "__unassigned" ? undefined : childObj}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
+                    />
+                  ))}
+                </div>
+              );
             })()}
           </div>
-          <p className="text-[9px] text-[#c8bfb5] text-center mt-1.5">tap a card to see lessons · swipe for more kids</p>
-
-          {/* Expanded inline lesson panel */}
-          {expandedChild && (() => {
-            const childObj = children.find(c => c.id === expandedChild);
-            const childIds = new Set(children.map(c => c.id));
-            const cl = expandedChild === "__unassigned"
-              ? lessons.filter(l => !l.child_id || !childIds.has(l.child_id))
-              : lessons.filter(l => l.child_id === expandedChild);
-            if (cl.length === 0) return null;
-            return (
-              <div className="mt-2 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-2 space-y-1">
-                {cl.map(lesson => (
-                  <TodayLessonCard
-                    key={lesson.id} lesson={lesson}
-                    childObj={expandedChild === "__unassigned" ? undefined : childObj}
-                    onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
-                  />
-                ))}
-              </div>
-            );
-          })()}
-        </div>
-      )}
+        );
+      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           NEW USER STATE — no memories, no curriculum
@@ -1394,7 +1427,7 @@ export default function TodayPage() {
       {/* ═══════════════════════════════════════════════════════════
           LAST CAPTURED HERO — most recent memory photo card
          ═══════════════════════════════════════════════════════════ */}
-      {totalMemories > 0 && lastMemory && (
+      {totalMemories > 0 && lastMemory && todayStory.length === 0 && (
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">LAST CAPTURED</p>
           <button
