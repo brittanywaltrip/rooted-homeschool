@@ -1262,26 +1262,6 @@ export default function TodayPage() {
         })()}
       </p>
 
-      {/* ── Daily inspiration prompt (active users) ──────────── */}
-      {!isPartner && totalMemories > 0 && (() => {
-        const prompts = [
-          "Did they build or create something today? Log it. 🎨",
-          "Read anything good this week? Add it to their story. 📖",
-          "Did they go somewhere new? Log the field trip. 🗺️",
-          "Something funny or sweet happened — write it down. ✍️",
-          "A drawing worth keeping? Snap it before it gets lost. 📸",
-          "What did they figure out today? That's a win. 🏆",
-          "An ordinary moment you'll want to remember someday. 📸",
-        ];
-        return (
-          <div className="rounded-xl px-3.5 py-2.5" style={{ background: "#2d5a3d" }}>
-            <p className="text-xs text-center" style={{ color: "rgba(255,255,255,0.75)" }}>
-              {prompts[new Date().getDay()]}
-            </p>
-          </div>
-        );
-      })()}
-
       {/* ── Capture buttons ──────────────────────────────────── */}
       {!isPartner && (
         <>
@@ -1291,7 +1271,7 @@ export default function TodayPage() {
               className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
               style={{ background: "#2d5a3d" }}
             >
-              📸 Capture a photo
+              📸 Capture a memory
             </button>
             <button
               onClick={() => setShowCaptureMenu(true)}
@@ -1332,96 +1312,6 @@ export default function TodayPage() {
             }}
           />
         </>
-      )}
-
-      {/* ── Today's Story ────────────────────────────────────── */}
-      {todayStory.length > 0 && (
-        <div>
-          <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
-            {todayStory.slice(0, 2).map((m) => {
-              const icons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🗒️", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
-              const icon = icons[m.type] ?? "🌿";
-              const child = m.child_id ? children.find((c) => c.id === m.child_id) : null;
-              const ago = (() => {
-                const diff = Math.round((Date.now() - new Date(m.created_at).getTime()) / 60000);
-                if (diff < 1) return "just now";
-                if (diff < 60) return `${diff}m ago`;
-                const hrs = Math.round(diff / 60);
-                return `${hrs}h ago`;
-              })();
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={async () => {
-                    const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", m.id).single();
-                    if (data) {
-                      const d = data as { id: string; title: string | null; caption: string | null; child_id: string | null; type: string };
-                      openEditSheet(d.id, d.title ?? "", d.caption ?? "", d.child_id ?? "", d.type);
-                    }
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors"
-                >
-                  <span className="text-lg shrink-0">{icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-medium text-[#2d2926] truncate">
-                        {m.title || (m.type === "photo" ? "Photo" : m.type.charAt(0).toUpperCase() + m.type.slice(1).replace("_", " "))}
-                      </p>
-                      {m.include_in_book && <span className="text-[10px] shrink-0">🔖</span>}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {child && (
-                        <>
-                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
-                          <span className="text-[11px] text-[#7a6f65]">{child.name}</span>
-                          <span className="text-[11px] text-[#c8bfb5]">·</span>
-                        </>
-                      )}
-                      <span className="text-[11px] text-[#c8bfb5]">{ago}</span>
-                    </div>
-                  </div>
-                  <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
-                </button>
-              );
-            })}
-          </div>
-          <Link href="/dashboard/memories" className="block text-center text-xs font-semibold text-[#5c7f63] hover:text-[#3d5c42] transition-colors mt-2">
-            See all memories →
-          </Link>
-        </div>
-      )}
-
-      {/* ── AI Family Update Prompt ────────────────────────────── */}
-      {showFamilyUpdate && (
-        <div className="flex items-center justify-between gap-3 rounded-2xl px-5 py-4" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
-          <Link href="/dashboard/family-update" onClick={() => {
-            const now = new Date();
-            const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-            const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-            localStorage.setItem(`family_update_seen_${prevMonthYear}_${prevMonth}`, "1");
-            setShowFamilyUpdate(false);
-          }} className="flex items-center gap-3 flex-1 min-w-0">
-            <span className="text-xl shrink-0">✨</span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-[#7a4a1a]">
-                Your {new Date(new Date().getFullYear(), new Date().getMonth() - 1).toLocaleDateString("en-US", { month: "long" })} family update is ready
-              </p>
-              <p className="text-xs text-[#a68a50]">See what your family accomplished this month →</p>
-            </div>
-          </Link>
-          <button
-            onClick={() => {
-              const now = new Date();
-              const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-              const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-              localStorage.setItem(`family_update_seen_${prevMonthYear}_${prevMonth}`, "1");
-              setShowFamilyUpdate(false);
-            }}
-            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[#a68a50] hover:bg-[#f0dda8]/50 transition-colors text-lg leading-none"
-          >×</button>
-        </div>
       )}
 
       {/* ── Setup Banner ─────────────────────────────────────── */}
@@ -1858,6 +1748,116 @@ export default function TodayPage() {
             </div>
             <p className="text-[11px] text-[#b5aca4] mt-2">
               {upcomingDay.lessons.length} lesson{upcomingDay.lessons.length !== 1 ? "s" : ""} across {byChild.size} kid{byChild.size !== 1 ? "s" : ""}
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* ── Today's Story ────────────────────────────────────── */}
+      {todayStory.length > 0 && (
+        <div>
+          <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
+            {todayStory.slice(0, 2).map((m) => {
+              const icons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🗒️", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
+              const icon = icons[m.type] ?? "🌿";
+              const child = m.child_id ? children.find((c) => c.id === m.child_id) : null;
+              const ago = (() => {
+                const diff = Math.round((Date.now() - new Date(m.created_at).getTime()) / 60000);
+                if (diff < 1) return "just now";
+                if (diff < 60) return `${diff}m ago`;
+                const hrs = Math.round(diff / 60);
+                return `${hrs}h ago`;
+              })();
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={async () => {
+                    const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", m.id).single();
+                    if (data) {
+                      const d = data as { id: string; title: string | null; caption: string | null; child_id: string | null; type: string };
+                      openEditSheet(d.id, d.title ?? "", d.caption ?? "", d.child_id ?? "", d.type);
+                    }
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#faf8f5] transition-colors"
+                >
+                  <span className="text-lg shrink-0">{icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-medium text-[#2d2926] truncate">
+                        {m.title || (m.type === "photo" ? "Photo" : m.type.charAt(0).toUpperCase() + m.type.slice(1).replace("_", " "))}
+                      </p>
+                      {m.include_in_book && <span className="text-[10px] shrink-0">🔖</span>}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {child && (
+                        <>
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
+                          <span className="text-[11px] text-[#7a6f65]">{child.name}</span>
+                          <span className="text-[11px] text-[#c8bfb5]">·</span>
+                        </>
+                      )}
+                      <span className="text-[11px] text-[#c8bfb5]">{ago}</span>
+                    </div>
+                  </div>
+                  <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
+                </button>
+              );
+            })}
+          </div>
+          <Link href="/dashboard/memories" className="block text-center text-xs font-semibold text-[#5c7f63] hover:text-[#3d5c42] transition-colors mt-2">
+            See all memories →
+          </Link>
+        </div>
+      )}
+
+      {/* ── AI Family Update Prompt ────────────────────────────── */}
+      {showFamilyUpdate && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl px-5 py-4" style={{ background: "#fef9e8", border: "1.5px solid #f0dda8" }}>
+          <Link href="/dashboard/family-update" onClick={() => {
+            const now = new Date();
+            const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+            const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+            localStorage.setItem(`family_update_seen_${prevMonthYear}_${prevMonth}`, "1");
+            setShowFamilyUpdate(false);
+          }} className="flex items-center gap-3 flex-1 min-w-0">
+            <span className="text-xl shrink-0">✨</span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[#7a4a1a]">
+                Your {new Date(new Date().getFullYear(), new Date().getMonth() - 1).toLocaleDateString("en-US", { month: "long" })} family update is ready
+              </p>
+              <p className="text-xs text-[#a68a50]">See what your family accomplished this month →</p>
+            </div>
+          </Link>
+          <button
+            onClick={() => {
+              const now = new Date();
+              const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+              const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+              localStorage.setItem(`family_update_seen_${prevMonthYear}_${prevMonth}`, "1");
+              setShowFamilyUpdate(false);
+            }}
+            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[#a68a50] hover:bg-[#f0dda8]/50 transition-colors text-lg leading-none"
+          >×</button>
+        </div>
+      )}
+
+      {/* ── Daily inspiration prompt (active users) ──────────── */}
+      {!isPartner && totalMemories > 0 && (() => {
+        const prompts = [
+          "Did they build or create something today? Log it. 🎨",
+          "Read anything good this week? Add it to their story. 📖",
+          "Did they go somewhere new? Log the field trip. 🗺️",
+          "Something funny or sweet happened — write it down. ✍️",
+          "A drawing worth keeping? Snap it before it gets lost. 📸",
+          "What did they figure out today? That's a win. 🏆",
+          "An ordinary moment you'll want to remember someday. 📸",
+        ];
+        return (
+          <div className="rounded-xl px-3.5 py-2.5" style={{ background: "#2d5a3d" }}>
+            <p className="text-xs text-center" style={{ color: "rgba(255,255,255,0.75)" }}>
+              {prompts[new Date().getDay()]}
             </p>
           </div>
         );
