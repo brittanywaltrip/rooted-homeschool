@@ -5,7 +5,6 @@ import { supabase } from '@/lib/supabase'
 import { usePartner } from '@/lib/partner-context'
 import Link from 'next/link'
 import { Copy, Check, Sparkles, ArrowLeft, Lock } from 'lucide-react'
-import UpgradePrompt from '@/components/UpgradePrompt'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -288,20 +287,13 @@ export default function FamilyUpdatePage() {
 
       {/* Generate button */}
       {!userIsPro && usedThisMonth && !narrative ? (
-        <div className="space-y-3">
-          <button
-            disabled
-            className="w-full flex items-center justify-center gap-2 bg-[#e8e2d9] text-[#7a6f65] font-bold py-3.5 rounded-xl opacity-60 cursor-not-allowed"
-          >
-            <Lock size={16} />
-            Used this month — resets {resetDate}
-          </button>
-          <UpgradePrompt
-            inline
-            feature="Unlimited AI Updates"
-            valueProp="Generate shareable family updates anytime — weekly, monthly, or after any special moment."
-          />
-        </div>
+        <button
+          disabled
+          className="w-full flex items-center justify-center gap-2 bg-[#e8e2d9] text-[#7a6f65] font-bold py-3.5 rounded-xl opacity-60 cursor-not-allowed"
+        >
+          <Lock size={16} />
+          Used this month — resets {resetDate}
+        </button>
       ) : (
         <button
           onClick={handleGenerate}
@@ -336,6 +328,21 @@ export default function FamilyUpdatePage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Upgrade nudge for free users — below stats, not blocking */}
+      {!userIsPro && usedThisMonth && !narrative && (
+        <Link
+          href="/upgrade"
+          className="block bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 hover:from-[#ddeade] hover:to-[#c5e0c8] transition-colors"
+        >
+          <p className="text-sm font-semibold text-[#2d2926] mb-1">
+            ✨ Upgrade to Founding Family to generate your update
+          </p>
+          <p className="text-xs text-[#5c7f63]">
+            $39/year, locked in forever. Unlimited AI updates, yearbook, and more.
+          </p>
+        </Link>
       )}
 
       {/* Shareable card preview */}
