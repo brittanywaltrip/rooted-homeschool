@@ -407,7 +407,9 @@ export default function PlanPage() {
   const todayStr = toDateStr(todayMidnight);
 
   const [weekStart,    setWeekStart]    = useState(() => getMondayOf(new Date()));
-  const [viewMode,     setViewMode]     = useState<"week" | "month">("week");
+  const [viewMode,     setViewMode]     = useState<"week" | "month">(() =>
+    typeof window !== "undefined" && window.innerWidth < 768 ? "month" : "week"
+  );
   const [monthStart,   setMonthStart]   = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
   const [monthLessons, setMonthLessons] = useState<Lesson[]>([]);
   const [lessons,          setLessons]          = useState<Lesson[]>([]);
@@ -775,61 +777,28 @@ export default function PlanPage() {
     )}
 
     {/* ── Hero Header ──────────────────────────────────────── */}
-    <PageHero overline="Your Curriculum" title="Plan">
-      {/* Week navigation inside hero */}
-      <div className="flex items-center justify-center gap-1.5 mt-3">
-        {!isCurrentWeek && (
-          <button onClick={goToToday}
-            className="text-[10px] font-semibold text-white/70 hover:text-white px-2 py-1 rounded-full transition-colors mr-1">
-            Today
-          </button>
-        )}
-        <button onClick={prevWeek} disabled={isCurrentWeek} className="w-7 h-7 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-20 transition-colors">
-          <ChevronLeft size={14} />
-        </button>
-        <span className="text-[12px] font-semibold text-white/80 whitespace-nowrap px-1">{formatWeekRange(weekStart)}</span>
-        <button onClick={nextWeek} className="w-7 h-7 rounded-full flex items-center justify-center text-white/60 hover:text-white transition-colors">
-          <ChevronRight size={14} />
-        </button>
-      </div>
-
-      {/* Week strip inside hero */}
-      <div className="flex items-stretch mt-3 rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
-        {["S", "M", "T", "W", "T", "F", "S"].map((label, i) => {
-          const actualDate = new Date(weekStart);
-          actualDate.setDate(weekStart.getDate() - 1 + i);
-          const dateStr = toDateStr(actualDate);
-          const isToday = dateStr === todayStr;
-          const dayName = actualDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-          const isSchool = profileSchoolDays.length > 0 ? profileSchoolDays.includes(dayName) : (i >= 1 && i <= 5);
-          const dayLessons = lessons.filter(l => (l.scheduled_date ?? l.date) === dateStr);
-          const dayAllDone = dayLessons.length > 0 && dayLessons.every(l => l.completed);
-          const hasSome = dayLessons.length > 0;
-          const isVacation = vacationBlocks.some(b => dateStr >= b.start_date && dateStr <= b.end_date);
-
-          let dotColor = "";
-          if (dateStr <= todayStr && dayAllDone && hasSome) dotColor = "bg-[#a8d4aa]";
-          else if (dateStr <= todayStr && hasSome) dotColor = "border border-[#a8d4aa] bg-transparent";
-
-          return (
-            <div key={i} className={`flex-1 flex flex-col items-center py-2 gap-0.5 ${isVacation ? "bg-white/5" : ""}`}>
-              <span className="text-[9px] font-medium" style={{ color: "rgba(255,255,255,0.45)" }}>{label}</span>
-              <div className={`flex items-center justify-center rounded-full text-[11px] ${
-                isToday
-                  ? "w-7 h-7 bg-[#5c7f63] text-white font-bold"
-                  : isSchool
-                  ? "w-6 h-6 text-white/80"
-                  : "w-6 h-6 text-white/30"
-              }`}>
-                {actualDate.getDate()}
-              </div>
-              {dotColor ? <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} /> : <div className="w-1.5 h-1.5" />}
-            </div>
-          );
-        })}
-      </div>
-    </PageHero>
+    <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
     <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
+
+      {/* ── Catch-up banner ──────────────────────────────────── */}
+      {!loading && (() => {
+        const pastIncomplete = lessons.filter(l => {
+          const d = l.scheduled_date ?? l.date;
+          return d && d < todayStr && !l.completed;
+        });
+        if (pastIncomplete.length === 0) return null;
+        return (
+          <div className="rounded-xl px-3.5 py-3" style={{ background: "#FFFBF0", border: "1px solid #E8D58A" }}>
+            <div className="flex items-start gap-2.5">
+              <span className="text-base shrink-0 mt-0.5">📋</span>
+              <div>
+                <p className="text-sm font-semibold text-[#2d2926]">You have lessons from earlier this week</p>
+                <p className="text-xs text-[#7a6f65] mt-0.5">Tap any past day to check off what you covered — it still counts!</p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Week / Month toggle ──────────────────────────────── */}
       <div className="flex items-center gap-1 bg-[#f0ede8] rounded-full p-1 w-fit">

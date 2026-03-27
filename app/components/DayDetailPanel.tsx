@@ -149,6 +149,13 @@ export default function DayDetailPanel({
             )}
           </div>
 
+          {/* Past-day explainer */}
+          {dateStr < toDateStr(new Date()) && lessons.length > 0 && (
+            <p className="px-5 pt-2 text-xs text-[#b5aca4] italic">
+              Past lessons never expire — check off what you covered any time.
+            </p>
+          )}
+
           {/* Footer */}
           {!isPartner && (
             <div className="px-5 pb-8 pt-3 border-t border-[#f0ede8] shrink-0">
