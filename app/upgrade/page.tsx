@@ -135,24 +135,10 @@ function UpgradePageInner() {
           </p>
         </div>
 
-        {/* Testimonials */}
-        <div className="mb-10">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] text-center mb-4">Loved by homeschool families</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[
-              { quote: "Finally an app that gets how we actually homeschool.", name: "Sarah M.", loc: "Texas" },
-              { quote: "I've tried every planner. Rooted is the only one that stuck.", name: "Jessica T.", loc: "Ohio" },
-              { quote: "The garden is our kids' favorite part of the day.", name: "Amanda D.", loc: "Florida" },
-            ].map((t) => (
-              <div key={t.name} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4">
-                <p className="text-sm text-[#2d2926] leading-relaxed mb-3" style={{ fontFamily: 'var(--font-display)' }}>
-                  &ldquo;{t.quote}&rdquo;
-                </p>
-                <p className="text-xs text-[#7a6f65]">{t.name}, {t.loc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* Social proof */}
+        <p className="text-sm text-[#9a8f85] text-center mb-10">
+          Join 276+ homeschool families already using Rooted 🌿
+        </p>
 
         {/* Error banner */}
         {error && (
