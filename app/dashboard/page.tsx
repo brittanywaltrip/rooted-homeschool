@@ -1253,6 +1253,15 @@ export default function TodayPage() {
 
       <div className="max-w-2xl mx-auto px-5 pt-5 pb-7 space-y-6">
 
+      {/* ── Warm greeting ──────────────────────────────────── */}
+      <p style={{ fontSize: 16, fontWeight: 600, color: "#3d5c42", padding: "8px 0 4px" }}>
+        {(() => {
+          const hr = new Date().getHours();
+          const timeGreet = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
+          return `${timeGreet}${familyName ? `, ${familyName}` : ""}! 🌿`;
+        })()}
+      </p>
+
       {/* ── Daily inspiration prompt (active users) ──────────── */}
       {!isPartner && totalMemories > 0 && (() => {
         const prompts = [
@@ -1330,7 +1339,7 @@ export default function TodayPage() {
         <div>
           <p className="text-[9px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
-            {todayStory.map((m) => {
+            {todayStory.slice(0, 2).map((m) => {
               const icons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🗒️", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
               const icon = icons[m.type] ?? "🌿";
               const child = m.child_id ? children.find((c) => c.id === m.child_id) : null;
@@ -1378,6 +1387,9 @@ export default function TodayPage() {
               );
             })}
           </div>
+          <Link href="/dashboard/memories" className="block text-center text-xs font-semibold text-[#5c7f63] hover:text-[#3d5c42] transition-colors mt-2">
+            See all memories →
+          </Link>
         </div>
       )}
 
