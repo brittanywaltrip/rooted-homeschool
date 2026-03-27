@@ -63,41 +63,6 @@ const INSPIRATION_PROMPTS = [
   "What memory do you want to hold onto? 🕰️",
 ];
 
-const DID_YOU_KNOW = [
-  "Homeschool students score 15–30% higher on standardized tests on average 📚",
-  "Kids retain 90% more when they teach what they've learned to someone else 🌱",
-  "There are over 3.3 million homeschool students in the US — and growing 🌿",
-  "The average homeschool family spends just 3–4 hours a day on structured learning 🕐",
-  "Homeschool graduates are more likely to be civically engaged as adults 🗳️",
-  "Kids who learn at their own pace show stronger long-term retention 📖",
-  "Many colleges actively recruit homeschool graduates for their self-motivation 🎓",
-  "Reading aloud to children of any age strengthens vocabulary and comprehension 📗",
-  "Nature-based learning improves focus and reduces anxiety in children 🌲",
-  "Children learn best when they feel emotionally safe and unhurried 🏡",
-  "Asking 'what do you think?' develops critical thinking more than giving answers 💬",
-  "Music education strengthens math skills — even informally 🎵",
-  "Siblings who learn together develop stronger communication and empathy 👫",
-  "Hands-on projects create memories that reinforce learning for years 🔬",
-  "The best curriculum is the one your child will actually engage with 🌟",
-  "You don't have to do it all. Consistency beats perfection every time 🌱",
-  "Octopuses have three hearts, blue blood, and can open jars. They'd ace science 🐙",
-  "A group of flamingos is called a 'flamboyance.' You're welcome 🦩",
-  "Honey never expires — archaeologists found 3,000-year-old honey in Egypt still good 🍯",
-  "The shortest war in history lasted 38–45 minutes. Someone surrendered fast ⚔️",
-  "Bananas are technically berries. Strawberries are not. Botany is wild 🍌",
-  "The entire internet weighs about the same as a strawberry — in electrons 🍓",
-  "A day on Venus is longer than a year on Venus. Time is a construct 🪐",
-  "Wombats produce cube-shaped poop. Scientists are genuinely studying why 🐨",
-  "Cleopatra lived closer in time to the Moon landing than to the pyramids being built 🏛️",
-  "The word 'nerd' was first used by Dr. Seuss in 1950. He invented the nerd 🤓",
-  "Crows can recognize human faces and hold grudges for years 🐦‍⬛",
-  "Nintendo was founded in 1889. They started as a playing card company 🃏",
-  "Scotland's national animal is the unicorn 🦄",
-  "There are more possible games of chess than atoms in the observable universe ♟️",
-  "A bolt of lightning is five times hotter than the surface of the sun ⚡",
-  "Sloths can hold their breath longer than dolphins — up to 40 minutes 🦥",
-  "The smell of rain has a name: petrichor. One of the best words in English 🌧️",
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -382,9 +347,6 @@ function TodayLessonCard({
 
 export default function TodayPage() {
   const today = localDateStr(new Date());
-  const start = new Date(new Date().getFullYear(), 0, 0);
-  const dayOfYear = Math.floor((Date.now() - start.getTime()) / 86400000);
-  const [factIndex, setFactIndex] = useState(dayOfYear % DID_YOU_KNOW.length);
   const { isPartner, effectiveUserId } = usePartner();
 
   const [familyName,      setFamilyName]      = useState("");
@@ -1563,23 +1525,10 @@ export default function TodayPage() {
       {/* ── Today's Sections ─────────────────────────────── */}
       <div>
         {allDoneBanner && lessons.length > 0 && lessons.every(l => l.completed) && (
-          <>
-            <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
-              <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
-              <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
-            </div>
-            <button
-              onClick={() => setShowLogModal(true)}
-              className="mb-4 w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center gap-4 hover:border-[#5c7f63] hover:bg-[#faf8f5] transition-colors text-left"
-            >
-              <div className="w-10 h-10 rounded-xl bg-[#f0ede8] flex items-center justify-center shrink-0 text-lg">📸</div>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-[#2d2926]">Capture today&apos;s memory</p>
-                <p className="text-xs text-[#7a6f65]">What did you do today? Add a photo, book, or note.</p>
-              </div>
-              <span className="text-[#c8bfb5] text-lg">›</span>
-            </button>
-          </>
+          <div className="mb-4 bg-gradient-to-r from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 text-center">
+            <p className="text-lg font-bold text-[#2d2926]">🎉 Amazing day!</p>
+            <p className="text-sm text-[#5c7f63] mt-0.5">You earned {completedToday} {completedToday === 1 ? "leaf" : "leaves"} today 🍃</p>
+          </div>
 
         )}
         {(() => {
@@ -1957,19 +1906,6 @@ export default function TodayPage() {
         </div>
       )}
 
-
-      {/* ── Did You Know card (school days only) ────────── */}
-      {isSchoolDay && !activeVacation && (
-        <button
-          onClick={() => setFactIndex((factIndex + 1) % DID_YOU_KNOW.length)}
-          className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 text-left hover:bg-[#faf8f5] transition-colors"
-        >
-          <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">Did you know?</p>
-          <p className="text-[13px] text-[#5c5248] leading-relaxed border-l-2 border-[#3d5c42] pl-3">
-            {DID_YOU_KNOW[factIndex]}
-          </p>
-        </button>
-      )}
 
       <div className="h-4" />
 
