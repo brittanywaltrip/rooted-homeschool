@@ -173,8 +173,8 @@ export default function MemoriesPage() {
     const userIsPro = (profile as { is_pro?: boolean } | null)?.is_pro ?? false;
     setIsPro(userIsPro);
 
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const dateFloor = userIsPro ? "2020-01-01" : thirtyDaysAgo;
+    const thirtyDaysAgoDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const dateFloor = userIsPro ? "2020-01-01" : `${thirtyDaysAgoDate.getFullYear()}-${String(thirtyDaysAgoDate.getMonth() + 1).padStart(2, "0")}-${String(thirtyDaysAgoDate.getDate()).padStart(2, "0")}`;
 
     const [{ data: kids }, { data: memRows }, { data: reflData }] = await Promise.all([
       supabase
@@ -187,7 +187,7 @@ export default function MemoriesPage() {
         .from("memories")
         .select("*")
         .eq("user_id", effectiveUserId)
-        .gte("created_at", dateFloor)
+        .gte("date", dateFloor)
         .order("date", { ascending: false })
         .order("created_at", { ascending: false }),
       supabase

@@ -1043,9 +1043,11 @@ export default function TodayPage() {
     setSavingBook(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingBook(false); return; }
+    const nowB = new Date().toISOString();
     const { data: inserted } = await supabase.from("memories").insert({
       user_id: user.id, type: "book", title: bookTitle.trim(),
       child_id: bookChild || null, date: today, include_in_book: true,
+      created_at: nowB, updated_at: nowB,
     }).select("id").single();
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
@@ -1069,9 +1071,11 @@ export default function TodayPage() {
         photoUrl = urlData.publicUrl;
       }
     }
+    const nowD = new Date().toISOString();
     const { data: inserted } = await supabase.from("memories").insert({
       user_id: user.id, type: "drawing", title: drawingTitle.trim(),
       photo_url: photoUrl, child_id: drawingChild || null, date: today, include_in_book: true,
+      created_at: nowD, updated_at: nowD,
     }).select("id").single();
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
@@ -1341,10 +1345,12 @@ export default function TodayPage() {
               if (upErr) return;
               const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
               const memType = captureTypeRef.current;
+              const now = new Date().toISOString();
               const { data: ins } = await supabase.from("memories").insert({
                 user_id: user.id, type: memType, title: null,
                 photo_url: urlData.publicUrl, child_id: null,
                 date: today, include_in_book: false,
+                created_at: now, updated_at: now,
               }).select("id").single();
               const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
               showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
@@ -2140,10 +2146,12 @@ export default function TodayPage() {
                   setFtSaving(true);
                   const { data: { user } } = await supabase.auth.getUser();
                   if (user) {
+                    const nowFt = new Date().toISOString();
                     const { data: ins } = await supabase.from("memories").insert({
                       user_id: user.id, type: ftType, title: ftTitle.trim(),
                       caption: ftNote.trim() || null, child_id: ftChild || null,
                       date: today, include_in_book: false,
+                      created_at: nowFt, updated_at: nowFt,
                     }).select("id").single();
                     const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
                     showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null);
@@ -2711,6 +2719,7 @@ export default function TodayPage() {
                     const { data: { user } } = await supabase.auth.getUser();
                     if (!user) { setSavingWin(false); return; }
                     console.log("[Win save] user:", user.id, "winText:", winText.trim(), "winType:", winType, "childId:", winChild);
+                    const nowW = new Date().toISOString();
                     const { data: ins, error } = await supabase.from("memories").insert({
                       user_id: user.id,
                       child_id: winChild || null,
@@ -2718,6 +2727,7 @@ export default function TodayPage() {
                       type: winType,
                       title: winText.trim(),
                       include_in_book: false,
+                      created_at: nowW, updated_at: nowW,
                     }).select("id").single();
                     console.log("[Win save] result:", { data: ins, error });
                     if (error) {
