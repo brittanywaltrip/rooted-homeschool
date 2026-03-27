@@ -199,6 +199,13 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (!checking) loadFabKids(); }, [checking, loadFabKids]);
 
   function openFabPicker() { fabFileRef.current?.click(); }
+
+  // Listen for cross-page FAB open requests (e.g. from memories grid camera icon)
+  useEffect(() => {
+    const handler = () => openFabPicker();
+    window.addEventListener("rooted:open-fab", handler);
+    return () => window.removeEventListener("rooted:open-fab", handler);
+  });
   function onFabFileChosen(file: File) {
     setFabFile(file); setFabUrl(URL.createObjectURL(file)); setFabCaption(""); setFabChildId("");
   }
