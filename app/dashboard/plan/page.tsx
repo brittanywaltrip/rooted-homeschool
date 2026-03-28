@@ -211,7 +211,7 @@ export default function PlanPage() {
   const [savingVac,        setSavingVac]        = useState(false);
   const [profileSchoolDays, setProfileSchoolDays] = useState<string[]>([]);
   const [expandedCurricMenu, setExpandedCurricMenu] = useState<string | null>(null);
-  const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
+  const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
@@ -884,7 +884,7 @@ export default function PlanPage() {
               const pct = group.totalCount > 0 ? Math.round((completedCount / group.totalCount) * 100) : 0;
               const miniFillWidth = pct > 0 ? Math.max(4, Math.round((pct / 100) * 48)) : 0;
               const child = children.find(c => c.id === group.childId);
-              const isExpanded = expandedCourse === group.key;
+              const isExpanded = expandedCourses.has(group.key);
 
               // Projected finish
               const goal = group.goalData;
@@ -896,7 +896,11 @@ export default function PlanPage() {
                 <div key={group.key} style={{ background: "white", borderRadius: 14, border: isExpanded ? "0.5px solid #b8d89a" : "0.5px solid #e8e0d4", overflow: "hidden" }}>
                   {/* Header (tappable) */}
                   <button
-                    onClick={() => setExpandedCourse(isExpanded ? null : group.key)}
+                    onClick={() => setExpandedCourses(prev => {
+                      const next = new Set(prev);
+                      if (next.has(group.key)) next.delete(group.key); else next.add(group.key);
+                      return next;
+                    })}
                     style={{
                       width: "100%", display: "flex", alignItems: "center", gap: 10,
                       padding: "10px 13px", border: "none", background: "none", cursor: "pointer", textAlign: "left",
