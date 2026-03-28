@@ -310,12 +310,12 @@ export default function SettingsPage() {
     setInviteError("");
     setInviteSent(false);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setInviteError("Not logged in"); setSendingInvite(false); return; }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setInviteError("Not logged in"); setSendingInvite(false); return; }
       const res = await fetch("/api/family/invite", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: familyInviteEmail.trim(), ownerUserId: user.id, recipientName: familyInviteName.trim() }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ email: familyInviteEmail.trim(), recipientName: familyInviteName.trim() }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -336,12 +336,12 @@ export default function SettingsPage() {
   async function resendFamilyInvite(inv: FamilyInvite) {
     setResendingId(inv.id);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
       await fetch("/api/family/invite", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: inv.email, ownerUserId: user.id, recipientName: inv.viewer_name ?? "Friend", resend: true }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ email: inv.email, recipientName: inv.viewer_name ?? "Friend", resend: true }),
       });
       setResentId(inv.id);
       setTimeout(() => setResentId(null), 3000);
@@ -352,13 +352,13 @@ export default function SettingsPage() {
   async function saveInviteEdit(inv: FamilyInvite) {
     setSavingInvEdit(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
       await fetch("/api/family/invite", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
         body: JSON.stringify({
-          inviteId: inv.id, ownerUserId: user.id,
+          inviteId: inv.id,
           viewerName: editInvName.trim() || undefined,
           email: editInvEmail.trim() !== inv.email ? editInvEmail.trim() : undefined,
         }),
@@ -372,12 +372,12 @@ export default function SettingsPage() {
   async function revokeInvite(inv: FamilyInvite) {
     setActioningId(inv.id);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
       await fetch("/api/family/invite", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inviteId: inv.id, ownerUserId: user.id, action: "revoke" }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ inviteId: inv.id, action: "revoke" }),
       });
       load();
     } catch {}
@@ -387,12 +387,12 @@ export default function SettingsPage() {
   async function reactivateInvite(inv: FamilyInvite) {
     setActioningId(inv.id);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
       await fetch("/api/family/invite", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inviteId: inv.id, ownerUserId: user.id, action: "reactivate" }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ inviteId: inv.id, action: "reactivate" }),
       });
       load();
     } catch {}

@@ -4,10 +4,21 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, ownerUserId, recipientName, resend: isResend } = await req.json();
+    // Authenticate from server-side session — never trust client-sent userId
+    const authToken = req.headers.get("authorization")?.replace("Bearer ", "");
+    if (!authToken) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const { data: { user } } = await supabaseAdmin.auth.getUser(authToken);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const ownerUserId = user.id;
 
-    if (!email || !ownerUserId) {
-      return NextResponse.json({ error: "Missing email or ownerUserId" }, { status: 400 });
+    const { email, recipientName, resend: isResend } = await req.json();
+
+    if (!email) {
+      return NextResponse.json({ error: "Missing email" }, { status: 400 });
     }
     if (!recipientName?.trim()) {
       return NextResponse.json({ error: "Viewer name is required" }, { status: 400 });
@@ -109,8 +120,14 @@ export async function POST(req: NextRequest) {
 // Also support updating an invite (edit viewer name/email)
 export async function PATCH(req: NextRequest) {
   try {
-    const { inviteId, ownerUserId, viewerName, email } = await req.json();
-    if (!inviteId || !ownerUserId) {
+    const authToken = req.headers.get("authorization")?.replace("Bearer ", "");
+    if (!authToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { data: { user } } = await supabaseAdmin.auth.getUser(authToken);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ownerUserId = user.id;
+
+    const { inviteId, viewerName, email } = await req.json();
+    if (!inviteId) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
@@ -170,8 +187,14 @@ export async function PATCH(req: NextRequest) {
 // Revoke or reactivate
 export async function PUT(req: NextRequest) {
   try {
-    const { inviteId, ownerUserId, action } = await req.json();
-    if (!inviteId || !ownerUserId || !action) {
+    const authToken = req.headers.get("authorization")?.replace("Bearer ", "");
+    if (!authToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { data: { user } } = await supabaseAdmin.auth.getUser(authToken);
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ownerUserId = user.id;
+
+    const { inviteId, action } = await req.json();
+    if (!inviteId || !action) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
