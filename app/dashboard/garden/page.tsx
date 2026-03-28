@@ -220,6 +220,8 @@ export default function GardenPage() {
   const [badgeCelebration, setBadgeCelebration] = useState<string | null>(null);
   const [earnedActivityBadgeIds, setEarnedActivityBadgeIds] = useState<Set<string>>(new Set());
   const [badgeNotification, setBadgeNotification] = useState<BadgeDef | null>(null);
+  const [memoriesCount, setMemoriesCount] = useState(0);
+  const [booksCount, setBooksCount] = useState(0);
 
   const todayStr = toDateStr(new Date());
   const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
@@ -243,7 +245,7 @@ export default function GardenPage() {
       const [{ data: completed }, { data: activityEvents }, { data: memoryRows }, { data: vacBlocks }, { data: profile }] = await Promise.all([
         supabase.from("lessons").select("child_id, date, scheduled_date, hours").eq("user_id", effectiveUserId).eq("completed", true),
         supabase.from("app_events").select("type, payload").eq("user_id", effectiveUserId).in("type", ["book_read", "memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"]),
-        supabase.from("memories").select("child_id").eq("user_id", effectiveUserId),
+        supabase.from("memories").select("child_id, type").eq("user_id", effectiveUserId),
         supabase.from("vacation_blocks").select("start_date, end_date, name").eq("user_id", effectiveUserId),
         supabase.from("profiles").select("display_name, plan_type, subscription_status").eq("id", effectiveUserId).maybeSingle(),
       ]);
@@ -269,9 +271,12 @@ export default function GardenPage() {
         const cid = e.payload?.child_id;
         if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
       });
-      memoryRows?.forEach((m: { child_id: string | null }) => {
+      const memRows = (memoryRows ?? []) as { child_id: string | null; type?: string }[];
+      memRows.forEach((m) => {
         if (m.child_id) counts[m.child_id] = (counts[m.child_id] ?? 0) + 1;
       });
+      setMemoriesCount(memRows.length);
+      setBooksCount(memRows.filter((m) => m.type === "book").length);
 
       setLeafCounts(counts);
 
@@ -705,8 +710,23 @@ export default function GardenPage() {
                 <div className="flex flex-wrap gap-3">
                   {locked.map((badge) => (
                     <div key={badge.id} className="flex flex-col items-center w-[76px]">
-                      <div className="w-16 h-16 rounded-2xl overflow-hidden p-1">
-                        <svg viewBox="0 0 64 64" className="w-full h-full"><circle cx="32" cy="32" r="29" fill="none" stroke="#e8e2d9" strokeWidth="2" strokeDasharray="4 4"/><circle cx="32" cy="32" r="24" fill="#faf8f4"/><text x="32" y="38" textAnchor="middle" fontSize="20" fill="#c8bfb5" fontFamily="serif" fontStyle="italic">?</text></svg>
+                      <div className="relative w-16 h-16 rounded-2xl overflow-hidden p-1">
+                        <svg viewBox="0 0 64 64" className="w-full h-full">
+                          <circle cx="32" cy="32" r="29" fill="none" stroke="#e8e2d9" strokeWidth="2" strokeDasharray="4 4" />
+                          <circle cx="32" cy="32" r="24" fill="#faf8f4" />
+                        </svg>
+                        <span style={{
+                          position: "absolute", top: "50%", left: "50%",
+                          transform: "translate(-50%, -50%)", fontSize: 22,
+                          opacity: 0.15, filter: "grayscale(1)", userSelect: "none",
+                        }}>
+                          {badge.emoji}
+                        </span>
+                        <span style={{
+                          position: "absolute", bottom: 4, right: 4, fontSize: 10, lineHeight: 1,
+                        }}>
+                          🔒
+                        </span>
                       </div>
                       <span className="text-[10px] font-medium text-[#c8bfb5] text-center leading-tight mt-1.5">
                         ???
@@ -743,13 +763,14 @@ export default function GardenPage() {
         return (
           <div>
             <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-              Your Stats
+              Your Journey
             </h2>
             {!hasSomeData ? (
               <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center">
                 <p className="text-sm text-[#7a6f65]">Complete lessons to see your stats here 📊</p>
               </div>
             ) : (
+              <>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-gradient-to-br from-[#fff8ed] to-[#fef3dc] border border-[#f5c97a]/40 rounded-2xl p-4 text-center">
                   <div className="text-2xl mb-1">🔥</div>
@@ -759,50 +780,53 @@ export default function GardenPage() {
                     {currentStreak === 0 ? "Start today!" : `${currentStreak} day${currentStreak !== 1 ? "s" : ""}`}
                   </p>
                 </div>
-                <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-4 text-center">
-                  <div className="text-2xl mb-1">🏆</div>
-                  <p className="text-2xl font-bold text-[#3d5c42]">{bestStreak}</p>
-                  <p className="text-xs font-medium text-[#5c7f63] mt-0.5">Best streak</p>
-                  <p className="text-[10px] text-[#b5aca4] mt-0.5">Personal record</p>
-                </div>
                 <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-center">
                   <div className="text-2xl mb-1">📚</div>
                   <p className="text-2xl font-bold text-[#2d2926]">{allLessons.length}</p>
                   <p className="text-xs font-medium text-[#7a6f65] mt-0.5">Lessons logged</p>
                   <p className="text-[10px] text-[#b5aca4] mt-0.5">All time</p>
                 </div>
-                <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-center">
-                  <div className="text-2xl mb-1">⏱️</div>
-                  <p className="text-2xl font-bold text-[#2d2926]">
-                    {totalHours % 1 === 0 ? `${totalHours}h` : `${totalHours.toFixed(1)}h`}
-                  </p>
-                  <p className="text-xs font-medium text-[#7a6f65] mt-0.5">Total hours</p>
-                  {dayTotals[mostActiveDay] > 0 && (
-                    <p className="text-[10px] text-[#5c7f63] mt-0.5 font-medium">
-                      Most active: {DAY_NAMES[mostActiveDay]}
+                {totalHours > 0 ? (
+                  <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-center">
+                    <div className="text-2xl mb-1">⏱️</div>
+                    <p className="text-2xl font-bold text-[#2d2926]">
+                      {totalHours % 1 === 0 ? `${totalHours}h` : `${totalHours.toFixed(1)}h`}
                     </p>
-                  )}
+                    <p className="text-xs font-medium text-[#7a6f65] mt-0.5">Total hours</p>
+                    <p className="text-[10px] text-[#b5aca4] mt-0.5">This year</p>
+                  </div>
+                ) : (
+                  <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-center">
+                    <div className="text-2xl mb-1">📸</div>
+                    <p className="text-2xl font-bold text-[#2d2926]">{memoriesCount}</p>
+                    <p className="text-xs font-medium text-[#7a6f65] mt-0.5">Memories captured</p>
+                    <p className="text-[10px] text-[#b5aca4] mt-0.5">This year</p>
+                  </div>
+                )}
+                <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 text-center">
+                  <div className="text-2xl mb-1">📖</div>
+                  <p className="text-2xl font-bold text-[#2d2926]">{booksCount}</p>
+                  <p className="text-xs font-medium text-[#7a6f65] mt-0.5">Books read</p>
+                  <p className="text-[10px] text-[#b5aca4] mt-0.5">This year</p>
                 </div>
               </div>
+
+              {/* Export progress PDF — inline below stats */}
+              <Link
+                href="/dashboard/reports"
+                className="flex items-center justify-between bg-white border border-[#e8e2d9] rounded-xl px-4 py-3 hover:bg-[#f8f7f4] transition-colors mt-3"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-[#2d2926]">Export progress PDF</p>
+                  <p className="text-xs text-[#7a6f65] mt-0.5">Lessons, books, and hours by subject</p>
+                </div>
+                <span className="text-[#5c7f63] text-lg">↗</span>
+              </Link>
+              </>
             )}
           </div>
         );
       })()}
-
-      {/* ── Export & Review ──────────────────────────────────────────── */}
-      <div className="px-4 pb-8 space-y-3">
-        <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-1 px-1">Keep & Share</p>
-        <Link
-          href="/dashboard/reports"
-          className="flex items-center justify-between bg-white border border-[#e8e2d9] rounded-xl px-4 py-3 hover:bg-[#f8f7f4] transition-colors"
-        >
-          <div>
-            <p className="text-sm font-semibold text-[#2d2926]">Export progress PDF</p>
-            <p className="text-xs text-[#7a6f65] mt-0.5">Lessons, books, and hours by subject</p>
-          </div>
-          <span className="text-[#5c7f63] text-lg">↗</span>
-        </Link>
-      </div>
 
       <div className="h-4" />
       </div>

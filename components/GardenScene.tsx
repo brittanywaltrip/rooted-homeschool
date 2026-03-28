@@ -467,11 +467,11 @@ export default function GardenScene({
 
       {/* Butterflies at stage 6+ */}
       {stage >= 6 && (
-        <>
-          <SceneButterfly x={12} y={18} delay={0}   color="#f9a8d4" />
-          <SceneButterfly x={72} y={14} delay={1.8} color="#fbbf24" />
-          {stage >= 8 && <SceneButterfly x={45} y={22} delay={3.2} color="#86efac" />}
-        </>
+        <div style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: "none" }}>
+          <SceneButterfly x={18} y={12} delay={0}   color="#f9a8d4" />
+          <SceneButterfly x={75} y={10} delay={1.8} color="#fbbf24" />
+          {stage >= 8 && <SceneButterfly x={48} y={15} delay={3.2} color="#86efac" />}
+        </div>
       )}
 
       {/* Seasonal elements — one subtle touch per season */}
@@ -499,7 +499,7 @@ export default function GardenScene({
         );
         // Summer: bigger sun + extra butterfly
         if (m >= 6 && m <= 8) return (
-          <SceneButterfly x={38} y={12} delay={2.5} color="#87ceeb" />
+          <SceneButterfly x={38} y={8} delay={2.5} color="#87ceeb" />
         );
         return null;
       })()}
