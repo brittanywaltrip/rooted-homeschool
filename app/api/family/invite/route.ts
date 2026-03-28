@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { emailFooterText } from "@/lib/email-footer";
 
 export async function POST(req: NextRequest) {
   try {
@@ -53,7 +54,7 @@ Click below to see their photos, wins, books, field trips and more — and leave
 
 See our memories → ${viewUrl}
 
-— Brittany / Founder, Rooted 🌿`,
+— Brittany / Founder, Rooted 🌿${emailFooterText()}`,
     });
 
     return NextResponse.json({ ok: true, token: invite!.token });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
+import { emailFooterHtml, emailFooterText } from "@/lib/email-footer";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
@@ -104,6 +105,7 @@ export async function POST(req: Request) {
       <span style="color:#5c7f63;font-weight:500">Brittany</span><br/>
       <span style="color:#7a6f65;font-size:13px">Founder, Rooted</span>
     </p>
+    ${emailFooterHtml()}
   </div>
 </div>`;
 
@@ -119,7 +121,7 @@ Thank you for believing in Rooted early on. I'm so glad you're here.
 
 With love,
 Brittany
-Founder, Rooted`;
+Founder, Rooted${emailFooterText()}`;
 
     const result = await resend.emails.send({
       from: "Brittany from Rooted <hello@rootedhomeschoolapp.com>",

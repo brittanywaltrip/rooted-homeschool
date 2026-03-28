@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 
 // ALTER TABLE profiles ADD COLUMN IF NOT EXISTS re_engagement_sent boolean DEFAULT false;
 
@@ -30,6 +31,7 @@ function emailHtml(firstName: string): string {
 </td></tr></table>
 <p style="font-size:14px;line-height:1.5;color:#2d2926;margin:24px 0 0;font-weight:600;">&mdash; Brittany</p>
 <p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">Founder, Rooted</p>
+${emailFooterHtml()}
 </td></tr></table>
 </td></tr></table>
 </body></html>`
@@ -47,7 +49,7 @@ That's it. That's all it takes to start.
 Open Rooted → https://rootedhomeschoolapp.com/dashboard
 
 — Brittany
-Founder, Rooted`
+Founder, Rooted${emailFooterText()}`
 }
 
 export async function GET(req: NextRequest) {

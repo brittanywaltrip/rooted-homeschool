@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,7 +12,7 @@ const supabase = createClient(
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
 
-const SIG_TEXT = `— Brittany\nFounder, Rooted`
+const SIG_TEXT = `— Brittany\nFounder, Rooted${emailFooterText()}`
 
 function emailHtml(bodyLines: string[], ctaLabel: string, ctaUrl: string): string {
   return `<!DOCTYPE html>
@@ -28,6 +29,7 @@ ${bodyLines.map(l => `<p style="font-size:15px;line-height:1.6;color:#2d2926;mar
 <p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:0 0 4px;">If you run into anything or just want to share how homeschooling is going &mdash; reply to this email. I read every single one.</p>
 <p style="font-size:14px;line-height:1.5;color:#2d2926;margin:24px 0 0;font-weight:600;">&mdash; Brittany</p>
 <p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">Founder, Rooted</p>
+${emailFooterHtml()}
 </td></tr></table>
 </td></tr></table>
 </body></html>`

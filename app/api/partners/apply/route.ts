@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { emailFooterHtml } from '@/lib/email-footer'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -79,8 +80,7 @@ function confirmationHtml(firstName: string): string {
 
   <!-- Footer -->
   <tr><td align="center" style="padding:24px 0 0;">
-    <p style="margin:0;font-size:13px;color:#7a6f65;">Rooted Homeschool · rootedhomeschoolapp.com</p>
-    <p style="margin:4px 0 0;font-size:13px;color:#7a6f65;">Questions? Reply to this email anytime.</p>
+    ${emailFooterHtml()}
   </td></tr>
 
 </table>

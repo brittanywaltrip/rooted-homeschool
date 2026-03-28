@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +36,7 @@ function emailHtml(name: string, summaryLine: string, memCount: number): string 
 <p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:0 0 4px;">If you run into anything or just want to share how homeschooling is going &mdash; reply to this email. I read every single one.</p>
 <p style="font-size:14px;line-height:1.5;color:#2d2926;margin:24px 0 0;font-weight:600;">&mdash; Brittany</p>
 <p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">Founder, Rooted</p>
+${emailFooterHtml()}
 </td></tr></table>
 </td></tr></table>
 </body></html>`
@@ -179,7 +181,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
         from: FROM,
         to: TEST_EMAIL,
         subject: 'Your week with Rooted 🌿',
-        text: `Hi ${sampleName}, Last week was a great week of homeschooling. You captured 0 memories this week.\n\n— Brittany\nFounder, Rooted`,
+        text: `Hi ${sampleName}, Last week was a great week of homeschooling. You captured 0 memories this week.\n\n— Brittany\nFounder, Rooted${emailFooterText()}`,
         html: emailHtml(sampleName, 'Last week was a great week of homeschooling.', 0),
       })
       return { sent: 1, totalUsers: 1 }
@@ -204,7 +206,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
         from: FROM,
         to: email,
         subject: 'Your week with Rooted 🌿',
-        text: `${name ? `Hi ${name}` : 'Hi'}, ${summaryLine} You captured ${mems.length} memories this week. Keep going!\n\n— Brittany\nFounder, Rooted`,
+        text: `${name ? `Hi ${name}` : 'Hi'}, ${summaryLine} You captured ${mems.length} memories this week. Keep going!\n\n— Brittany\nFounder, Rooted${emailFooterText()}`,
         html: emailHtml(name, summaryLine, mems.length),
       })
       sent++

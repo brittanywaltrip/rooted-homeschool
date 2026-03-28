@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
+import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-02-25.clover',
@@ -42,8 +43,11 @@ async function getActiveSubCount(): Promise<number> {
 async function sendEmail(to: string, subject: string, text: string, from = 'Rooted <hello@rootedhomeschoolapp.com>', html?: string) {
   const { Resend } = await import('resend')
   const resend = new Resend(process.env.RESEND_API_KEY)
-  const payload: { from: string; to: string; subject: string; text: string; html?: string } = { from, to, subject, text }
-  if (html) payload.html = html
+  const payload: { from: string; to: string; subject: string; text: string; html?: string } = {
+    from, to, subject,
+    text: text + emailFooterText(),
+  }
+  if (html) payload.html = html + emailFooterHtml()
   const result = await resend.emails.send(payload)
   if (result.error) console.error('Resend sendEmail error:', result.error)
 }
