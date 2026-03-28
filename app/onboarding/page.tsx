@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, Check, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/compress-image";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -404,10 +405,11 @@ function StepFirstMemory({
 
     // Upload immediately
     setSaving(true);
-    const path = `${userId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+    const compressed = await compressImage(file);
+    const path = `${userId}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
     const { error } = await supabase.storage
       .from("memory-photos")
-      .upload(path, file, { contentType: file.type, upsert: false });
+      .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
 
     if (!error) {
       const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);

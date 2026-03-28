@@ -9,6 +9,7 @@ import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
 import UpgradePrompt from "@/components/UpgradePrompt";
 import MilestonePrompt from "@/components/MilestonePrompt";
+import { compressImage } from "@/lib/compress-image";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -367,8 +368,9 @@ export default function MemoriesPage() {
 
     let photoUrl: string | null | undefined = undefined;
     if (editPhotoFile) {
-      const path = `${user.id}/${Date.now()}-${editPhotoFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, editPhotoFile, { contentType: editPhotoFile.type, upsert: false });
+      const compressed = await compressImage(editPhotoFile);
+      const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
       if (!upErr) {
         const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
         photoUrl = urlData.publicUrl;

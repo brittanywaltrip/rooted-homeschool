@@ -8,6 +8,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
+import { compressImage } from "@/lib/compress-image";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1057,8 +1058,9 @@ export default function TodayPage() {
     if (!user) { setSavingDrawing(false); return; }
     let photoUrl: string | null = null;
     if (drawingFile) {
-      const path = `${user.id}/${Date.now()}-${drawingFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, drawingFile, { contentType: drawingFile.type, upsert: false });
+      const compressed = await compressImage(drawingFile);
+      const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
       if (!upErr) {
         const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
         photoUrl = urlData.publicUrl;
@@ -1695,8 +1697,9 @@ export default function TodayPage() {
               try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) { console.error("[Photo capture] No user session"); return; }
-                const path = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-                const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, file, { contentType: file.type, upsert: false });
+                const compressed = await compressImage(file);
+                const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+                const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
                 if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); return; }
                 const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
                 const memType = captureTypeRef.current;
