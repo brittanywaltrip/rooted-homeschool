@@ -211,7 +211,7 @@ export default function PlanPage() {
   const [savingVac,        setSavingVac]        = useState(false);
   const [profileSchoolDays, setProfileSchoolDays] = useState<string[]>([]);
   const [expandedCurricMenu, setExpandedCurricMenu] = useState<string | null>(null);
-  const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
+  const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
@@ -745,6 +745,13 @@ export default function PlanPage() {
       {/* ══════════════════════════════════════════════════
           SECTION 3 — DAY PANEL
       ══════════════════════════════════════════════════ */}
+      {!loading && (
+        <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+          {selectedDay === todayStr
+            ? "Today\u2019s Lessons"
+            : `Lessons — ${selectedDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`}
+        </p>
+      )}
       {!loading && (() => {
         // Vacation day
         if (isSelectedVacation) {
@@ -772,9 +779,8 @@ export default function PlanPage() {
         return (
           <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", overflow: "hidden" }}>
             {/* Header */}
-            <div style={{ padding: "10px 13px 8px", borderBottom: "0.5px solid #f0ece4", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ padding: "10px 13px 8px", borderBottom: "0.5px solid #f0ece4" }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>{selectedDateLabel}</span>
-              <span style={{ fontSize: 11, color: "#b5aca4" }}>{selectedDayDone} of {selectedDayTotal} done</span>
             </div>
 
             {/* Children groups */}
@@ -870,14 +876,15 @@ export default function PlanPage() {
       {!isPartner && curricGroups.length > 0 && (
         <div style={{ marginTop: 8 }}>
           <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
-            Your Courses
+            Course Progress
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {curricGroups.map((group) => {
               const completedCount = group.totalCount - group.remainingCount;
               const pct = group.totalCount > 0 ? Math.round((completedCount / group.totalCount) * 100) : 0;
+              const miniFillWidth = pct > 0 ? Math.max(4, Math.round((pct / 100) * 48)) : 0;
               const child = children.find(c => c.id === group.childId);
-              const isExpanded = expandedCourses.has(group.key);
+              const isExpanded = expandedCourse === group.key;
 
               // Projected finish
               const goal = group.goalData;
@@ -886,14 +893,10 @@ export default function PlanPage() {
               const lessonsRemaining = totalLessons - currentLesson;
 
               return (
-                <div key={group.key} style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", overflow: "hidden" }}>
+                <div key={group.key} style={{ background: "white", borderRadius: 14, border: isExpanded ? "0.5px solid #b8d89a" : "0.5px solid #e8e0d4", overflow: "hidden" }}>
                   {/* Header (tappable) */}
                   <button
-                    onClick={() => setExpandedCourses(prev => {
-                      const next = new Set(prev);
-                      if (next.has(group.key)) next.delete(group.key); else next.add(group.key);
-                      return next;
-                    })}
+                    onClick={() => setExpandedCourse(isExpanded ? null : group.key)}
                     style={{
                       width: "100%", display: "flex", alignItems: "center", gap: 10,
                       padding: "10px 13px", border: "none", background: "none", cursor: "pointer", textAlign: "left",
@@ -901,7 +904,7 @@ export default function PlanPage() {
                   >
                     {/* Child avatar */}
                     <span style={{
-                      width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                      width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 12, fontWeight: 700, color: "white", flexShrink: 0,
                       backgroundColor: child?.color ?? "#7a6f65",
                     }}>
@@ -910,98 +913,97 @@ export default function PlanPage() {
 
                     {/* Name + subject */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 13, fontWeight: 700, color: "#2d2926", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: "#2d2926", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {child?.name ?? "Unassigned"} · {group.curricName}
                       </p>
                       <p style={{ fontSize: 10, color: "#b5aca4", margin: "1px 0 0" }}>
-                        {group.subjectName ?? "General"} · {completedCount} of {group.totalCount} lessons
+                        {group.subjectName ?? "General"} · {completedCount} of {group.totalCount}
                       </p>
                     </div>
 
-                    {/* Percentage + mini progress */}
+                    {/* Mini progress bar + percentage */}
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: "#2D5a1B" }}>{pct}%</span>
-                      <div style={{ width: 44, height: 3, background: "#f0ede8", borderRadius: 2, overflow: "hidden" }}>
-                        <div style={{ width: `${pct}%`, height: "100%", background: "#2D5a1B", borderRadius: 2 }} />
+                      <div style={{ width: 48, height: 4, background: "#f0ede8", borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{ width: miniFillWidth, height: "100%", background: "#2D5a1B", borderRadius: 2 }} />
                       </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#2D5a1B", minWidth: 28, textAlign: "right" }}>{pct}%</span>
                     </div>
+
+                    {/* Chevron */}
+                    <span style={{ fontSize: 14, color: "#b5aca4", flexShrink: 0, transition: "transform 0.15s" }}>
+                      {isExpanded ? "⌄" : "›"}
+                    </span>
                   </button>
 
                   {/* Expanded detail */}
                   {isExpanded && (
-                    <div style={{ borderTop: "0.5px solid #f5f0e8", padding: "9px 13px 11px" }}>
-                      {/* Projected finish */}
-                      {(() => {
-                        if (lessonsRemaining <= 0) return null;
-                        const startDate = goal?.created_at ? new Date(goal.created_at) : null;
-                        if (!startDate) return <p style={{ fontSize: 11, color: "#aaa" }}>Log more lessons to see your pace</p>;
-                        const daysSinceCreated = Math.max(1, (Date.now() - startDate.getTime()) / 86400000);
-                        const weeksActive = Math.max(1, daysSinceCreated / 7);
-                        const weeklyPace = currentLesson / weeksActive;
-                        if (weeklyPace < 0.5) return <p style={{ fontSize: 11, color: "#aaa" }}>Log more lessons to see your pace</p>;
-                        const daysToFinish = (lessonsRemaining / weeklyPace) * 7;
-                        const projectedFinish = new Date(Date.now() + daysToFinish * 86400000);
-                        const thisYear = new Date().getFullYear();
-                        const fmtDate = (d: Date) => {
-                          const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-                          if (d.getFullYear() !== thisYear) opts.year = "numeric";
-                          return d.toLocaleDateString("en-US", opts);
-                        };
-                        const projectedLabel = fmtDate(projectedFinish);
-                        const targetDate = goal?.target_date ? new Date(goal.target_date + "T00:00:00") : null;
+                    <div style={{ borderTop: "0.5px solid #f5f0e8", padding: "10px 13px 11px" }}>
+                      {/* Lesson count + percentage row */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#2d2926" }}>{completedCount} of {group.totalCount} lessons</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#2D5a1B" }}>{pct}%</span>
+                      </div>
 
-                        if (targetDate) {
-                          const diffDays = Math.round((projectedFinish.getTime() - targetDate.getTime()) / 86400000);
-                          if (diffDays > 14) {
-                            return <p style={{ fontSize: 11, color: "#8a6d00" }}>Behind pace · projected {projectedLabel}</p>;
-                          }
-                          return <p style={{ fontSize: 11, color: "#2D5a1B" }}>✓ On track · finishes {projectedLabel}</p>;
-                        }
+                      {/* Full-width progress bar */}
+                      <div style={{ width: "100%", height: 6, background: "#ece8e0", borderRadius: 3, overflow: "hidden", marginBottom: 10 }}>
+                        <div style={{ width: `${Math.max(pct, pct > 0 ? 2 : 0)}%`, height: "100%", background: "#2D5a1B", borderRadius: 3 }} />
+                      </div>
 
-                        return (
-                          <div>
-                            <p style={{ fontSize: 11, color: "#aaa", margin: 0 }}>Projected finish: {projectedLabel}</p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditWizardData({
-                                  goalId: group.goalId ?? undefined,
-                                  childId: group.childId ?? "",
-                                  curricName: group.curricName,
-                                  subjectLabel: goal?.subject_label ?? group.subjectName ?? null,
-                                  totalLessons: goal?.total_lessons ?? group.totalCount,
-                                  currentLesson: goal?.current_lesson ?? completedCount,
-                                  targetDate: goal?.target_date ?? "",
-                                  schoolDays: goal?.school_days ?? [],
-                                });
-                              }}
-                              style={{ fontSize: 11, color: "#2D5a1B", marginTop: 2, background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                            >
-                              Set a goal date in edit →
-                            </button>
-                          </div>
-                        );
-                      })()}
+                      {/* Meta row: finish status + Edit link */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        {/* Finish status */}
+                        <div>
+                          {(() => {
+                            if (lessonsRemaining <= 0) return <span style={{ fontSize: 11, color: "#2D5a1B" }}>✓ Complete</span>;
+                            const startDate = goal?.created_at ? new Date(goal.created_at) : null;
+                            if (!startDate) return <span style={{ fontSize: 11, color: "#aaa" }}>Log more to see pace</span>;
+                            const daysSinceCreated = Math.max(1, (Date.now() - startDate.getTime()) / 86400000);
+                            const weeksActive = Math.max(1, daysSinceCreated / 7);
+                            const weeklyPace = currentLesson / weeksActive;
+                            if (weeklyPace < 0.5) return <span style={{ fontSize: 11, color: "#aaa" }}>Log more to see pace</span>;
+                            const daysToFinish = (lessonsRemaining / weeklyPace) * 7;
+                            const projectedFinish = new Date(Date.now() + daysToFinish * 86400000);
+                            const thisYear = new Date().getFullYear();
+                            const fmtDate = (d: Date) => {
+                              const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+                              if (d.getFullYear() !== thisYear) opts.year = "numeric";
+                              return d.toLocaleDateString("en-US", opts);
+                            };
+                            const projectedLabel = fmtDate(projectedFinish);
+                            const targetDate = goal?.target_date ? new Date(goal.target_date + "T00:00:00") : null;
 
-                      {/* Edit curriculum link */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditWizardData({
-                            goalId: group.goalId ?? undefined,
-                            childId: group.childId ?? "",
-                            curricName: group.curricName,
-                            subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
-                            totalLessons: group.goalData?.total_lessons ?? group.totalCount,
-                            currentLesson: group.goalData?.current_lesson ?? completedCount,
-                            targetDate: group.goalData?.target_date ?? "",
-                            schoolDays: group.goalData?.school_days ?? [],
-                          });
-                        }}
-                        style={{ display: "block", fontSize: 11, color: "#2D5a1B", marginTop: 6, background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                      >
-                        Edit curriculum →
-                      </button>
+                            if (targetDate) {
+                              const diffDays = Math.round((projectedFinish.getTime() - targetDate.getTime()) / 86400000);
+                              if (diffDays > 14) {
+                                return <span style={{ fontSize: 11, color: "#8a6d00" }}>Behind pace · projected {projectedLabel}</span>;
+                              }
+                              return <span style={{ fontSize: 11, color: "#2D5a1B" }}>✓ On track · finishes {projectedLabel}</span>;
+                            }
+
+                            return <span style={{ fontSize: 11, color: "#aaa" }}>Projected finish: {projectedLabel}</span>;
+                          })()}
+                        </div>
+
+                        {/* Edit link */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditWizardData({
+                              goalId: group.goalId ?? undefined,
+                              childId: group.childId ?? "",
+                              curricName: group.curricName,
+                              subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
+                              totalLessons: group.goalData?.total_lessons ?? group.totalCount,
+                              currentLesson: group.goalData?.current_lesson ?? completedCount,
+                              targetDate: group.goalData?.target_date ?? "",
+                              schoolDays: group.goalData?.school_days ?? [],
+                            });
+                          }}
+                          style={{ fontSize: 11, color: "#2D5a1B", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                        >
+                          Edit →
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
