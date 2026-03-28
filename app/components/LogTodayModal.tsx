@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/compress-image";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -155,8 +156,9 @@ export default function LogTodayModal({
             return;
           }
         }
-        const path = `${user.id}/${Date.now()}-${photoFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-        const { error: uploadErr } = await supabase.storage.from("memory-photos").upload(path, photoFile, { contentType: photoFile.type, upsert: false });
+        const compressed = await compressImage(photoFile);
+        const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+        const { error: uploadErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
         if (uploadErr) {
           setError(uploadErr.message.includes("Bucket not found")
             ? "Storage bucket 'memory-photos' not found. Create it in Supabase."

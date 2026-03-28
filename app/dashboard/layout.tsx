@@ -10,6 +10,7 @@ import UpgradeBanner from "@/app/components/UpgradeBanner";
 import { ProfileProvider, useProfile } from "@/lib/profile-context";
 import { BadgeNotificationListener } from "@/components/BadgeNotification";
 import { checkAndAwardBadges } from "@/lib/badges";
+import { compressImage } from "@/lib/compress-image";
 
 const navItems = [
   { label: "Today",     href: "/dashboard",           icon: Sun      },
@@ -218,8 +219,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setFabSaving(false); return; }
-      const path = `${user.id}/${Date.now()}-${fabFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, fabFile, { contentType: fabFile.type, upsert: false });
+      const fileToUpload = await compressImage(fabFile);
+      const path = `${user.id}/${Date.now()}-${fileToUpload.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, fileToUpload, { contentType: "image/jpeg", upsert: false });
       if (upErr) { setFabSaving(false); setFabToast("Upload failed — check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
       const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
       const now = new Date();

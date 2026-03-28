@@ -9,6 +9,7 @@ import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
 import UpgradePrompt from "@/components/UpgradePrompt";
 import MilestonePrompt from "@/components/MilestonePrompt";
+import { compressImage } from "@/lib/compress-image";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -367,8 +368,9 @@ export default function MemoriesPage() {
 
     let photoUrl: string | null | undefined = undefined;
     if (editPhotoFile) {
-      const path = `${user.id}/${Date.now()}-${editPhotoFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, editPhotoFile, { contentType: editPhotoFile.type, upsert: false });
+      const compressed = await compressImage(editPhotoFile);
+      const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
       if (!upErr) {
         const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
         photoUrl = urlData.publicUrl;
@@ -785,62 +787,11 @@ export default function MemoriesPage() {
                     </button>
                   )}
 
-                  {/* Child color dot */}
-                  <div
-                    className="absolute top-1.5 left-1.5 w-3.5 h-3.5 rounded-full border-[1.5px] border-white shadow-sm flex items-center justify-center"
-                    style={{ backgroundColor: m.child_id ? childColor(m.child_id) : "transparent" }}
-                  >
-                    {!m.child_id && <span className="text-[6px] leading-none">👨‍👩‍👧‍👦</span>}
-                  </div>
-
-                  {/* Top-right icons: favorite + yearbook */}
-                  <div className="absolute top-1 right-1 flex items-center gap-0.5">
-                    {!isPartner && (
-                      <button
-                        onClick={(e) => toggleFavorite(m, e)}
-                        className="w-5 h-5 rounded-full bg-black/30 flex items-center justify-center transition-opacity"
-                        aria-label={m.favorite ? "Remove from favorites" : "Add to favorites"}
-                      >
-                        <Heart size={10} className={m.favorite ? "text-red-400 fill-red-400" : "text-white"} />
-                      </button>
-                    )}
-                    {m.include_in_book && (
-                      <div className="w-5 h-5 rounded-full bg-black/30 flex items-center justify-center">
-                        <BookmarkCheck size={10} className="text-[#5c7f63]" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ··· menu button */}
-                  {!isPartner && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setMenuId(menuId === m.id ? null : m.id); }}
-                      className="absolute top-7 right-1.5 w-5 h-5 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity"
-                      aria-label="More options"
-                    >
-                      <MoreHorizontal size={12} className="text-white" />
-                    </button>
-                  )}
-
-                  {/* Dropdown menu */}
-                  {menuId === m.id && (
-                    <div
-                      className="absolute top-[52px] right-1.5 bg-white rounded-xl shadow-lg border border-[#e8e2d9] z-20 overflow-hidden"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button onClick={() => openEdit(m)} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#2d2926] hover:bg-[#f8f6f3] transition-colors">
-                        <Pencil size={12} className="text-[#7a6f65]" /> Edit
-                      </button>
-                      <button onClick={() => openDelete(m)} className="flex items-center gap-2 w-full px-3 py-2 text-xs text-red-500 hover:bg-red-50 transition-colors">
-                        <Trash2 size={12} /> Delete
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Date label at bottom */}
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent px-1.5 pb-1.5 pt-5">
-                    <p className="text-[10px] text-white/90 font-medium">{formatDate(m.date)}</p>
-                  </div>
+                  {/* Subtle bottom gradient + date */}
+                  <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ height: "28%", background: "linear-gradient(transparent, rgba(0,0,0,0.28))" }} />
+                  <span style={{ position: "absolute", bottom: 4, left: 5, fontSize: 9, color: "rgba(255,255,255,0.75)" }}>
+                    {new Date(m.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  </span>
                 </button></>
               );
             });
@@ -907,6 +858,9 @@ export default function MemoriesPage() {
                   </p>
                   <p className="text-[11px] text-[#b5aca4]">{formatDate(selectedMemory.date)}</p>
                 </div>
+                {/* TODO: When share-with-family is built, show family reaction
+                   count here (e.g. "♡ 3") only when reactions > 0.
+                   Empty = no heart visible on grid tile. */}
                 <button
                   onClick={() => toggleFavorite(selectedMemory)}
                   className="shrink-0 p-1"
