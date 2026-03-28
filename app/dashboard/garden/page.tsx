@@ -408,10 +408,10 @@ export default function GardenPage() {
         <Cloud x={28} y={14} scale={0.7} delay={-5} alt />
         <Cloud x={55} y={6}  scale={0.85} delay={-2} />
 
-        {/* Butterflies */}
-        <Butterfly x={12} y={30} delay={0}   color="#f9a8d4" />
-        <Butterfly x={72} y={24} delay={1.8} color="#fbbf24" />
-        <Butterfly x={45} y={38} delay={3.2} color="#86efac" />
+        {/* Butterflies — hover near ground level, above hills/plants */}
+        <Butterfly x={12} y={58} delay={0}   color="#f9a8d4" />
+        <Butterfly x={72} y={62} delay={1.8} color="#fbbf24" />
+        <Butterfly x={45} y={55} delay={3.2} color="#86efac" />
 
         {/* Vacation palm trees — flanking left and right */}
         {activeVacation && (
@@ -799,16 +799,6 @@ export default function GardenPage() {
           <div>
             <p className="text-sm font-semibold text-[#2d2926]">Export progress PDF</p>
             <p className="text-xs text-[#7a6f65] mt-0.5">Lessons, books, and hours by subject</p>
-          </div>
-          <span className="text-[#5c7f63] text-lg">↗</span>
-        </Link>
-        <Link
-          href="/dashboard/year-in-review"
-          className="flex items-center justify-between bg-white border border-[#e8e2d9] rounded-xl px-4 py-3 hover:bg-[#f8f7f4] transition-colors"
-        >
-          <div>
-            <p className="text-sm font-semibold text-[#2d2926]">Year in Review</p>
-            <p className="text-xs text-[#7a6f65] mt-0.5">AI-generated annual keepsake ✨</p>
           </div>
           <span className="text-[#5c7f63] text-lg">↗</span>
         </Link>

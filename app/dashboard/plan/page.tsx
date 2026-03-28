@@ -6,7 +6,6 @@ import { ChevronLeft, ChevronRight, ChevronDown, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
-import DayDetailPanel from "@/app/components/DayDetailPanel";
 import PageHero from "@/app/components/PageHero";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
 
@@ -23,6 +22,7 @@ type CurriculumGoal = {
   current_lesson: number | null;
   target_date: string | null;
   school_days: string[] | null;
+  created_at: string | null;
 };
 type Lesson  = {
   id: string;
@@ -58,16 +58,6 @@ type VacationBlock = {
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CURRICULUM_RE = /^(.+) — Lesson \d+$/;
 
-const SUBJECT_CHIPS = [
-  { label: "Math",          bg: "#e4f0f4", text: "#1a4a5a" },
-  { label: "Reading",       bg: "#f0e8f4", text: "#4a2a5a" },
-  { label: "Language Arts", bg: "#ede8f4", text: "#3a2a6a" },
-  { label: "Science",       bg: "#e8f0e9", text: "#3d5c42" },
-  { label: "History",       bg: "#fef0e4", text: "#7a4a1a" },
-  { label: "Art",           bg: "#fce8ec", text: "#7a2a36" },
-  { label: "Other",         bg: "#f0ede8", text: "#5c5248" },
-];
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toDateStr(d: Date): string {
@@ -88,7 +78,7 @@ function formatWeekRange(monday: Date): string {
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   const start = monday.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const end   = sunday.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const end   = sunday.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   return `${start} – ${end}`;
 }
 
@@ -121,6 +111,11 @@ function isDateInBlocks(dateStr: string, blocks: { start_date: string; end_date:
   return blocks.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
 }
 
+function getVacationName(dateStr: string, blocks: VacationBlock[]): string | null {
+  const b = blocks.find((b) => dateStr >= b.start_date && dateStr <= b.end_date);
+  return b?.name ?? null;
+}
+
 function calcPaceStatus(
   remainingCount: number,
   targetDate: string | null,
@@ -141,7 +136,6 @@ function calcPaceStatus(
     safety++;
   }
   if (futureDays >= remainingCount) return { label: "✓ On pace", color: "#3d5c42", bg: "#e8f0e9" };
-  // Count how many calendar days past target to finish remaining lessons
   const extraNeeded = remainingCount - futureDays;
   let extraFound = 0;
   const futureCursor = new Date(target);
@@ -157,245 +151,6 @@ function calcPaceStatus(
   if (calendarDaysExtra <= 14) return { label: "⚡ Slightly behind", color: "#7a4a1a", bg: "#fef9e8" };
   return { label: "⚠ Behind pace", color: "#b91c1c", bg: "#fef2f2" };
 }
-
-function getSubjectStyle(subjectName: string | undefined): { bg: string; text: string } {
-  if (!subjectName) return { bg: "#f0ede8", text: "#5c5248" };
-  const n = subjectName.toLowerCase();
-  if (n.includes("math") || n.includes("algebra") || n.includes("geometry") || n.includes("calculus"))
-    return { bg: "#e4f0f4", text: "#1a4a5a" };
-  if (n.includes("read") || n.includes("language") || n.includes("english") || n.includes("writing") || n.includes("grammar") || n.includes("lit") || n.includes("spelling") || n.includes("phonics"))
-    return { bg: "#f0e8f4", text: "#4a2a5a" };
-  if (n.includes("science") || n.includes("biology") || n.includes("chemistry") || n.includes("physics") || n.includes("nature"))
-    return { bg: "#e8f0e9", text: "#3d5c42" };
-  if (n.includes("history") || n.includes("social") || n.includes("geography") || n.includes("civics") || n.includes("government"))
-    return { bg: "#fef0e4", text: "#7a4a1a" };
-  if (n.includes("art") || n.includes("music") || n.includes("drama") || n.includes("theater") || n.includes("craft") || n.includes("draw"))
-    return { bg: "#fce8ec", text: "#7a2a36" };
-  return { bg: "#f0ede8", text: "#5c5248" };
-}
-
-// ─── Lesson Card ──────────────────────────────────────────────────────────────
-
-function LessonCard({
-  lesson, childObj, onToggle, onEdit, onDelete, isPartner,
-}: {
-  lesson:    Lesson;
-  childObj:  Child | undefined;
-  onToggle:  (id: string, current: boolean) => void;
-  onEdit:    (lesson: Lesson) => void;
-  onDelete:  (id: string) => void;
-  isPartner: boolean;
-}) {
-  const [menuOpen,    setMenuOpen]    = useState(false);
-  const [popoverOpen, setPopoverOpen] = useState(false);
-  const [isDragging,  setIsDragging]  = useState(false);
-  const subStyle    = getSubjectStyle(lesson.subjects?.name);
-  const borderColor = lesson.subjects?.color ?? subStyle.text;
-  const canDrag     = !isPartner;
-
-  return (
-    <div
-      draggable={canDrag}
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/plain", JSON.stringify({
-          lessonId: lesson.id,
-          fromDate: lesson.scheduled_date ?? lesson.date ?? "",
-        }));
-        e.dataTransfer.effectAllowed = "move";
-        setIsDragging(true);
-      }}
-      onDragEnd={() => setIsDragging(false)}
-      className={`group rounded-xl p-2 border-l-[3px] transition-all relative ${
-        isDragging
-          ? "opacity-50 shadow-none cursor-grabbing"
-          : canDrag
-          ? "cursor-grab"
-          : "cursor-pointer"
-      } ${!isDragging && lesson.completed ? "opacity-55" : ""} ${!isDragging && !lesson.completed ? "shadow-sm" : ""}`}
-      style={{ borderLeftColor: borderColor, backgroundColor: lesson.completed ? "#f0f7f1" : "white" }}
-      onClick={() => !isDragging && setPopoverOpen((v) => !v)}
-    >
-      <div className="flex items-start gap-1.5">
-        {canDrag && (
-          <span className="opacity-0 group-hover:opacity-100 text-[#b5aca4] text-[14px] leading-none mt-0.5 transition-opacity shrink-0 select-none cursor-grab">⠿</span>
-        )}
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggle(lesson.id, lesson.completed); }}
-          className={`mt-0.5 w-[15px] h-[15px] rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-            lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5] hover:border-[#5c7f63]"
-          }`}
-          aria-label={lesson.completed ? "Mark incomplete" : "Mark complete"}
-        >
-          {lesson.completed && (
-            <svg viewBox="0 0 8 7" className="w-2 h-1.5">
-              <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )}
-        </button>
-
-        <div className="flex-1 min-w-0">
-          <p className={`text-[11px] font-semibold leading-tight ${
-            lesson.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"
-          }`}>
-            {lesson.title}
-          </p>
-          {lesson.subjects && (
-            <span className="inline-block text-[9px] mt-1 font-semibold px-1.5 py-0.5 rounded-full leading-none"
-              style={{ backgroundColor: subStyle.bg, color: subStyle.text }}>
-              {lesson.subjects.name}
-            </span>
-          )}
-          <div className="flex gap-1 mt-1 flex-wrap items-center">
-            {childObj && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white leading-none"
-                style={{ backgroundColor: childObj.color ?? "#5c7f63" }}>
-                {childObj.name.charAt(0).toUpperCase()}
-              </span>
-            )}
-            {lesson.hours != null && lesson.hours > 0 && (
-              <span className="text-[9px] text-[#b5aca4] font-medium">{lesson.hours}h</span>
-            )}
-          </div>
-        </div>
-
-        {!isPartner && (
-          <div className="relative shrink-0">
-            <button onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-              className="w-5 h-5 rounded flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-xs leading-none"
-              aria-label="Lesson options">
-              ···
-            </button>
-            {menuOpen && (
-              <>
-                <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
-                <div className="absolute right-0 top-6 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[100px]">
-                  <button onClick={(e) => { e.stopPropagation(); onEdit(lesson); setMenuOpen(false); }}
-                    className="w-full text-left px-3 py-2 text-xs text-[#2d2926] hover:bg-[#f8f7f4] transition-colors">✏️ Edit</button>
-                  <button onClick={(e) => { e.stopPropagation(); onDelete(lesson.id); setMenuOpen(false); }}
-                    className="w-full text-left px-3 py-2 text-xs text-red-500 hover:bg-red-50 transition-colors">🗑 Delete</button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Lesson detail popover */}
-      {popoverOpen && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setPopoverOpen(false); }} />
-          <div
-            className="fixed top-1/2 left-1/2 z-50 bg-white border border-[#e8e2d9] rounded-2xl shadow-xl p-4 w-72"
-            style={{ transform: "translate(-50%, -50%)" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="text-sm font-semibold text-[#2d2926] mb-2 leading-snug">{lesson.title}</p>
-            <div className="flex flex-wrap items-center gap-1.5 mb-3">
-              {lesson.subjects && (
-                <span
-                  className="text-xs font-medium px-2 py-0.5 rounded-full"
-                  style={{
-                    backgroundColor: (lesson.subjects.color ?? "#5c7f63") + "22",
-                    color: lesson.subjects.color ?? "#5c7f63",
-                  }}
-                >
-                  {lesson.subjects.name}
-                </span>
-              )}
-              {childObj && (
-                <span className="text-xs text-[#7a6f65]">{childObj.name}</span>
-              )}
-            </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggle(lesson.id, lesson.completed);
-                setPopoverOpen(false);
-              }}
-              className="w-full py-2 rounded-xl text-xs font-semibold text-white transition-colors"
-              style={{ backgroundColor: lesson.completed ? "#b5aca4" : "#5c7f63" }}
-            >
-              {lesson.completed ? "↩ Mark Incomplete" : "✓ Mark Complete"}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ─── Day Column ───────────────────────────────────────────────────────────────
-
-function DayColumn({
-  day, lessons, children, isToday, isPast, isWeekend,
-  onToggle, onEdit, onDelete, isPartner, onDropLesson,
-}: {
-  day: Date; lessons: Lesson[]; children: Child[];
-  isToday: boolean; isPast: boolean; isWeekend: boolean;
-  onToggle: (id: string, current: boolean) => void;
-  onEdit: (lesson: Lesson) => void;
-  onDelete: (id: string) => void;
-  isPartner: boolean;
-  onDropLesson?: (lessonId: string, fromDate: string) => void;
-}) {
-  const [isDragOver, setIsDragOver] = useState(false);
-  const dayName = day.toLocaleDateString("en-US", { weekday: "short" });
-  const dayNum  = day.getDate();
-  const done    = lessons.filter((l) => l.completed).length;
-  const total   = lessons.length;
-  const allDone = total > 0 && done === total;
-
-  return (
-    <div
-      className={`flex flex-col rounded-2xl overflow-hidden transition-all ${
-        isDragOver
-          ? "border-2 border-dashed border-[#5c7f63]"
-          : isToday
-          ? "border-2 border-[#5c7f63] shadow-md ring-2 ring-[#5c7f63]/10"
-          : isWeekend ? "border border-[#ece8e2]" : "border border-[#e8e2d9]"
-      }`}
-      style={{ backgroundColor: isDragOver ? "#e8f0e9" : isToday ? "#f2f9f3" : isWeekend ? "#faf9f7" : "#fefcf9" }}
-      onDragOver={(e) => { e.preventDefault(); if (onDropLesson) setIsDragOver(true); }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setIsDragOver(false);
-        try {
-          const { lessonId, fromDate } = JSON.parse(e.dataTransfer.getData("text/plain"));
-          if (lessonId && onDropLesson) onDropLesson(lessonId, fromDate);
-        } catch { /* ignore malformed drops */ }
-      }}
-    >
-      <div className={`px-2 pt-3 pb-2.5 flex flex-col items-center border-b ${
-        isToday ? "border-[#b8d9bc] bg-[#d4ead6]" : "border-[#f0ede8]"
-      }`}>
-        <span className={`text-[10px] font-bold uppercase tracking-widest ${
-          isToday ? "text-[#3d5c42]" : isPast ? "text-[#c8bfb5]" : isWeekend ? "text-[#b5aca4]" : "text-[#7a6f65]"
-        }`}>{dayName}</span>
-        <span className={`text-2xl font-bold leading-tight mt-0.5 ${
-          isToday ? "text-[#3d5c42]" : isPast ? "text-[#c8bfb5]" : "text-[#2d2926]"
-        }`}>{dayNum}</span>
-        {isToday ? (
-          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-[#5c7f63] text-white mt-1 uppercase tracking-wide">Today</span>
-        ) : total > 0 ? (
-          <span className={`text-[9px] mt-1 font-semibold ${allDone ? "text-[#5c7f63]" : "text-[#b5aca4]"}`}>
-            {allDone ? "✓ done" : `${done}/${total}`}
-          </span>
-        ) : <span className="mt-1 h-3" />}
-      </div>
-
-      <div className="flex-1 p-1.5 space-y-1.5 min-h-[120px]">
-        {lessons.map((l) => (
-          <LessonCard key={l.id} lesson={l} childObj={children.find((c) => c.id === l.child_id)}
-            onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} isPartner={isPartner} />
-        ))}
-      </div>
-
-    </div>
-  );
-}
-
-// ─── Wizard Progress Bar ──────────────────────────────────────────────────────
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -417,16 +172,7 @@ export default function PlanPage() {
   const [curriculumGoals,  setCurriculumGoals]  = useState<CurriculumGoal[]>([]);
   const [loading,          setLoading]          = useState(true);
   const [allLessons,       setAllLessons]       = useState<Lesson[]>([]);
-  const [mobileOffset, setMobileOffset] = useState<number>(() => {
-    const dow = new Date().getDay();
-    return Math.max(0, Math.min(4, (dow + 6) % 7));
-  });
-
-  // ── Day detail panel (month view) ─────────────────────────────────────────
-  const [dayDetailDate, setDayDetailDate] = useState<string | null>(null);
-
-  // ── Drag & drop ────────────────────────────────────────────────────────────
-  const [dragToast, setDragToast] = useState<string | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string>(todayStr);
 
   // ── Edit modal ────────────────────────────────────────────────────────────
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
@@ -439,7 +185,7 @@ export default function PlanPage() {
   // ── Curriculum management ─────────────────────────────────────────────────
   const [showCreateWizard,  setShowCreateWizard]  = useState(false);
 
-  useEffect(() => { document.title = "Plan \u00b7 Rooted"; }, []);
+  useEffect(() => { document.title = "Plan · Rooted"; }, []);
 
   useEffect(() => {
     if (searchParams.get("openWizard") === "true") {
@@ -451,11 +197,7 @@ export default function PlanPage() {
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
 
   // ── Plan tip banner ───────────────────────────────────────────────────────
-  const [tipDismissed, setTipDismissed] = useState(false);
   const [onboarded,    setOnboarded]    = useState(false);
-  useEffect(() => {
-    if (localStorage.getItem("rooted_plan_tip_dismissed") === "1") setTipDismissed(true);
-  }, []);
 
   // ── Vacation blocks ───────────────────────────────────────────────────────
   const [vacationBlocks,   setVacationBlocks]   = useState<VacationBlock[]>([]);
@@ -467,9 +209,7 @@ export default function PlanPage() {
   const [savingVac,        setSavingVac]        = useState(false);
   const [profileSchoolDays, setProfileSchoolDays] = useState<string[]>([]);
   const [expandedCurricMenu, setExpandedCurricMenu] = useState<string | null>(null);
-  const [collapsedChildren,  setCollapsedChildren]  = useState<Set<string>>(new Set());
-  const collapsedChildrenInitialized = useRef(false);
-
+  const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
@@ -488,7 +228,7 @@ export default function PlanPage() {
       supabase.from("profiles").select("onboarded, school_days").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at").eq("user_id", effectiveUserId).order("created_at"),
       supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
       supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
@@ -543,35 +283,15 @@ export default function PlanPage() {
   useEffect(() => { loadVacationBlocks(); }, [loadVacationBlocks]);
   useEffect(() => { if (viewMode === "month") loadMonthData(); }, [viewMode, loadMonthData]);
 
-  // Initialize collapsed state: all collapsed if 2+ children, expanded if 1
-  useEffect(() => {
-    if (collapsedChildrenInitialized.current || children.length === 0) return;
-    collapsedChildrenInitialized.current = true;
-    if (children.length >= 2) {
-      setCollapsedChildren(new Set(children.map((c) => c.id)));
-    }
-  }, [children]);
-
-  useEffect(() => {
-    if (isCurrentWeek) {
-      const idx = (new Date().getDay() + 6) % 7;
-      setMobileOffset(Math.max(0, Math.min(4, idx)));
-    } else {
-      setMobileOffset(0);
-    }
-  }, [weekStart, isCurrentWeek]);
-
   // ── Week navigation ───────────────────────────────────────────────────────
 
   function prevWeek() { setWeekStart((d) => getMondayOf(new Date(d.getTime() - 7 * 24 * 60 * 60 * 1000))); }
   function nextWeek() { setWeekStart((d) => getMondayOf(new Date(d.getTime() + 7 * 24 * 60 * 60 * 1000))); }
-  function goToToday() { setWeekStart(getMondayOf(new Date())); }
 
   // ── Month navigation ──────────────────────────────────────────────────────
 
   function prevMonth() { setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1)); }
   function nextMonth() { setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1)); }
-  function goToCurrentMonth() { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); setMonthStart(d); }
 
   // ── Toggle ────────────────────────────────────────────────────────────────
 
@@ -636,7 +356,6 @@ export default function PlanPage() {
     setDeleteConfirmGroup(null);
   }
 
-
   // ── Vacation blocks ───────────────────────────────────────────────────────
 
   async function saveVacationBlock() {
@@ -693,7 +412,6 @@ export default function PlanPage() {
     await supabase.from("vacation_blocks").delete().eq("id", id);
   }
 
-
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const lessonsByDay = weekDays.reduce<Record<string, Lesson[]>>((acc, day) => {
@@ -702,13 +420,19 @@ export default function PlanPage() {
     return acc;
   }, {});
 
-  const totalWeek     = lessons.length;
-  const completedWeek = lessons.filter((l) => l.completed).length;
-  const progressPct   = totalWeek > 0 ? Math.round((completedWeek / totalWeek) * 100) : 0;
+  // Month lesson map
+  const monthLessonMap: Record<string, Lesson[]> = {};
+  monthLessons.forEach((l) => {
+    const key = l.scheduled_date ?? l.date ?? "";
+    if (!monthLessonMap[key]) monthLessonMap[key] = [];
+    monthLessonMap[key].push(l);
+  });
 
-  const mobileDays     = weekDays.slice(mobileOffset, mobileOffset + 3);
-  const canMobileLeft  = mobileOffset > 0;
-  const canMobileRight = mobileOffset < 4;
+  // Lessons for the selected day (works for both week and month views)
+  const selectedDayLessons: Lesson[] = (() => {
+    if (viewMode === "week") return lessonsByDay[selectedDay] ?? [];
+    return monthLessonMap[selectedDay] ?? [];
+  })();
 
   // Curriculum groups from allLessons
   const curricGroups: CurriculumGroup[] = (() => {
@@ -730,16 +454,12 @@ export default function PlanPage() {
     return Array.from(map.values()).sort((a, b) => a.curricName.localeCompare(b.curricName));
   })();
 
-  // Children who have lessons this week (for legend)
-  const childrenWithLessons = children.filter((c) => lessons.some((l) => l.child_id === c.id));
-
-  // Month lesson map (shared by calendar grid + DayDetailPanel)
-  const monthLessonMap: Record<string, Lesson[]> = {};
-  monthLessons.forEach((l) => {
-    const key = l.scheduled_date ?? l.date ?? "";
-    if (!monthLessonMap[key]) monthLessonMap[key] = [];
-    monthLessonMap[key].push(l);
+  // Catch-up: uncompleted lessons before today this week
+  const pastIncompleteLessons = lessons.filter(l => {
+    const d = l.scheduled_date ?? l.date;
+    return d && d < todayStr && !l.completed;
   });
+  const hasCatchUp = pastIncompleteLessons.length > 0;
 
   // ── Vacation modal derived ────────────────────────────────────────────────
   const vacDays = vacStart && vacEnd && vacEnd >= vacStart
@@ -749,240 +469,269 @@ export default function PlanPage() {
   const vacEndLabel   = vacEnd   ? new Date(vacEnd   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
   const vacCanSave    = !!(vacName.trim() && vacStart && vacEnd);
 
-  // ── Move lesson (drag & drop) ─────────────────────────────────────────────
+  // ── Day panel helpers ─────────────────────────────────────────────────────
 
-  async function moveLesson(lessonId: string, fromDate: string, toDate: string) {
-    if (!toDate || fromDate === toDate) return;
-    // Optimistic update
-    setLessons((prev) => prev.map((l) => l.id === lessonId ? { ...l, scheduled_date: toDate } : l));
-    setAllLessons((prev) => prev.map((l) => l.id === lessonId ? { ...l, scheduled_date: toDate } : l));
-    setMonthLessons((prev) => prev.map((l) => l.id === lessonId ? { ...l, scheduled_date: toDate } : l));
-    await supabase.from("lessons").update({ scheduled_date: toDate }).eq("id", lessonId);
-    const toDay = new Date(toDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" });
-    setDragToast(`📅 Moved to ${toDay}`);
-    setTimeout(() => setDragToast(null), 2000);
-  }
+  const selectedDate = new Date(selectedDay + "T00:00:00");
+  const isSelectedVacation = isDateInBlocks(selectedDay, vacationBlocks);
+  const selectedVacName = getVacationName(selectedDay, vacationBlocks);
+  const isSelectedWeekend = selectedDate.getDay() === 0 || selectedDate.getDay() === 6;
+  const isSelectedPast = selectedDay < todayStr;
+  const selectedDateLabel = selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+
+  // Group selected day lessons by child
+  const lessonsByChild: { child: Child | null; lessons: Lesson[] }[] = (() => {
+    const map = new Map<string, Lesson[]>();
+    for (const l of selectedDayLessons) {
+      const key = l.child_id ?? "__none__";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(l);
+    }
+    return Array.from(map.entries()).map(([key, lsns]) => ({
+      child: key === "__none__" ? null : children.find(c => c.id === key) ?? null,
+      lessons: lsns,
+    }));
+  })();
+
+  const selectedDayDone = selectedDayLessons.filter(l => l.completed).length;
+  const selectedDayTotal = selectedDayLessons.length;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <>
-    {/* Drag-and-drop toast */}
-    {dragToast && (
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-2xl shadow-xl pointer-events-none">
-        {dragToast}
-      </div>
-    )}
+    {/* ── Hero Header ──────────────────────────────────── */}
+    <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
+    <div className="px-4 pt-5 pb-7 space-y-4 max-w-5xl">
 
-    {/* ── Hero Header ──────────────────────────────────────── */}
-    <PageHero overline="Your Curriculum" title="Plan">
-      {/* Week navigation inside hero */}
-      <div className="flex items-center justify-center gap-1.5 mt-3">
-        {!isCurrentWeek && (
-          <button onClick={goToToday}
-            className="text-[10px] font-semibold text-white/70 hover:text-white px-2 py-1 rounded-full transition-colors mr-1">
-            Today
-          </button>
-        )}
-        <button onClick={prevWeek} disabled={isCurrentWeek} className="w-7 h-7 rounded-full flex items-center justify-center text-white/60 hover:text-white disabled:opacity-20 transition-colors">
-          <ChevronLeft size={14} />
-        </button>
-        <span className="text-[12px] font-semibold text-white/80 whitespace-nowrap px-1">{formatWeekRange(weekStart)}</span>
-        <button onClick={nextWeek} className="w-7 h-7 rounded-full flex items-center justify-center text-white/60 hover:text-white transition-colors">
-          <ChevronRight size={14} />
-        </button>
-      </div>
+      {/* ── Catch-up banner ──────────────────────────────── */}
+      {!loading && hasCatchUp && (
+        <div style={{ background: "#FFFBF0", border: "0.5px solid #E8D58A", borderRadius: 12, padding: "11px 13px", display: "flex", gap: 10 }}>
+          <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>📋</span>
+          <div>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#7a5000" }}>You have lessons from earlier this week</p>
+            <p style={{ fontSize: 10, color: "#a07000", marginTop: 2 }}>Tap any past day to check off what you covered.</p>
+          </div>
+        </div>
+      )}
 
-      {/* Week strip inside hero */}
-      <div className="flex items-stretch mt-3 rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
-        {["S", "M", "T", "W", "T", "F", "S"].map((label, i) => {
-          const actualDate = new Date(weekStart);
-          actualDate.setDate(weekStart.getDate() - 1 + i);
-          const dateStr = toDateStr(actualDate);
-          const isToday = dateStr === todayStr;
-          const dayName = actualDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-          const isSchool = profileSchoolDays.length > 0 ? profileSchoolDays.includes(dayName) : (i >= 1 && i <= 5);
-          const dayLessons = lessons.filter(l => (l.scheduled_date ?? l.date) === dateStr);
-          const dayAllDone = dayLessons.length > 0 && dayLessons.every(l => l.completed);
-          const hasSome = dayLessons.length > 0;
-          const isVacation = vacationBlocks.some(b => dateStr >= b.start_date && dateStr <= b.end_date);
-
-          let dotColor = "";
-          if (dateStr <= todayStr && dayAllDone && hasSome) dotColor = "bg-[#a8d4aa]";
-          else if (dateStr <= todayStr && hasSome) dotColor = "border border-[#a8d4aa] bg-transparent";
-
-          return (
-            <div key={i} className={`flex-1 flex flex-col items-center py-2 gap-0.5 ${isVacation ? "bg-white/5" : ""}`}>
-              <span className="text-[9px] font-medium" style={{ color: "rgba(255,255,255,0.45)" }}>{label}</span>
-              <div className={`flex items-center justify-center rounded-full text-[11px] ${
-                isToday
-                  ? "w-7 h-7 bg-[#5c7f63] text-white font-bold"
-                  : isSchool
-                  ? "w-6 h-6 text-white/80"
-                  : "w-6 h-6 text-white/30"
-              }`}>
-                {actualDate.getDate()}
-              </div>
-              {dotColor ? <div className={`w-1.5 h-1.5 rounded-full ${dotColor}`} /> : <div className="w-1.5 h-1.5" />}
-            </div>
-          );
-        })}
-      </div>
-    </PageHero>
-    <div className="px-4 pt-5 pb-7 space-y-5 max-w-5xl">
-
-      {/* ── Week / Month toggle ──────────────────────────────── */}
-      <div className="flex items-center gap-1 bg-[#f0ede8] rounded-full p-1 w-fit">
+      {/* ── Week / Month toggle ──────────────────────────── */}
+      <div style={{ background: "white", border: "0.5px solid #e8e0d4", borderRadius: 10, overflow: "hidden", display: "flex" }}>
         <button
           onClick={() => setViewMode("week")}
-          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-            viewMode === "week" ? "bg-white text-[#2d2926] shadow-sm" : "text-[#7a6f65] hover:text-[#2d2926]"
-          }`}
+          style={{
+            flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
+            background: viewMode === "week" ? "#2D5a1B" : "white",
+            color: viewMode === "week" ? "white" : "#7a6f65",
+          }}
         >
           Week
         </button>
         <button
           onClick={() => setViewMode("month")}
-          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-            viewMode === "month" ? "bg-white text-[#2d2926] shadow-sm" : "text-[#7a6f65] hover:text-[#2d2926]"
-          }`}
+          style={{
+            flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
+            background: viewMode === "month" ? "#2D5a1B" : "white",
+            color: viewMode === "month" ? "white" : "#7a6f65",
+          }}
         >
           Month
         </button>
       </div>
 
-      {/* ── Month View ───────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════
+          SECTION 2A — WEEK VIEW
+      ══════════════════════════════════════════════════ */}
+      {viewMode === "week" && !loading && (
+        <div>
+          {/* Week navigation */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
+            <button onClick={prevWeek} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+              <ChevronLeft size={18} />
+            </button>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>
+              {formatWeekRange(weekStart)}
+            </span>
+            <button onClick={nextWeek} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+              <ChevronRight size={18} />
+            </button>
+          </div>
+
+          {/* 7-day strip */}
+          <div style={{ display: "flex", gap: 5 }}>
+            {weekDays.map((day) => {
+              const key = toDateStr(day);
+              const isToday = key === todayStr;
+              const isPast = day < todayMidnight && !isToday;
+              const isSelected = key === selectedDay;
+              const isVacation = isDateInBlocks(key, vacationBlocks);
+              const dayLessons = lessonsByDay[key] ?? [];
+              const hasLessons = dayLessons.length > 0;
+              // Unique children with lessons this day
+              const dayChildIds = [...new Set(dayLessons.map(l => l.child_id).filter(Boolean))];
+              const dayChildren = dayChildIds.map(id => children.find(c => c.id === id)).filter(Boolean) as Child[];
+
+              let bg = "transparent";
+              let border = "none";
+              let opacity = 1;
+
+              if (isVacation) {
+                bg = "#fff8f0";
+                border = "0.5px solid #f0c878";
+              } else if (isToday && isSelected) {
+                bg = "#2D5a1B";
+              } else if (isToday) {
+                bg = "#2D5a1B";
+              } else if (isSelected) {
+                bg = "#f4faf0";
+                border = "1.5px solid #2D5a1B";
+              } else if (hasLessons) {
+                bg = "white";
+                border = "0.5px solid #e8e0d4";
+              }
+              if (isPast && hasLessons && !isSelected) opacity = 0.6;
+
+              return (
+                <button
+                  key={key}
+                  onClick={() => setSelectedDay(key)}
+                  style={{
+                    flex: 1, borderRadius: 12, padding: "7px 4px", display: "flex", flexDirection: "column",
+                    alignItems: "center", gap: 3, cursor: "pointer", background: bg, border,
+                    opacity, minWidth: 0,
+                  }}
+                >
+                  <span style={{
+                    fontSize: 9, textTransform: "uppercase", letterSpacing: "0.05em",
+                    color: isToday ? "rgba(255,255,255,0.7)" : "#b5aca4", fontWeight: 600,
+                  }}>
+                    {DAY_LABELS[(day.getDay() + 6) % 7]}
+                  </span>
+                  <span style={{
+                    fontSize: 16, fontWeight: 700,
+                    color: isToday ? "white" : "#2d2926",
+                  }}>
+                    {day.getDate()}
+                  </span>
+                  {/* Dots or vacation */}
+                  <div style={{ display: "flex", gap: 3, minHeight: 5, alignItems: "center" }}>
+                    {isVacation ? (
+                      <span style={{ fontSize: 10 }}>🌴</span>
+                    ) : dayChildren.length > 0 ? (
+                      dayChildren.map(c => (
+                        <span key={c.id} style={{
+                          width: 5, height: 5, borderRadius: "50%", display: "inline-block",
+                          backgroundColor: isToday ? "rgba(255,255,255,0.5)" : (c.color ?? "#5c7f63"),
+                        }} />
+                      ))
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          SECTION 2B — MONTH VIEW
+      ══════════════════════════════════════════════════ */}
       {viewMode === "month" && !loading && (
         <div>
-          {/* Month nav */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              {!(monthStart.getFullYear() === new Date().getFullYear() && monthStart.getMonth() === new Date().getMonth()) && (
-                <button
-                  onClick={goToCurrentMonth}
-                  className="text-xs font-semibold text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4ead4] px-3 py-1.5 rounded-full transition-colors mr-1"
-                >
-                  This month
-                </button>
-              )}
-              <button onClick={prevMonth} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
-                <ChevronLeft size={16} />
-              </button>
-              <span className="text-sm font-semibold text-[#2d2926] px-1">
-                {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-              </span>
-              <button onClick={nextMonth} className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">
-                <ChevronRight size={16} />
-              </button>
-            </div>
+          {/* Month navigation */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
+            <button onClick={prevMonth} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+              <ChevronLeft size={18} />
+            </button>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>
+              {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+            </span>
+            <button onClick={nextMonth} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+              <ChevronRight size={18} />
+            </button>
           </div>
-          {/* Day headers */}
-          <div className="grid grid-cols-7 gap-1 mb-1">
-            {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => (
-              <div key={d} className="text-center text-[10px] font-bold uppercase tracking-widest text-[#b5aca4] py-1">{d}</div>
+
+          {/* Day-of-week headers */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, marginBottom: 4 }}>
+            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+              <div key={i} style={{ textAlign: "center", fontSize: 9, textTransform: "uppercase", color: "#b5aca4", fontWeight: 600 }}>
+                {d}
+              </div>
             ))}
           </div>
+
           {/* Calendar grid */}
           {(() => {
             const year = monthStart.getFullYear();
             const month = monthStart.getMonth();
             const firstDay = new Date(year, month, 1);
-            // Monday-based offset (0=Mon...6=Sun)
-            const startOffset = (firstDay.getDay() + 6) % 7;
+            // Sunday-based offset for S M T W T F S headers
+            const startOffset = firstDay.getDay();
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const cells: (Date | null)[] = [
               ...Array(startOffset).fill(null),
               ...Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1)),
             ];
-            // Pad to complete rows
             while (cells.length % 7 !== 0) cells.push(null);
+
             return (
-              <div className="grid grid-cols-7 gap-1">
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
                 {cells.map((day, idx) => {
                   if (!day) return <div key={`empty-${idx}`} />;
-                  const key        = toDateStr(day);
-                  const isToday    = key === todayStr;
-                  const isPast     = day < todayMidnight;
-                  const isBreak    = isDateInBlocks(key, vacationBlocks);
+                  const key = toDateStr(day);
+                  const isToday = key === todayStr;
+                  const isPast = day < todayMidnight && !isToday;
+                  const isSelected = key === selectedDay;
+                  const isVacation = isDateInBlocks(key, vacationBlocks);
                   const dayLessons = monthLessonMap[key] ?? [];
-                  const done       = dayLessons.filter((l) => l.completed).length;
-                  const allDone    = dayLessons.length > 0 && done === dayLessons.length;
-                  const someDone   = done > 0 && !allDone;
+                  const hasLessons = dayLessons.length > 0;
+                  const dayChildIds = [...new Set(dayLessons.map(l => l.child_id).filter(Boolean))];
+                  const dayChildren = dayChildIds.map(id => children.find(c => c.id === id)).filter(Boolean) as Child[];
 
-                  if (isBreak) {
-                    return (
-                      <div
-                        key={key}
-                        className="min-h-[64px] rounded-xl p-1.5 flex flex-col border border-[#e0d9d0]"
-                        style={{ backgroundColor: "#f0ede8" }}
-                      >
-                        <span className={`text-xs font-bold ${isPast ? "text-[#c8bfb5]" : "text-[#b5aca4]"}`}>
-                          {day.getDate()}
-                        </span>
-                        <span className="text-base mt-1 leading-none">🌴</span>
-                      </div>
-                    );
+                  let bg = "transparent";
+                  let border = "none";
+
+                  if (isVacation) {
+                    bg = "#fff8f0";
+                    border = "0.5px solid #f0c878";
+                  } else if (isToday) {
+                    bg = "#2D5a1B";
+                  } else if (isSelected) {
+                    bg = "#f4faf0";
+                    border = "1.5px solid #2D5a1B";
+                  } else if (hasLessons) {
+                    bg = "white";
+                    border = "0.5px solid #e8e0d4";
                   }
 
                   return (
-                    <div
+                    <button
                       key={key}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setDayDetailDate(key)}
-                      onKeyDown={(e) => e.key === "Enter" && setDayDetailDate(key)}
-                      className={`min-h-[64px] rounded-xl p-1.5 flex flex-col border transition-all cursor-pointer hover:shadow-sm ${
-                        isToday
-                          ? "border-[#5c7f63] bg-[#f2f9f3] hover:bg-[#ecf7ed]"
-                          : "border-[#e8e2d9] bg-[#fefcf9] hover:bg-[#faf8f4]"
-                      }`}
+                      onClick={() => setSelectedDay(key)}
+                      style={{
+                        aspectRatio: "1", borderRadius: 8, display: "flex", flexDirection: "column",
+                        alignItems: "center", justifyContent: "center", gap: 2, cursor: "pointer",
+                        background: bg, border, opacity: isPast ? 0.55 : 1, padding: 2,
+                      }}
                     >
-                      {/* Date row: number + completion indicator */}
-                      <div className="flex items-start justify-between mb-1">
-                        <span className={`font-bold leading-none ${
-                          isToday
-                            ? "text-base text-[#3d5c42]"
-                            : isPast
-                            ? "text-xs text-[#c8bfb5]"
-                            : "text-xs text-[#2d2926]"
-                        }`}>
-                          {day.getDate()}
-                        </span>
-                        {allDone && (
-                          <span className="text-[10px] font-bold text-[#5c7f63] leading-none">✓</span>
-                        )}
-                        {someDone && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 mt-0.5" />
-                        )}
+                      <span style={{
+                        fontSize: 11, fontWeight: 700,
+                        color: isToday ? "white" : "#2d2926",
+                      }}>
+                        {day.getDate()}
+                      </span>
+                      <div style={{ display: "flex", gap: 2, minHeight: 4 }}>
+                        {isVacation ? (
+                          <span style={{ fontSize: 8 }}>🌴</span>
+                        ) : dayChildren.length > 0 ? (
+                          dayChildren.map(c => (
+                            <span key={c.id} style={{
+                              width: 4, height: 4, borderRadius: "50%", display: "inline-block",
+                              backgroundColor: isToday ? "rgba(255,255,255,0.5)" : (c.color ?? "#5c7f63"),
+                            }} />
+                          ))
+                        ) : null}
                       </div>
-
-                      {/* Lesson pills */}
-                      {dayLessons.length > 0 && (
-                        <div className="space-y-0.5">
-                          {dayLessons.slice(0, 3).map((l) => {
-                            const subStyle  = getSubjectStyle(l.subjects?.name);
-                            const subColor  = l.subjects?.color ?? subStyle.text;
-                            return (
-                              <div
-                                key={l.id}
-                                className="text-[9px] font-medium px-1 py-0.5 rounded truncate border-l-2"
-                                style={{
-                                  backgroundColor: subStyle.bg,
-                                  color: subStyle.text,
-                                  borderLeftColor: subColor,
-                                  opacity: l.completed ? 0.5 : 1,
-                                }}
-                              >
-                                {l.title}
-                              </div>
-                            );
-                          })}
-                          {dayLessons.length > 3 && (
-                            <span className="text-[9px] text-[#b5aca4]">+{dayLessons.length - 3} more</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -991,95 +740,373 @@ export default function PlanPage() {
         </div>
       )}
 
-      {/* ── Calendar ─────────────────────────────────────────── */}
-      {viewMode === "week" && loading ? (
-        <div className="flex items-center justify-center py-24">
-          <span className="text-4xl animate-pulse">🗓️</span>
-        </div>
-      ) : viewMode === "week" ? (
-        <>
-          {/* Desktop: full 7-day grid */}
-          <div className="hidden lg:block overflow-x-auto -mx-4 px-4 pb-2">
-            <div className="grid grid-cols-7 gap-2 min-w-[700px]">
-              {weekDays.map((day) => {
-                const key = toDateStr(day);
-                return (
-                  <DayColumn key={key} day={day} lessons={lessonsByDay[key] ?? []} children={children}
-                    isToday={key === todayStr} isPast={day < todayMidnight} isWeekend={day.getDay() === 0 || day.getDay() === 6}
-                    onToggle={isPartner ? () => {} : toggleLesson}
-                    onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
-                    onDropLesson={isPartner ? undefined : (lessonId, fromDate) => moveLesson(lessonId, fromDate, key)} />
-                );
-              })}
+      {/* ══════════════════════════════════════════════════
+          SECTION 3 — DAY PANEL
+      ══════════════════════════════════════════════════ */}
+      {!loading && (
+        <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+          {selectedDay === todayStr
+            ? "Today\u2019s Lessons"
+            : `Lessons — ${selectedDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`}
+        </p>
+      )}
+      {!loading && (() => {
+        // Vacation day
+        if (isSelectedVacation) {
+          return (
+            <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "24px 16px", textAlign: "center" }}>
+              <span style={{ fontSize: 22, opacity: 0.35 }}>🌴</span>
+              <p style={{ fontSize: 12, color: "#b5aca4", marginTop: 6 }}>{selectedVacName}</p>
             </div>
-          </div>
+          );
+        }
 
-          {/* Mobile: 3-day view */}
-          <div className="lg:hidden">
-            <div className="flex items-center justify-between mb-3">
-              <button
-                onClick={() => {
-                  if (canMobileLeft) {
-                    setMobileOffset((v) => Math.max(0, v - 1));
-                  } else if (!isCurrentWeek) {
-                    prevWeek();
-                    setMobileOffset(4);
-                  }
-                }}
-                disabled={!canMobileLeft && isCurrentWeek}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-25 transition-all">
-                <ChevronLeft size={18} />
-              </button>
-              <span className="text-xs font-semibold text-[#7a6f65]">
-                {mobileDays[0]?.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                {" – "}
-                {mobileDays[2]?.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-              </span>
-              <button
-                onClick={() => {
-                  if (mobileOffset < 4) {
-                    setMobileOffset((v) => v + 1);
-                  } else {
-                    nextWeek();
-                    setMobileOffset(0);
-                  }
-                }}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-all">
-                <ChevronRight size={18} />
-              </button>
+        // No lessons day
+        if (selectedDayTotal === 0) {
+          return (
+            <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "24px 16px", textAlign: "center" }}>
+              <span style={{ fontSize: 22, opacity: 0.35 }}>🌿</span>
+              <p style={{ fontSize: 12, color: "#b5aca4", marginTop: 6 }}>
+                {isSelectedWeekend ? "Enjoy your day off!" : "No lessons scheduled"}
+              </p>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {mobileDays.map((day) => {
-                const key = toDateStr(day);
-                return (
-                  <DayColumn key={key} day={day} lessons={lessonsByDay[key] ?? []} children={children}
-                    isToday={key === todayStr} isPast={day < todayMidnight} isWeekend={day.getDay() === 0 || day.getDay() === 6}
-                    onToggle={isPartner ? () => {} : toggleLesson}
-                    onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
-                    onDropLesson={isPartner ? undefined : (lessonId, fromDate) => moveLesson(lessonId, fromDate, key)} />
-                );
-              })}
-            </div>
-          </div>
+          );
+        }
 
-          {/* Color legend — shown when multiple children have lessons this week */}
-          {childrenWithLessons.length > 1 && (
-            <div className="flex items-center gap-4 flex-wrap pt-1">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4]">Children:</span>
-              {childrenWithLessons.map((c) => (
-                <div key={c.id} className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.color ?? "#5c7f63" }} />
-                  <span className="text-xs text-[#5c5248] font-medium">{c.name}</span>
+        // Day with lessons
+        return (
+          <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", overflow: "hidden" }}>
+            {/* Header */}
+            <div style={{ padding: "10px 13px 8px", borderBottom: "0.5px solid #f0ece4" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>{selectedDateLabel}</span>
+            </div>
+
+            {/* Children groups */}
+            {lessonsByChild.map(({ child, lessons: childLessons }, groupIdx) => {
+              const childDone = childLessons.filter(l => l.completed).length;
+              const childTotal = childLessons.length;
+              const allDone = childDone === childTotal;
+              let statusText: string;
+              let statusColor: string;
+              if (allDone) { statusText = "✓ All done"; statusColor = "#2D5a1B"; }
+              else if (childDone === 0) { statusText = `0 of ${childTotal}`; statusColor = "#8a6d00"; }
+              else { statusText = `${childDone} of ${childTotal} done`; statusColor = "#b5aca4"; }
+
+              return (
+                <div key={child?.id ?? "__none__"}>
+                  {/* Child header */}
+                  {child && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 13px 5px" }}>
+                      <span style={{
+                        width: 22, height: 22, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 10, fontWeight: 700, color: "white", flexShrink: 0,
+                        backgroundColor: child.color ?? "#5c7f63",
+                      }}>
+                        {child.name.charAt(0).toUpperCase()}
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#2d2926", flex: 1 }}>{child.name}</span>
+                      <span style={{ fontSize: 11, color: statusColor, fontWeight: 500 }}>{statusText}</span>
+                    </div>
+                  )}
+
+                  {/* Lesson rows */}
+                  {childLessons.map((lesson, lessonIdx) => (
+                    <div
+                      key={lesson.id}
+                      style={{
+                        display: "flex", alignItems: "flex-start", gap: 8,
+                        paddingLeft: 43, paddingRight: 13, paddingTop: 7, paddingBottom: 7,
+                        borderTop: lessonIdx > 0 ? "0.5px solid #faf7f3" : undefined,
+                      }}
+                    >
+                      {/* Checkbox */}
+                      <button
+                        onClick={() => !isPartner && toggleLesson(lesson.id, lesson.completed)}
+                        style={{
+                          width: 18, height: 18, borderRadius: "50%", flexShrink: 0, marginTop: 1,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          border: lesson.completed ? "none" : "1.5px solid #ccc",
+                          background: lesson.completed ? "#2D5a1B" : "transparent",
+                          cursor: isPartner ? "default" : "pointer",
+                        }}
+                      >
+                        {lesson.completed && (
+                          <svg viewBox="0 0 8 7" style={{ width: 9, height: 7 }}>
+                            <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </button>
+
+                      {/* Lesson text */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{
+                          fontSize: 12, fontWeight: 500, margin: 0,
+                          textDecoration: lesson.completed ? "line-through" : "none",
+                          color: lesson.completed ? "#bbb" : "#2d2926",
+                        }}>
+                          {lesson.title}
+                        </p>
+                        {lesson.subjects && (
+                          <p style={{ fontSize: 10, color: "#bbb", margin: "1px 0 0" }}>{lesson.subjects.name}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              );
+            })}
+
+            {/* Past-day note */}
+            {isSelectedPast && (
+              <div style={{ borderTop: "0.5px solid #f5f0e8", padding: "8px 13px" }}>
+                <p style={{ fontSize: 11, color: "#b5aca4", fontStyle: "italic", margin: 0 }}>
+                  Past lessons never expire — check off what you covered.
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════════════
+          SECTION 4 — YOUR COURSES
+      ══════════════════════════════════════════════════ */}
+      {!isPartner && curricGroups.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+            Course Progress
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {curricGroups.map((group) => {
+              const completedCount = group.totalCount - group.remainingCount;
+              const pct = group.totalCount > 0 ? Math.round((completedCount / group.totalCount) * 100) : 0;
+              const miniFillWidth = pct > 0 ? Math.max(4, Math.round((pct / 100) * 48)) : 0;
+              const child = children.find(c => c.id === group.childId);
+              const isExpanded = expandedCourses.has(group.key);
+
+              // Projected finish
+              const goal = group.goalData;
+              const currentLesson = goal?.current_lesson ?? completedCount;
+              const totalLessons = goal?.total_lessons ?? group.totalCount;
+              const lessonsRemaining = totalLessons - currentLesson;
+
+              return (
+                <div key={group.key} style={{ background: "white", borderRadius: 14, border: isExpanded ? "0.5px solid #b8d89a" : "0.5px solid #e8e0d4", overflow: "hidden" }}>
+                  {/* Header (tappable) */}
+                  <button
+                    onClick={() => setExpandedCourses(prev => {
+                      const next = new Set(prev);
+                      if (next.has(group.key)) next.delete(group.key); else next.add(group.key);
+                      return next;
+                    })}
+                    style={{
+                      width: "100%", display: "flex", alignItems: "center", gap: 10,
+                      padding: "10px 13px", border: "none", background: "none", cursor: "pointer", textAlign: "left",
+                    }}
+                  >
+                    {/* Child avatar */}
+                    <span style={{
+                      width: 30, height: 30, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 12, fontWeight: 700, color: "white", flexShrink: 0,
+                      backgroundColor: child?.color ?? "#7a6f65",
+                    }}>
+                      {(child?.name ?? "?").charAt(0).toUpperCase()}
+                    </span>
+
+                    {/* Name + subject */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: "#2d2926", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {child?.name ?? "Unassigned"} · {group.curricName}
+                      </p>
+                      <p style={{ fontSize: 10, color: "#b5aca4", margin: "1px 0 0" }}>
+                        {group.subjectName ?? "General"} · {completedCount} of {group.totalCount}
+                      </p>
+                    </div>
+
+                    {/* Mini progress bar + percentage */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                      <div style={{ width: 48, height: 4, background: "#f0ede8", borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{ width: miniFillWidth, height: "100%", background: "#2D5a1B", borderRadius: 2 }} />
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#2D5a1B", minWidth: 28, textAlign: "right" }}>{pct}%</span>
+                    </div>
+
+                    {/* Chevron */}
+                    <span style={{ fontSize: 14, color: "#b5aca4", flexShrink: 0, transition: "transform 0.15s" }}>
+                      {isExpanded ? "⌄" : "›"}
+                    </span>
+                  </button>
+
+                  {/* Expanded detail */}
+                  {isExpanded && (
+                    <div style={{ borderTop: "0.5px solid #f5f0e8", padding: "10px 13px 11px" }}>
+                      {/* Lesson count + percentage row */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#2d2926" }}>{completedCount} of {group.totalCount} lessons</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#2D5a1B" }}>{pct}%</span>
+                      </div>
+
+                      {/* Full-width progress bar */}
+                      <div style={{ width: "100%", height: 6, background: "#ece8e0", borderRadius: 3, overflow: "hidden", marginBottom: 10 }}>
+                        <div style={{ width: `${Math.max(pct, pct > 0 ? 2 : 0)}%`, height: "100%", background: "#2D5a1B", borderRadius: 3 }} />
+                      </div>
+
+                      {/* Meta row: finish status + Edit link */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        {/* Finish status */}
+                        <div>
+                          {(() => {
+                            if (lessonsRemaining <= 0) return <span style={{ fontSize: 11, color: "#2D5a1B" }}>✓ Complete</span>;
+                            const startDate = goal?.created_at ? new Date(goal.created_at) : null;
+                            if (!startDate) return <span style={{ fontSize: 11, color: "#aaa" }}>Log more to see pace</span>;
+                            const daysSinceCreated = Math.max(1, (Date.now() - startDate.getTime()) / 86400000);
+                            const weeksActive = Math.max(1, daysSinceCreated / 7);
+                            const weeklyPace = currentLesson / weeksActive;
+                            if (weeklyPace < 0.5) return <span style={{ fontSize: 11, color: "#aaa" }}>Log more to see pace</span>;
+                            const daysToFinish = (lessonsRemaining / weeklyPace) * 7;
+                            const projectedFinish = new Date(Date.now() + daysToFinish * 86400000);
+                            const thisYear = new Date().getFullYear();
+                            const fmtDate = (d: Date) => {
+                              const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+                              if (d.getFullYear() !== thisYear) opts.year = "numeric";
+                              return d.toLocaleDateString("en-US", opts);
+                            };
+                            const projectedLabel = fmtDate(projectedFinish);
+                            const targetDate = goal?.target_date ? new Date(goal.target_date + "T00:00:00") : null;
+
+                            if (targetDate) {
+                              const diffDays = Math.round((projectedFinish.getTime() - targetDate.getTime()) / 86400000);
+                              if (diffDays > 14) {
+                                return <span style={{ fontSize: 11, color: "#8a6d00" }}>Behind pace · projected {projectedLabel}</span>;
+                              }
+                              return <span style={{ fontSize: 11, color: "#2D5a1B" }}>✓ On track · finishes {projectedLabel}</span>;
+                            }
+
+                            return <span style={{ fontSize: 11, color: "#aaa" }}>Projected finish: {projectedLabel}</span>;
+                          })()}
+                        </div>
+
+                        {/* Edit link */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditWizardData({
+                              goalId: group.goalId ?? undefined,
+                              childId: group.childId ?? "",
+                              curricName: group.curricName,
+                              subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
+                              totalLessons: group.goalData?.total_lessons ?? group.totalCount,
+                              currentLesson: group.goalData?.current_lesson ?? completedCount,
+                              targetDate: group.goalData?.target_date ?? "",
+                              schoolDays: group.goalData?.school_days ?? [],
+                            });
+                          }}
+                          style={{ fontSize: 11, color: "#2D5a1B", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                        >
+                          Edit →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* + Add curriculum */}
+          <button
+            onClick={() => setShowCreateWizard(true)}
+            style={{
+              width: "100%", background: "white", border: "0.5px solid #e8e0d4", borderRadius: 12,
+              padding: "11px 13px", fontSize: 12, color: "#2D5a1B", fontWeight: 600, cursor: "pointer",
+              marginTop: 8, textAlign: "center",
+            }}
+          >
+            + Add curriculum
+          </button>
+        </div>
+      )}
+
+      {/* ── Curriculum empty state ───────────────────────────── */}
+      {!loading && !isPartner && curricGroups.length === 0 && curriculumGoals.length === 0 && subjects.length === 0 && allLessons.length === 0 && (
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-8 flex flex-col items-center text-center">
+          <span className="text-4xl mb-4">🌱</span>
+          <h2 className="text-xl font-semibold text-[#3d5c42] mb-2">Your plan is ready to grow!</h2>
+          <p className="text-sm text-[#7a6f65] leading-relaxed max-w-sm mx-auto mb-6">
+            Start by setting up your curriculum. Add your subjects, lessons, and schedule — it only takes a few minutes and sets the foundation for everything in Rooted.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-5">
+            <button
+              onClick={() => setShowCreateWizard(true)}
+              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
+            >
+              Set Up Curriculum →
+            </button>
+            <a
+              href="https://rootedhomeschoolapp.com/tour"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+            >
+              Watch how it works
+            </a>
+          </div>
+          <p className="text-xs text-[#b5aca4]">💡 Tip: Most families get set up in under 5 minutes</p>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          SECTION 5 — BREAKS & VACATIONS
+      ══════════════════════════════════════════════════ */}
+      {!isPartner && (
+        <div style={{ marginTop: 8 }}>
+          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+            Breaks &amp; Vacations
+          </p>
+
+          {/* Vacation pills */}
+          {vacationBlocks.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {vacationBlocks.map((block) => {
+                const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                return (
+                  <div key={block.id} style={{
+                    background: "#fff8f0", border: "0.5px solid #f0c878", borderRadius: 20,
+                    padding: "5px 10px 5px 8px", display: "inline-flex", alignItems: "center", gap: 6,
+                  }}>
+                    <span style={{ fontSize: 12 }}>🌴</span>
+                    <span style={{ fontSize: 11, color: "#7a5000", fontWeight: 700 }}>{block.name} · {s}–{e}</span>
+                    <button
+                      onClick={() => deleteVacationBlock(block.id)}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "#c8bfb5", padding: 0, display: "flex" }}
+                      aria-label="Remove break"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
-        </>
-      ) : null}
 
-      {/* ══════════════════════════════════════════════════════
+          {/* + Add break */}
+          <button
+            onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+            style={{
+              width: "100%", background: "white", border: "0.5px solid #e8e0d4", borderRadius: 12,
+              padding: "11px 13px", fontSize: 12, color: "#2D5a1B", fontWeight: 600, cursor: "pointer",
+              textAlign: "center",
+            }}
+          >
+            + Add break or vacation
+          </button>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
           EDIT LESSON MODAL
-      ══════════════════════════════════════════════════════ */}
+      ══════════════════════════════════════════════════ */}
       {editingLesson && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
@@ -1127,9 +1154,9 @@ export default function PlanPage() {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════
           DELETE CURRICULUM CONFIRM MODAL
-      ══════════════════════════════════════════════════════ */}
+      ══════════════════════════════════════════════════ */}
       {deleteConfirmGroup && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
@@ -1159,195 +1186,9 @@ export default function PlanPage() {
         </div>
       )}
 
-
-      {/* ── Manage Curriculum (collapsible by child) ──────── */}
-      {!isPartner && curricGroups.length > 0 && (() => {
-        const visibleCurricGroups = selectedChild
-          ? curricGroups.filter(g => g.childId === selectedChild)
-          : curricGroups;
-        if (visibleCurricGroups.length === 0) return null;
-
-        // Group by child
-        const groupsByChild = new Map<string, { child: Child | undefined; groups: CurriculumGroup[] }>();
-        for (const g of visibleCurricGroups) {
-          const key = g.childId ?? "__unassigned__";
-          if (!groupsByChild.has(key)) groupsByChild.set(key, { child: children.find((c) => c.id === g.childId), groups: [] });
-          groupsByChild.get(key)!.groups.push(g);
-        }
-
-        return (
-        <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">Your Curricula</p>
-          {Array.from(groupsByChild.entries()).map(([childKey, { child, groups: childGroups }]) => {
-            const isCollapsed = collapsedChildren.has(childKey);
-            const subjectCount = childGroups.length;
-            const totalAll = childGroups.reduce((s, g) => s + g.totalCount, 0);
-            const completedAll = childGroups.reduce((s, g) => s + (g.totalCount - g.remainingCount), 0);
-            const avgPct = totalAll > 0 ? Math.round((completedAll / totalAll) * 100) : 0;
-            const childName = child?.name ?? "Unassigned";
-            const childColor = child?.color ?? "#7a6f65";
-
-            return (
-              <div key={childKey}>
-                {/* ── Child collapsible header ── */}
-                <button
-                  onClick={() => setCollapsedChildren((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(childKey)) next.delete(childKey); else next.add(childKey);
-                    return next;
-                  })}
-                  className="w-full flex items-center gap-3 bg-white border border-[#e8e2d9] rounded-2xl px-4 py-3 hover:bg-[#faf9f7] transition-colors text-left"
-                >
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-white text-sm font-bold"
-                    style={{ backgroundColor: childColor }}>
-                    {childName.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[#2d2926] truncate">{childName}</p>
-                    <p className="text-xs text-[#7a6f65] mt-0.5">
-                      {subjectCount} {subjectCount === 1 ? "subject" : "subjects"}
-                      {avgPct >= 10 && (
-                        <>
-                          <span className="mx-1.5 text-[#e8e2d9]">|</span>
-                          <span className="text-[#5c7f63] font-semibold">{avgPct}% complete</span>
-                        </>
-                      )}
-                    </p>
-                  </div>
-                  <ChevronDown size={18} className={`shrink-0 text-[#b5aca4] transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`} />
-                </button>
-
-                {/* ── Collapsible cards ── */}
-                <div
-                  className="overflow-hidden transition-all duration-200 ease-in-out"
-                  style={{ maxHeight: isCollapsed ? "0px" : `${childGroups.length * 250}px`, opacity: isCollapsed ? 0 : 1 }}
-                >
-                  <div className="space-y-2 pt-2">
-          {childGroups.map((group) => {
-            const subStyle = getSubjectStyle(group.subjectName ?? undefined);
-            const completedCount = group.totalCount - group.remainingCount;
-            const pct = group.totalCount > 0 ? Math.round((completedCount / group.totalCount) * 100) : 0;
-            const paceStatus = calcPaceStatus(group.remainingCount, group.goalData?.target_date ?? null, group.goalData?.school_days ?? null);
-            const targetDateLabel = group.goalData?.target_date
-              ? new Date(group.goalData.target_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-              : null;
-            return (
-                  <div key={group.key} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3 space-y-2">
-                    <div className="flex items-center gap-3">
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-semibold text-[#2d2926] truncate">{group.curricName}</p>
-                          {group.subjectName && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                              style={{ backgroundColor: subStyle.bg, color: subStyle.text }}>
-                              {group.subjectName}
-                            </span>
-                          )}
-                          {paceStatus && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                              style={{ backgroundColor: paceStatus.bg, color: paceStatus.color }}>
-                              {paceStatus.label}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-[#7a6f65] mt-0.5">
-                          <span className="text-[#5c7f63] font-semibold">{group.remainingCount} remaining</span>
-                          <span className="text-[#b5aca4]"> / {group.totalCount} total</span>
-                        </p>
-                      </div>
-
-                      {/* ··· Menu */}
-                      <div className="relative shrink-0">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setExpandedCurricMenu(expandedCurricMenu === group.key ? null : group.key); }}
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors text-sm font-bold">
-                          ···
-                        </button>
-                        {expandedCurricMenu === group.key && (
-                          <>
-                            <div className="fixed inset-0 z-20" onClick={() => setExpandedCurricMenu(null)} />
-                            <div className="absolute right-0 top-8 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[120px]">
-                              <button onClick={() => {
-                                setExpandedCurricMenu(null);
-                                setEditWizardData({
-                                  goalId: group.goalId ?? undefined,
-                                  childId: group.childId ?? "",
-                                  curricName: group.curricName,
-                                  subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
-                                  totalLessons: group.goalData?.total_lessons ?? group.totalCount,
-                                  currentLesson: group.goalData?.current_lesson ?? completedCount,
-                                  targetDate: group.goalData?.target_date ?? "",
-                                  schoolDays: group.goalData?.school_days ?? [],
-                                });
-                              }}
-                                className="w-full text-left px-3 py-2.5 text-xs text-[#2d2926] hover:bg-[#f8f7f4] transition-colors">✏️ Edit</button>
-                              <button onClick={() => { setExpandedCurricMenu(null); setDeleteConfirmGroup(group); }}
-                                className="w-full text-left px-3 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">🗑 Remove</button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Progress bar — only show when 10%+ to avoid discouraging new users */}
-                    {group.totalCount > 0 && pct >= 10 && (
-                      <div className="h-1.5 bg-[#f0ede8] rounded-full overflow-hidden">
-                        <div className="h-full bg-[#5c7f63] rounded-full transition-all" style={{ width: `${pct}%` }} />
-                      </div>
-                    )}
-
-                    {/* Finish line date or nudge */}
-                    {targetDateLabel ? (
-                      <p className="text-[10px] text-[#7a6f65]">
-                        🎯 Finish line: <span className="font-medium">{targetDateLabel}</span>
-                      </p>
-                    ) : (
-                      <span className="text-xs text-[#b5aca4]">No finish line set</span>
-                    )}
-                  </div>
-            );
-          })}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        );
-      })()}
-
-      {/* ── Curriculum empty state ───────────────────────────── */}
-      {!loading && !isPartner && curricGroups.length === 0 && curriculumGoals.length === 0 && subjects.length === 0 && allLessons.length === 0 && (
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-8 flex flex-col items-center text-center">
-          <span className="text-4xl mb-4">🌱</span>
-          <h2 className="text-xl font-semibold text-[#3d5c42] mb-2">Your plan is ready to grow!</h2>
-          <p className="text-sm text-[#7a6f65] leading-relaxed max-w-sm mx-auto mb-6">
-            Start by setting up your curriculum. Add your subjects, lessons, and schedule — it only takes a few minutes and sets the foundation for everything in Rooted.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-5">
-            <button
-              onClick={() => setShowCreateWizard(true)}
-              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
-            >
-              Set Up Curriculum →
-            </button>
-            <a
-              href="https://rootedhomeschoolapp.com/tour"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 bg-white border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
-            >
-              Watch how it works
-            </a>
-          </div>
-          <p className="text-xs text-[#b5aca4]">💡 Tip: Most families get set up in under 5 minutes</p>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════
           ADD A BREAK MODAL
-      ══════════════════════════════════════════════════════ */}
+      ══════════════════════════════════════════════════ */}
       {showVacModal && (
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
             <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
@@ -1426,46 +1267,9 @@ export default function PlanPage() {
           </div>
       )}
 
-      {/* ── Manage section ──────────────────────────────────── */}
-      {!isPartner && (
-        <div className="space-y-3 pt-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4]">Manage</p>
-
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setShowCreateWizard(true)}
-              className="flex items-center gap-1.5 text-xs font-semibold text-[#5c7f63] bg-white hover:bg-[#e8f0e9] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
-              + New Curriculum
-            </button>
-            <button
-              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
-              className="flex items-center gap-1.5 text-xs font-semibold text-[#7a6f65] bg-white hover:bg-[#f0ede8] px-4 py-2.5 rounded-xl transition-colors border border-[#e8e2d9]">
-              + Add Break / Vacation
-            </button>
-          </div>
-
-          {/* Existing vacation blocks */}
-          {vacationBlocks.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {vacationBlocks.map((block) => {
-                const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                return (
-                  <div key={block.id} className="flex items-center gap-1.5 bg-[#fef9e8] border border-[#f0dda8] rounded-full px-3 py-1.5 text-sm text-[#7a4a1a]">
-                    <span>🌴 {block.name} · {s}–{e}</span>
-                    <button onClick={() => deleteVacationBlock(block.id)} className="text-[#c8bfb5] hover:text-red-400 transition-colors ml-0.5" aria-label="Remove break">
-                      <X size={12} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════
           CURRICULUM WIZARD (create / edit)
-      ══════════════════════════════════════════════════════ */}
+      ══════════════════════════════════════════════════ */}
       {showCreateWizard && (
         <CurriculumWizard
           mode="create"
@@ -1484,20 +1288,6 @@ export default function PlanPage() {
 
       <div className="h-4" />
     </div>
-
-    {/* ── Day Detail Panel (month view) ──────────────────── */}
-    {dayDetailDate && (
-      <DayDetailPanel
-        date={new Date(dayDetailDate + "T00:00:00")}
-        lessons={monthLessonMap[dayDetailDate] ?? []}
-        children={children}
-        subjects={subjects}
-        onClose={() => setDayDetailDate(null)}
-        onToggle={toggleLesson}
-        onSaved={() => { loadMonthData(); setDayDetailDate(null); }}
-        isPartner={isPartner}
-      />
-    )}
     </>
   );
 }

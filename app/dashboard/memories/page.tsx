@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Sparkles, X, MoreHorizontal, Trash2, Pencil, Heart, Search, Mic, BookmarkCheck } from "lucide-react";
+import { X, MoreHorizontal, Trash2, Pencil, Heart, Search, Mic, BookmarkCheck } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -115,6 +115,7 @@ export default function MemoriesPage() {
   const [isPro, setIsPro] = useState<boolean | null>(null);
   // Filter: "all" | "family" | "favorites" | child id
   const [filter, setFilter] = useState("all");
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
 
   // Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -251,7 +252,12 @@ export default function MemoriesPage() {
     load();
     const onVisible = () => { if (document.visibilityState === 'visible') load(); };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    const onMemorySaved = () => load();
+    window.addEventListener('rooted:memory-saved', onMemorySaved);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('rooted:memory-saved', onMemorySaved);
+    };
   }, [load]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -521,56 +527,19 @@ export default function MemoriesPage() {
         </button>
       </div>
 
-      {/* Family Update CTA */}
-      <Link
-        href="/dashboard/family-update"
-        className="flex items-center justify-between bg-[#eef5ee] border border-[#b8d9bc] rounded-2xl px-4 py-4 hover:bg-[#e4f0e4] transition-colors group"
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#5c7f63] flex items-center justify-center shrink-0">
-            <Sparkles size={16} className="text-white" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-[#2d2926]">Your family update ✨</p>
-            <p className="text-xs text-[#7a6f65] mt-0.5">Generate a warm AI summary of your homeschool week to share with family and friends.</p>
-          </div>
-        </div>
-        <span className="bg-[#3d5c42] text-white text-sm font-medium px-4 py-1.5 rounded-full shrink-0 group-hover:bg-[#2d5a3d] transition-colors">Open →</span>
-      </Link>
-
-      {/* ── Child filter bar ─────────────────────────────────── */}
-      <div className="flex items-center gap-2.5 flex-wrap">
-        <button
-          onClick={() => setFilter("all")}
-          className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
-            filter === "all"
-              ? "bg-[#5c7f63] text-white"
-              : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
-          }`}
-        >
-          All
-        </button>
-        <button
-          onClick={() => setFilter("favorites")}
-          className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5 ${
-            filter === "favorites"
-              ? "bg-[#5c7f63] text-white"
-              : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
-          }`}
-        >
-          <Heart size={13} className={filter === "favorites" ? "fill-white" : ""} /> Favorites
-        </button>
+      {/* ── Filter pills ─────────────────────────────────────── */}
+      {/* ROW 1: Primary filters */}
+      <div className="flex items-center gap-2 flex-wrap">
         {([
-          ["yearbook", "🔖 Yearbook"],
-          ["type:photo", "Photos"],
-          ["type:book", "Books"],
-          ["type:win", "Wins"],
-          ["type:drawing", "Drawings"],
+          ["all", "All"],
+          ["type:photo", "📸 Photos"],
+          ["favorites", "♡ Favorites"],
+          ["yearbook", "📖 Yearbook"],
         ] as const).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setFilter(filter === key ? "all" : key)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
               filter === key
                 ? "bg-[#5c7f63] text-white"
                 : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
@@ -579,20 +548,57 @@ export default function MemoriesPage() {
             {label}
           </button>
         ))}
-        {children.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => setFilter(c.id)}
-            className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-sm font-semibold text-white transition-all ${
-              filter === c.id ? "ring-2 ring-offset-2 ring-[#5c7f63]" : "opacity-70 hover:opacity-100"
-            }`}
-            style={{ backgroundColor: c.color ?? "#5c7f63" }}
-            title={c.name}
-          >
-            {c.name.charAt(0).toUpperCase()}
-          </button>
-        ))}
+        <button
+          onClick={() => setShowMoreFilters(!showMoreFilters)}
+          className="px-3.5 py-1.5 rounded-full text-sm transition-colors"
+          style={{ background: "#f4faf0", border: "1px solid #c0dea8", color: "#2D5a1B", fontWeight: 500 }}
+        >
+          {showMoreFilters ? "Less ‹" : "More ›"}
+        </button>
       </div>
+
+      {/* Expanded tray */}
+      {showMoreFilters && (
+        <div className="flex flex-wrap gap-2" style={{ background: "#f9f6f0", borderRadius: 12, border: "0.5px solid #e8e0d4", padding: "8px 12px", marginTop: 4 }}>
+          {([
+            ["type:win", "⭐ Wins"],
+            ["type:book", "📚 Books"],
+            ["type:drawing", "🎨 Drawings"],
+            ["type:field_trip", "🗺️ Trips"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setFilter(filter === key ? "all" : key)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                filter === key
+                  ? "bg-[#5c7f63] text-white"
+                  : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ROW 2: Child avatars */}
+      {children.length > 0 && (
+        <div className="flex items-center gap-2">
+          {children.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setFilter(filter === c.id ? "all" : c.id)}
+              className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-sm font-semibold text-white transition-all ${
+                filter === c.id ? "ring-2 ring-offset-2 ring-[#5c7f63]" : "opacity-70 hover:opacity-100"
+              }`}
+              style={{ backgroundColor: c.color ?? "#5c7f63" }}
+              title={c.name}
+            >
+              {c.name.charAt(0).toUpperCase()}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── Search bar ──────────────────────────────────────── */}
       <div className="relative">
@@ -765,6 +771,18 @@ export default function MemoriesPage() {
                         </div>
                       );
                     })()
+                  )}
+
+                  {/* Camera icon for non-photo tiles without a photo */}
+                  {m.type !== "photo" && !m.photo_url && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent("rooted:open-fab")); }}
+                      className="absolute bottom-1.5 right-1.5 flex items-center justify-center rounded-full z-10"
+                      style={{ width: 22, height: 22, background: "rgba(0,0,0,0.35)" }}
+                      aria-label="Add photo"
+                    >
+                      <span style={{ fontSize: 12, lineHeight: 1 }}>📷</span>
+                    </button>
                   )}
 
                   {/* Child color dot */}

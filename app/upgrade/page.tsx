@@ -15,12 +15,11 @@ export default function UpgradePage() {
 function UpgradePageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [loadingPlan, setLoadingPlan] = useState<'founding' | 'standard' | 'monthly' | null>(null)
+  const [loadingPlan, setLoadingPlan] = useState<'founding' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('')
-  const [foundingCount, setFoundingCount] = useState<number | null>(null)
   const refParam = searchParams.get('ref')
   const refCode = refParam || (typeof window !== 'undefined' ? localStorage.getItem('rooted_ref') : null)
 
@@ -49,10 +48,6 @@ function UpgradePageInner() {
 
     loadUserProfile()
 
-    // Live founding member count
-    supabase.from('profiles').select('id')
-      .eq('plan_type', 'founding_family')
-      .then(({ data }) => { if (data) setFoundingCount(data.length) })
   }, [])
 
   useEffect(() => {
@@ -78,7 +73,7 @@ function UpgradePageInner() {
     return () => clearInterval(id)
   }, [])
 
-  async function handleClick(plan: 'founding' | 'standard' | 'monthly') {
+  async function handleClick(plan: 'founding') {
     setError(null)
     setLoadingPlan(plan)
 
@@ -147,8 +142,8 @@ function UpgradePageInner() {
           </div>
         )}
 
-        {/* 3-tier pricing cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-10">
+        {/* Pricing cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10 max-w-2xl mx-auto">
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 flex flex-col">
@@ -212,22 +207,6 @@ function UpgradePageInner() {
                   ⏳ {countdown}
                 </p>
               )}
-              {foundingCount !== null && (
-                <div className="mt-2">
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#3d5c42]" style={{ animation: 'pulse 2s ease-in-out infinite' }} />
-                    <p className="text-xs font-semibold text-[#5c7f63]">
-                      {foundingCount} of 200 spots claimed
-                    </p>
-                  </div>
-                  <div className="w-full h-2 rounded-full bg-[#f0ede8] overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${Math.min((foundingCount / 200) * 100, 100)}%`, backgroundColor: '#3d5c42' }}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
 
             <ul className="space-y-2 mb-6 flex-1">
@@ -236,9 +215,7 @@ function UpgradePageInner() {
                 'Photos, books, wins, drawings, field trips',
                 'Memories search',
                 'Family yearbook',
-                'Progress reports & transcripts',
                 'AI-written family updates',
-                'Share with family',
                 'Priority support from Brittany',
                 'Founding price locked forever 🎁',
               ].map((label) => (
@@ -274,121 +251,7 @@ function UpgradePageInner() {
             )}
           </div>
 
-          {/* Standard */}
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 flex flex-col">
-            <div className="mb-5">
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-base font-bold text-[#2d2926]">Standard</p>
-                {planType === 'standard' && (
-                  <span className="text-[10px] font-semibold bg-[#5c7f63] text-white px-2 py-0.5 rounded-full uppercase tracking-wide">
-                    ✓ Your Plan
-                  </span>
-                )}
-              </div>
-              <div className="flex items-baseline gap-1 my-3">
-                <span className="text-3xl font-bold text-[#2d2926]">$59</span>
-                <span className="text-sm text-[#b5aca4]">/yr</span>
-              </div>
-              <p className="text-sm text-[#7a6f65]">Full access, billed annually</p>
-            </div>
-            <ul className="space-y-2 mb-6 flex-1">
-              {[
-                'Unlimited children',
-                'Photos, books, wins, drawings, field trips',
-                'Memories search',
-                'Family yearbook',
-                'Progress reports & transcripts',
-                'AI-written family updates',
-                'Share with family',
-              ].map((label) => (
-                <li key={label} className="flex items-start gap-2 text-sm text-[#7a6f65]">
-                  <span className="text-[#5c7f63] shrink-0 mt-0.5">✓</span>
-                  {label}
-                </li>
-              ))}
-            </ul>
-            {isPaying ? (
-              <Link
-                href="/dashboard"
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-3 rounded-xl transition-colors text-sm text-center block"
-              >
-                ✓ You&apos;re already a member — Go to app →
-              </Link>
-            ) : (
-              <button
-                onClick={() => handleClick('standard')}
-                disabled={loadingPlan !== null}
-                className="w-full bg-[#2d2926] hover:bg-[#1a1714] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
-              >
-                {loadingPlan === 'standard' ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  'Subscribe — $59/yr →'
-                )}
-              </button>
-            )}
-          </div>
 
-          {/* Monthly */}
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 flex flex-col">
-            <div className="mb-5">
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-base font-bold text-[#2d2926]">Monthly</p>
-                {planType === 'monthly' && (
-                  <span className="text-[10px] font-semibold bg-[#5c7f63] text-white px-2 py-0.5 rounded-full uppercase tracking-wide">
-                    ✓ Your Plan
-                  </span>
-                )}
-              </div>
-              <div className="flex items-baseline gap-1 my-3">
-                <span className="text-3xl font-bold text-[#2d2926]">$6.99</span>
-                <span className="text-sm text-[#b5aca4]">/mo</span>
-              </div>
-              <p className="text-sm text-[#7a6f65]">Pay as you go · ≈ $83.88/year</p>
-            </div>
-            <ul className="space-y-2 mb-6 flex-1">
-              {[
-                'Unlimited children',
-                'Photos, books, wins, drawings, field trips',
-                'Memories search',
-                'Family yearbook',
-                'Progress reports & transcripts',
-                'AI-written family updates',
-                'Share with family',
-              ].map((label) => (
-                <li key={label} className="flex items-start gap-2 text-sm text-[#7a6f65]">
-                  <span className="text-[#5c7f63] shrink-0 mt-0.5">✓</span>
-                  {label}
-                </li>
-              ))}
-            </ul>
-            {isPaying ? (
-              <Link
-                href="/dashboard"
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-3 rounded-xl transition-colors text-sm text-center block"
-              >
-                ✓ You&apos;re already a member — Go to app →
-              </Link>
-            ) : (
-              <button
-                onClick={() => handleClick('monthly')}
-                disabled={loadingPlan !== null}
-                className="w-full bg-[#2d2926] hover:bg-[#1a1714] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
-              >
-                {loadingPlan === 'monthly' ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  'Start Monthly →'
-                )}
-              </button>
-            )}
-          </div>
 
         </div>
 
