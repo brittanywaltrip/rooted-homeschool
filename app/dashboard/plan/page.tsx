@@ -162,9 +162,7 @@ export default function PlanPage() {
   const todayStr = toDateStr(todayMidnight);
 
   const [weekStart,    setWeekStart]    = useState(() => getMondayOf(new Date()));
-  const [viewMode,     setViewMode]     = useState<"week" | "month">(() =>
-    typeof window !== "undefined" && window.innerWidth < 768 ? "month" : "week"
-  );
+  const [viewMode,     setViewMode]     = useState<"week" | "month">("week");
   const [monthStart,   setMonthStart]   = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
   const [monthLessons, setMonthLessons] = useState<Lesson[]>([]);
   const [lessons,          setLessons]          = useState<Lesson[]>([]);
