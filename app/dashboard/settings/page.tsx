@@ -214,11 +214,15 @@ export default function SettingsPage() {
   const [yearSuccessToast, setYearSuccessToast] = useState(false);
 
   // Share with Family
+  const [familyToken,       setFamilyToken]       = useState<string | null>(null);
   const [familyInviteEmail, setFamilyInviteEmail] = useState("");
+  const [familyInviteName,  setFamilyInviteName]  = useState("");
   const [sendingInvite,     setSendingInvite]     = useState(false);
   const [inviteSent,        setInviteSent]        = useState(false);
   const [inviteError,       setInviteError]       = useState("");
-  const [familyInvites,     setFamilyInvites]     = useState<{ email: string; accepted: boolean; created_at: string }[]>([]);
+  const [linkCopied,        setLinkCopied]        = useState(false);
+  const [regenerating,      setRegenerating]      = useState(false);
+  const [showRegenConfirm,  setShowRegenConfirm]  = useState(false);
 
   // ── Load data ─────────────────────────────────────────────────────────────
 
@@ -278,13 +282,22 @@ export default function SettingsPage() {
       setAllAffiliates((allAff ?? []) as AffiliateRow[]);
     }
 
-    // Load family invites
-    const { data: invites } = await supabase
+    // Load or create family invite token
+    const { data: existingInvite } = await supabase
       .from("family_invites")
-      .select("email, accepted, created_at")
-      .eq("owner_user_id", user.id)
-      .order("created_at", { ascending: false });
-    setFamilyInvites((invites ?? []) as { email: string; accepted: boolean; created_at: string }[]);
+      .select("token")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (existingInvite) {
+      setFamilyToken(existingInvite.token);
+    } else {
+      const { data: newInvite } = await supabase
+        .from("family_invites")
+        .insert({ user_id: user.id })
+        .select("token")
+        .single();
+      if (newInvite) setFamilyToken(newInvite.token);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -300,7 +313,7 @@ export default function SettingsPage() {
       const res = await fetch("/api/family/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: familyInviteEmail.trim(), ownerUserId: user.id }),
+        body: JSON.stringify({ email: familyInviteEmail.trim(), ownerUserId: user.id, recipientName: familyInviteName.trim() || null }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -308,13 +321,37 @@ export default function SettingsPage() {
       } else {
         setInviteSent(true);
         setFamilyInviteEmail("");
-        setFamilyInvites((prev) => [{ email: familyInviteEmail.trim().toLowerCase(), accepted: false, created_at: new Date().toISOString() }, ...prev]);
+        setFamilyInviteName("");
+        if (json.token) setFamilyToken(json.token);
         setTimeout(() => setInviteSent(false), 3000);
       }
     } catch {
       setInviteError("Network error");
     }
     setSendingInvite(false);
+  }
+
+  async function copyFamilyLink() {
+    if (!familyToken) return;
+    await navigator.clipboard.writeText(`https://www.rootedhomeschoolapp.com/family/${familyToken}`);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  }
+
+  async function regenerateFamilyLink() {
+    setRegenerating(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setRegenerating(false); return; }
+    // Delete old, insert new
+    await supabase.from("family_invites").delete().eq("user_id", user.id);
+    const { data: newInvite } = await supabase
+      .from("family_invites")
+      .insert({ user_id: user.id })
+      .select("token")
+      .single();
+    if (newInvite) setFamilyToken(newInvite.token);
+    setRegenerating(false);
+    setShowRegenConfirm(false);
   }
 
   function showCopiedToast(msg = "Copied!") {
@@ -1173,43 +1210,91 @@ export default function SettingsPage() {
 
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
           <p className="text-xs text-[#7a6f65] leading-relaxed">
-            Invite grandparents, aunts, uncles, or anyone who wants to follow your family&apos;s story. They&apos;ll get a beautiful read-only view of your memories and can leave hearts on the ones they love.
+            Share a link with grandparents, aunts, uncles, or anyone who wants to follow your family&apos;s story. They&apos;ll see a beautiful read-only view of your memories and can leave reactions and comments.
           </p>
 
-          <div className="flex gap-2">
-            <input
-              type="email"
-              value={familyInviteEmail}
-              onChange={(e) => { setFamilyInviteEmail(e.target.value); setInviteError(""); }}
-              placeholder="grandma@email.com"
-              className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-              onKeyDown={(e) => { if (e.key === "Enter") sendFamilyInvite(); }}
-            />
-            <button
-              onClick={sendFamilyInvite}
-              disabled={sendingInvite || !familyInviteEmail.trim()}
-              className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors whitespace-nowrap"
-            >
-              {sendingInvite ? "Sending..." : "Send invite →"}
-            </button>
-          </div>
-
-          {inviteError && <p className="text-xs text-red-500">{inviteError}</p>}
-          {inviteSent && <p className="text-xs text-[#5c7f63] font-medium">Invite sent! They&apos;ll get an email with a link to your memories.</p>}
-
-          {familyInvites.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-[#f0ede8]">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Invited</p>
-              {familyInvites.map((inv) => (
-                <div key={inv.email} className="flex items-center justify-between text-sm">
-                  <span className="text-[#2d2926] truncate">{inv.email}</span>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${inv.accepted ? "bg-[#e8f0e9] text-[#5c7f63]" : "bg-[#f0ede8] text-[#9a8f85]"}`}>
-                    {inv.accepted ? "Viewed" : "Pending"}
-                  </span>
-                </div>
-              ))}
+          {/* Family link */}
+          {familyToken && (
+            <div className="space-y-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Your family link</p>
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={`rootedhomeschoolapp.com/family/${familyToken}`}
+                  className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#faf8f4] text-xs text-[#7a6f65] truncate focus:outline-none"
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                />
+                <button
+                  onClick={copyFamilyLink}
+                  className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors whitespace-nowrap"
+                >
+                  {linkCopied ? "Copied!" : "Copy link"}
+                </button>
+              </div>
             </div>
           )}
+
+          {/* Send invite by email */}
+          <div className="space-y-2 pt-2 border-t border-[#f0ede8]">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Send invite by email</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={familyInviteName}
+                onChange={(e) => setFamilyInviteName(e.target.value)}
+                placeholder="Name (optional)"
+                className="w-28 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+              />
+              <input
+                type="email"
+                value={familyInviteEmail}
+                onChange={(e) => { setFamilyInviteEmail(e.target.value); setInviteError(""); }}
+                placeholder="grandma@email.com"
+                className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                onKeyDown={(e) => { if (e.key === "Enter") sendFamilyInvite(); }}
+              />
+              <button
+                onClick={sendFamilyInvite}
+                disabled={sendingInvite || !familyInviteEmail.trim()}
+                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors whitespace-nowrap"
+              >
+                {sendingInvite ? "Sending..." : "Send →"}
+              </button>
+            </div>
+            {inviteError && <p className="text-xs text-red-500">{inviteError}</p>}
+            {inviteSent && <p className="text-xs text-[#5c7f63] font-medium">Invite sent! They&apos;ll get an email with a link to your memories.</p>}
+          </div>
+
+          {/* Regenerate link */}
+          <div className="pt-2 border-t border-[#f0ede8]">
+            {!showRegenConfirm ? (
+              <button
+                onClick={() => setShowRegenConfirm(true)}
+                className="text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
+              >
+                Regenerate link
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-[#c4697a] font-medium">This will break any existing links you&apos;ve shared. Are you sure?</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowRegenConfirm(false)}
+                    className="px-3 py-1.5 rounded-lg border border-[#e8e2d9] text-xs text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={regenerateFamilyLink}
+                    disabled={regenerating}
+                    className="px-3 py-1.5 rounded-lg bg-[#c4697a] hover:bg-[#a8505f] disabled:opacity-50 text-white text-xs font-medium transition-colors"
+                  >
+                    {regenerating ? "Regenerating..." : "Yes, regenerate"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </section>}
 
