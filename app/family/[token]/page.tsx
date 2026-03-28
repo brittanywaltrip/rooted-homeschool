@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 
@@ -15,6 +15,7 @@ type Memory = {
   child_id: string | null;
   child_name: string | null;
   child_color: string | null;
+  created_at: string;
 };
 
 type ReactionCount = { emoji: string; count: number };
@@ -25,27 +26,28 @@ type Comment = {
   created_at: string;
 };
 
+type ChildInfo = { id: string; name: string; color: string };
+
 type FamilyData = {
   familyName: string;
+  children: ChildInfo[];
   memories: Memory[];
   reactions: Record<string, ReactionCount[]>;
   comments: Record<string, Comment[]>;
+  trialEnded: boolean;
+  momPaid: boolean;
+  trialActive?: boolean;
+  trialEndsAt: string | null;
+  viewerName: string | null;
 };
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
-const REACTION_EMOJIS = ["❤️", "😂", "😮", "🥹", "👏"];
+const REACTION_EMOJIS = ["🥹", "❤️", "😂", "🙌", "😍"];
 
 const TYPE_EMOJI: Record<string, string> = {
-  photo: "📷",
-  drawing: "🎨",
-  book: "📖",
-  win: "🏆",
-  quote: "🗒️",
-  project: "🔬",
-  field_trip: "🗺️",
-  activity: "🎵",
-  moment: "✨",
+  photo: "📷", drawing: "🎨", book: "📖", win: "🏆",
+  quote: "🗒️", project: "🔬", field_trip: "🗺️", activity: "🎵", moment: "✨",
 };
 
 const TYPE_GRADIENT: Record<string, string> = {
@@ -59,19 +61,10 @@ const TYPE_GRADIENT: Record<string, string> = {
   moment: "linear-gradient(135deg, #e8f0e9, #b8d4ba)",
 };
 
-function formatMonth(dateStr: string): string {
-  const [y, m] = dateStr.split("-");
-  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-  });
-}
-
 function formatDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-");
   return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString(
-    "en-US",
-    { month: "short", day: "numeric" }
+    "en-US", { month: "long", day: "numeric" }
   );
 }
 
@@ -94,17 +87,25 @@ function getLocalName(): string {
 
 export default function FamilyViewPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const token = params.token as string;
 
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [familyName, setFamilyName] = useState("");
+  const [childrenList, setChildrenList] = useState<ChildInfo[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
-  const [reactions, setReactions] = useState<
-    Record<string, ReactionCount[]>
-  >({});
+  const [reactions, setReactions] = useState<Record<string, ReactionCount[]>>({});
   const [comments, setComments] = useState<Record<string, Comment[]>>({});
   const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
+  const [trialEnded, setTrialEnded] = useState(false);
+  const [momPaid, setMomPaid] = useState(false);
+  const [trialEndsAt, setTrialEndsAt] = useState<string | null>(null);
+  const [viewerNameFromServer, setViewerNameFromServer] = useState<string | null>(null);
+  const [giftSuccess, setGiftSuccess] = useState(false);
+
+  // Lightbox image viewer
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   // Name prompt
   const [showNamePrompt, setShowNamePrompt] = useState(false);
@@ -112,28 +113,32 @@ export default function FamilyViewPage() {
   const [guestName, setGuestName] = useState("");
   const [guestKey, setGuestKey] = useState("");
 
-  // Comment input per detail sheet
+  // Comment
   const [commentText, setCommentText] = useState("");
   const [sendingComment, setSendingComment] = useState(false);
 
-  // Track which reactions the current user has toggled (optimistic)
+  // Track user's own reactions
   const [myReactions, setMyReactions] = useState<Set<string>>(new Set());
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Gift
+  const [giftLoading, setGiftLoading] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
-  /* ─── Init localStorage values ──────────────────────────────────────── */
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoReactDone = useRef(false);
+
+  /* ─── Init ──────────────────────────────────────────────────────────── */
 
   useEffect(() => {
     const name = getLocalName();
     const key = getLocalKey();
     setGuestName(name);
     setGuestKey(key);
-    if (!name) {
-      setShowNamePrompt(true);
-    }
-  }, []);
+    if (!name) setShowNamePrompt(true);
+    if (searchParams.get("gift") === "success") setGiftSuccess(true);
+  }, [searchParams]);
 
-  /* ─── Fetch data ────────────────────────────────────────────────────── */
+  /* ─── Fetch ─────────────────────────────────────────────────────────── */
 
   const fetchData = useCallback(async () => {
     try {
@@ -145,26 +150,44 @@ export default function FamilyViewPage() {
       }
       const data: FamilyData = await res.json();
       setFamilyName(data.familyName);
+      setChildrenList(data.children);
       setMemories(data.memories);
       setReactions(data.reactions);
       setComments(data.comments);
+      setTrialEnded(data.trialEnded);
+      setMomPaid(data.momPaid);
+      setTrialEndsAt(data.trialEndsAt);
+      setViewerNameFromServer(data.viewerName);
       setLoading(false);
+
+      // Auto-react from URL params (once)
+      if (!autoReactDone.current) {
+        autoReactDone.current = true;
+        const reactEmoji = searchParams.get("react");
+        const reactMemId = searchParams.get("memory_id");
+        if (reactEmoji && reactMemId) {
+          const name = getLocalName();
+          const key = getLocalKey();
+          if (name && key) {
+            // Strip params from URL
+            window.history.replaceState({}, "", `/family/${token}`);
+            // Fire reaction
+            handleReactInner(reactMemId, reactEmoji, name, key);
+          }
+        }
+      }
     } catch {
       setNotFound(true);
       setLoading(false);
     }
-  }, [token]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, searchParams]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Poll every 30s
   useEffect(() => {
     pollRef.current = setInterval(fetchData, 30_000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [fetchData]);
 
   /* ─── Name submit ───────────────────────────────────────────────────── */
@@ -177,51 +200,32 @@ export default function FamilyViewPage() {
     setShowNamePrompt(false);
   }
 
-  /* ─── React to memory ──────────────────────────────────────────────── */
+  /* ─── React ─────────────────────────────────────────────────────────── */
 
-  async function handleReact(memoryId: string, emoji: string) {
-    if (!guestName) {
-      setShowNamePrompt(true);
-      return;
-    }
-
+  async function handleReactInner(memoryId: string, emoji: string, name: string, key: string) {
     const reactionKey = `${memoryId}:${emoji}`;
     const alreadyReacted = myReactions.has(reactionKey);
 
-    // Optimistic update
     setMyReactions((prev) => {
       const next = new Set(prev);
-      if (alreadyReacted) next.delete(reactionKey);
-      else next.add(reactionKey);
+      if (alreadyReacted) next.delete(reactionKey); else next.add(reactionKey);
       return next;
     });
 
     setReactions((prev) => {
       const updated = { ...prev };
-      const memReactions = [...(updated[memoryId] ?? [])];
-      const idx = memReactions.findIndex((r) => r.emoji === emoji);
-
+      const memRxns = [...(updated[memoryId] ?? [])];
+      const idx = memRxns.findIndex((r) => r.emoji === emoji);
       if (alreadyReacted) {
         if (idx >= 0) {
-          memReactions[idx] = {
-            ...memReactions[idx],
-            count: Math.max(0, memReactions[idx].count - 1),
-          };
-          if (memReactions[idx].count === 0)
-            memReactions.splice(idx, 1);
+          memRxns[idx] = { ...memRxns[idx], count: Math.max(0, memRxns[idx].count - 1) };
+          if (memRxns[idx].count === 0) memRxns.splice(idx, 1);
         }
       } else {
-        if (idx >= 0) {
-          memReactions[idx] = {
-            ...memReactions[idx],
-            count: memReactions[idx].count + 1,
-          };
-        } else {
-          memReactions.push({ emoji, count: 1 });
-        }
+        if (idx >= 0) memRxns[idx] = { ...memRxns[idx], count: memRxns[idx].count + 1 };
+        else memRxns.push({ emoji, count: 1 });
       }
-
-      updated[memoryId] = memReactions;
+      updated[memoryId] = memRxns;
       return updated;
     });
 
@@ -229,23 +233,21 @@ export default function FamilyViewPage() {
       await fetch(`/api/family/${token}/react`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          memory_id: memoryId,
-          reaction_type: emoji,
-          reactor_key: guestKey,
-          reactor_name: guestName,
-        }),
+        body: JSON.stringify({ memory_id: memoryId, emoji, reactor_key: key, reactor_name: name }),
       });
     } catch {
-      // Revert on error
       setMyReactions((prev) => {
         const next = new Set(prev);
-        if (alreadyReacted) next.add(reactionKey);
-        else next.delete(reactionKey);
+        if (alreadyReacted) next.add(reactionKey); else next.delete(reactionKey);
         return next;
       });
       fetchData();
     }
+  }
+
+  function handleReact(memoryId: string, emoji: string) {
+    if (!guestName) { setShowNamePrompt(true); return; }
+    handleReactInner(memoryId, emoji, guestName, guestKey);
   }
 
   /* ─── Comment ───────────────────────────────────────────────────────── */
@@ -254,65 +256,61 @@ export default function FamilyViewPage() {
     if (!commentText.trim() || !guestName) return;
     setSendingComment(true);
 
-    const optimisticComment: Comment = {
-      id: `temp-${Date.now()}`,
-      name: guestName,
-      text: commentText.trim(),
-      created_at: new Date().toISOString(),
+    const optimistic: Comment = {
+      id: `temp-${Date.now()}`, name: guestName, text: commentText.trim(), created_at: new Date().toISOString(),
     };
-
-    setComments((prev) => ({
-      ...prev,
-      [memoryId]: [...(prev[memoryId] ?? []), optimisticComment],
-    }));
+    setComments((prev) => ({ ...prev, [memoryId]: [...(prev[memoryId] ?? []), optimistic] }));
     setCommentText("");
 
     try {
       const res = await fetch(`/api/family/${token}/comment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          memory_id: memoryId,
-          commenter_key: guestKey,
-          commenter_name: guestName,
-          comment_text: optimisticComment.text,
-        }),
+        body: JSON.stringify({ memory_id: memoryId, commenter_key: guestKey, commenter_name: guestName, body: optimistic.text }),
       });
       const data = await res.json();
       if (data.comment) {
-        // Replace optimistic with real
         setComments((prev) => ({
           ...prev,
           [memoryId]: (prev[memoryId] ?? []).map((c) =>
-            c.id === optimisticComment.id
-              ? {
-                  id: data.comment.id,
-                  name: data.comment.commenter_name,
-                  text: data.comment.comment_text,
-                  created_at: data.comment.created_at,
-                }
-              : c
+            c.id === optimistic.id ? { id: data.comment.id, name: data.comment.commenter_name, text: data.comment.body, created_at: data.comment.created_at } : c
           ),
         }));
       }
     } catch {
-      // Revert on error
-      setComments((prev) => ({
-        ...prev,
-        [memoryId]: (prev[memoryId] ?? []).filter(
-          (c) => c.id !== optimisticComment.id
-        ),
-      }));
+      setComments((prev) => ({ ...prev, [memoryId]: (prev[memoryId] ?? []).filter((c) => c.id !== optimistic.id) }));
     } finally {
       setSendingComment(false);
     }
   }
 
+  /* ─── Gift ──────────────────────────────────────────────────────────── */
+
+  async function handleGift() {
+    setGiftLoading(true);
+    try {
+      const res = await fetch("/api/family/gift", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, viewer_name: guestName || viewerNameFromServer }),
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+      else setGiftLoading(false);
+    } catch {
+      setGiftLoading(false);
+    }
+  }
+
+  function copyGiftLink() {
+    navigator.clipboard.writeText(`https://www.rootedhomeschoolapp.com/family/${token}`);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  }
+
   /* ─── Helpers ───────────────────────────────────────────────────────── */
 
-  function getTopReaction(
-    memoryId: string
-  ): { emoji: string; count: number } | null {
+  function getTopReaction(memoryId: string): { emoji: string; count: number } | null {
     const rxns = reactions[memoryId];
     if (!rxns || rxns.length === 0) return null;
     const total = rxns.reduce((sum, r) => sum + r.count, 0);
@@ -321,117 +319,84 @@ export default function FamilyViewPage() {
   }
 
   function getReactionCount(memoryId: string, emoji: string): number {
-    const rxns = reactions[memoryId];
-    if (!rxns) return 0;
-    return rxns.find((r) => r.emoji === emoji)?.count ?? 0;
+    return reactions[memoryId]?.find((r) => r.emoji === emoji)?.count ?? 0;
   }
 
-  /* ─── Loading state ─────────────────────────────────────────────────── */
+  /* ─── Loading ───────────────────────────────────────────────────────── */
 
   if (loading) {
     return (
       <main className="min-h-screen bg-[#f8f7f4]">
-        {/* Skeleton header */}
-        <div className="w-full px-5 pt-6 pb-8" style={{ backgroundColor: "#2D5a1B" }}>
-          <div className="h-3 w-16 bg-white/20 rounded mb-3 animate-pulse" />
-          <div className="h-7 w-56 bg-white/20 rounded mb-2 animate-pulse" />
-          <div className="h-4 w-44 bg-white/10 rounded animate-pulse" />
-        </div>
-        {/* Skeleton grid */}
-        <div className="max-w-3xl mx-auto px-4 pt-6">
-          <div className="h-4 w-32 bg-[#e8e2d9] rounded mb-3 animate-pulse" />
-          <div className="grid grid-cols-3 gap-[2px] rounded-2xl overflow-hidden">
-            {Array.from({ length: 9 }).map((_, i) => (
-              <div
-                key={i}
-                className="aspect-square bg-[#e8e2d9] animate-pulse"
-              />
-            ))}
+        <div className="w-full px-5 pt-8 pb-6" style={{ backgroundColor: "#2d5a3d" }}>
+          <div className="max-w-[480px] mx-auto">
+            <div className="h-7 w-56 bg-white/20 rounded mb-2 animate-pulse" />
+            <div className="h-4 w-32 bg-white/10 rounded animate-pulse" />
           </div>
+        </div>
+        <div className="max-w-[480px] mx-auto px-4 pt-6 space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="bg-[#e8e2d9] rounded-2xl h-72 animate-pulse" />
+          ))}
         </div>
       </main>
     );
   }
 
-  /* ─── 404 state ─────────────────────────────────────────────────────── */
+  /* ─── 404 / Inactive ────────────────────────────────────────────────── */
 
   if (notFound) {
     return (
       <main className="min-h-screen bg-[#f8f7f4] flex items-center justify-center px-6">
         <div className="text-center max-w-sm">
           <div className="text-5xl mb-4">🌿</div>
-          <h1
-            className="text-xl font-medium text-[#2d2926] mb-2"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            This link has expired or doesn&apos;t exist
+          <h1 className="text-lg font-medium text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
+            This link is no longer active
           </h1>
-          <p className="text-sm text-[#7a6f65] mb-8">
-            Ask your family to send you a new link
+          <p className="text-sm text-[#7a6f65] leading-relaxed">
+            If you think this is a mistake, reach out to the family directly.
           </p>
-          <div className="pt-6 border-t border-[#e8e2d9]">
-            <a
-              href="https://www.rootedhomeschoolapp.com"
-              className="text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
-            >
-              🌿 Rooted — the homeschool memory book
-            </a>
+          <div className="mt-8 pt-6 border-t border-[#e8e2d9]">
+            <span className="text-xs text-[#b5aca4]">🌿 Rooted</span>
           </div>
         </div>
       </main>
     );
   }
 
-  /* ─── Group memories by month ───────────────────────────────────────── */
+  /* ─── Child names string ────────────────────────────────────────────── */
 
-  const byMonth = new Map<string, Memory[]>();
-  for (const m of memories) {
-    const key = m.date.slice(0, 7);
-    if (!byMonth.has(key)) byMonth.set(key, []);
-    byMonth.get(key)!.push(m);
-  }
+  const childPills = childrenList.map((c) => c.name);
+  const trialEndFormatted = trialEndsAt
+    ? new Date(trialEndsAt).toLocaleDateString("en-US", { month: "long", day: "numeric" })
+    : null;
 
   /* ─── Render ────────────────────────────────────────────────────────── */
 
   return (
-    <main className="min-h-screen bg-[#f8f7f4]">
-      {/* ─── Name Prompt Modal ─────────────────────────────────────────── */}
+    <main className="min-h-screen bg-[#f8f7f4] pb-24">
+      {/* ─── Name Prompt ───────────────────────────────────────────────── */}
       {showNamePrompt && (
         <>
-          <div
-            className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm"
-            onClick={() => {}}
-          />
+          <div className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm" />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
             <div className="bg-[#fefcf9] rounded-3xl shadow-2xl max-w-sm w-full p-6 space-y-5">
               <div className="text-center">
                 <p className="text-3xl mb-2">👋</p>
-                <h2
-                  className="text-xl font-medium text-[#2d2926]"
-                  style={{ fontFamily: "var(--font-display)" }}
-                >
+                <h2 className="text-xl font-medium text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
                   Who are you?
                 </h2>
-                <p className="text-sm text-[#7a6f65] mt-1">
-                  So the family knows who&apos;s reacting!
-                </p>
+                <p className="text-sm text-[#7a6f65] mt-1">So the family knows who&apos;s reacting!</p>
               </div>
               <input
-                type="text"
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                placeholder="Grandma, Uncle Mike, etc."
-                autoFocus
+                type="text" value={nameInput} onChange={(e) => setNameInput(e.target.value)}
+                placeholder="Grandma, Uncle Mike, etc." autoFocus
                 className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleNameSubmit();
-                }}
+                onKeyDown={(e) => { if (e.key === "Enter") handleNameSubmit(); }}
               />
               <button
-                onClick={handleNameSubmit}
-                disabled={!nameInput.trim()}
+                onClick={handleNameSubmit} disabled={!nameInput.trim()}
                 className="w-full py-3 rounded-xl text-sm font-medium text-white disabled:opacity-40 transition-all"
-                style={{ backgroundColor: "#2D5a1B" }}
+                style={{ backgroundColor: "#2d5a3d" }}
               >
                 Let&apos;s go →
               </button>
@@ -440,321 +405,207 @@ export default function FamilyViewPage() {
         </>
       )}
 
-      {/* ─── Page Header ───────────────────────────────────────────────── */}
-      <header
-        className="w-full"
-        style={{ backgroundColor: "#2D5a1B", padding: "24px 20px" }}
-      >
-        <a
-          href="https://www.rootedhomeschoolapp.com"
-          className="text-xs text-white/50 hover:text-white/70 transition-colors"
-        >
-          🌿 Rooted
-        </a>
-        <h1
-          className="text-2xl text-white mt-3 leading-tight"
-          style={{ fontFamily: "var(--font-display)", fontWeight: 500 }}
-        >
-          The {familyName}&apos;s Memories
-        </h1>
-        <p className="text-sm text-white/50 mt-1 italic">
-          A peek into their homeschool journey
-        </p>
-        <div className="inline-block mt-3 px-3 py-1 rounded-full bg-white/10 text-xs text-white/70">
-          Shared with ❤️
+      {/* ─── Gift success toast ────────────────────────────────────────── */}
+      {giftSuccess && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#2d5a3d] text-white px-5 py-3 rounded-2xl shadow-lg text-sm font-medium animate-[toast-slide-up_0.3s_ease-out]">
+          🎁 Gift sent! They&apos;ll be so happy.
+        </div>
+      )}
+
+      {/* ─── Header ────────────────────────────────────────────────────── */}
+      <header className="w-full" style={{ backgroundColor: "#2d5a3d", padding: "32px 20px 24px" }}>
+        <div className="max-w-[480px] mx-auto">
+          <h1 className="text-2xl text-white leading-tight" style={{ fontFamily: "var(--font-display)", fontWeight: 500 }}>
+            The {familyName} Family 🌿
+          </h1>
+          {childPills.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {childPills.map((name) => (
+                <span key={name} className="px-2.5 py-0.5 rounded-full text-xs text-white/80 bg-white/15">
+                  {name}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </header>
 
-      {/* ─── Memory Grid ───────────────────────────────────────────────── */}
-      <div className="max-w-3xl mx-auto px-4 pt-6 pb-12">
+      {/* ─── Trial-ended overlay ───────────────────────────────────────── */}
+      {trialEnded && !momPaid && (
+        <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center">
+          {/* Blurred memories behind */}
+          <div className="absolute inset-0 bg-[#f8f7f4]" style={{ filter: "blur(8px)", opacity: 0.7 }} />
+          <div className="relative z-10 bg-[#fefcf9] w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4">
+            <div className="text-center space-y-2">
+              <p className="text-3xl">🌿</p>
+              <h2 className="text-lg font-medium text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
+                Your free preview of the {familyName} Family&apos;s journey has ended.
+              </h2>
+              {childPills.length > 0 && (
+                <p className="text-sm text-[#7a6f65]">
+                  Want to keep following {childPills.join(" and ")}&apos;s story? You can gift them a full year of Rooted.
+                </p>
+              )}
+            </div>
+            <button
+              onClick={handleGift} disabled={giftLoading}
+              className="w-full py-3.5 rounded-xl text-sm font-medium text-white disabled:opacity-50 transition-all"
+              style={{ backgroundColor: "#2d5a3d" }}
+            >
+              {giftLoading ? "Loading..." : "Gift them a year — $59 →"}
+            </button>
+            <div className="text-center">
+              <p className="text-xs text-[#7a6f65] mb-1">Or share this page with someone who&apos;d love to give this gift.</p>
+              <button onClick={copyGiftLink} className="text-xs text-[#5c7f63] font-medium underline">
+                {copiedLink ? "Copied!" : "Copy link"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Memory Feed ───────────────────────────────────────────────── */}
+      <div className="max-w-[480px] mx-auto px-4 pt-5 space-y-4">
         {memories.length === 0 ? (
           <div className="py-16 text-center">
             <div className="text-4xl mb-3">📸</div>
-            <p className="text-sm text-[#7a6f65]">
-              No memories shared yet. Check back soon!
-            </p>
+            <p className="text-sm text-[#7a6f65]">No memories shared yet. Check back soon!</p>
           </div>
         ) : (
-          <div className="space-y-5">
-            {[...byMonth.entries()].map(([month, monthMems]) => (
-              <div key={month}>
-                <p className="text-xs font-medium uppercase tracking-widest text-[#7a6f65] mb-2 px-1">
-                  {formatMonth(monthMems[0].date)}
-                </p>
-                <div className="grid grid-cols-3 gap-[2px] rounded-2xl overflow-hidden">
-                  {monthMems.map((mem) => {
-                    const topRxn = getTopReaction(mem.id);
-                    return (
-                      <button
-                        key={mem.id}
-                        className="relative aspect-square overflow-hidden focus:outline-none"
-                        onClick={() => {
-                          setSelectedMemory(mem);
-                          setCommentText("");
-                        }}
-                      >
-                        {mem.photo_url ? (
-                          <img
-                            src={mem.photo_url}
-                            alt={mem.title ?? "Memory"}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div
-                            className="w-full h-full flex flex-col items-center justify-center px-2 relative"
-                            style={{
-                              background:
-                                TYPE_GRADIENT[mem.type] ??
-                                "linear-gradient(135deg, #e8f0e9, #b8d4ba)",
-                              backgroundImage: `radial-gradient(circle, rgba(0,0,0,0.04) 0.5px, transparent 0.5px), ${TYPE_GRADIENT[mem.type] ?? "linear-gradient(135deg, #e8f0e9, #b8d4ba)"}`,
-                              backgroundSize: "8px 8px, 100% 100%",
-                            }}
-                          >
-                            <span className="text-3xl mb-1">
-                              {TYPE_EMOJI[mem.type] ?? "📷"}
-                            </span>
-                            {mem.title && (
-                              <p className="text-[10px] text-[#5a4a3a] text-center leading-tight line-clamp-2 font-medium">
-                                {mem.title}
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Date label — bottom-left */}
-                        <span
-                          className="absolute bottom-1 left-1.5 text-white text-[9px] font-medium drop-shadow-sm"
-                          style={{
-                            textShadow: "0 1px 3px rgba(0,0,0,0.6)",
-                          }}
-                        >
-                          {formatDate(mem.date)}
-                        </span>
-
-                        {/* Reaction pill — bottom-right */}
-                        {topRxn && (
-                          <span
-                            className="absolute bottom-1 right-1.5 flex items-center gap-0.5 text-white"
-                            style={{
-                              fontSize: "9px",
-                              background: "rgba(0,0,0,0.4)",
-                              borderRadius: "8px",
-                              padding: "2px 5px",
-                            }}
-                          >
-                            {topRxn.emoji} {topRxn.count}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ─── Detail Sheet ──────────────────────────────────────────────── */}
-      {selectedMemory && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-black/60 z-50 backdrop-blur-sm"
-            onClick={() => setSelectedMemory(null)}
-          />
-
-          {/* Sheet — bottom sheet on mobile, centered modal on desktop */}
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-            <div
-              className="bg-[#fefcf9] w-full max-w-md max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Close button */}
-              <button
-                onClick={() => setSelectedMemory(null)}
-                className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/20 text-white hover:bg-black/40 transition-colors text-lg"
-              >
-                ×
-              </button>
-
-              {/* Hero */}
-              {selectedMemory.photo_url ? (
-                <div className="aspect-square w-full overflow-hidden rounded-t-3xl sm:rounded-t-3xl">
-                  <img
-                    src={selectedMemory.photo_url}
-                    alt={selectedMemory.title ?? "Memory"}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              ) : (
-                <div
-                  className="aspect-square w-full flex items-center justify-center rounded-t-3xl sm:rounded-t-3xl"
-                  style={{
-                    background:
-                      TYPE_GRADIENT[selectedMemory.type] ??
-                      "linear-gradient(135deg, #e8f0e9, #b8d4ba)",
-                    backgroundImage: `radial-gradient(circle, rgba(0,0,0,0.04) 0.5px, transparent 0.5px), ${TYPE_GRADIENT[selectedMemory.type] ?? "linear-gradient(135deg, #e8f0e9, #b8d4ba)"}`,
-                    backgroundSize: "8px 8px, 100% 100%",
-                  }}
-                >
-                  <span className="text-7xl">
-                    {TYPE_EMOJI[selectedMemory.type] ?? "📷"}
-                  </span>
-                </div>
-              )}
-
-              {/* Content */}
-              <div className="px-5 py-4 space-y-4">
-                {/* Child + date */}
-                <div className="flex items-center gap-2 text-sm text-[#7a6f65]">
-                  {selectedMemory.child_color && (
-                    <span
-                      className="w-3 h-3 rounded-full border border-white shadow-sm"
-                      style={{
-                        backgroundColor: selectedMemory.child_color,
-                      }}
-                    />
-                  )}
-                  {selectedMemory.child_name && (
-                    <span className="font-medium text-[#2d2926]">
-                      {selectedMemory.child_name}
-                    </span>
-                  )}
-                  <span>·</span>
-                  <span>{formatDate(selectedMemory.date)}</span>
-                </div>
-
-                {/* Title */}
-                {selectedMemory.title && (
-                  <h2
-                    className="text-lg text-[#2d2926]"
+          memories.map((mem) => {
+            const topRxn = getTopReaction(mem.id);
+            const memComments = comments[mem.id] ?? [];
+            return (
+              <div key={mem.id} className="bg-[#fefcf9] rounded-2xl border border-[#e8e2d9] overflow-hidden shadow-sm">
+                {/* Photo or type tile */}
+                {mem.photo_url ? (
+                  <button className="w-full" onClick={() => setLightboxUrl(mem.photo_url)}>
+                    <img src={mem.photo_url} alt={mem.title ?? "Memory"} className="w-full object-cover" loading="lazy" style={{ maxHeight: 400 }} />
+                  </button>
+                ) : (
+                  <div
+                    className="w-full flex flex-col items-center justify-center py-12 relative"
                     style={{
-                      fontFamily: "var(--font-display)",
-                      fontWeight: 500,
+                      background: TYPE_GRADIENT[mem.type] ?? TYPE_GRADIENT.moment,
+                      backgroundImage: `radial-gradient(circle, rgba(0,0,0,0.04) 0.5px, transparent 0.5px), ${TYPE_GRADIENT[mem.type] ?? TYPE_GRADIENT.moment}`,
+                      backgroundSize: "8px 8px, 100% 100%",
                     }}
                   >
-                    {selectedMemory.title}
-                  </h2>
+                    <span className="text-5xl mb-2">{TYPE_EMOJI[mem.type] ?? "📷"}</span>
+                    {mem.title && (
+                      <p className="text-sm font-medium text-[#2d2926] text-center px-4">{mem.title}</p>
+                    )}
+                  </div>
                 )}
 
-                {/* Caption */}
-                {selectedMemory.caption && (
-                  <p className="text-sm text-[#7a6f65] leading-relaxed">
-                    {selectedMemory.caption}
+                {/* Content */}
+                <div className="px-4 py-3 space-y-2">
+                  {/* Child + date */}
+                  <p className="text-xs text-[#7a6f65]">
+                    {mem.child_name && <><span className="font-medium text-[#2d2926]">{mem.child_name}</span> · </>}
+                    {formatDate(mem.date)}
                   </p>
-                )}
 
-                {/* ── Reaction Row ──────────────────────────────────── */}
-                <div className="flex items-center gap-2 pt-1">
-                  {REACTION_EMOJIS.map((emoji) => {
-                    const count = getReactionCount(
-                      selectedMemory.id,
-                      emoji
-                    );
-                    const isSelected = myReactions.has(
-                      `${selectedMemory.id}:${emoji}`
-                    );
-                    return (
-                      <button
-                        key={emoji}
-                        onClick={() =>
-                          handleReact(selectedMemory.id, emoji)
-                        }
-                        className="flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-xl transition-all"
-                        style={{
-                          backgroundColor: isSelected
-                            ? "#e8f0e9"
-                            : "#f5f3f0",
-                          border: isSelected
-                            ? "2px solid #5c7f63"
-                            : "2px solid transparent",
-                        }}
-                      >
-                        <span className="text-xl">{emoji}</span>
-                        {count > 0 && (
-                          <span className="text-[10px] text-[#7a6f65] font-medium">
-                            {count}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+                  {/* Caption */}
+                  {mem.caption && <p className="text-sm text-[#2d2926] leading-relaxed">{mem.caption}</p>}
 
-                {/* ── Comments Section ──────────────────────────────── */}
-                <div className="border-t border-[#e8e2d9] pt-4 space-y-3">
-                  {(comments[selectedMemory.id] ?? []).length > 0 && (
-                    <div className="space-y-2">
-                      {(comments[selectedMemory.id] ?? []).map((c) => (
-                        <div key={c.id} className="text-sm">
-                          <span className="font-medium text-[#2d2926]">
-                            {c.name}
-                          </span>
-                          <span className="text-[#7a6f65] ml-1.5">
-                            {c.text}
-                          </span>
-                        </div>
+                  {/* Reaction bar */}
+                  <div className="flex items-center gap-1.5 pt-1">
+                    {REACTION_EMOJIS.map((emoji) => {
+                      const count = getReactionCount(mem.id, emoji);
+                      const isSelected = myReactions.has(`${mem.id}:${emoji}`);
+                      return (
+                        <button
+                          key={emoji} onClick={() => handleReact(mem.id, emoji)}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg transition-all text-sm"
+                          style={{
+                            backgroundColor: isSelected ? "#e8f0e9" : "#f5f3f0",
+                            border: isSelected ? "1.5px solid #5c7f63" : "1.5px solid transparent",
+                          }}
+                        >
+                          <span>{emoji}</span>
+                          {count > 0 && <span className="text-[10px] text-[#7a6f65] font-medium">{count}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Comments */}
+                  {memComments.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      {memComments.map((c) => (
+                        <p key={c.id} className="text-xs text-[#7a6f65]">
+                          <span className="font-medium text-[#2d2926]">{c.name}</span>{" "}
+                          {c.text}
+                        </p>
                       ))}
                     </div>
                   )}
 
                   {/* Comment input */}
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 pt-1">
                     <input
-                      type="text"
-                      value={commentText}
+                      type="text" value={selectedMemory?.id === mem.id ? commentText : ""}
+                      onFocus={() => { setSelectedMemory(mem); setCommentText(""); }}
                       onChange={(e) => setCommentText(e.target.value)}
                       placeholder="Leave a comment..."
-                      className="flex-1 px-3 py-2 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-xs text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63]"
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !sendingComment) {
-                          if (!guestName) {
-                            setShowNamePrompt(true);
-                            return;
-                          }
-                          handleComment(selectedMemory.id);
+                          if (!guestName) { setShowNamePrompt(true); return; }
+                          handleComment(mem.id);
                         }
                       }}
                     />
-                    <button
-                      onClick={() => {
-                        if (!guestName) {
-                          setShowNamePrompt(true);
-                          return;
-                        }
-                        handleComment(selectedMemory.id);
-                      }}
-                      disabled={
-                        !commentText.trim() || sendingComment
-                      }
-                      className="px-3 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 transition-all"
-                      style={{ backgroundColor: "#2D5a1B" }}
-                    >
-                      Send
-                    </button>
+                    {selectedMemory?.id === mem.id && commentText.trim() && (
+                      <button
+                        onClick={() => {
+                          if (!guestName) { setShowNamePrompt(true); return; }
+                          handleComment(mem.id);
+                        }}
+                        disabled={sendingComment}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-40"
+                        style={{ backgroundColor: "#2d5a3d" }}
+                      >
+                        Send
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        </>
+            );
+          })
+        )}
+      </div>
+
+      {/* ─── Inline Lightbox ───────────────────────────────────────────── */}
+      {lightboxUrl && (
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4" onClick={() => setLightboxUrl(null)}>
+          <button className="absolute top-4 right-4 text-white/70 hover:text-white text-2xl z-10" onClick={() => setLightboxUrl(null)}>×</button>
+          <img src={lightboxUrl} alt="" className="max-w-full max-h-[90vh] rounded-xl object-contain" onClick={(e) => e.stopPropagation()} />
+        </div>
       )}
 
-      {/* ─── Footer ────────────────────────────────────────────────────── */}
-      <footer className="text-center pb-8 pt-4">
-        <p className="text-xs text-[#b5aca4]">
-          Made with 🌿{" "}
-          <a
-            href="https://www.rootedhomeschoolapp.com"
-            className="underline hover:text-[#7a6f65] transition-colors"
-          >
-            Rooted
-          </a>{" "}
-          — help your family capture every moment
-        </p>
-      </footer>
+      {/* ─── Sticky Footer ─────────────────────────────────────────────── */}
+      <div className="fixed bottom-0 left-0 right-0 bg-[#fefcf9] border-t border-[#e8e2d9] py-2.5 px-4 z-30" style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}>
+        <div className="max-w-[480px] mx-auto text-center">
+          <p className="text-xs text-[#7a6f65]">
+            You&apos;re following the {familyName} Family&apos;s journey 🌿
+          </p>
+          {!trialEnded && !momPaid && trialEndFormatted && (
+            <p className="text-[10px] text-[#b5aca4] mt-0.5">
+              Free preview · through {trialEndFormatted}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ─── Subtle Rooted footer ──────────────────────────────────────── */}
+      <div className="text-center pt-8 pb-4">
+        <a href="https://www.rootedhomeschoolapp.com" className="text-[10px] text-[#b5aca4] hover:text-[#7a6f65]">
+          🌿 Rooted
+        </a>
+      </div>
     </main>
   );
 }
