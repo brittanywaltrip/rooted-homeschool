@@ -214,15 +214,24 @@ export default function SettingsPage() {
   const [yearSuccessToast, setYearSuccessToast] = useState(false);
 
   // Share with Family
-  const [familyToken,       setFamilyToken]       = useState<string | null>(null);
+  type FamilyInvite = {
+    id: string; token: string; email: string; viewer_name: string | null;
+    is_active: boolean; trial_ends_at: string | null; last_visited_at: string | null;
+    first_visited_at: string | null;
+  };
+  const [familyInvites,     setFamilyInvites]     = useState<FamilyInvite[]>([]);
   const [familyInviteEmail, setFamilyInviteEmail] = useState("");
   const [familyInviteName,  setFamilyInviteName]  = useState("");
   const [sendingInvite,     setSendingInvite]     = useState(false);
   const [inviteSent,        setInviteSent]        = useState(false);
   const [inviteError,       setInviteError]       = useState("");
-  const [linkCopied,        setLinkCopied]        = useState(false);
-  const [regenerating,      setRegenerating]      = useState(false);
-  const [showRegenConfirm,  setShowRegenConfirm]  = useState(false);
+  const [editingInvite,     setEditingInvite]     = useState<string | null>(null);
+  const [editInvName,       setEditInvName]       = useState("");
+  const [editInvEmail,      setEditInvEmail]      = useState("");
+  const [savingInvEdit,     setSavingInvEdit]     = useState(false);
+  const [resendingId,       setResendingId]       = useState<string | null>(null);
+  const [resentId,          setResentId]          = useState<string | null>(null);
+  const [actioningId,       setActioningId]       = useState<string | null>(null);
 
   // ── Load data ─────────────────────────────────────────────────────────────
 
@@ -282,38 +291,31 @@ export default function SettingsPage() {
       setAllAffiliates((allAff ?? []) as AffiliateRow[]);
     }
 
-    // Load or create family invite token
-    const { data: existingInvite } = await supabase
+    // Load family invites (all viewers)
+    const { data: invites } = await supabase
       .from("family_invites")
-      .select("token")
+      .select("id, token, email, viewer_name, is_active, trial_ends_at, last_visited_at, first_visited_at")
       .eq("user_id", user.id)
-      .maybeSingle();
-    if (existingInvite) {
-      setFamilyToken(existingInvite.token);
-    } else {
-      const { data: newInvite } = await supabase
-        .from("family_invites")
-        .insert({ user_id: user.id })
-        .select("token")
-        .single();
-      if (newInvite) setFamilyToken(newInvite.token);
+      .order("created_at", { ascending: false });
+    if (invites) {
+      setFamilyInvites(invites as FamilyInvite[]);
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   async function sendFamilyInvite() {
-    if (!familyInviteEmail.trim()) return;
+    if (!familyInviteEmail.trim() || !familyInviteName.trim()) return;
     setSendingInvite(true);
     setInviteError("");
     setInviteSent(false);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { setInviteError("Not logged in"); setSendingInvite(false); return; }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setInviteError("Not logged in"); setSendingInvite(false); return; }
       const res = await fetch("/api/family/invite", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-        body: JSON.stringify({ email: familyInviteEmail.trim(), recipientName: familyInviteName.trim() || null }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: familyInviteEmail.trim(), ownerUserId: user.id, recipientName: familyInviteName.trim() }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -322,8 +324,8 @@ export default function SettingsPage() {
         setInviteSent(true);
         setFamilyInviteEmail("");
         setFamilyInviteName("");
-        if (json.token) setFamilyToken(json.token);
         setTimeout(() => setInviteSent(false), 3000);
+        load(); // Refresh invites list
       }
     } catch {
       setInviteError("Network error");
@@ -331,27 +333,70 @@ export default function SettingsPage() {
     setSendingInvite(false);
   }
 
-  async function copyFamilyLink() {
-    if (!familyToken) return;
-    await navigator.clipboard.writeText(`https://www.rootedhomeschoolapp.com/family/${familyToken}`);
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
+  async function resendFamilyInvite(inv: FamilyInvite) {
+    setResendingId(inv.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await fetch("/api/family/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inv.email, ownerUserId: user.id, recipientName: inv.viewer_name ?? "Friend", resend: true }),
+      });
+      setResentId(inv.id);
+      setTimeout(() => setResentId(null), 3000);
+    } catch {}
+    setResendingId(null);
   }
 
-  async function regenerateFamilyLink() {
-    setRegenerating(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setRegenerating(false); return; }
-    // Delete old, insert new
-    await supabase.from("family_invites").delete().eq("user_id", user.id);
-    const { data: newInvite } = await supabase
-      .from("family_invites")
-      .insert({ user_id: user.id })
-      .select("token")
-      .single();
-    if (newInvite) setFamilyToken(newInvite.token);
-    setRegenerating(false);
-    setShowRegenConfirm(false);
+  async function saveInviteEdit(inv: FamilyInvite) {
+    setSavingInvEdit(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await fetch("/api/family/invite", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inviteId: inv.id, ownerUserId: user.id,
+          viewerName: editInvName.trim() || undefined,
+          email: editInvEmail.trim() !== inv.email ? editInvEmail.trim() : undefined,
+        }),
+      });
+      setEditingInvite(null);
+      load();
+    } catch {}
+    setSavingInvEdit(false);
+  }
+
+  async function revokeInvite(inv: FamilyInvite) {
+    setActioningId(inv.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await fetch("/api/family/invite", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inviteId: inv.id, ownerUserId: user.id, action: "revoke" }),
+      });
+      load();
+    } catch {}
+    setActioningId(null);
+  }
+
+  async function reactivateInvite(inv: FamilyInvite) {
+    setActioningId(inv.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await fetch("/api/family/invite", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inviteId: inv.id, ownerUserId: user.id, action: "reactivate" }),
+      });
+      load();
+    } catch {}
+    setActioningId(null);
   }
 
   function showCopiedToast(msg = "Copied!") {
@@ -1201,100 +1246,158 @@ export default function SettingsPage() {
         </div>
       </section>}
 
-      {/* ── Share with Family ──────────────────────────────── */}
+      {/* ── Share your journey ──────────────────────────────── */}
       {activeTab === "family" && <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-[#2d2926]">Share with Family 🌿</h2>
+          <h2 className="text-sm font-semibold text-[#2d2926]">Share your journey 🌿</h2>
           <span className="h-px flex-1 bg-[#e8e2d9]" />
         </div>
 
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
-          <p className="text-xs text-[#7a6f65] leading-relaxed">
-            Share a link with grandparents, aunts, uncles, or anyone who wants to follow your family&apos;s story. They&apos;ll see a beautiful read-only view of your memories and can leave reactions and comments.
-          </p>
+          {/* Viewer count */}
+          {(() => {
+            const activeCount = familyInvites.filter(i => i.is_active).length;
+            return activeCount > 0 ? (
+              <p className="text-xs text-[#5c7f63] font-medium">
+                {activeCount} {activeCount === 1 ? "person is" : "people are"} following your family&apos;s journey 🌿
+              </p>
+            ) : (
+              <p className="text-xs text-[#7a6f65] leading-relaxed">
+                Invite grandparents, aunts, uncles, or anyone who wants to follow your family&apos;s story. They&apos;ll see your memories and can leave reactions and comments.
+              </p>
+            );
+          })()}
 
-          {/* Family link */}
-          {familyToken && (
-            <div className="space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Your family link</p>
-              <div className="flex gap-2">
-                <input
-                  readOnly
-                  value={`rootedhomeschoolapp.com/family/${familyToken}`}
-                  className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-[#faf8f4] text-xs text-[#7a6f65] truncate focus:outline-none"
-                  onClick={(e) => (e.target as HTMLInputElement).select()}
-                />
-                <button
-                  onClick={copyFamilyLink}
-                  className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors whitespace-nowrap"
-                >
-                  {linkCopied ? "Copied!" : "Copy link"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Send invite by email */}
+          {/* Invite form */}
           <div className="space-y-2 pt-2 border-t border-[#f0ede8]">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Send invite by email</p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={familyInviteName}
-                onChange={(e) => setFamilyInviteName(e.target.value)}
-                placeholder="Name (optional)"
-                className="w-28 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-              />
-              <input
-                type="email"
-                value={familyInviteEmail}
-                onChange={(e) => { setFamilyInviteEmail(e.target.value); setInviteError(""); }}
-                placeholder="grandma@email.com"
-                className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-                onKeyDown={(e) => { if (e.key === "Enter") sendFamilyInvite(); }}
-              />
-              <button
-                onClick={sendFamilyInvite}
-                disabled={sendingInvite || !familyInviteEmail.trim()}
-                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors whitespace-nowrap"
-              >
-                {sendingInvite ? "Sending..." : "Send →"}
-              </button>
-            </div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Add a viewer</p>
+            <input
+              type="text"
+              value={familyInviteName}
+              onChange={(e) => setFamilyInviteName(e.target.value)}
+              placeholder="Viewer's name (e.g. Grandma Jean)"
+              className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+            />
+            <input
+              type="email"
+              value={familyInviteEmail}
+              onChange={(e) => { setFamilyInviteEmail(e.target.value); setInviteError(""); }}
+              placeholder="Email address"
+              className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+              onKeyDown={(e) => { if (e.key === "Enter") sendFamilyInvite(); }}
+            />
+            <button
+              onClick={sendFamilyInvite}
+              disabled={sendingInvite || !familyInviteEmail.trim() || !familyInviteName.trim()}
+              className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+            >
+              {sendingInvite ? "Sending..." : "Send invite 🌿"}
+            </button>
             {inviteError && <p className="text-xs text-red-500">{inviteError}</p>}
             {inviteSent && <p className="text-xs text-[#5c7f63] font-medium">Invite sent! They&apos;ll get an email with a link to your memories.</p>}
           </div>
 
-          {/* Regenerate link */}
-          <div className="pt-2 border-t border-[#f0ede8]">
-            {!showRegenConfirm ? (
-              <button
-                onClick={() => setShowRegenConfirm(true)}
-                className="text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
-              >
-                Regenerate link
-              </button>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-[#c4697a] font-medium">This will break any existing links you&apos;ve shared. Are you sure?</p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowRegenConfirm(false)}
-                    className="px-3 py-1.5 rounded-lg border border-[#e8e2d9] text-xs text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={regenerateFamilyLink}
-                    disabled={regenerating}
-                    className="px-3 py-1.5 rounded-lg bg-[#c4697a] hover:bg-[#a8505f] disabled:opacity-50 text-white text-xs font-medium transition-colors"
-                  >
-                    {regenerating ? "Regenerating..." : "Yes, regenerate"}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Viewer list */}
+          {familyInvites.length > 0 && (
+            <div className="space-y-2 pt-2 border-t border-[#f0ede8]">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Your viewers</p>
+              {familyInvites.map((inv) => {
+                const isEditing = editingInvite === inv.id;
+                const daysAgoVisited = inv.last_visited_at
+                  ? Math.floor((Date.now() - new Date(inv.last_visited_at).getTime()) / (1000 * 60 * 60 * 24))
+                  : null;
+                const trialEnd = inv.trial_ends_at
+                  ? new Date(inv.trial_ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                  : null;
+
+                return (
+                  <div key={inv.id} className="bg-white border border-[#e8e2d9] rounded-xl p-3 space-y-2">
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        <input
+                          value={editInvName} onChange={(e) => setEditInvName(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                          placeholder="Name"
+                        />
+                        <input
+                          value={editInvEmail} onChange={(e) => setEditInvEmail(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                          placeholder="Email"
+                        />
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditingInvite(null)} className="px-3 py-1.5 rounded-lg border border-[#e8e2d9] text-xs text-[#7a6f65]">Cancel</button>
+                          <button
+                            onClick={() => saveInviteEdit(inv)} disabled={savingInvEdit}
+                            className="px-3 py-1.5 rounded-lg bg-[#5c7f63] text-white text-xs font-medium disabled:opacity-50"
+                          >
+                            {savingInvEdit ? "Saving..." : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <p className="text-sm font-medium text-[#2d2926]">
+                            {inv.viewer_name ?? "Viewer"}
+                            <span className="ml-2 text-xs font-normal text-[#7a6f65]">{inv.email}</span>
+                          </p>
+                          <p className="text-[11px] text-[#b5aca4] mt-0.5">
+                            {inv.is_active ? (
+                              <>
+                                <span className="text-[#5c7f63] font-medium">Active</span>
+                                {trialEnd && <> · Trial ends {trialEnd}</>}
+                                {daysAgoVisited !== null ? (
+                                  <> · Last visited {daysAgoVisited === 0 ? "today" : `${daysAgoVisited}d ago`}</>
+                                ) : (
+                                  <> · Never opened</>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-[#c4697a] font-medium">Revoked</span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          {inv.is_active ? (
+                            <>
+                              <button
+                                onClick={() => { setEditingInvite(inv.id); setEditInvName(inv.viewer_name ?? ""); setEditInvEmail(inv.email); }}
+                                className="px-2.5 py-1 rounded-lg border border-[#e8e2d9] text-[11px] text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => resendFamilyInvite(inv)}
+                                disabled={resendingId === inv.id}
+                                className="px-2.5 py-1 rounded-lg border border-[#e8e2d9] text-[11px] text-[#7a6f65] hover:bg-[#f0ede8] transition-colors disabled:opacity-50"
+                              >
+                                {resentId === inv.id ? "Sent!" : resendingId === inv.id ? "Sending..." : "Resend invite"}
+                              </button>
+                              <button
+                                onClick={() => revokeInvite(inv)}
+                                disabled={actioningId === inv.id}
+                                className="px-2.5 py-1 rounded-lg border border-red-200 text-[11px] text-red-400 hover:bg-red-50 transition-colors disabled:opacity-50"
+                              >
+                                Revoke
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => reactivateInvite(inv)}
+                              disabled={actioningId === inv.id}
+                              className="px-2.5 py-1 rounded-lg bg-[#5c7f63] text-[11px] text-white font-medium hover:bg-[#3d5c42] transition-colors disabled:opacity-50"
+                            >
+                              {actioningId === inv.id ? "..." : "Re-invite"}
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>}
 

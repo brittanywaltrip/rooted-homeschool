@@ -1,78 +1,60 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-// ─── SQL to create memory_comments table ─────────────────────────────────────
-//
-// CREATE TABLE IF NOT EXISTS memory_comments (
-//   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-//   memory_id uuid REFERENCES memories(id) ON DELETE CASCADE,
-//   commenter_key text NOT NULL,
-//   commenter_name text NOT NULL,
-//   comment_text text NOT NULL,
-//   created_at timestamptz DEFAULT now()
-// );
-//
-// ALTER TABLE memory_comments ENABLE ROW LEVEL SECURITY;
-// CREATE POLICY "Anyone can insert comments" ON memory_comments FOR INSERT WITH CHECK (true);
-// CREATE POLICY "Anyone can read comments" ON memory_comments FOR SELECT USING (true);
-//
-// ─────────────────────────────────────────────────────────────────────────────
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
+  const { memory_id, commenter_name, commenter_key, body } = await req.json();
 
-  // Verify token
-  const { data: invite } = await supabase
+  if (!memory_id || !commenter_name || !commenter_key || !body?.trim()) {
+    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+
+  if (body.length > 500) {
+    return NextResponse.json({ error: "Comment too long (max 500 characters)" }, { status: 400 });
+  }
+
+  // Validate token
+  const { data: invite } = await supabaseAdmin
     .from("family_invites")
-    .select("owner_user_id")
+    .select("user_id, is_active")
     .eq("token", token)
-    .single();
+    .maybeSingle();
 
-  if (!invite) {
-    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (!invite || !invite.is_active) {
+    return NextResponse.json({ error: "Invalid link" }, { status: 404 });
   }
 
-  const { memory_id, commenter_key, commenter_name, comment_text } =
-    await req.json();
-
-  if (!memory_id || !commenter_key || !commenter_name || !comment_text?.trim()) {
-    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
-  }
-
-  // Verify memory belongs to invite owner
-  const { data: mem } = await supabase
-    .from("memories")
-    .select("id")
-    .eq("id", memory_id)
-    .eq("user_id", invite.owner_user_id)
-    .single();
-
-  if (!mem) {
-    return NextResponse.json({ error: "Memory not found" }, { status: 404 });
-  }
-
-  const { data: comment, error } = await supabase
+  // Insert comment
+  const { data: comment, error: commentErr } = await supabaseAdmin
     .from("memory_comments")
     .insert({
       memory_id,
-      commenter_key,
+      invite_token: token,
       commenter_name,
-      comment_text: comment_text.trim(),
+      commenter_key,
+      viewer_name: commenter_name,
+      body: body.trim(),
     })
-    .select("id, commenter_name, comment_text, created_at")
+    .select("id, commenter_name, body, created_at")
     .single();
 
-  if (error) {
-    return NextResponse.json({ error: "Failed to save" }, { status: 500 });
+  if (commentErr) {
+    console.error("Comment error:", commentErr);
+    return NextResponse.json({ error: "Failed to save comment" }, { status: 500 });
   }
+
+  // Create notification for mom
+  await supabaseAdmin.from("family_notifications").insert({
+    user_id: invite.user_id,
+    memory_id,
+    type: "comment",
+    actor_name: commenter_name,
+    message: `${commenter_name} left a comment on a memory`,
+    preview: body.trim().slice(0, 100),
+  });
 
   return NextResponse.json({ ok: true, comment });
 }

@@ -1,81 +1,80 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-// ─── SQL to add reaction_type + reactor_key columns ─────────────────────────
-//
-// ALTER TABLE memory_reactions ADD COLUMN IF NOT EXISTS reaction_type text DEFAULT '❤️';
-// ALTER TABLE memory_reactions ADD COLUMN IF NOT EXISTS reactor_key text;
-//
-// -- Drop old unique constraint and add new one with reaction_type
-// ALTER TABLE memory_reactions DROP CONSTRAINT IF EXISTS memory_reactions_memory_id_reactor_email_key;
-// CREATE UNIQUE INDEX IF NOT EXISTS memory_reactions_unique_v2
-//   ON memory_reactions (memory_id, reactor_key, reaction_type);
-//
-// ─────────────────────────────────────────────────────────────────────────────
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
+  const { memory_id, reactor_name, reactor_key, emoji } = await req.json();
 
-  // Verify token
-  const { data: invite } = await supabase
+  if (!memory_id || !reactor_name || !reactor_key || !emoji) {
+    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+  }
+
+  const allowedEmoji = ["❤️", "😂", "😮", "🥹", "👏"];
+  if (!allowedEmoji.includes(emoji)) {
+    return NextResponse.json({ error: "Invalid emoji" }, { status: 400 });
+  }
+
+  // Validate token
+  const { data: invite } = await supabaseAdmin
     .from("family_invites")
-    .select("owner_user_id")
+    .select("user_id, is_active, viewer_name")
     .eq("token", token)
-    .single();
+    .maybeSingle();
 
-  if (!invite) {
-    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  if (!invite || !invite.is_active) {
+    return NextResponse.json({ error: "Invalid link" }, { status: 404 });
   }
 
-  const { memory_id, reaction_type, reactor_key, reactor_name } =
-    await req.json();
-
-  if (!memory_id || !reaction_type || !reactor_key || !reactor_name) {
-    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
-  }
-
-  // Verify memory belongs to invite owner
-  const { data: mem } = await supabase
-    .from("memories")
-    .select("id")
-    .eq("id", memory_id)
-    .eq("user_id", invite.owner_user_id)
-    .single();
-
-  if (!mem) {
-    return NextResponse.json({ error: "Memory not found" }, { status: 404 });
-  }
-
-  // Check if reaction already exists — toggle off
-  const { data: existing } = await supabase
+  // Check if already reacted — toggle off
+  const { data: existing } = await supabaseAdmin
     .from("memory_reactions")
     .select("id")
     .eq("memory_id", memory_id)
     .eq("reactor_key", reactor_key)
-    .eq("reaction_type", reaction_type)
-    .single();
+    .eq("emoji", emoji)
+    .maybeSingle();
 
   if (existing) {
-    await supabase.from("memory_reactions").delete().eq("id", existing.id);
+    await supabaseAdmin.from("memory_reactions").delete().eq("id", existing.id);
     return NextResponse.json({ action: "removed" });
   }
 
   // Insert reaction
-  await supabase.from("memory_reactions").insert({
+  await supabaseAdmin.from("memory_reactions").upsert(
+    {
+      memory_id,
+      invite_token: token,
+      reactor_name,
+      reactor_key,
+      emoji,
+      viewer_name: reactor_name,
+    },
+    { onConflict: "memory_id,reactor_key,emoji" }
+  );
+
+  // Create notification for mom
+  await supabaseAdmin.from("family_notifications").insert({
+    user_id: invite.user_id,
     memory_id,
-    reaction_type,
-    reactor_key,
-    reactor_name,
-    reactor_email: `guest_${reactor_key}`,
+    type: "reaction",
+    actor_name: reactor_name,
+    emoji,
+    message: `${reactor_name} reacted ${emoji} to a memory`,
   });
 
-  return NextResponse.json({ action: "added" });
+  // Return updated counts
+  const { data: reactions } = await supabaseAdmin
+    .from("memory_reactions")
+    .select("emoji")
+    .eq("memory_id", memory_id);
+
+  const counts: Record<string, number> = {};
+  (reactions ?? []).forEach((r: { emoji: string }) => {
+    counts[r.emoji] = (counts[r.emoji] ?? 0) + 1;
+  });
+
+  return NextResponse.json({ action: "added", reactions: counts });
 }

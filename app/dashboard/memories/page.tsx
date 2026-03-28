@@ -24,6 +24,7 @@ type MemoryRow = {
   photo_url: string | null;
   include_in_book: boolean;
   favorite: boolean;
+  family_visible: boolean;
   page_order: number | null;
   created_at: string;
   updated_at: string;
@@ -75,6 +76,7 @@ function legacyToMemory(e: LegacyEvent): MemoryRow {
     photo_url: e.payload.photo_url ?? null,
     include_in_book: false,
     favorite: false,
+    family_visible: true,
     page_order: null,
     created_at: e.created_at,
     updated_at: e.created_at,
@@ -349,6 +351,13 @@ export default function MemoriesPage() {
     setMemories((prev) => prev.map((mem) => (mem.id === m.id ? { ...mem, include_in_book: newVal } : mem)));
     if (selectedMemory?.id === m.id) setSelectedMemory({ ...m, include_in_book: newVal });
     await supabase.from("memories").update({ include_in_book: newVal, updated_at: new Date().toISOString() }).eq("id", m.id);
+  }
+
+  async function toggleFamilyVisible(m: MemoryRow) {
+    const newVal = !m.family_visible;
+    setMemories((prev) => prev.map((mem) => (mem.id === m.id ? { ...mem, family_visible: newVal } : mem)));
+    if (selectedMemory?.id === m.id) setSelectedMemory({ ...m, family_visible: newVal });
+    await supabase.from("memories").update({ family_visible: newVal, updated_at: new Date().toISOString() }).eq("id", m.id);
   }
 
   // ── Filter + Search ──────────────────────────────────────────────────────
@@ -1005,11 +1014,24 @@ export default function MemoriesPage() {
                 <span className="text-[10px] text-[#b5aca4]">Share with family — coming soon</span>
               </div>
 
-              {selectedMemory.include_in_book && (
-                <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#5c7f63]">
-                  ☑ In yearbook
-                </span>
-              )}
+              {/* Visibility badges */}
+              <div className="flex flex-wrap gap-1.5">
+                {selectedMemory.include_in_book && (
+                  <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#5c7f63]">
+                    ☑ In yearbook
+                  </span>
+                )}
+                <button
+                  onClick={() => toggleFamilyVisible(selectedMemory)}
+                  className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full transition-colors ${
+                    selectedMemory.family_visible !== false
+                      ? "bg-[#e8f0e9] text-[#5c7f63]"
+                      : "bg-[#f0ede8] text-[#b5aca4]"
+                  }`}
+                >
+                  {selectedMemory.family_visible !== false ? "👁 Visible to family" : "🔒 Private"}
+                </button>
+              </div>
 
               {/* ── Action buttons: Edit, Yearbook, Delete ── */}
               {!isPartner && (
