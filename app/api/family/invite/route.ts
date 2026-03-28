@@ -5,10 +5,20 @@ import { emailFooterText } from "@/lib/email-footer";
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, ownerUserId, recipientName } = await req.json();
+    const token = req.headers.get("authorization")?.replace("Bearer ", "");
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const ownerUserId = user.id;
 
-    if (!email || !ownerUserId) {
-      return NextResponse.json({ error: "Missing email or ownerUserId" }, { status: 400 });
+    const { email, recipientName } = await req.json();
+
+    if (!email) {
+      return NextResponse.json({ error: "Missing email" }, { status: 400 });
     }
 
     // Get or create the family invite token

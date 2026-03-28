@@ -308,12 +308,12 @@ export default function SettingsPage() {
     setInviteError("");
     setInviteSent(false);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setInviteError("Not logged in"); setSendingInvite(false); return; }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setInviteError("Not logged in"); setSendingInvite(false); return; }
       const res = await fetch("/api/family/invite", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: familyInviteEmail.trim(), ownerUserId: user.id, recipientName: familyInviteName.trim() || null }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ email: familyInviteEmail.trim(), recipientName: familyInviteName.trim() || null }),
       });
       const json = await res.json();
       if (!res.ok) {
