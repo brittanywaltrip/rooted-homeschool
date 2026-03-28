@@ -152,6 +152,13 @@ export default function MemoriesPage() {
   // Milestone prompt
   const [milestonePrompt, setMilestonePrompt] = useState<{ milestone: string; message: string; badgeEmoji: string } | null>(null);
 
+  // Family reactions + notifications
+  const [reactionCounts, setReactionCounts] = useState<Record<string, { emoji: string; count: number }>>({}); // memory_id -> { top emoji, total count }
+  type FamilyNotif = { id: string; type: string; actor_name: string; emoji: string | null; preview: string | null; memory_id: string | null; created_at: string };
+  const [familyNotifs, setFamilyNotifs] = useState<FamilyNotif[]>([]);
+  const [showAllNotifs, setShowAllNotifs] = useState(false);
+  const [notifsDismissed, setNotifsDismissed] = useState(false);
+
   // Reflection view
   const [viewingReflection, setViewingReflection] = useState<Reflection | null>(null);
   const [editingReflection, setEditingReflection] = useState(false);
@@ -216,6 +223,40 @@ export default function MemoriesPage() {
       setMemories((events ?? []).map((e) => legacyToMemory(e as unknown as LegacyEvent)));
     }
 
+    // Fetch reaction counts for all loaded memories
+    const allMems = (memRows && memRows.length > 0) ? memRows : [];
+    const memIds = allMems.map((m: any) => m.id);
+    if (memIds.length > 0) {
+      const { data: reactions } = await supabase
+        .from("memory_reactions")
+        .select("memory_id, emoji")
+        .in("memory_id", memIds);
+      if (reactions && reactions.length > 0) {
+        const grouped: Record<string, Record<string, number>> = {};
+        reactions.forEach((r: any) => {
+          if (!grouped[r.memory_id]) grouped[r.memory_id] = {};
+          grouped[r.memory_id][r.emoji] = (grouped[r.memory_id][r.emoji] ?? 0) + 1;
+        });
+        const counts: Record<string, { emoji: string; count: number }> = {};
+        for (const [mid, emojis] of Object.entries(grouped)) {
+          const total = Object.values(emojis).reduce((s, n) => s + n, 0);
+          const topEmoji = Object.entries(emojis).sort((a, b) => b[1] - a[1])[0][0];
+          counts[mid] = { emoji: topEmoji, count: total };
+        }
+        setReactionCounts(counts);
+      }
+    }
+
+    // Fetch unread family notifications
+    const { data: notifs } = await supabase
+      .from("family_notifications")
+      .select("id, type, actor_name, emoji, preview, memory_id, created_at")
+      .eq("user_id", effectiveUserId)
+      .eq("read", false)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setFamilyNotifs((notifs ?? []) as FamilyNotif[]);
+
     } catch (err) {
       console.error("Failed to load memories:", err);
       setLoadError(true);
@@ -231,6 +272,15 @@ export default function MemoriesPage() {
     const match = memories.find((m) => m.id === openId);
     if (match) setSelectedMemory(match);
   }, [searchParams, loading, memories]);
+
+  async function dismissFamilyNotifs() {
+    setNotifsDismissed(true);
+    const ids = familyNotifs.map(n => n.id);
+    if (ids.length > 0) {
+      await supabase.from("family_notifications").update({ read: true }).in("id", ids);
+    }
+    setFamilyNotifs([]);
+  }
 
   // ── Milestone prompt for free users ─────────────────────────────────────────
   useEffect(() => {
@@ -633,6 +683,47 @@ export default function MemoriesPage() {
         </div>
       </div>
 
+      {/* ── Family notifications banner ──────────────────── */}
+      {!notifsDismissed && familyNotifs.length > 0 && (
+        <div style={{ background: "#fff8f0", border: "0.5px solid #f0c878", borderRadius: 12, padding: "10px 13px", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>🔔</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {/* Most recent notification */}
+              <p style={{ fontSize: 12, fontWeight: 600, color: "#7a5000", margin: 0 }}>
+                {familyNotifs[0].actor_name}{" "}
+                {familyNotifs[0].type === "reaction"
+                  ? `reacted ${familyNotifs[0].emoji ?? "❤️"}`
+                  : "commented"}{" "}
+                {familyNotifs[0].preview ? `"${familyNotifs[0].preview.slice(0, 40)}${familyNotifs[0].preview.length > 40 ? "…" : ""}"` : "on a memory"}
+              </p>
+
+              {/* Show all / collapse */}
+              {familyNotifs.length > 1 && !showAllNotifs && (
+                <button
+                  onClick={() => setShowAllNotifs(true)}
+                  style={{ fontSize: 11, color: "#a07000", marginTop: 4, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                >
+                  See all {familyNotifs.length} →
+                </button>
+              )}
+              {showAllNotifs && familyNotifs.slice(1).map((n) => (
+                <p key={n.id} style={{ fontSize: 11, color: "#7a5000", margin: "4px 0 0" }}>
+                  {n.actor_name} {n.type === "reaction" ? `reacted ${n.emoji ?? "❤️"}` : `commented: "${(n.preview ?? "").slice(0, 40)}"`}
+                </p>
+              ))}
+            </div>
+            <button
+              onClick={dismissFamilyNotifs}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#c8bfb5", fontSize: 16, padding: 0, flexShrink: 0, lineHeight: 1 }}
+              aria-label="Dismiss notifications"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Free user upgrade banner */}
       {!isPro && !loading && (
         <UpgradePrompt
@@ -792,6 +883,17 @@ export default function MemoriesPage() {
                   <span style={{ position: "absolute", bottom: 4, left: 5, fontSize: 9, color: "rgba(255,255,255,0.75)" }}>
                     {new Date(m.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                   </span>
+
+                  {/* Reaction count pill */}
+                  {reactionCounts[m.id] && reactionCounts[m.id].count > 0 && (
+                    <span style={{
+                      position: "absolute", bottom: 4, right: 5, fontSize: 9, color: "white",
+                      background: "rgba(0,0,0,0.4)", borderRadius: 8, padding: "2px 5px",
+                      lineHeight: 1.2, pointerEvents: "none",
+                    }}>
+                      {reactionCounts[m.id].emoji} {reactionCounts[m.id].count}
+                    </span>
+                  )}
                 </button></>
               );
             });

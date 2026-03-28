@@ -92,6 +92,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [fabSaving, setFabSaving] = useState(false);
   const [fabToast, setFabToast] = useState<string | null>(null);
   const [leafBurst, setLeafBurst] = useState(false);
+  const [unreadFamilyNotifs, setUnreadFamilyNotifs] = useState(0);
 
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
     isPartner: false,
@@ -173,6 +174,15 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         ownerName: "",
       });
       if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
+
+      // Check for unread family notifications
+      const { count } = await supabase
+        .from("family_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", session.user.id)
+        .eq("read", false);
+      setUnreadFamilyNotifs(count ?? 0);
+
       setChecking(false);
     });
   }, [router]);
@@ -369,6 +379,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             icon={icon}
             active={isActive(href)}
             onClick={() => setMenuOpen(false)}
+            badge={label === "Memories" && unreadFamilyNotifs > 0}
           />
         ))}
       </nav>
@@ -464,6 +475,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#fefcf9] border-t border-[#e8e2d9] flex items-stretch" style={{ minHeight: "3.75rem", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           {mobileBottomNav.map(({ label, href, icon: Icon }) => {
             const active = isActive(href);
+            const showBadge = label === "Memories" && unreadFamilyNotifs > 0;
             return (
               <Link
                 key={href}
@@ -472,7 +484,12 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                   active ? "text-[#3d5c42]" : "text-[#c8bfb5]"
                 }`}
               >
-                <Icon size={22} strokeWidth={active ? 2.5 : 1.8} />
+                <div className="relative">
+                  <Icon size={22} strokeWidth={active ? 2.5 : 1.8} />
+                  {showBadge && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#c4956a] border border-[#fefcf9]" />
+                  )}
+                </div>
                 {label}
               </Link>
             );
