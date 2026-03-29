@@ -61,22 +61,20 @@ function Spine() {
 
 // ─── Page Wrapper ─────────────────────────────────────────────────────────────
 
-function PageShell({ children, bg = "#faf6f0", pageNum, align = "left", center = false }: {
+function PageShell({ children, bg = "#faf6f0", pageNum, align = "left" }: {
   children: ReactNode;
   bg?: string;
   pageNum?: number;
   align?: "left" | "right";
-  /** Vertically center content — use for sparse pages */
-  center?: boolean;
 }) {
   return (
     <div className="relative flex flex-col w-full h-full overflow-hidden" style={{ background: bg }}>
       {align === "left" && <Spine />}
-      <div className={`flex-1 overflow-y-auto p-4 flex flex-col${center ? " justify-center" : ""}`}>
+      <div className="flex-1 overflow-y-auto px-10 py-4 flex flex-col justify-center">
         {children}
       </div>
       {pageNum !== undefined && (
-        <span className={`absolute bottom-2 text-[9px] text-[#b5aca4] ${align === "left" ? "left-4" : "right-4"}`}>
+        <span className={`absolute bottom-2 text-[9px] text-[#b5aca4] ${align === "left" ? "left-10" : "right-10"}`}>
           {pageNum}
         </span>
       )}
@@ -390,7 +388,7 @@ export default function YearbookReadPage() {
     ),
     rightContent: (
       <PageShell pageNum={3} align="right">
-        <div className="relative">
+        <div className="relative shrink-0">
           <Link href="/dashboard/memories/yearbook/edit" className="absolute top-0 right-0 text-[#c4b89a] hover:text-[#3d5c42] transition-colors">
             <span className="text-sm">✏️</span>
           </Link>
@@ -534,8 +532,8 @@ export default function YearbookReadPage() {
             <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
           </div>
 
-          <div className="space-y-3 flex-1">
-            {INTERVIEW_QUESTIONS.map((q) => {
+          <div className="space-y-2.5">
+            {INTERVIEW_QUESTIONS.slice(0, 4).map((q) => {
               const answer = contentMap[ck("child_interview", child.id, q.key)] ?? "";
               return (
                 <div key={q.key}>
@@ -552,17 +550,17 @@ export default function YearbookReadPage() {
 
           <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
 
-          {/* Future note */}
+          {/* Future note — always visible within page bounds */}
           {(() => {
             const note = contentMap[ck("child_future_note", child.id)] ?? "";
             return (
-              <div className="bg-[#faf6ec] border-l-2 border-[#e8c44a] rounded-r-lg p-2">
+              <div className="bg-[#faf6ec] border-l-2 border-[#e8c44a] rounded-r-lg p-2 shrink-0">
                 <p className="text-[7px] uppercase tracking-wider text-[#ba9a2e] font-semibold mb-0.5">
                   A note to future {child.name}
                 </p>
                 {note.trim() ? (
                   <>
-                    <p className="italic text-[9px] text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>{note}</p>
+                    <p className="italic text-[9px] text-[#2d2926] line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>{note}</p>
                     <p className="text-[8px] text-[#9a8f85] mt-1">{child.name}</p>
                   </>
                 ) : (
@@ -593,14 +591,14 @@ export default function YearbookReadPage() {
         <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
 
         {familyMemories.length > 0 ? (
-          <div className="space-y-2 flex-1">
+          <div className="space-y-2">
             {famPhotos.length > 0 && (
-              <PhotoGrid photos={famPhotos.slice(0, 3)} />
-            )}
-            {famPhotos[0] && (
-              <p className="text-[8px] italic text-[#9a8f85]" style={{ fontFamily: "Georgia, serif" }}>
-                {new Date(famPhotos[0].date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric" })}
-              </p>
+              <>
+                <PhotoGrid photos={famPhotos.slice(0, 3)} />
+                <p className="text-[8px] italic text-[#9a8f85]" style={{ fontFamily: "Georgia, serif" }}>
+                  {new Date(famPhotos[0].date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric" })}
+                </p>
+              </>
             )}
             {famWins.map((w) => (
               <div key={w.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[#8cba8e]">
