@@ -360,10 +360,7 @@ export default function YearbookReadPage() {
     label: "Letter from home",
     leftContent: (
       <PageShell>
-        <div className="relative shrink-0">
-          <Link href="/dashboard/memories/yearbook/edit" className="absolute top-0 right-0 text-[#c4b89a] hover:text-[#3d5c42] transition-colors">
-            <span className="text-sm">✏️</span>
-          </Link>
+        <div className="shrink-0">
           <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#8cba8e]">Written for our family</p>
           <h2 className="text-[16px] font-bold text-[#2d2926] mt-1" style={{ fontFamily: "var(--font-display)" }}>A letter from home</h2>
           <p className="text-[9px] text-[#b5aca4] mt-0.5">A message from the heart</p>
@@ -410,11 +407,6 @@ export default function YearbookReadPage() {
     ),
     rightContent: (
       <PageShell>
-        <div className="relative shrink-0">
-          <Link href="/dashboard/memories/yearbook/edit" className="absolute top-0 right-0 text-[#c4b89a] hover:text-[#3d5c42] transition-colors">
-            <span className="text-sm">✏️</span>
-          </Link>
-        </div>
         {/* Favorite moment */}
         <div className="mb-3">
           <p className="text-[8px] uppercase tracking-wider text-[#9a8f85] mb-2">Favorite moment</p>
@@ -537,10 +529,7 @@ export default function YearbookReadPage() {
       ),
       rightContent: (
         <PageShell>
-          <div className="relative shrink-0">
-            <Link href="/dashboard/memories/yearbook/edit" className="absolute top-0 right-0 text-[#c4b89a] hover:text-[#3d5c42] transition-colors">
-              <span className="text-sm">✏️</span>
-            </Link>
+          <div className="shrink-0">
             <p className="text-[9px] text-[#8cba8e]">{child.name} in their own words</p>
             <h3 className="text-[14px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>
               Year-end interview
@@ -727,13 +716,26 @@ export default function YearbookReadPage() {
     ),
   });
 
-  // ── Build flat pages array with headers ─────────────────────────────────────
+  // ── Build flat pages array with headers + edit links ──────────────────────
+
+  function getEditHrefs(spreadId: string): [string | null, string | null] {
+    const base = "/dashboard/memories/yearbook/edit";
+    if (spreadId === "letter") return [`${base}#letter`, `${base}#favorites`];
+    if (spreadId.startsWith("child-")) {
+      const childId = spreadId.replace("child-", "");
+      return [`${base}#${childId}-photos`, `${base}#${childId}-interview`];
+    }
+    if (spreadId === "family") return [`${base}#family`, null];
+    // cover, village, back → no edit pencil
+    return [null, null];
+  }
 
   const pages = spreads.flatMap((s) => {
     const [lh, rh] = getPageHeaders(s.id, s.label);
+    const [le, re] = getEditHrefs(s.id);
     return [
-      { content: s.leftContent, header: lh, spreadId: s.id },
-      { content: s.rightContent, header: rh, spreadId: s.id },
+      { content: s.leftContent, header: lh, spreadId: s.id, editHref: le },
+      { content: s.rightContent, header: rh, spreadId: s.id, editHref: re },
     ];
   });
 
@@ -811,12 +813,13 @@ export default function YearbookReadPage() {
   return (
     <>
       {/* ── Mobile view ──────────────────────────────────────── */}
+      {/* Nav bar is ~64px (py-3 + 40px avatar). Position reader below it. */}
       <div
-        className="md:hidden fixed inset-0 z-50 flex flex-col"
-        style={{ height: "100dvh", overflow: "hidden", background: "#1a1a1a" }}
+        className="md:hidden fixed left-0 right-0 z-50 flex flex-col"
+        style={{ top: 64, height: "calc(100dvh - 64px)", overflow: "hidden", background: "#1a1a1a" }}
       >
         {/* Back button bar */}
-        <div className="shrink-0 h-12 flex items-center px-4" style={{ background: "rgba(26,26,26,0.95)" }}>
+        <div className="shrink-0 h-11 flex items-center px-4" style={{ background: "rgba(26,26,26,0.95)" }}>
           <Link href="/dashboard/memories/yearbook" className="text-[12px] text-[#9a8f85] hover:text-white transition-colors">
             ← Yearbook
           </Link>
@@ -837,10 +840,20 @@ export default function YearbookReadPage() {
               style={{ background: "#FAFAF7", boxShadow: "0 2px 20px rgba(0,0,0,0.08)", borderRadius: 8 }}
             >
               {/* Page header */}
-              <div className="shrink-0 pt-4 pb-1.5 text-center" style={{ background: isDark ? "transparent" : undefined }}>
+              <div className="shrink-0 pt-4 pb-1.5 text-center relative" style={{ background: isDark ? "transparent" : undefined }}>
                 <p className="text-[8px] font-medium tracking-[0.15em] uppercase text-[#8cba8e]">
                   {pages[safePage]?.header}
                 </p>
+                {/* Edit shortcut */}
+                {pages[safePage]?.editHref && (
+                  <Link
+                    href={pages[safePage].editHref!}
+                    className="absolute top-3 right-3 w-[44px] h-[44px] flex items-center justify-center"
+                    aria-label="Edit this page"
+                  >
+                    <span className="text-[20px] opacity-40 hover:opacity-70 transition-opacity">✏️</span>
+                  </Link>
+                )}
               </div>
 
               {/* Page content */}
