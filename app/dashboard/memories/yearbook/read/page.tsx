@@ -176,7 +176,7 @@ export default function YearbookReadPage() {
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [children, setChildren] = useState<Child[]>([]);
   const [contentMap, setContentMap] = useState<Record<string, string>>({});
-  const [profile, setProfile] = useState<{ display_name?: string; yearbook_opened_at?: string; yearbook_closed_at?: string }>({});
+  const [profile, setProfile] = useState<{ display_name?: string; yearbook_opened_at?: string; yearbook_closed_at?: string; family_photo_url?: string | null }>({});
   const [yearbookKey, setYearbookKey] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
   const [direction, setDirection] = useState(1);
@@ -194,7 +194,7 @@ export default function YearbookReadPage() {
     (async () => {
       const { data: prof } = await supabase
         .from("profiles")
-        .select("display_name, yearbook_opened_at, yearbook_closed_at")
+        .select("display_name, yearbook_opened_at, yearbook_closed_at, family_photo_url")
         .eq("id", effectiveUserId)
         .single();
 
@@ -274,7 +274,7 @@ export default function YearbookReadPage() {
   const winCount = memories.filter((m) => m.type === "win").length;
   const quoteCount = memories.filter((m) => m.type === "quote").length;
 
-  const coverPhotoUrl = contentMap[ck("cover_photo")] ?? "";
+  const coverPhotoUrl = contentMap[ck("cover_photo")] || profile.family_photo_url || "";
   const letterText = contentMap[ck("letter_from_home")] ?? "";
   const favMemId = contentMap[ck("letter_favorite_memory_id")] ?? "";
   const favCaption = contentMap[ck("letter_favorite_caption")] ?? "";

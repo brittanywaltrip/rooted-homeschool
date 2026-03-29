@@ -500,7 +500,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         {/* ── Floating Camera FAB ────────────────────────────────── */}
         {!partnerCtx.isPartner && !fabUrl && (
           <button onClick={openFabPicker}
-            className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 w-14 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 shadow-lg active:scale-90 transition-all hover:shadow-xl"
+            className="fixed bottom-28 right-4 md:bottom-6 md:right-6 z-50 w-14 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 shadow-lg active:scale-90 transition-all hover:shadow-xl"
             style={{ backgroundColor: "#2d5a3d" }} aria-label="Quick photo">
             <Camera size={20} className="text-white" strokeWidth={2.2} />
             <span className="text-white leading-none" style={{ fontSize: 9 }}>Quick photo</span>
