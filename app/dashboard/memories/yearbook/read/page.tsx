@@ -266,6 +266,7 @@ export default function YearbookReadPage() {
   // ── Build spreads ───────────────────────────────────────────────────────────
 
   const familyName = profile.display_name ?? "Our Family";
+  const coverTitle = /^the\s/i.test(familyName) ? familyName : `The ${familyName}`;
   const yearLabel = yearbookKey
     ? `${yearbookKey.split("-")[0]}\u201320${yearbookKey.split("-")[1]}`
     : "";
@@ -301,23 +302,35 @@ export default function YearbookReadPage() {
     id: "cover",
     label: "Cover",
     leftContent: coverPhotoUrl ? (
-      <div className="relative flex flex-col w-full h-full overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={coverPhotoUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#2a3e2c]/90 via-[#2a3e2c]/40 to-[#2a3e2c]/20" />
+      <div className="relative flex flex-col w-full h-full overflow-hidden items-center justify-center" style={{ background: "#3d5c42" }}>
+        {/* Botanical watermarks */}
+        <span className="absolute top-4 right-3 text-[100px] opacity-[0.05] select-none pointer-events-none" style={{ transform: "rotate(-15deg)" }}>🌿</span>
+        <span className="absolute bottom-8 left-2 text-[80px] opacity-[0.04] select-none pointer-events-none" style={{ transform: "rotate(20deg)" }}>🍃</span>
 
-        <div className="flex-1 flex flex-col justify-end p-6 relative z-10">
-          <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#c8e6c4] mb-2">
+        <div className="flex flex-col items-center justify-center flex-1 w-full px-8 py-4 relative z-10">
+          {/* Family name */}
+          <h1 className="text-[20px] leading-snug text-[#fefcf9] text-center mb-3" style={{ fontFamily: "Georgia, serif" }}>
+            {coverTitle} Yearbook
+          </h1>
+
+          {/* Contained photo card — portrait, white border like a printed photo */}
+          <div
+            className="rounded-sm overflow-hidden shrink-0"
+            style={{ border: "4px solid rgba(255,255,255,0.85)", boxShadow: "0 4px 20px rgba(0,0,0,0.25)", width: "65%", aspectRatio: "3/4" }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={coverPhotoUrl} alt="" className="w-full h-full object-cover" />
+          </div>
+
+          {/* Year label */}
+          <p className="text-[9px] font-semibold tracking-[0.2em] uppercase text-[#8cba8e] mt-4">
             {yearLabel}
           </p>
-          <h1 className="text-[26px] leading-snug text-white" style={{ fontFamily: "Georgia, serif" }}>
-            The {familyName}<br />Yearbook
-          </h1>
         </div>
 
-        <div className="flex justify-between items-center px-5 pb-4 relative z-10">
-          <span className="text-[9px] tracking-[0.18em] text-white/50">ROOTED</span>
-          <span className="bg-white/15 text-[9px] text-white/80 px-3 py-1 rounded-full">
+        <div className="flex justify-between items-center w-full px-5 pb-3 relative z-10">
+          <span className="text-[9px] tracking-[0.18em] text-[#8cba8e]/50">ROOTED</span>
+          <span className="bg-white/10 text-[9px] text-[#c8e6c4] px-3 py-1 rounded-full">
             {memories.length} memories
           </span>
         </div>
@@ -334,7 +347,7 @@ export default function YearbookReadPage() {
             {yearLabel}
           </p>
           <h1 className="text-[28px] leading-snug text-[#fefcf9]" style={{ fontFamily: "Georgia, serif" }}>
-            The {familyName}<br />Yearbook
+            {coverTitle}<br />Yearbook
           </h1>
           <div className="w-9 h-px bg-[#8cba8e]/30 my-5" />
           <p className="text-[11px] text-white/45 italic max-w-[220px] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
