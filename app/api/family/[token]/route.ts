@@ -50,7 +50,7 @@ export async function GET(
     .maybeSingle();
 
   const momPaid = profile?.is_pro === true && profile?.subscription_status === "active";
-  const trialEnded = invite.trial_ends_at && new Date(invite.trial_ends_at) < new Date();
+  const trialEnded = invite.trial_ends_at ? new Date(invite.trial_ends_at) < new Date() : false;
   const trialActive = !trialEnded;
 
   // Fetch children

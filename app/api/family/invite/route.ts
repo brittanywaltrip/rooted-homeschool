@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     let token: string;
     const now = new Date().toISOString();
-    const trialEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const trialEnd = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
 
     if (existing) {
       if (existing.is_active && !isResend) {
@@ -125,7 +125,7 @@ export async function PATCH(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const ownerUserId = user.id;
 
-    const { inviteId, viewerName, email } = await req.json();
+    const { inviteId, viewerName, email, trialEndsAt } = await req.json();
     if (!inviteId) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
@@ -133,6 +133,9 @@ export async function PATCH(req: NextRequest) {
     const updates: Record<string, unknown> = {};
     if (viewerName?.trim()) {
       updates.viewer_name = viewerName.trim();
+    }
+    if (trialEndsAt !== undefined) {
+      updates.trial_ends_at = trialEndsAt;
     }
 
     const emailChanged = !!email?.trim();
@@ -204,7 +207,7 @@ export async function PUT(req: NextRequest) {
         .eq("user_id", ownerUserId);
     } else if (action === "reactivate") {
       const now = new Date().toISOString();
-      const trialEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const trialEnd = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
       await supabaseAdmin
         .from("family_invites")
         .update({
