@@ -95,6 +95,7 @@ export default function YearbookReadPage() {
   const [currentPage, setCurrentPage] = useState(0);
   const touchStartRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [swipeHintVisible, setSwipeHintVisible] = useState(true);
 
   // ── Content key helper ──────────────────────────────────────────────────────
 
@@ -123,8 +124,9 @@ export default function YearbookReadPage() {
       }
 
       setProfile(prof ?? {});
-      const m = new Date(openedAt).getMonth();
-      const y = new Date(openedAt).getFullYear();
+      // Use UTC to avoid timezone shift (e.g. "2025-08-01" → July 31 in US timezones)
+      const m = new Date(openedAt).getUTCMonth();
+      const y = new Date(openedAt).getUTCFullYear();
       const startYear = m >= 7 ? y : y - 1;
       const key = `${startYear}-${String(startYear + 1).slice(2)}`;
       setYearbookKey(key);
@@ -756,7 +758,7 @@ export default function YearbookReadPage() {
       {/* Mobile view */}
       <div className="md:hidden fixed inset-0 flex flex-col" style={{ background: "#1a1a1a" }}>
         {/* Back button */}
-        <div className="absolute top-3 left-3 z-30">
+        <div className="h-10 shrink-0 flex items-center px-3 z-30" style={{ background: "rgba(26,26,26,0.95)" }}>
           <Link href="/dashboard/memories/yearbook" className="text-[12px] text-[#9a8f85] hover:text-white transition-colors">
             ← Yearbook
           </Link>
@@ -767,19 +769,53 @@ export default function YearbookReadPage() {
           ref={containerRef}
           className="flex-1 relative overflow-hidden"
           onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
+          onTouchEnd={(e) => {
+            handleTouchEnd(e);
+            if (swipeHintVisible) setSwipeHintVisible(false);
+          }}
         >
           {/* Tap zones */}
           <button
             className="absolute top-0 left-0 w-[30%] h-full z-20"
-            onClick={goPrev}
+            onClick={() => { goPrev(); if (swipeHintVisible) setSwipeHintVisible(false); }}
             aria-label="Previous page"
           />
           <button
             className="absolute top-0 right-0 w-[30%] h-full z-20"
-            onClick={goNext}
+            onClick={() => { goNext(); if (swipeHintVisible) setSwipeHintVisible(false); }}
             aria-label="Next page"
           />
+
+          {/* Visible arrow buttons — vertically centered */}
+          {safePage > 0 && (
+            <button
+              onClick={() => { goPrev(); if (swipeHintVisible) setSwipeHintVisible(false); }}
+              className="absolute left-2 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full flex items-center justify-center text-white/70 active:text-white"
+              style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)", minWidth: 44, minHeight: 44 }}
+              aria-label="Previous page"
+            >
+              <span className="text-lg">‹</span>
+            </button>
+          )}
+          {safePage < maxPage && (
+            <button
+              onClick={() => { goNext(); if (swipeHintVisible) setSwipeHintVisible(false); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full flex items-center justify-center text-white/70 active:text-white"
+              style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)", minWidth: 44, minHeight: 44 }}
+              aria-label="Next page"
+            >
+              <span className="text-lg">›</span>
+            </button>
+          )}
+
+          {/* Swipe hint — cover page only */}
+          {safePage === 0 && swipeHintVisible && (
+            <div className="absolute bottom-4 left-0 right-0 z-20 flex justify-center pointer-events-none">
+              <span className="text-[11px] text-white/50 bg-black/40 rounded-full px-3 py-1.5" style={{ backdropFilter: "blur(4px)" }}>
+                Swipe or tap arrows to turn pages →
+              </span>
+            </div>
+          )}
 
           <div
             className="absolute inset-0 flex transition-transform duration-300 ease-out"

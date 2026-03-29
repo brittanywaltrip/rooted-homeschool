@@ -81,9 +81,9 @@ export default function YearbookPage() {
     setFamilyName(profile?.display_name ?? "Our Family");
     setIsPro(profile?.is_pro ?? false);
 
-    // 3. Compute yearbook_key
-    const m = new Date(openedAt).getMonth();
-    const y = new Date(openedAt).getFullYear();
+    // 3. Compute yearbook_key (use UTC to avoid timezone shift)
+    const m = new Date(openedAt).getUTCMonth();
+    const y = new Date(openedAt).getUTCFullYear();
     const startYear = m >= 7 ? y : y - 1;
     const key = `${startYear}-${String(startYear + 1).slice(2)}`;
     setYearbookKey(key);
