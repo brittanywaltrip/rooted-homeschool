@@ -53,6 +53,7 @@ export default function YearbookPage() {
   const [yearbookKey, setYearbookKey] = useState("");
   const [filledCount, setFilledCount] = useState(0);
   const [familyName, setFamilyName] = useState("");
+  const [isPro, setIsPro] = useState(true);
 
   useEffect(() => { document.title = "Yearbook · Rooted"; }, []);
 
@@ -62,7 +63,7 @@ export default function YearbookPage() {
     // 1. Fetch profile
     const { data: profile } = await supabase
       .from("profiles")
-      .select("yearbook_opened_at, yearbook_closed_at, display_name")
+      .select("yearbook_opened_at, yearbook_closed_at, display_name, is_pro")
       .eq("id", effectiveUserId)
       .single();
 
@@ -78,6 +79,7 @@ export default function YearbookPage() {
     }
 
     setFamilyName(profile?.display_name ?? "Our Family");
+    setIsPro(profile?.is_pro ?? false);
 
     // 3. Compute yearbook_key
     const m = new Date(openedAt).getMonth();
@@ -152,6 +154,11 @@ export default function YearbookPage() {
   // totalCount for progress: 1 (letter) + 1 (fav moment) + 1 (fav quote) + children * 7
   const totalCount = 3 + children.length * 7;
   const progressPct = totalCount > 0 ? Math.min(100, Math.round((filledCount / totalCount) * 100)) : 0;
+
+  // Display label derived from yearbookKey: "2025-26" → "2025–2026"
+  const yearLabel = yearbookKey
+    ? `${yearbookKey.split("-")[0]}\u201320${yearbookKey.split("-")[1]}`
+    : "";
 
   // ── Group into chapters ─────────────────────────────────────────────────────
 
@@ -277,7 +284,7 @@ export default function YearbookPage() {
   return (
     <>
       <PageHero
-        overline={`${yearbookKey} School Year`}
+        overline={`${yearLabel} School Year`}
         title="Your Family Yearbook 📖"
         subtitle={memories.length === 0
           ? "Your pages are waiting"
@@ -285,6 +292,48 @@ export default function YearbookPage() {
       />
 
       <div className="max-w-3xl mx-auto px-4 pt-5 pb-20">
+
+        {/* ── Free user banner ────────────────────────────────── */}
+        {!isPro && !isPartner && (
+          <div className="bg-[#faf6ec] border border-[#c0dd97] rounded-2xl p-4 mb-4 flex items-start gap-3">
+            <span className="text-[24px]">📖</span>
+            <div>
+              <p className="text-[13px] font-semibold text-[#2d2926]">Your yearbook shows the last 30 days</p>
+              <p className="text-[12px] text-[#7a6f65] mt-1 leading-relaxed">
+                You&apos;re on the free plan. Upgrade to capture your whole school year — every win, photo, and memory, from August through June.
+              </p>
+              <Link
+                href="/dashboard/settings?tab=billing"
+                className="mt-2 inline-block text-[12px] font-semibold text-[#3d5c42] underline underline-offset-2"
+              >
+                Unlock your full yearbook →
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* ── Action buttons ──────────────────────────────────── */}
+        <div className="flex gap-3 mb-4">
+          <Link
+            href="/dashboard/memories/yearbook/edit"
+            className="relative flex-1 text-center bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-xl"
+          >
+            Edit your book ✏️
+            {progressPct < 100 && (
+              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#8cba8e]" />
+            )}
+          </Link>
+          <Link
+            href="/dashboard/memories/yearbook/read"
+            className={`flex-1 text-center text-sm font-semibold px-5 py-3 rounded-xl border border-[#c0dd97] ${
+              memories.length === 0
+                ? "opacity-50 pointer-events-none bg-[#f0ede5] text-[#3d5c42]"
+                : "bg-[#f0ede5] text-[#3d5c42]"
+            }`}
+          >
+            View as book →
+          </Link>
+        </div>
 
         {/* ── Cover card ──────────────────────────────────────── */}
         <div className="rounded-2xl overflow-hidden border border-[#c0dd97]" style={{ background: "#faf6f0" }}>
@@ -298,7 +347,7 @@ export default function YearbookPage() {
                   {familyName}
                 </p>
                 <p className="text-[10px] text-[#8cba8e] uppercase tracking-wider mt-0.5">
-                  {yearbookKey} school year
+                  {yearLabel} school year
                 </p>
               </div>
               <span className="bg-white/[0.12] text-[9px] text-[#c8e6c4] px-3 py-1 rounded-full mt-1">
@@ -336,29 +385,6 @@ export default function YearbookPage() {
               style={{ width: `${progressPct}%` }}
             />
           </div>
-        </div>
-
-        {/* ── Action buttons ──────────────────────────────────── */}
-        <div className="flex gap-3 mt-4">
-          <Link
-            href="/dashboard/memories/yearbook/edit"
-            className="relative flex-1 text-center bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-xl"
-          >
-            Edit your book ✏️
-            {progressPct < 100 && (
-              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#8cba8e]" />
-            )}
-          </Link>
-          <Link
-            href="/dashboard/memories/yearbook/read"
-            className={`flex-1 text-center text-sm font-semibold px-5 py-3 rounded-xl border border-[#c0dd97] ${
-              memories.length === 0
-                ? "opacity-50 pointer-events-none bg-[#f0ede5] text-[#3d5c42]"
-                : "bg-[#f0ede5] text-[#3d5c42]"
-            }`}
-          >
-            View as book →
-          </Link>
         </div>
 
         {/* ── Empty state ─────────────────────────────────────── */}
@@ -435,6 +461,11 @@ export default function YearbookPage() {
             </div>
           </div>
         )}
+
+        {/* ── Archived yearbooks note ─────────────────────────── */}
+        <p className="text-[11px] text-center text-[#b5aca4] py-2">
+          📖 Your archived yearbooks are yours forever — always readable, even if your plan changes.
+        </p>
       </div>
     </>
   );
