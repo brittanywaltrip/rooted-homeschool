@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, ReactNode } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useSwipeable } from "react-swipeable";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
@@ -45,7 +47,7 @@ const INTERVIEW_QUESTIONS = [
   { key: "q_surprised_you", label: "What surprised you this year?" },
 ] as const;
 
-// ─── Spine Component ──────────────────────────────────────────────────────────
+// ─── Spine (desktop spread view only) ────────────────────────────────────────
 
 function Spine() {
   return (
@@ -59,30 +61,22 @@ function Spine() {
   );
 }
 
-// ─── Page Wrapper ─────────────────────────────────────────────────────────────
+// ─── Page Shell — fixed height, no scroll ────────────────────────────────────
 
-function PageShell({ children, bg = "#faf6f0", pageNum, align = "left" }: {
+function PageShell({ children, bg = "#FAFAF7" }: {
   children: ReactNode;
   bg?: string;
-  pageNum?: number;
-  align?: "left" | "right";
 }) {
   return (
-    <div className="relative flex flex-col w-full h-full overflow-hidden" style={{ background: bg }}>
-      {align === "left" && <Spine />}
-      <div className="flex-1 overflow-y-auto px-10 py-4 flex flex-col justify-center">
+    <div className="w-full h-full overflow-hidden" style={{ background: bg }}>
+      <div className="h-full overflow-hidden px-7 py-2 flex flex-col justify-center">
         {children}
       </div>
-      {pageNum !== undefined && (
-        <span className={`absolute bottom-2 text-[9px] text-[#b5aca4] ${align === "left" ? "left-10" : "right-10"}`}>
-          {pageNum}
-        </span>
-      )}
     </div>
   );
 }
 
-// ─── Photo Grid — adaptive layout based on count ─────────────────────────────
+// ─── Photo Grid — adaptive layout ────────────────────────────────────────────
 
 function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
   if (photos.length === 0) return null;
@@ -128,7 +122,6 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
     );
   }
 
-  // 4+: 2×2 grid
   return (
     <div className="grid grid-cols-2 gap-1.5">
       {photos.slice(0, 4).map((p) => (
@@ -141,7 +134,41 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
   );
 }
 
-// ─── Page Component ───────────────────────────────────────────────────────────
+// ─── Page header mapping ─────────────────────────────────────────────────────
+
+function getPageHeaders(spreadId: string, spreadLabel: string): [string, string] {
+  if (spreadId === "cover") return ["ROOTED YEARBOOK", "TABLE OF CONTENTS"];
+  if (spreadId === "letter") return ["A LETTER FROM HOME", "A LETTER FROM HOME"];
+  if (spreadId.startsWith("child-")) {
+    const name = spreadLabel.replace(/'s chapter$/i, "").toUpperCase();
+    return [`${name}\u2019S CHAPTER`, "IN THEIR OWN WORDS"];
+  }
+  if (spreadId === "family") return ["TOGETHER", "TOGETHER"];
+  if (spreadId === "village") return ["FROM THE VILLAGE", "FROM THE VILLAGE"];
+  if (spreadId === "back") return ["ROOTED HOMESCHOOL", "ROOTED HOMESCHOOL"];
+  return ["", ""];
+}
+
+// ─── Animation variants ──────────────────────────────────────────────────────
+
+const pageVariants = {
+  enter: (dir: number) => ({
+    x: dir >= 0 ? "35%" : "-35%",
+    opacity: 0,
+  }),
+  center: {
+    x: 0,
+    opacity: 1,
+  },
+  exit: (dir: number) => ({
+    x: dir >= 0 ? "-35%" : "35%",
+    opacity: 0,
+  }),
+};
+
+const pageTransition = { duration: 0.3, ease: "easeInOut" as const };
+
+// ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function YearbookReadPage() {
   const { effectiveUserId } = usePartner();
@@ -152,9 +179,7 @@ export default function YearbookReadPage() {
   const [profile, setProfile] = useState<{ display_name?: string; yearbook_opened_at?: string; yearbook_closed_at?: string }>({});
   const [yearbookKey, setYearbookKey] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
-  const touchStartRef = useRef(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [swipeHintVisible, setSwipeHintVisible] = useState(true);
+  const [direction, setDirection] = useState(1);
 
   // ── Content key helper ──────────────────────────────────────────────────────
 
@@ -175,7 +200,6 @@ export default function YearbookReadPage() {
 
       let openedAt = prof?.yearbook_opened_at;
       if (!openedAt) {
-        // Fall back to school year start
         const now = new Date();
         const schoolYearStartMonth = 7;
         const sy = now.getMonth() >= schoolYearStartMonth ? now.getFullYear() : now.getFullYear() - 1;
@@ -183,7 +207,6 @@ export default function YearbookReadPage() {
       }
 
       setProfile(prof ?? {});
-      // Use UTC to avoid timezone shift (e.g. "2025-08-01" → July 31 in US timezones)
       const m = new Date(openedAt).getUTCMonth();
       const y = new Date(openedAt).getUTCFullYear();
       const startYear = m >= 7 ? y : y - 1;
@@ -227,8 +250,14 @@ export default function YearbookReadPage() {
   const maxPageRef = useRef(0);
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "ArrowRight") setCurrentPage((p) => Math.min(p + 1, maxPageRef.current));
-      if (e.key === "ArrowLeft") setCurrentPage((p) => Math.max(0, p - 1));
+      if (e.key === "ArrowRight") {
+        setDirection(1);
+        setCurrentPage((p) => Math.min(p + 1, maxPageRef.current));
+      }
+      if (e.key === "ArrowLeft") {
+        setDirection(-1);
+        setCurrentPage((p) => Math.max(0, p - 1));
+      }
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
@@ -255,12 +284,11 @@ export default function YearbookReadPage() {
 
   const familyMemories = memories.filter((m) => !m.child_id);
 
-  // Compute child page numbers
-  let pageCounter = 4; // cover left, cover right (TOC), letter left, letter right
+  let pageCounter = 4;
   const childPageMap: Record<string, number> = {};
   for (const c of children) {
-    childPageMap[c.id] = pageCounter + 1; // 1-indexed for display
-    pageCounter += 2; // one spread per child
+    childPageMap[c.id] = pageCounter + 1;
+    pageCounter += 2;
   }
   const familyPageNum = pageCounter + 1;
   const villagePageNum = familyPageNum + 2;
@@ -273,28 +301,22 @@ export default function YearbookReadPage() {
     label: "Cover",
     leftContent: (
       <div className="relative flex flex-col w-full h-full overflow-hidden" style={{ background: "#3d5c42" }}>
-        {/* Layered botanical watermarks */}
         <span className="absolute top-6 right-4 text-[120px] opacity-[0.06] select-none pointer-events-none" style={{ transform: "rotate(-15deg)" }}>🌿</span>
         <span className="absolute bottom-10 left-3 text-[100px] opacity-[0.05] select-none pointer-events-none" style={{ transform: "rotate(20deg)" }}>🍃</span>
         <span className="absolute top-1/3 left-1/2 -translate-x-1/2 text-[160px] opacity-[0.03] select-none pointer-events-none">🌱</span>
 
         <div className="flex-1 flex flex-col items-center justify-center p-6 relative z-10 text-center">
           <div className="w-12 h-px bg-[#8cba8e]/40 mb-5" />
-
           <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#8cba8e] mb-3">
             {yearLabel}
           </p>
-
           <h1 className="text-[28px] leading-snug text-[#fefcf9]" style={{ fontFamily: "Georgia, serif" }}>
             The {familyName}<br />Yearbook
           </h1>
-
           <div className="w-9 h-px bg-[#8cba8e]/30 my-5" />
-
-          <p className="text-[11px] text-white/45 italic max-w-[220px]" style={{ fontFamily: "Georgia, serif" }}>
-            A year of learning, growing,{"\n"}and making memories
+          <p className="text-[11px] text-white/45 italic max-w-[220px] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
+            A year of learning, growing, and making memories
           </p>
-
           <Link
             href="/dashboard/memories/yearbook/edit"
             className="mt-6 inline-flex items-center gap-1.5 bg-white/10 text-[11px] text-[#c8e6c4] font-medium px-4 py-2 rounded-lg transition-colors active:bg-white/15"
@@ -312,10 +334,10 @@ export default function YearbookReadPage() {
       </div>
     ),
     rightContent: (
-      <PageShell pageNum={1} align="right">
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+      <PageShell>
+        <div className="flex flex-col items-center justify-center text-center px-4">
           <span className="text-[48px] font-serif text-[#8cba8e] leading-none">&ldquo;</span>
-          <p className="italic text-[11px] text-[#5a5048] leading-relaxed max-w-[200px] mt-1" style={{ fontFamily: "Georgia, serif" }}>
+          <p className="italic text-[11px] text-[#5a5048] leading-relaxed max-w-[200px] mt-1 line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
             Every lesson, every photo, every little moment — Rooted holds onto it all.
           </p>
           <div className="w-9 h-px bg-[#ddd5c0] my-4" />
@@ -337,23 +359,23 @@ export default function YearbookReadPage() {
     id: "letter",
     label: "Letter from home",
     leftContent: (
-      <PageShell pageNum={2} align="left">
-        <div className="relative">
+      <PageShell>
+        <div className="relative shrink-0">
           <Link href="/dashboard/memories/yearbook/edit" className="absolute top-0 right-0 text-[#c4b89a] hover:text-[#3d5c42] transition-colors">
             <span className="text-sm">✏️</span>
           </Link>
           <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#8cba8e]">Written for our family</p>
           <h2 className="text-[16px] font-bold text-[#2d2926] mt-1" style={{ fontFamily: "var(--font-display)" }}>A letter from home</h2>
           <p className="text-[9px] text-[#b5aca4] mt-0.5">A message from the heart</p>
-          <div className="h-px bg-[#ddd5c0] my-3" style={{ height: 0.5 }} />
+          <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
         </div>
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {letterText.trim() ? (
             <>
-              <p className="text-[10px] italic text-[#4a4540] leading-relaxed whitespace-pre-wrap" style={{ fontFamily: "Georgia, serif" }}>
+              <p className="text-[10px] italic text-[#4a4540] leading-relaxed whitespace-pre-wrap line-clamp-[10]" style={{ fontFamily: "Georgia, serif" }}>
                 {letterText}
               </p>
-              <p className="italic text-[11px] text-[#5c7f63] mt-3" style={{ fontFamily: "Georgia, serif" }}>With love</p>
+              <p className="italic text-[11px] text-[#5c7f63] mt-2 shrink-0" style={{ fontFamily: "Georgia, serif" }}>With love</p>
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
@@ -367,9 +389,9 @@ export default function YearbookReadPage() {
             </div>
           )}
         </div>
-        <div>
-          <div className="h-px bg-[#ddd5c0] my-3" style={{ height: 0.5 }} />
-          <p className="text-[8px] uppercase tracking-wider text-[#9a8f85] mb-2">Our year</p>
+        <div className="shrink-0">
+          <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+          <p className="text-[8px] uppercase tracking-wider text-[#9a8f85] mb-1.5">Our year</p>
           <div className="flex gap-2">
             {[
               { n: photoCount, l: "photos" },
@@ -378,7 +400,7 @@ export default function YearbookReadPage() {
               { n: quoteCount, l: "quotes" },
             ].map((s) => (
               <div key={s.l} className="bg-[#eeeade] rounded px-2 py-1 text-center flex-1">
-                <p className="text-[15px] font-bold text-[#3d5c42]">{s.n}</p>
+                <p className="text-[14px] font-bold text-[#3d5c42]">{s.n}</p>
                 <p className="text-[7px] text-[#9a8f85]">{s.l}</p>
               </div>
             ))}
@@ -387,14 +409,14 @@ export default function YearbookReadPage() {
       </PageShell>
     ),
     rightContent: (
-      <PageShell pageNum={3} align="right">
+      <PageShell>
         <div className="relative shrink-0">
           <Link href="/dashboard/memories/yearbook/edit" className="absolute top-0 right-0 text-[#c4b89a] hover:text-[#3d5c42] transition-colors">
             <span className="text-sm">✏️</span>
           </Link>
         </div>
         {/* Favorite moment */}
-        <div className="mb-4">
+        <div className="mb-3">
           <p className="text-[8px] uppercase tracking-wider text-[#9a8f85] mb-2">Favorite moment</p>
           {favMemory ? (
             <div>
@@ -403,18 +425,18 @@ export default function YearbookReadPage() {
                 <img src={favMemory.photo_url} alt="" className="w-full rounded-md object-cover" style={{ aspectRatio: "4/3" }} />
               ) : (
                 <div className="w-full rounded-md bg-[#eaf3de] flex items-center justify-center p-4" style={{ aspectRatio: "4/3" }}>
-                  <p className="text-sm font-medium text-[#3d5c42] text-center">{favMemory.title}</p>
+                  <p className="text-sm font-medium text-[#3d5c42] text-center line-clamp-2">{favMemory.title}</p>
                 </div>
               )}
               <p className="text-[8px] text-[#9a8f85] mt-1">
                 {new Date(favMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
               </p>
               {favCaption && (
-                <p className="italic text-[9px] text-[#4a4540] mt-1" style={{ fontFamily: "Georgia, serif" }}>{favCaption}</p>
+                <p className="italic text-[9px] text-[#4a4540] mt-1 line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favCaption}</p>
               )}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center text-center py-6">
+            <div className="flex flex-col items-center justify-center text-center py-4">
               <span className="text-[32px] mb-2 opacity-40">📷</span>
               <p className="text-[10px] italic text-[#c4b89a]" style={{ fontFamily: "Georgia, serif" }}>
                 Your favorite moment will shine here
@@ -426,14 +448,14 @@ export default function YearbookReadPage() {
           )}
         </div>
 
-        <div className="h-px bg-[#ddd5c0] my-3" style={{ height: 0.5 }} />
+        <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
 
         {/* Favorite quote */}
         <div>
           {favQuoteText ? (
             <div>
               <span className="text-[28px] font-serif text-[#c4b0e0] leading-none">&ldquo;</span>
-              <p className="italic text-[9px] text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>{favQuoteText}</p>
+              <p className="italic text-[9px] text-[#2d2926] line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>{favQuoteText}</p>
               {favQuoteMemory?.child_id && (
                 <p className="text-[8px] text-[#9a8f85] mt-1">
                   — {children.find((c) => c.id === favQuoteMemory.child_id)?.name ?? ""}
@@ -441,7 +463,7 @@ export default function YearbookReadPage() {
               )}
             </div>
           ) : (
-            <div className="text-center py-3">
+            <div className="text-center py-2">
               <span className="text-[28px] font-serif text-[#c4b0e0]/30 leading-none">&ldquo;</span>
               <p className="italic text-[10px] text-[#c4b89a]" style={{ fontFamily: "Georgia, serif" }}>
                 A favorite quote will live here
@@ -467,46 +489,40 @@ export default function YearbookReadPage() {
       id: `child-${child.id}`,
       label: `${child.name}'s chapter`,
       leftContent: (
-        <PageShell pageNum={pageBase} align="left">
-          <div>
+        <PageShell>
+          <div className="shrink-0">
             <p className="text-[9px] text-[#8cba8e]">Chapter {ci + 1}</p>
             <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>
               {child.name}&apos;s year
             </h2>
-            <p className="text-[9px] text-[#b5aca4] mt-0.5">
-              {childMems.length} memories
-            </p>
+            <p className="text-[9px] text-[#b5aca4] mt-0.5">{childMems.length} memories</p>
             <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
           </div>
 
-          {/* Featured quote */}
           {latestQuote && (
-            <div className="mb-3">
+            <div className="mb-2 shrink-0">
               <span className="text-[24px] font-serif text-[#c4b0e0] leading-none">&ldquo;</span>
-              <p className="italic text-[9px] text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>{latestQuote.title}</p>
+              <p className="italic text-[9px] text-[#2d2926] line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>{latestQuote.title}</p>
               <p className="text-[8px] text-[#9a8f85] mt-0.5">
                 {new Date(latestQuote.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </p>
             </div>
           )}
 
-          {/* Photo grid — adaptive layout */}
           {childPhotos.length > 0 && (
-            <div className="mb-3">
+            <div className="mb-2 shrink-0">
               <PhotoGrid photos={childPhotos.slice(0, 4)} />
             </div>
           )}
 
-          {/* Win card */}
           {latestWin && (
-            <div className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[#8cba8e] mb-2">
+            <div className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[#8cba8e] mb-2 shrink-0">
               <p className="text-[7px] uppercase tracking-wider text-[#5c7f63] mb-0.5">Win</p>
-              <p className="text-[9px] text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>{latestWin.title}</p>
+              <p className="text-[9px] text-[#2d2926] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{latestWin.title}</p>
             </div>
           )}
 
-          {/* Stats */}
-          <div className="flex gap-2 mt-auto">
+          <div className="flex gap-2 mt-auto shrink-0">
             {[
               { n: childWins.length, l: "wins" },
               { n: childMems.filter((m) => m.type === "book").length, l: "books" },
@@ -520,8 +536,8 @@ export default function YearbookReadPage() {
         </PageShell>
       ),
       rightContent: (
-        <PageShell pageNum={pageBase + 1} align="right">
-          <div className="relative">
+        <PageShell>
+          <div className="relative shrink-0">
             <Link href="/dashboard/memories/yearbook/edit" className="absolute top-0 right-0 text-[#c4b89a] hover:text-[#3d5c42] transition-colors">
               <span className="text-sm">✏️</span>
             </Link>
@@ -529,17 +545,17 @@ export default function YearbookReadPage() {
             <h3 className="text-[14px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>
               Year-end interview
             </h3>
-            <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+            <div className="h-px bg-[#ddd5c0] my-1.5" style={{ height: 0.5 }} />
           </div>
 
-          <div className="space-y-2.5">
+          <div className="space-y-2 flex-1 min-h-0 overflow-hidden">
             {INTERVIEW_QUESTIONS.slice(0, 4).map((q) => {
               const answer = contentMap[ck("child_interview", child.id, q.key)] ?? "";
               return (
                 <div key={q.key}>
                   <p className="italic text-[8px] text-[#9a8f85]">{q.label}</p>
                   {answer.trim() ? (
-                    <p className="text-[9px] text-[#2d2926] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{answer}</p>
+                    <p className="text-[9px] text-[#2d2926] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>{answer}</p>
                   ) : (
                     <p className="italic text-[9px] text-[#c4b89a] leading-relaxed">—</p>
                   )}
@@ -548,9 +564,8 @@ export default function YearbookReadPage() {
             })}
           </div>
 
-          <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+          <div className="h-px bg-[#ddd5c0] my-1.5" style={{ height: 0.5 }} />
 
-          {/* Future note — always visible within page bounds */}
           {(() => {
             const note = contentMap[ck("child_future_note", child.id)] ?? "";
             return (
@@ -584,11 +599,13 @@ export default function YearbookReadPage() {
     id: "family",
     label: "Our family",
     leftContent: (
-      <PageShell pageNum={familyPageNum} align="left">
-        <p className="text-[9px] text-[#8cba8e]">Together</p>
-        <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>Our family</h2>
-        <p className="text-[9px] text-[#b5aca4] mt-0.5">{familyMemories.length} shared memories</p>
-        <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+      <PageShell>
+        <div className="shrink-0">
+          <p className="text-[9px] text-[#8cba8e]">Together</p>
+          <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>Our family</h2>
+          <p className="text-[9px] text-[#b5aca4] mt-0.5">{familyMemories.length} shared memories</p>
+          <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+        </div>
 
         {familyMemories.length > 0 ? (
           <div className="space-y-2">
@@ -603,30 +620,30 @@ export default function YearbookReadPage() {
             {famWins.map((w) => (
               <div key={w.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[#8cba8e]">
                 <p className="text-[7px] uppercase tracking-wider text-[#5c7f63]">{w.type === "field_trip" ? "Trip" : "Win"}</p>
-                <p className="text-[9px] text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>{w.title}</p>
+                <p className="text-[9px] text-[#2d2926] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{w.title}</p>
               </div>
             ))}
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
             <span className="text-[36px] mb-3 opacity-40">👨‍👩‍👧‍👦</span>
-            <p className="text-[11px] italic text-[#c4b89a] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-              Family memories will fill these pages —<br />add memories without choosing a specific child.
+            <p className="text-[11px] italic text-[#c4b89a] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
+              Family memories will fill these pages — add memories without choosing a specific child.
             </p>
           </div>
         )}
       </PageShell>
     ),
     rightContent: (
-      <PageShell pageNum={familyPageNum + 1} align="right">
+      <PageShell>
         {famPhotos.length > 3 ? (
-          <div className="flex-1 flex flex-col justify-center">
+          <div className="flex flex-col justify-center">
             <PhotoGrid photos={famPhotos.slice(3, 7)} />
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+          <div className="flex flex-col items-center justify-center text-center px-4">
             <div className="w-9 h-px bg-[#ddd5c0] mb-4" />
-            <p className="italic text-[10px] text-[#c4b89a] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+            <p className="italic text-[10px] text-[#c4b89a] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
               More family photos will appear here as you add them.
             </p>
             <div className="w-9 h-px bg-[#ddd5c0] mt-4" />
@@ -641,14 +658,16 @@ export default function YearbookReadPage() {
     id: "village",
     label: "From the village",
     leftContent: (
-      <PageShell pageNum={villagePageNum} align="left">
-        <p className="text-[9px] text-[#8cba8e]">The people who love you</p>
-        <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>From the village</h2>
-        <p className="text-[9px] text-[#b5aca4] mt-0.5">0 messages</p>
-        <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+      <PageShell>
+        <div className="shrink-0">
+          <p className="text-[9px] text-[#8cba8e]">The people who love you</p>
+          <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>From the village</h2>
+          <p className="text-[9px] text-[#b5aca4] mt-0.5">0 messages</p>
+          <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+        </div>
 
         <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
-          <p className="italic text-[10px] text-[#9a8f85] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+          <p className="italic text-[10px] text-[#9a8f85] leading-relaxed line-clamp-4" style={{ fontFamily: "Georgia, serif" }}>
             Messages from family will appear here once family members sign your yearbook.
           </p>
           <Link
@@ -661,8 +680,8 @@ export default function YearbookReadPage() {
       </PageShell>
     ),
     rightContent: (
-      <PageShell pageNum={villagePageNum + 1} align="right">
-        <div className="flex-1 flex flex-col items-center justify-center text-center">
+      <PageShell>
+        <div className="flex flex-col items-center justify-center text-center">
           <p className="italic text-[9px] text-[#9a8f85]" style={{ fontFamily: "Georgia, serif" }}>
             Have something to say?
           </p>
@@ -682,11 +701,11 @@ export default function YearbookReadPage() {
     id: "back",
     label: "Back cover",
     leftContent: (
-      <PageShell bg="#faf6f0">
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+      <PageShell>
+        <div className="flex flex-col items-center justify-center text-center px-4">
           <p className="text-[9px] text-[#9a8f85] tracking-wider uppercase">{yearLabel}</p>
           <div className="w-9 h-px bg-[#ddd5c0] my-3" />
-          <p className="italic text-[10px] text-[#5a5048] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+          <p className="italic text-[10px] text-[#5a5048] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
             {letterText.trim() ? letterText.slice(0, 80) + (letterText.length > 80 ? "…" : "") : "Our story, beautifully kept."}
           </p>
           <div className="w-9 h-px bg-[#ddd5c0] my-3" />
@@ -708,43 +727,49 @@ export default function YearbookReadPage() {
     ),
   });
 
-  // ── Flatten spreads to pages ────────────────────────────────────────────────
+  // ── Build flat pages array with headers ─────────────────────────────────────
 
-  const pages = spreads.flatMap((s) => [
-    { content: s.leftContent, spreadLabel: s.label, spreadId: s.id },
-    { content: s.rightContent, spreadLabel: s.label, spreadId: s.id },
-  ]);
+  const pages = spreads.flatMap((s) => {
+    const [lh, rh] = getPageHeaders(s.id, s.label);
+    return [
+      { content: s.leftContent, header: lh, spreadId: s.id },
+      { content: s.rightContent, header: rh, spreadId: s.id },
+    ];
+  });
 
-  // Clamp current page
   const maxPage = pages.length - 1;
   maxPageRef.current = maxPage;
   const safePage = Math.min(currentPage, maxPage);
-
-  const goNext = useCallback(() => setCurrentPage((p) => Math.min(p + 1, maxPage)), [maxPage]);
-  const goPrev = useCallback(() => setCurrentPage((p) => Math.max(0, p - 1)), []);
-
   const spreadIndex = Math.floor(safePage / 2);
-  const spreadLabel = pages[safePage]?.spreadLabel ?? "";
 
-  // ── Touch handlers ──────────────────────────────────────────────────────────
+  // ── Navigation helpers ──────────────────────────────────────────────────────
 
-  function handleTouchStart(e: React.TouchEvent) {
-    touchStartRef.current = e.touches[0].clientX;
-  }
+  const goNext = useCallback(() => {
+    setDirection(1);
+    setCurrentPage((p) => Math.min(p + 1, maxPage));
+  }, [maxPage]);
 
-  function handleTouchEnd(e: React.TouchEvent) {
-    const diff = touchStartRef.current - e.changedTouches[0].clientX;
-    if (Math.abs(diff) > 50) {
-      if (diff > 0) goNext();
-      else goPrev();
-    }
-  }
+  const goPrev = useCallback(() => {
+    setDirection(-1);
+    setCurrentPage((p) => Math.max(0, p - 1));
+  }, []);
+
+  // ── Swipe gesture (react-swipeable) ─────────────────────────────────────────
+
+  const swipeHandlers = useSwipeable({
+    onSwipedLeft: goNext,
+    onSwipedRight: goPrev,
+    delta: 50,
+    trackMouse: false,
+    trackTouch: true,
+    preventScrollOnSwipe: true,
+  });
 
   // ── Loading state ───────────────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center" style={{ background: "#1a1a1a" }}>
+      <div className="fixed inset-0 flex items-center justify-center" style={{ background: "#1a1a1a", height: "100dvh" }}>
         <div className="text-center">
           <span className="text-3xl animate-pulse block">📖</span>
           <p className="text-[12px] text-[#9a8f85] mt-3">Opening your yearbook…</p>
@@ -757,7 +782,7 @@ export default function YearbookReadPage() {
 
   if (memories.length === 0) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center" style={{ background: "#1a1a1a" }}>
+      <div className="fixed inset-0 flex items-center justify-center" style={{ background: "#1a1a1a", height: "100dvh" }}>
         <div className="text-center px-6">
           <span className="text-[64px] block">📖</span>
           <p className="italic text-[16px] text-[#9a8f85] mt-4" style={{ fontFamily: "Georgia, serif" }}>
@@ -777,85 +802,67 @@ export default function YearbookReadPage() {
     );
   }
 
-  // ── Dot navigation ──────────────────────────────────────────────────────────
+  // ── Determine if current page has dark background ───────────────────────────
 
-  function DotNav({ isMobile = false }: { isMobile?: boolean }) {
-    const totalDots = pages.length;
-    const maxVisible = 7;
-    let startDot = 0;
-    let endDot = totalDots;
-    if (totalDots > maxVisible) {
-      startDot = Math.max(0, safePage - Math.floor(maxVisible / 2));
-      endDot = Math.min(totalDots, startDot + maxVisible);
-      if (endDot - startDot < maxVisible) startDot = Math.max(0, endDot - maxVisible);
-    }
+  const isDark = safePage === 0 || safePage === pages.length - 1;
 
-    return (
-      <div className="flex flex-col items-center gap-1.5">
-        <div className="flex items-center gap-1">
-          {Array.from({ length: endDot - startDot }, (_, i) => {
-            const idx = startDot + i;
-            return (
-              <button
-                key={idx}
-                onClick={() => setCurrentPage(idx)}
-                className={`rounded-full transition-all ${
-                  idx === safePage
-                    ? (isMobile ? "w-4 h-2 bg-[#c8e6c4]" : "w-4 h-2 bg-[#c8e6c4]")
-                    : (isMobile ? "w-2 h-2 bg-[#4d453f]" : "w-2 h-2 bg-[#4d453f]")
-                }`}
-              />
-            );
-          })}
-        </div>
-        <p className="text-[10px] text-[#9a8f85]">
-          {spreadLabel} · {isMobile ? `${safePage + 1} of ${pages.length}` : `spread ${spreadIndex + 1} of ${spreads.length}`}
-        </p>
-      </div>
-    );
-  }
-
-  // ── Mobile view ─────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <>
-      {/* Mobile view */}
-      <div className="md:hidden fixed inset-0 flex flex-col" style={{ background: "#1a1a1a" }}>
-        {/* Back button */}
-        <div className="h-10 shrink-0 flex items-center px-3 z-30" style={{ background: "rgba(26,26,26,0.95)" }}>
+      {/* ── Mobile view ──────────────────────────────────────── */}
+      <div
+        className="md:hidden fixed inset-0 flex flex-col"
+        style={{ height: "100dvh", overflow: "hidden", background: "#1a1a1a" }}
+      >
+        {/* Back button bar */}
+        <div className="shrink-0 h-10 flex items-center px-4 z-30" style={{ background: "rgba(26,26,26,0.95)" }}>
           <Link href="/dashboard/memories/yearbook" className="text-[12px] text-[#9a8f85] hover:text-white transition-colors">
             ← Yearbook
           </Link>
         </div>
 
-        {/* Page content */}
-        <div
-          ref={containerRef}
-          className="flex-1 relative overflow-hidden"
-          onTouchStart={handleTouchStart}
-          onTouchEnd={(e) => {
-            handleTouchEnd(e);
-            if (swipeHintVisible) setSwipeHintVisible(false);
-          }}
-        >
-          {/* Half-screen tap zones — full left/right halves for page turning */}
-          <button
-            className="absolute top-0 left-0 w-1/2 h-full z-10"
-            onClick={() => { goPrev(); if (swipeHintVisible) setSwipeHintVisible(false); }}
-            aria-label="Previous page"
-          />
-          <button
-            className="absolute top-0 right-0 w-1/2 h-full z-10"
-            onClick={() => { goNext(); if (swipeHintVisible) setSwipeHintVisible(false); }}
-            aria-label="Next page"
-          />
+        {/* Book page area */}
+        <div className="flex-1 min-h-0 relative" {...swipeHandlers}>
+          <AnimatePresence mode="wait" custom={direction} initial={false}>
+            <motion.div
+              key={safePage}
+              custom={direction}
+              variants={pageVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={pageTransition}
+              className="absolute inset-0 mx-3 my-2 flex flex-col rounded-lg overflow-hidden"
+              style={{ background: "#FAFAF7", boxShadow: "0 2px 20px rgba(0,0,0,0.08)", borderRadius: 8 }}
+            >
+              {/* Page header */}
+              <div className="shrink-0 pt-2.5 pb-1 text-center" style={{ background: isDark ? "transparent" : undefined }}>
+                <p className="text-[8px] font-medium tracking-[0.15em] uppercase text-[#8cba8e]">
+                  {pages[safePage]?.header}
+                </p>
+              </div>
 
-          {/* Visible arrow buttons — positioned at ~37% from top to clear bottom UI chrome */}
+              {/* Page content */}
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {pages[safePage]?.content}
+              </div>
+
+              {/* Page progress */}
+              <div className="shrink-0 pb-2 pt-0.5 text-center" style={{ background: isDark ? "transparent" : undefined }}>
+                <p className={`text-[9px] ${isDark ? "text-white/35" : "text-[#b5aca4]"}`}>
+                  {safePage + 1} / {pages.length}
+                </p>
+              </div>
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Arrow buttons */}
           {safePage > 0 && (
             <button
-              onClick={() => { goPrev(); if (swipeHintVisible) setSwipeHintVisible(false); }}
-              className="absolute left-2 z-20 w-11 h-11 rounded-full flex items-center justify-center text-white/70 active:text-white"
-              style={{ top: "37%", background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)", minWidth: 44, minHeight: 44 }}
+              onClick={goPrev}
+              className="absolute left-0 z-20 w-11 h-11 rounded-full flex items-center justify-center text-white/50 active:text-white"
+              style={{ top: "37%", background: "rgba(0,0,0,0.2)", backdropFilter: "blur(4px)", minWidth: 44, minHeight: 44 }}
               aria-label="Previous page"
             >
               <span className="text-lg">‹</span>
@@ -863,60 +870,22 @@ export default function YearbookReadPage() {
           )}
           {safePage < maxPage && (
             <button
-              onClick={() => { goNext(); if (swipeHintVisible) setSwipeHintVisible(false); }}
-              className="absolute right-2 z-20 w-11 h-11 rounded-full flex items-center justify-center text-white/70 active:text-white"
-              style={{ top: "37%", background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)", minWidth: 44, minHeight: 44 }}
+              onClick={goNext}
+              className="absolute right-0 z-20 w-11 h-11 rounded-full flex items-center justify-center text-white/50 active:text-white"
+              style={{ top: "37%", background: "rgba(0,0,0,0.2)", backdropFilter: "blur(4px)", minWidth: 44, minHeight: 44 }}
               aria-label="Next page"
             >
               <span className="text-lg">›</span>
             </button>
           )}
-
-          {/* Swipe hint — cover page only */}
-          {safePage === 0 && swipeHintVisible && (
-            <div className="absolute bottom-4 left-0 right-0 z-20 flex justify-center pointer-events-none">
-              <span className="text-[11px] text-white/50 bg-black/40 rounded-full px-3 py-1.5" style={{ backdropFilter: "blur(4px)" }}>
-                Swipe or tap arrows to turn pages →
-              </span>
-            </div>
-          )}
-
-          <div
-            className="absolute inset-0 flex transition-transform duration-300 ease-out"
-            style={{ transform: `translateX(-${safePage * 100}%)` }}
-          >
-            {pages.map((page, i) => (
-              <div key={i} className="w-full h-full shrink-0 flex">
-                <div className="w-full h-full flex">
-                  {page.content}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Bottom nav */}
-        <div className="py-2 px-4 flex items-center justify-between" style={{ background: "rgba(26,26,26,0.95)", backdropFilter: "blur(8px)" }}>
-          <button
-            onClick={goPrev}
-            disabled={safePage === 0}
-            className="w-9 h-9 flex items-center justify-center text-[#c8e6c4] disabled:opacity-30"
-          >
-            ←
-          </button>
-          <DotNav isMobile />
-          <button
-            onClick={goNext}
-            disabled={safePage >= maxPage}
-            className="w-9 h-9 flex items-center justify-center text-[#c8e6c4] disabled:opacity-30"
-          >
-            →
-          </button>
         </div>
       </div>
 
-      {/* Desktop view */}
-      <div className="hidden md:flex fixed inset-0 flex-col items-center justify-center" style={{ background: "#2d2926" }}>
+      {/* ── Desktop view ─────────────────────────────────────── */}
+      <div
+        className="hidden md:flex fixed inset-0 flex-col items-center justify-center"
+        style={{ background: "#2d2926", height: "100dvh", overflow: "hidden" }}
+      >
         {/* Back button */}
         <div className="absolute top-4 left-6 z-30">
           <Link href="/dashboard/memories/yearbook" className="text-sm text-[#9a8f85] hover:text-white transition-colors">
@@ -925,7 +894,6 @@ export default function YearbookReadPage() {
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Left arrow */}
           <button
             onClick={goPrev}
             disabled={spreadIndex === 0}
@@ -935,20 +903,29 @@ export default function YearbookReadPage() {
             ←
           </button>
 
-          {/* Two-page spread */}
-          <div className="flex max-w-4xl shadow-2xl rounded-lg overflow-hidden" style={{ width: "800px", height: "560px" }}>
-            <div className="w-1/2 h-full">
-              {spreads[spreadIndex]?.leftContent}
-            </div>
-            <Spine />
-            <div className="w-1/2 h-full">
-              {spreads[spreadIndex]?.rightContent}
-            </div>
-          </div>
+          <AnimatePresence mode="wait" custom={direction} initial={false}>
+            <motion.div
+              key={spreadIndex}
+              custom={direction}
+              variants={pageVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={pageTransition}
+              className="flex rounded-lg overflow-hidden"
+              style={{ width: 800, height: 560, boxShadow: "0 4px 30px rgba(0,0,0,0.15)", background: "#FAFAF7" }}
+            >
+              <div className="w-1/2 h-full">{spreads[spreadIndex]?.leftContent}</div>
+              <Spine />
+              <div className="w-1/2 h-full">{spreads[spreadIndex]?.rightContent}</div>
+            </motion.div>
+          </AnimatePresence>
 
-          {/* Right arrow */}
           <button
-            onClick={() => setCurrentPage(Math.min((spreadIndex + 1) * 2, maxPage))}
+            onClick={() => {
+              setDirection(1);
+              setCurrentPage(Math.min((spreadIndex + 1) * 2, maxPage));
+            }}
             disabled={spreadIndex >= spreads.length - 1}
             className="w-12 h-12 rounded-full flex items-center justify-center text-[#c4b89a] hover:bg-[#4d453f] disabled:opacity-30 transition-colors"
             style={{ background: "#3d3530" }}
@@ -957,9 +934,11 @@ export default function YearbookReadPage() {
           </button>
         </div>
 
-        {/* Dots below */}
-        <div className="mt-4">
-          <DotNav />
+        {/* Desktop progress */}
+        <div className="mt-4 text-center">
+          <p className="text-[10px] text-[#9a8f85]">
+            {spreadIndex + 1} / {spreads.length}
+          </p>
         </div>
       </div>
     </>
