@@ -616,7 +616,7 @@ export default function MemoriesPage() {
           }}
           className="text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors cursor-pointer"
         >
-          Preview as family 👀
+          👁 Preview family view
         </button>
         <button
           type="button"
