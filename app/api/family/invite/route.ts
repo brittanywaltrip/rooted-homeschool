@@ -15,17 +15,17 @@ export async function POST(req: NextRequest) {
     }
     const ownerUserId = user.id;
 
-    const { email, recipientName, resend: isResend } = await req.json();
+    const { email, viewerName, resend: isResend } = await req.json();
 
     if (!email) {
       return NextResponse.json({ error: "Missing email" }, { status: 400 });
     }
-    if (!recipientName?.trim()) {
+    if (!viewerName?.trim()) {
       return NextResponse.json({ error: "Viewer name is required" }, { status: 400 });
     }
 
     const cleanEmail = email.toLowerCase().trim();
-    const cleanName = recipientName.trim();
+    const cleanName = viewerName.trim();
 
     // Check for existing invite for this owner + email
     const { data: existing } = await supabaseAdmin
@@ -74,7 +74,6 @@ export async function POST(req: NextRequest) {
           user_id: ownerUserId,
           email: cleanEmail,
           viewer_name: cleanName,
-          label: cleanName,
           is_active: true,
           trial_started_at: now,
           trial_ends_at: trialEnd,
@@ -134,7 +133,6 @@ export async function PATCH(req: NextRequest) {
     const updates: Record<string, unknown> = {};
     if (viewerName?.trim()) {
       updates.viewer_name = viewerName.trim();
-      updates.label = viewerName.trim();
     }
 
     const emailChanged = !!email?.trim();

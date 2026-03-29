@@ -315,7 +315,7 @@ export default function SettingsPage() {
       const res = await fetch("/api/family/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-        body: JSON.stringify({ email: familyInviteEmail.trim(), recipientName: familyInviteName.trim() }),
+        body: JSON.stringify({ email: familyInviteEmail.trim(), viewerName: familyInviteName.trim() }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -341,7 +341,7 @@ export default function SettingsPage() {
       await fetch("/api/family/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-        body: JSON.stringify({ email: inv.email, recipientName: inv.viewer_name ?? "Friend", resend: true }),
+        body: JSON.stringify({ email: inv.email, viewerName: inv.viewer_name ?? "Friend", resend: true }),
       });
       setResentId(inv.id);
       setTimeout(() => setResentId(null), 3000);
