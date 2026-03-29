@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
+import { emailFooterText } from "@/lib/email-footer";
 
 export async function POST(req: NextRequest) {
   const resend = new Resend(process.env.RESEND_API_KEY);
@@ -27,7 +28,7 @@ https://rootedhomeschoolapp.com
 
 Once you're in, you'll see ${displayName}'s dashboard automatically.
 
-— The Rooted Team 🌱`,
+— The Rooted Team 🌱${emailFooterText()}`,
     });
 
     if (result.error) {

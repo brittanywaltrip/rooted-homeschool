@@ -262,12 +262,13 @@ export default function YearbookPage() {
               <p className="text-sm text-[#3d5c42] mb-4 max-w-sm mx-auto">
                 Your memories are beautifully arranged and ready to become a keepsake.
               </p>
-              <a
-                href="mailto:hello@rootedhomeschoolapp.com?subject=Print my yearbook"
-                className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-6 py-3 rounded-xl transition-colors shadow-sm"
+              <button
+                disabled
+                className="inline-flex items-center gap-1.5 bg-[#5c7f63] text-white text-sm font-semibold px-6 py-3 rounded-xl shadow-sm opacity-50 cursor-not-allowed"
               >
-                Print your yearbook →
-              </a>
+                🖨️ Print Yearbook · Coming Soon
+              </button>
+              <p className="text-xs text-[#7a6f65] mt-2">Print orders coming soon — we're working on something beautiful.</p>
             </div>
           </>
         )}

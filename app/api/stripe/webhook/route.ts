@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
+import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-02-25.clover',
@@ -42,8 +43,11 @@ async function getActiveSubCount(): Promise<number> {
 async function sendEmail(to: string, subject: string, text: string, from = 'Rooted <hello@rootedhomeschoolapp.com>', html?: string) {
   const { Resend } = await import('resend')
   const resend = new Resend(process.env.RESEND_API_KEY)
-  const payload: { from: string; to: string; subject: string; text: string; html?: string } = { from, to, subject, text }
-  if (html) payload.html = html
+  const payload: { from: string; to: string; subject: string; text: string; html?: string } = {
+    from, to, subject,
+    text: text + emailFooterText(),
+  }
+  if (html) payload.html = html + emailFooterHtml()
   const result = await resend.emails.send(payload)
   if (result.error) console.error('Resend sendEmail error:', result.error)
 }
@@ -424,6 +428,83 @@ export async function POST(req: NextRequest) {
       'email:', customerEmail ?? 'MISSING',
       'stripeCustomerId:', stripeCustomerId
     )
+
+    // ── Handle family gift purchase (one-time payment, not subscription) ──
+    if (session.metadata?.type === 'family_gift') {
+      const recipientUserId = session.metadata.recipientUserId
+      const gifterName = session.metadata.gifterName ?? 'Someone'
+      const inviteToken = session.metadata.inviteToken
+
+      if (recipientUserId) {
+        // Extend mom's subscription by 12 months
+        const { data: recipientProfile } = await supabase
+          .from('profiles')
+          .select('first_name, current_period_end, is_pro, subscription_status')
+          .eq('id', recipientUserId)
+          .maybeSingle()
+
+        const currentEnd = recipientProfile?.current_period_end
+          ? new Date(recipientProfile.current_period_end)
+          : new Date()
+        const newEnd = new Date(Math.max(currentEnd.getTime(), Date.now()) + 365 * 24 * 60 * 60 * 1000)
+
+        await supabase.from('profiles').update({
+          is_pro: true,
+          subscription_status: 'active',
+          plan_type: 'gift',
+          current_period_end: newEnd.toISOString(),
+        }).eq('id', recipientUserId)
+
+        console.log('[webhook] Gift activated for userId:', recipientUserId, 'until:', newEnd.toISOString())
+
+        // Extend all viewer trials for this mom (so viewers keep access)
+        await supabase.from('family_invites')
+          .update({ trial_ends_at: newEnd.toISOString() })
+          .eq('user_id', recipientUserId)
+          .eq('is_active', true)
+
+        // Notification for mom
+        await supabase.from('family_notifications').insert({
+          user_id: recipientUserId,
+          type: 'gift',
+          actor_name: gifterName,
+          message: `${gifterName} gifted you a year of Rooted! 🎁`,
+        })
+
+        // Email to mom
+        const momEmail = (await supabase.auth.admin.getUserById(recipientUserId)).data.user?.email
+        if (momEmail) {
+          const momName = recipientProfile?.first_name ?? 'friend'
+          await sendEmail(
+            momEmail,
+            'Someone just gifted you a year of Rooted 🎁',
+            `Hi ${momName}!\n\n${gifterName} wanted to make sure you never stop capturing these memories. Your Rooted account is active for another year. 🌿\n\nWith love,\n— Brittany / Founder, Rooted 🌿`,
+            'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
+          ).catch(err => console.error('[webhook] gift mom email error:', err))
+        }
+
+        // Email to gift buyer
+        if (customerEmail) {
+          const { data: momProfile } = await supabase.from('profiles').select('display_name').eq('id', recipientUserId).maybeSingle()
+          const familyNameForEmail = momProfile?.display_name ?? 'The family'
+          await sendEmail(
+            customerEmail,
+            'Your gift is on its way 🌿',
+            `Hi ${gifterName}!\n\n${familyNameForEmail} will be notified that you gifted them a year of Rooted. You can keep following along at the same link.\n\nThank you for making their year. 🌿\n\n— Brittany / Founder, Rooted 🌿`,
+            'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
+          ).catch(err => console.error('[webhook] gift buyer email error:', err))
+        }
+
+        // Notify admin
+        await sendEmail(
+          ADMIN_EMAIL,
+          `🎁 Family gift purchased! ${gifterName} gifted a year`,
+          `A family gift was purchased!\n\nGifter: ${gifterName}\nEmail: ${customerEmail}\nRecipient userId: ${recipientUserId}\nInvite token: ${inviteToken}\n\n🌿`
+        ).catch(err => console.error('[webhook] gift admin email error:', err))
+      }
+
+      return NextResponse.json({ received: true })
+    }
 
     // Determine plan from line items
     let plan = 'founding_family' // safe default

@@ -5,6 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
@@ -346,9 +347,23 @@ function TodayLessonCard({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+type FamilyNotification = {
+  id: string;
+  memory_id: string | null;
+  type: string;
+  actor_name: string;
+  emoji: string | null;
+  created_at: string;
+};
+
 export default function TodayPage() {
   const today = localDateStr(new Date());
+  const router = useRouter();
   const { isPartner, effectiveUserId } = usePartner();
+
+  // Family activity notifications
+  const [familyNotifs, setFamilyNotifs] = useState<FamilyNotification[]>([]);
+  const [familyNotifsDismissed, setFamilyNotifsDismissed] = useState(false);
 
   const [familyName,      setFamilyName]      = useState("");
   const [firstName,       setFirstName]       = useState("");
@@ -824,6 +839,32 @@ export default function TodayPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Load unread family notifications
+  useEffect(() => {
+    if (!effectiveUserId || isPartner) return;
+    (async () => {
+      const { data } = await supabase
+        .from("family_notifications")
+        .select("id, memory_id, type, actor_name, emoji, created_at")
+        .eq("user_id", effectiveUserId)
+        .is("read_at", null)
+        .order("created_at", { ascending: false })
+        .limit(3);
+      setFamilyNotifs(data ?? []);
+    })();
+  }, [effectiveUserId, isPartner]);
+
+  async function dismissFamilyNotifs() {
+    setFamilyNotifsDismissed(true);
+    const ids = familyNotifs.map((n) => n.id);
+    if (ids.length > 0) {
+      await supabase
+        .from("family_notifications")
+        .update({ read_at: new Date().toISOString() })
+        .in("id", ids);
+    }
+  }
+
   // Poll for new memories (e.g. FAB photo saved from layout)
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1038,11 +1079,13 @@ export default function TodayPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingBook(false); return; }
     const nowB = new Date().toISOString();
-    const { data: inserted } = await supabase.from("memories").insert({
+    const { data: inserted, error: bookErr } = await supabase.from("memories").insert({
       user_id: user.id, type: "book", title: bookTitle.trim(),
       child_id: bookChild || null, date: today, include_in_book: true,
       created_at: nowB, updated_at: nowB,
     }).select("id").single();
+    if (bookErr) { console.error("[Rooted] Book save failed:", bookErr.message); setSavingBook(false); showCaptureToast("Save failed — try again", null); return; }
+    console.log("[Rooted] Saved:", "book", inserted);
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
@@ -1067,11 +1110,13 @@ export default function TodayPage() {
       }
     }
     const nowD = new Date().toISOString();
-    const { data: inserted } = await supabase.from("memories").insert({
+    const { data: inserted, error: drawErr } = await supabase.from("memories").insert({
       user_id: user.id, type: "drawing", title: drawingTitle.trim(),
       photo_url: photoUrl, child_id: drawingChild || null, date: today, include_in_book: true,
       created_at: nowD, updated_at: nowD,
     }).select("id").single();
+    if (drawErr) { console.error("[Rooted] Drawing save failed:", drawErr.message); setSavingDrawing(false); showCaptureToast("Save failed — try again", null); return; }
+    console.log("[Rooted] Saved:", "drawing", inserted);
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null);
@@ -1544,6 +1589,35 @@ export default function TodayPage() {
         </Link>
       )}
 
+      {/* ── Family Activity Banner ─────────────────────────────── */}
+      {familyNotifs.length > 0 && !familyNotifsDismissed && (
+        <div className="relative bg-[#e8f5ea] border border-[#b8d9bc] rounded-2xl px-4 py-3 space-y-2">
+          <button
+            type="button"
+            onClick={dismissFamilyNotifs}
+            className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white/60 flex items-center justify-center text-[#7a6f65] hover:bg-white transition-colors text-xs"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#3d5c42] mb-1">Family Activity</p>
+          {familyNotifs.map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => {
+                if (n.memory_id) router.push(`/dashboard/memories?highlight=${n.memory_id}`);
+              }}
+              className="flex items-start gap-2 w-full text-left hover:bg-[#d4e8d4]/40 rounded-lg px-2 py-1.5 transition-colors"
+            >
+              <span className="text-sm shrink-0">{n.type === "reaction" ? (n.emoji ?? "❤️") : "💬"}</span>
+              <span className="text-[13px] text-[#2d2926] leading-snug flex-1">{n.type === "reaction" ? `${n.actor_name} reacted ${n.emoji ?? "❤️"}` : `${n.actor_name} left a comment 💬`}</span>
+              <span className="text-[#5c7f63] text-xs shrink-0">→</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ═══════════════════════════════════════════════════════════
           TODAY'S STORY — all memories logged today
          ═══════════════════════════════════════════════════════════ */}
@@ -1672,17 +1746,12 @@ export default function TodayPage() {
         <>
           <div className="space-y-2">
             <button
-              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
               style={{ background: "#2d5a3d" }}
             >
-              📸 Capture a memory
-            </button>
-            <button
-              onClick={() => setShowCaptureMenu(true)}
-              className="w-full text-center text-xs text-[#9a8f85] hover:text-[#7a6f65] transition-colors py-0.5"
-            >
-              Or log a win, book, drawing, field trip →
+              ✚ Capture a memory
             </button>
           </div>
           <input
@@ -1700,7 +1769,7 @@ export default function TodayPage() {
                 const compressed = await compressImage(file);
                 const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
                 const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
-                if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); return; }
+                if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); showCaptureToast("Upload failed — try again", null); return; }
                 const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
                 const memType = captureTypeRef.current;
                 const now = new Date().toISOString();
@@ -1710,7 +1779,8 @@ export default function TodayPage() {
                   date: today, include_in_book: false,
                   created_at: now, updated_at: now,
                 }).select("id").single();
-                if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); return; }
+                if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); showCaptureToast("Save failed — try again", null); return; }
+                console.log("[Rooted] Saved:", memType, ins);
                 const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
                 showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
                 captureTypeRef.current = "photo"; // reset
@@ -1900,12 +1970,14 @@ export default function TodayPage() {
                   const { data: { user } } = await supabase.auth.getUser();
                   if (user) {
                     const nowFt = new Date().toISOString();
-                    const { data: ins } = await supabase.from("memories").insert({
+                    const { data: ins, error: ftErr } = await supabase.from("memories").insert({
                       user_id: user.id, type: ftType, title: ftTitle.trim(),
                       caption: ftNote.trim() || null, child_id: ftChild || null,
                       date: today, include_in_book: false,
                       created_at: nowFt, updated_at: nowFt,
                     }).select("id").single();
+                    if (ftErr) { console.error("[Rooted] Field trip save failed:", ftErr.message); setFtSaving(false); showCaptureToast("Save failed — try again", null); return; }
+                    console.log("[Rooted] Saved:", ftType, ins);
                     const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
                     showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null);
                     checkAndAwardBadges(user.id);
@@ -2112,117 +2184,6 @@ export default function TodayPage() {
       )}
 
       {/* ── Log a Win Sheet ──────────────────────────────────── */}
-      {showWinSheet && (
-        <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowWinSheet(false)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto"
-            style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
-            <div className="px-5 pb-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="font-bold text-[#2d2926]">{winType === "win" ? "🏆 Log a Win" : "💛 Capture a Moment"}</h2>
-                <button onClick={() => setShowWinSheet(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
-              </div>
-
-              {/* Type pills */}
-              <div className="flex gap-2">
-                <button onClick={() => setWinType("win")}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "win" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
-                  🏆 Win
-                </button>
-                <button onClick={() => setWinType("quote")}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "quote" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
-                  ✍️ Moment
-                </button>
-              </div>
-
-              {/* Text input + mic */}
-              <div className="relative">
-                <textarea
-                  value={winText}
-                  onChange={(e) => setWinText(e.target.value)}
-                  placeholder={winType === "win" ? "What did they accomplish today?" : "What do you want to remember?"}
-                  rows={3}
-                  className="w-full px-3 py-2.5 pr-12 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
-                />
-                <button
-                  onClick={() => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-                    if (!SR) return;
-                    if (isListening) return;
-                    const recognition = new SR();
-                    recognition.lang = "en-US";
-                    recognition.interimResults = false;
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    recognition.onresult = (e: any) => {
-                      const transcript = e.results[0]?.[0]?.transcript ?? "";
-                      setWinText((prev: string) => (prev ? prev + " " : "") + transcript);
-                    };
-                    recognition.onend = () => setIsListening(false);
-                    recognition.onerror = () => setIsListening(false);
-                    setIsListening(true);
-                    recognition.start();
-                  }}
-                  className={`absolute right-2 top-2 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${isListening ? "bg-red-100 text-red-500" : "bg-[#f0ede8] text-[#7a6f65] hover:bg-[#e8e2d9]"}`}
-                  aria-label="Voice input"
-                >
-                  🎤
-                </button>
-              </div>
-
-              {/* Child selector */}
-              {children.length > 0 && (
-                <div className="flex gap-2 flex-wrap">
-                  {children.map(c => (
-                    <button key={c.id} onClick={() => setWinChild(winChild === c.id ? "" : c.id)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${winChild === c.id ? "text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}
-                      style={winChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : undefined}>
-                      {c.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Save button */}
-              <button
-                onClick={async () => {
-                  if (!winText.trim()) return;
-                  setSavingWin(true);
-                  const { data: { user } } = await supabase.auth.getUser();
-                  if (user) {
-                    const { data: ins } = await supabase.from("memories").insert({
-                      user_id: user.id,
-                      child_id: winChild || null,
-                      date: localDateStr(new Date()),
-                      type: winType,
-                      title: winText.trim(),
-                      include_in_book: true,
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString(),
-                    }).select("id").single();
-                    setTotalMemories(prev => prev + 1);
-                    const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
-                    showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
-                    checkAndAwardBadges(user.id);
-                  }
-                  setSavingWin(false);
-                  setWinText("");
-                  setWinChild("");
-                  setShowWinSheet(false);
-                  await refreshTodayStory();
-                  await loadData();
-                }}
-                disabled={savingWin || !winText.trim()}
-                className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
-              >
-                {savingWin ? "Saving..." : "Save"}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
       {/* ── Log a Drawing Sheet ──────────────────────────── */}
       {showDrawingSheet && (
         <>
@@ -2395,7 +2356,7 @@ export default function TodayPage() {
       {showWinSheet && (
         <>
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowWinSheet(false); setWinText(""); setWinChild(""); }} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
               <div className="flex items-center justify-between">
@@ -2485,15 +2446,17 @@ export default function TodayPage() {
                     console.log("[Win save] result:", { data: ins, error });
                     if (error) {
                       console.error("[Win save] FAILED:", error.message, error.code, error.details, error.hint);
+                      showCaptureToast("Save failed — try again", null);
                       setSavingWin(false);
                       return;
                     }
                     if (!ins) {
                       console.error("[Win save] No data returned — likely RLS policy blocking insert. Check that 'Users can insert own memories' policy exists on memories table.");
+                      showCaptureToast("Save failed — try again", null);
                       setSavingWin(false);
                       return;
                     }
-                    console.log("[Win save] Success — id:", (ins as { id: string }).id, "type:", winType);
+                    console.log("[Rooted] Saved:", winType, ins);
                     setTotalMemories(prev => prev + 1);
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
                     showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
@@ -2506,6 +2469,7 @@ export default function TodayPage() {
                     await loadData();
                   } catch (err) {
                     console.error("Win save error:", err);
+                    showCaptureToast("Save failed — try again", null);
                     setSavingWin(false);
                   }
                 }}

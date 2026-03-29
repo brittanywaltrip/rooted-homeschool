@@ -214,11 +214,25 @@ export default function SettingsPage() {
   const [yearSuccessToast, setYearSuccessToast] = useState(false);
 
   // Share with Family
+  type FamilyInvite = {
+    id: string; token: string; email: string; viewer_name: string | null;
+    is_active: boolean; trial_ends_at: string | null; last_visited_at: string | null;
+    first_visited_at: string | null;
+  };
+  const [familyInvites,     setFamilyInvites]     = useState<FamilyInvite[]>([]);
   const [familyInviteEmail, setFamilyInviteEmail] = useState("");
+  const [familyInviteName,  setFamilyInviteName]  = useState("");
   const [sendingInvite,     setSendingInvite]     = useState(false);
   const [inviteSent,        setInviteSent]        = useState(false);
   const [inviteError,       setInviteError]       = useState("");
-  const [familyInvites,     setFamilyInvites]     = useState<{ email: string; accepted: boolean; created_at: string }[]>([]);
+  const [editingInvite,     setEditingInvite]     = useState<string | null>(null);
+  const [editInvName,       setEditInvName]       = useState("");
+  const [editInvEmail,      setEditInvEmail]      = useState("");
+  const [editInvExpiry,     setEditInvExpiry]     = useState<"30" | "90" | "365" | "never">("90");
+  const [savingInvEdit,     setSavingInvEdit]     = useState(false);
+  const [resendingId,       setResendingId]       = useState<string | null>(null);
+  const [resentId,          setResentId]          = useState<string | null>(null);
+  const [actioningId,       setActioningId]       = useState<string | null>(null);
 
   // ── Load data ─────────────────────────────────────────────────────────────
 
@@ -278,29 +292,31 @@ export default function SettingsPage() {
       setAllAffiliates((allAff ?? []) as AffiliateRow[]);
     }
 
-    // Load family invites
+    // Load family invites (all viewers)
     const { data: invites } = await supabase
       .from("family_invites")
-      .select("email, accepted, created_at")
-      .eq("owner_user_id", user.id)
+      .select("id, token, email, viewer_name, is_active, trial_ends_at, last_visited_at, first_visited_at")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
-    setFamilyInvites((invites ?? []) as { email: string; accepted: boolean; created_at: string }[]);
+    if (invites) {
+      setFamilyInvites(invites as FamilyInvite[]);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   async function sendFamilyInvite() {
-    if (!familyInviteEmail.trim()) return;
+    if (!familyInviteEmail.trim() || !familyInviteName.trim()) return;
     setSendingInvite(true);
     setInviteError("");
     setInviteSent(false);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setInviteError("Not logged in"); setSendingInvite(false); return; }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setInviteError("Not logged in"); setSendingInvite(false); return; }
       const res = await fetch("/api/family/invite", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: familyInviteEmail.trim(), ownerUserId: user.id }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ email: familyInviteEmail.trim(), viewerName: familyInviteName.trim() }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -308,13 +324,84 @@ export default function SettingsPage() {
       } else {
         setInviteSent(true);
         setFamilyInviteEmail("");
-        setFamilyInvites((prev) => [{ email: familyInviteEmail.trim().toLowerCase(), accepted: false, created_at: new Date().toISOString() }, ...prev]);
+        setFamilyInviteName("");
         setTimeout(() => setInviteSent(false), 3000);
+        load(); // Refresh invites list
       }
     } catch {
       setInviteError("Network error");
     }
     setSendingInvite(false);
+  }
+
+  async function resendFamilyInvite(inv: FamilyInvite) {
+    setResendingId(inv.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await fetch("/api/family/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ email: inv.email, viewerName: inv.viewer_name ?? "Friend", resend: true }),
+      });
+      setResentId(inv.id);
+      setTimeout(() => setResentId(null), 3000);
+    } catch {}
+    setResendingId(null);
+  }
+
+  async function saveInviteEdit(inv: FamilyInvite) {
+    setSavingInvEdit(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const trialEndsAt = editInvExpiry === "never"
+        ? null
+        : new Date(Date.now() + Number(editInvExpiry) * 24 * 60 * 60 * 1000).toISOString();
+      await fetch("/api/family/invite", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          inviteId: inv.id,
+          viewerName: editInvName.trim() || undefined,
+          email: editInvEmail.trim() !== inv.email ? editInvEmail.trim() : undefined,
+          trialEndsAt,
+        }),
+      });
+      setEditingInvite(null);
+      load();
+    } catch {}
+    setSavingInvEdit(false);
+  }
+
+  async function revokeInvite(inv: FamilyInvite) {
+    setActioningId(inv.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await fetch("/api/family/invite", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ inviteId: inv.id, action: "revoke" }),
+      });
+      load();
+    } catch {}
+    setActioningId(null);
+  }
+
+  async function reactivateInvite(inv: FamilyInvite) {
+    setActioningId(inv.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await fetch("/api/family/invite", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
+        body: JSON.stringify({ inviteId: inv.id, action: "reactivate" }),
+      });
+      load();
+    } catch {}
+    setActioningId(null);
   }
 
   function showCopiedToast(msg = "Copied!") {
@@ -1164,50 +1251,174 @@ export default function SettingsPage() {
         </div>
       </section>}
 
-      {/* ── Share with Family ──────────────────────────────── */}
+      {/* ── Share your journey ──────────────────────────────── */}
       {activeTab === "family" && <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-[#2d2926]">Share with Family 🌿</h2>
+          <h2 className="text-sm font-semibold text-[#2d2926]">Share your journey 🌿</h2>
           <span className="h-px flex-1 bg-[#e8e2d9]" />
         </div>
 
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
-          <p className="text-xs text-[#7a6f65] leading-relaxed">
-            Invite grandparents, aunts, uncles, or anyone who wants to follow your family&apos;s story. They&apos;ll get a beautiful read-only view of your memories and can leave hearts on the ones they love.
-          </p>
+          {/* Viewer count */}
+          {(() => {
+            const activeCount = familyInvites.filter(i => i.is_active).length;
+            return activeCount > 0 ? (
+              <p className="text-xs text-[#5c7f63] font-medium">
+                {activeCount} {activeCount === 1 ? "person is" : "people are"} following your family&apos;s journey 🌿
+              </p>
+            ) : (
+              <p className="text-xs text-[#7a6f65] leading-relaxed">
+                Invite grandparents, aunts, uncles, or anyone who wants to follow your family&apos;s story. They&apos;ll see your memories and can leave reactions and comments.
+              </p>
+            );
+          })()}
 
-          <div className="flex gap-2">
+          {/* Invite form */}
+          <div className="space-y-2 pt-2 border-t border-[#f0ede8]">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Add a viewer</p>
+            <input
+              type="text"
+              value={familyInviteName}
+              onChange={(e) => setFamilyInviteName(e.target.value)}
+              placeholder="Viewer's name (e.g. Grandma Jean)"
+              className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+            />
             <input
               type="email"
               value={familyInviteEmail}
               onChange={(e) => { setFamilyInviteEmail(e.target.value); setInviteError(""); }}
-              placeholder="grandma@email.com"
-              className="flex-1 px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+              placeholder="Email address"
+              className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
               onKeyDown={(e) => { if (e.key === "Enter") sendFamilyInvite(); }}
             />
             <button
               onClick={sendFamilyInvite}
-              disabled={sendingInvite || !familyInviteEmail.trim()}
-              className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors whitespace-nowrap"
+              disabled={sendingInvite || !familyInviteEmail.trim() || !familyInviteName.trim()}
+              className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
             >
-              {sendingInvite ? "Sending..." : "Send invite →"}
+              {sendingInvite ? "Sending..." : "Send invite 🌿"}
             </button>
+            {inviteError && <p className="text-xs text-red-500">{inviteError}</p>}
+            {inviteSent && <p className="text-xs text-[#5c7f63] font-medium">Invite sent! They&apos;ll get an email with a link to your memories.</p>}
+            <p className="text-[11px] text-[#b5aca4]">Anyone with this link can view your family&apos;s memories. Only invite people you trust.</p>
           </div>
 
-          {inviteError && <p className="text-xs text-red-500">{inviteError}</p>}
-          {inviteSent && <p className="text-xs text-[#5c7f63] font-medium">Invite sent! They&apos;ll get an email with a link to your memories.</p>}
-
+          {/* Viewer list */}
           {familyInvites.length > 0 && (
             <div className="space-y-2 pt-2 border-t border-[#f0ede8]">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Invited</p>
-              {familyInvites.map((inv) => (
-                <div key={inv.email} className="flex items-center justify-between text-sm">
-                  <span className="text-[#2d2926] truncate">{inv.email}</span>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${inv.accepted ? "bg-[#e8f0e9] text-[#5c7f63]" : "bg-[#f0ede8] text-[#9a8f85]"}`}>
-                    {inv.accepted ? "Viewed" : "Pending"}
-                  </span>
-                </div>
-              ))}
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Your viewers</p>
+              {familyInvites.map((inv) => {
+                const isEditing = editingInvite === inv.id;
+                const daysAgoVisited = inv.last_visited_at
+                  ? Math.floor((Date.now() - new Date(inv.last_visited_at).getTime()) / (1000 * 60 * 60 * 24))
+                  : null;
+                const expiryInfo = (() => {
+                  if (!inv.trial_ends_at) return { label: "Access · Never expires", warn: false };
+                  const daysLeft = Math.ceil((new Date(inv.trial_ends_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                  if (daysLeft <= 0) return { label: "Expired", warn: true };
+                  if (daysLeft <= 7) return { label: `⚠️ Expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`, warn: true };
+                  return { label: `Expires ${new Date(inv.trial_ends_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`, warn: false };
+                })();
+
+                return (
+                  <div key={inv.id} className="bg-white border border-[#e8e2d9] rounded-xl p-3 space-y-2">
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        <input
+                          value={editInvName} onChange={(e) => setEditInvName(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                          placeholder="Name"
+                        />
+                        <input
+                          value={editInvEmail} onChange={(e) => setEditInvEmail(e.target.value)}
+                          className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                          placeholder="Email"
+                        />
+                        <div>
+                          <label className="text-[11px] text-[#7a6f65] mb-0.5 block">Access expires</label>
+                          <select
+                            value={editInvExpiry}
+                            onChange={(e) => setEditInvExpiry(e.target.value as "30" | "90" | "365" | "never")}
+                            className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                          >
+                            <option value="30">30 days</option>
+                            <option value="90">90 days</option>
+                            <option value="365">1 year</option>
+                            <option value="never">Never</option>
+                          </select>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditingInvite(null)} className="px-3 py-1.5 rounded-lg border border-[#e8e2d9] text-xs text-[#7a6f65]">Cancel</button>
+                          <button
+                            onClick={() => saveInviteEdit(inv)} disabled={savingInvEdit}
+                            className="px-3 py-1.5 rounded-lg bg-[#5c7f63] text-white text-xs font-medium disabled:opacity-50"
+                          >
+                            {savingInvEdit ? "Saving..." : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <p className="text-sm font-medium text-[#2d2926]">
+                            {inv.viewer_name ?? "Viewer"}
+                            <span className="ml-2 text-xs font-normal text-[#7a6f65]">{inv.email}</span>
+                          </p>
+                          <p className="text-[11px] text-[#b5aca4] mt-0.5">
+                            {inv.is_active ? (
+                              <>
+                                <span className="text-[#5c7f63] font-medium">Active</span>
+                                {" · "}<span className={expiryInfo.warn ? "text-amber-600 font-medium" : ""}>{expiryInfo.label}</span>
+                                {daysAgoVisited !== null ? (
+                                  <> · Last visited {daysAgoVisited === 0 ? "today" : `${daysAgoVisited}d ago`}</>
+                                ) : (
+                                  <> · Never opened</>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-[#c4697a] font-medium">Revoked</span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          {inv.is_active ? (
+                            <>
+                              <button
+                                onClick={() => { setEditingInvite(inv.id); setEditInvName(inv.viewer_name ?? ""); setEditInvEmail(inv.email); setEditInvExpiry(inv.trial_ends_at ? (() => { const days = Math.round((new Date(inv.trial_ends_at!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)); return days <= 30 ? "30" : days <= 90 ? "90" : "365"; })() as "30" | "90" | "365" : "never"); }}
+                                className="px-2.5 py-1 rounded-lg border border-[#e8e2d9] text-[11px] text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => resendFamilyInvite(inv)}
+                                disabled={resendingId === inv.id}
+                                className="px-2.5 py-1 rounded-lg border border-[#e8e2d9] text-[11px] text-[#7a6f65] hover:bg-[#f0ede8] transition-colors disabled:opacity-50"
+                              >
+                                {resentId === inv.id ? "Sent!" : resendingId === inv.id ? "Sending..." : "Resend invite"}
+                              </button>
+                              <button
+                                onClick={() => revokeInvite(inv)}
+                                disabled={actioningId === inv.id}
+                                className="px-2.5 py-1 rounded-lg border border-red-200 text-[11px] text-red-400 hover:bg-red-50 transition-colors disabled:opacity-50"
+                              >
+                                Revoke
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => reactivateInvite(inv)}
+                              disabled={actioningId === inv.id}
+                              className="px-2.5 py-1 rounded-lg bg-[#5c7f63] text-[11px] text-white font-medium hover:bg-[#3d5c42] transition-colors disabled:opacity-50"
+                            >
+                              {actioningId === inv.id ? "..." : "Re-invite"}
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { emailFooterText } from '@/lib/email-footer'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +15,7 @@ const FROM = 'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
 const SIGNATURE = `— Brittany Waltrip
 Founder, Rooted Homeschool App
 hello@rootedhomeschoolapp.com
-rootedhomeschoolapp.com`
+rootedhomeschoolapp.com${emailFooterText()}`
 
 export async function GET(req: NextRequest) {
   if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {

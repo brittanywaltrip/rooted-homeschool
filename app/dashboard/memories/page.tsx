@@ -24,6 +24,7 @@ type MemoryRow = {
   photo_url: string | null;
   include_in_book: boolean;
   favorite: boolean;
+  family_visible: boolean;
   page_order: number | null;
   created_at: string;
   updated_at: string;
@@ -75,6 +76,7 @@ function legacyToMemory(e: LegacyEvent): MemoryRow {
     photo_url: e.payload.photo_url ?? null,
     include_in_book: false,
     favorite: false,
+    family_visible: true,
     page_order: null,
     created_at: e.created_at,
     updated_at: e.created_at,
@@ -152,6 +154,30 @@ export default function MemoriesPage() {
   // Milestone prompt
   const [milestonePrompt, setMilestonePrompt] = useState<{ milestone: string; message: string; badgeEmoji: string } | null>(null);
 
+  // Highlight from notification deep link
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  useEffect(() => {
+    const h = searchParams.get("highlight");
+    if (h) {
+      setHighlightId(h);
+      // Scroll to the element after a short delay for render
+      setTimeout(() => {
+        const el = document.querySelector(`[data-memory-id="${h}"]`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 500);
+      // Remove highlight after 3 seconds
+      const timer = setTimeout(() => setHighlightId(null), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams]);
+
+  // Family reactions + notifications
+  const [reactionCounts, setReactionCounts] = useState<Record<string, { emoji: string; count: number }>>({}); // memory_id -> { top emoji, total count }
+  type FamilyNotif = { id: string; type: string; actor_name: string; emoji: string | null; preview: string | null; memory_id: string | null; created_at: string };
+  const [familyNotifs, setFamilyNotifs] = useState<FamilyNotif[]>([]);
+  const [showAllNotifs, setShowAllNotifs] = useState(false);
+  const [notifsDismissed, setNotifsDismissed] = useState(false);
+
   // Reflection view
   const [viewingReflection, setViewingReflection] = useState<Reflection | null>(null);
   const [editingReflection, setEditingReflection] = useState(false);
@@ -216,6 +242,40 @@ export default function MemoriesPage() {
       setMemories((events ?? []).map((e) => legacyToMemory(e as unknown as LegacyEvent)));
     }
 
+    // Fetch reaction counts for all loaded memories
+    const allMems = (memRows && memRows.length > 0) ? memRows : [];
+    const memIds = allMems.map((m: any) => m.id);
+    if (memIds.length > 0) {
+      const { data: reactions } = await supabase
+        .from("memory_reactions")
+        .select("memory_id, emoji")
+        .in("memory_id", memIds);
+      if (reactions && reactions.length > 0) {
+        const grouped: Record<string, Record<string, number>> = {};
+        reactions.forEach((r: any) => {
+          if (!grouped[r.memory_id]) grouped[r.memory_id] = {};
+          grouped[r.memory_id][r.emoji] = (grouped[r.memory_id][r.emoji] ?? 0) + 1;
+        });
+        const counts: Record<string, { emoji: string; count: number }> = {};
+        for (const [mid, emojis] of Object.entries(grouped)) {
+          const total = Object.values(emojis).reduce((s, n) => s + n, 0);
+          const topEmoji = Object.entries(emojis).sort((a, b) => b[1] - a[1])[0][0];
+          counts[mid] = { emoji: topEmoji, count: total };
+        }
+        setReactionCounts(counts);
+      }
+    }
+
+    // Fetch unread family notifications
+    const { data: notifs } = await supabase
+      .from("family_notifications")
+      .select("id, type, actor_name, emoji, preview, memory_id, created_at")
+      .eq("user_id", effectiveUserId)
+      .eq("read", false)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setFamilyNotifs((notifs ?? []) as FamilyNotif[]);
+
     } catch (err) {
       console.error("Failed to load memories:", err);
       setLoadError(true);
@@ -231,6 +291,15 @@ export default function MemoriesPage() {
     const match = memories.find((m) => m.id === openId);
     if (match) setSelectedMemory(match);
   }, [searchParams, loading, memories]);
+
+  async function dismissFamilyNotifs() {
+    setNotifsDismissed(true);
+    const ids = familyNotifs.map(n => n.id);
+    if (ids.length > 0) {
+      await supabase.from("family_notifications").update({ read: true }).in("id", ids);
+    }
+    setFamilyNotifs([]);
+  }
 
   // ── Milestone prompt for free users ─────────────────────────────────────────
   useEffect(() => {
@@ -299,6 +368,13 @@ export default function MemoriesPage() {
     setMemories((prev) => prev.map((mem) => (mem.id === m.id ? { ...mem, include_in_book: newVal } : mem)));
     if (selectedMemory?.id === m.id) setSelectedMemory({ ...m, include_in_book: newVal });
     await supabase.from("memories").update({ include_in_book: newVal, updated_at: new Date().toISOString() }).eq("id", m.id);
+  }
+
+  async function toggleFamilyVisible(m: MemoryRow) {
+    const newVal = !m.family_visible;
+    setMemories((prev) => prev.map((mem) => (mem.id === m.id ? { ...mem, family_visible: newVal } : mem)));
+    if (selectedMemory?.id === m.id) setSelectedMemory({ ...m, family_visible: newVal });
+    await supabase.from("memories").update({ family_visible: newVal, updated_at: new Date().toISOString() }).eq("id", m.id);
   }
 
   // ── Filter + Search ──────────────────────────────────────────────────────
@@ -517,6 +593,30 @@ export default function MemoriesPage() {
 
       {/* Header links */}
       <div className="flex justify-end gap-4 -mt-2 mb--1">
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (!session) return;
+              const res = await fetch("/api/family/viewers", {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              });
+              const json = await res.json();
+              const active = (json.viewers ?? []).find((v: { is_active: boolean }) => v.is_active);
+              if (active?.token) {
+                window.open(`/family/${active.token}`, "_blank");
+              } else {
+                alert("Invite a family member first in Settings.");
+              }
+            } catch {
+              alert("Invite a family member first in Settings.");
+            }
+          }}
+          className="text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors cursor-pointer"
+        >
+          Preview as family 👀
+        </button>
         <Link href="/dashboard/memories/yearbook" className="text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
           📖 Yearbook
         </Link>
@@ -633,6 +733,47 @@ export default function MemoriesPage() {
         </div>
       </div>
 
+      {/* ── Family notifications banner ──────────────────── */}
+      {!notifsDismissed && familyNotifs.length > 0 && (
+        <div style={{ background: "#fff8f0", border: "0.5px solid #f0c878", borderRadius: 12, padding: "10px 13px", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>🔔</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {/* Most recent notification */}
+              <p style={{ fontSize: 12, fontWeight: 600, color: "#7a5000", margin: 0 }}>
+                {familyNotifs[0].actor_name}{" "}
+                {familyNotifs[0].type === "reaction"
+                  ? `reacted ${familyNotifs[0].emoji ?? "❤️"}`
+                  : "commented"}{" "}
+                {familyNotifs[0].preview ? `"${familyNotifs[0].preview.slice(0, 40)}${familyNotifs[0].preview.length > 40 ? "…" : ""}"` : "on a memory"}
+              </p>
+
+              {/* Show all / collapse */}
+              {familyNotifs.length > 1 && !showAllNotifs && (
+                <button
+                  onClick={() => setShowAllNotifs(true)}
+                  style={{ fontSize: 11, color: "#a07000", marginTop: 4, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                >
+                  See all {familyNotifs.length} →
+                </button>
+              )}
+              {showAllNotifs && familyNotifs.slice(1).map((n) => (
+                <p key={n.id} style={{ fontSize: 11, color: "#7a5000", margin: "4px 0 0" }}>
+                  {n.actor_name} {n.type === "reaction" ? `reacted ${n.emoji ?? "❤️"}` : `commented: "${(n.preview ?? "").slice(0, 40)}"`}
+                </p>
+              ))}
+            </div>
+            <button
+              onClick={dismissFamilyNotifs}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#c8bfb5", fontSize: 16, padding: 0, flexShrink: 0, lineHeight: 1 }}
+              aria-label="Dismiss notifications"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Free user upgrade banner */}
       {!isPro && !loading && (
         <UpgradePrompt
@@ -735,7 +876,8 @@ export default function MemoriesPage() {
                 )}
                 <button
                   key={m.id}
-                  className="group relative aspect-square bg-[#f0ede8] focus:outline-none text-left overflow-hidden"
+                  data-memory-id={m.id}
+                  className={`group relative aspect-square bg-[#f0ede8] focus:outline-none text-left overflow-hidden${highlightId === m.id ? " ring-2 ring-green-400 animate-pulse" : ""}`}
                   onClick={() => { setSelectedMemory(m); setLightboxDeleteConfirm(false); }}
                 >
                   {/* Photo or type tile */}
@@ -792,6 +934,17 @@ export default function MemoriesPage() {
                   <span style={{ position: "absolute", bottom: 4, left: 5, fontSize: 9, color: "rgba(255,255,255,0.75)" }}>
                     {new Date(m.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                   </span>
+
+                  {/* Reaction count pill */}
+                  {reactionCounts[m.id] && reactionCounts[m.id].count > 0 && (
+                    <span style={{
+                      position: "absolute", bottom: 4, right: 5, fontSize: 9, color: "white",
+                      background: "rgba(0,0,0,0.4)", borderRadius: 8, padding: "2px 5px",
+                      lineHeight: 1.2, pointerEvents: "none",
+                    }}>
+                      {reactionCounts[m.id].emoji} {reactionCounts[m.id].count}
+                    </span>
+                  )}
                 </button></>
               );
             });
@@ -903,11 +1056,24 @@ export default function MemoriesPage() {
                 <span className="text-[10px] text-[#b5aca4]">Share with family — coming soon</span>
               </div>
 
-              {selectedMemory.include_in_book && (
-                <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#5c7f63]">
-                  ☑ In yearbook
-                </span>
-              )}
+              {/* Visibility badges */}
+              <div className="flex flex-wrap gap-1.5">
+                {selectedMemory.include_in_book && (
+                  <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#5c7f63]">
+                    ☑ In yearbook
+                  </span>
+                )}
+                <button
+                  onClick={() => toggleFamilyVisible(selectedMemory)}
+                  className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full transition-colors ${
+                    selectedMemory.family_visible !== false
+                      ? "bg-[#e8f0e9] text-[#5c7f63]"
+                      : "bg-[#f0ede8] text-[#b5aca4]"
+                  }`}
+                >
+                  {selectedMemory.family_visible !== false ? "👁 Visible to family" : "🔒 Private"}
+                </button>
+              </div>
 
               {/* ── Action buttons: Edit, Yearbook, Delete ── */}
               {!isPartner && (
