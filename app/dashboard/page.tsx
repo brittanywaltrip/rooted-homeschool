@@ -1742,17 +1742,11 @@ export default function TodayPage() {
         <>
           <div className="space-y-2">
             <button
-              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
+              onClick={() => setShowCaptureMenu(true)}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
               style={{ background: "#2d5a3d" }}
             >
-              📸 Capture a memory
-            </button>
-            <button
-              onClick={() => setShowCaptureMenu(true)}
-              className="w-full text-center text-xs text-[#9a8f85] hover:text-[#7a6f65] transition-colors py-0.5"
-            >
-              Or log a win, book, drawing, field trip →
+              ✚ Capture a memory
             </button>
           </div>
           <input
