@@ -285,11 +285,22 @@ export default function YearbookPage() {
     <>
       <PageHero
         overline={`${yearLabel} School Year`}
-        title="Your Family Yearbook 📖"
+        title={`Your ${yearLabel} Yearbook 📖`}
         subtitle={memories.length === 0
           ? "Your pages are waiting"
-          : `${memories.length} memor${memories.length === 1 ? "y" : "ies"} bookmarked`}
-      />
+          : `${memories.length} memor${memories.length === 1 ? "y" : "ies"} curated`}
+      >
+        <Link
+          href="/dashboard/memories/yearbook/read"
+          className={`mt-4 block w-full text-center text-[15px] font-semibold px-5 py-3.5 rounded-xl ${
+            memories.length === 0
+              ? "opacity-50 pointer-events-none bg-white/80 text-[#3d5c42]"
+              : "bg-white text-[#3d5c42] active:scale-[0.98] transition-transform"
+          }`}
+        >
+          📖 Read Your Yearbook
+        </Link>
+      </PageHero>
 
       <div className="max-w-3xl mx-auto px-4 pt-5 pb-20">
 
@@ -312,26 +323,16 @@ export default function YearbookPage() {
           </div>
         )}
 
-        {/* ── Action buttons ──────────────────────────────────── */}
-        <div className="flex gap-3 mb-4">
+        {/* ── Edit link ────────────────────────────────────────── */}
+        <div className="flex justify-end mb-4">
           <Link
             href="/dashboard/memories/yearbook/edit"
-            className="relative flex-1 text-center bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-xl"
+            className="relative text-[13px] font-medium text-[#3d5c42] underline underline-offset-2"
           >
-            Edit your book ✏️
+            ✏️ Edit memories
             {progressPct < 100 && (
-              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#8cba8e]" />
+              <span className="ml-1.5 inline-block w-2 h-2 rounded-full bg-[#8cba8e] align-middle" />
             )}
-          </Link>
-          <Link
-            href="/dashboard/memories/yearbook/read"
-            className={`flex-1 text-center text-sm font-semibold px-5 py-3 rounded-xl border border-[#c0dd97] ${
-              memories.length === 0
-                ? "opacity-50 pointer-events-none bg-[#f0ede5] text-[#3d5c42]"
-                : "bg-[#f0ede5] text-[#3d5c42]"
-            }`}
-          >
-            View as book →
           </Link>
         </div>
 
