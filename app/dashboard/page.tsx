@@ -2440,7 +2440,7 @@ export default function TodayPage() {
                       date: today,
                       type: winType,
                       title: winText.trim(),
-                      include_in_book: false,
+                      ...(['win','quote'].includes(winType) ? { include_in_book: true } : { include_in_book: false }),
                       created_at: nowW, updated_at: nowW,
                     }).select("id").single();
                     console.log("[Win save] result:", { data: ins, error });

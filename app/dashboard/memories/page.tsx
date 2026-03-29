@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { X, MoreHorizontal, Trash2, Pencil, Heart, Search, Mic, BookmarkCheck } from "lucide-react";
+import YearbookBookmark from "@/app/components/YearbookBookmark";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -935,6 +936,20 @@ export default function MemoriesPage() {
                     {new Date(m.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                   </span>
 
+                  {/* Yearbook bookmark */}
+                  {!isPartner && (
+                    <div className="absolute top-0.5 right-0.5 z-10">
+                      <YearbookBookmark
+                        memoryId={m.id}
+                        initialValue={m.include_in_book}
+                        size="sm"
+                        onChange={(val) => {
+                          setMemories((prev) => prev.map((mem) => mem.id === m.id ? { ...mem, include_in_book: val } : mem));
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {/* Reaction count pill */}
                   {reactionCounts[m.id] && reactionCounts[m.id].count > 0 && (
                     <span style={{
@@ -1075,25 +1090,26 @@ export default function MemoriesPage() {
                 </button>
               </div>
 
-              {/* ── Action buttons: Edit, Yearbook, Delete ── */}
+              {/* ── Action buttons: Edit, Yearbook Bookmark, Delete ── */}
               {!isPartner && (
-                <div className="flex gap-2 pt-1">
+                <div className="flex gap-2 pt-1 items-center">
                   <button
                     onClick={() => openEdit(selectedMemory)}
                     className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors flex items-center justify-center gap-1.5"
                   >
                     <Pencil size={14} /> Edit
                   </button>
-                  <button
-                    onClick={() => toggleYearbook(selectedMemory)}
-                    className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
-                      selectedMemory.include_in_book
-                        ? "border-[#5c7f63] bg-[#e8f0e9] text-[#5c7f63]"
-                        : "border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8]"
-                    }`}
-                  >
-                    <BookmarkCheck size={14} /> Yearbook
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <YearbookBookmark
+                      memoryId={selectedMemory.id}
+                      initialValue={selectedMemory.include_in_book}
+                      size="md"
+                      onChange={(val) => {
+                        setMemories((prev) => prev.map((mem) => mem.id === selectedMemory.id ? { ...mem, include_in_book: val } : mem));
+                        setSelectedMemory({ ...selectedMemory, include_in_book: val });
+                      }}
+                    />
+                  </div>
                   {!lightboxDeleteConfirm ? (
                     <button
                       onClick={() => setLightboxDeleteConfirm(true)}
@@ -1212,17 +1228,27 @@ export default function MemoriesPage() {
                 </div>
               </div>
 
-              {/* Include in yearbook toggle */}
-              <button
-                onClick={() => setEditInBook(!editInBook)}
-                className="flex items-center gap-2.5 w-full"
-                type="button"
-              >
-                <div className={`w-9 h-5 rounded-full transition-colors relative ${editInBook ? "bg-[#5c7f63]" : "bg-[#e8e2d9]"}`}>
-                  <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${editInBook ? "translate-x-[18px]" : "translate-x-[2px]"}`} />
-                </div>
-                <span className="text-sm text-[#2d2926]">Include in yearbook</span>
-              </button>
+              {/* Yearbook bookmark row */}
+              {!isPartner && (
+                <button
+                  onClick={() => setEditInBook(!editInBook)}
+                  className="flex items-center gap-2.5 w-full"
+                  type="button"
+                >
+                  <YearbookBookmark
+                    memoryId={editing.id}
+                    initialValue={editInBook}
+                    size="md"
+                    onChange={(val) => {
+                      setEditInBook(val);
+                      setMemories((prev) => prev.map((mem) => mem.id === editing.id ? { ...mem, include_in_book: val } : mem));
+                    }}
+                  />
+                  <span className="text-sm text-[#2d2926]">
+                    {editInBook ? "In your yearbook" : "Add to yearbook"}
+                  </span>
+                </button>
+              )}
             </div>
 
             <div className="flex gap-2 pt-1">

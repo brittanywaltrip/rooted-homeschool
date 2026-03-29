@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
+import YearbookBookmark from "@/app/components/YearbookBookmark";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,13 @@ type MemoryRow = {
 };
 
 type Child = { id: string; name: string; color: string | null };
+
+type YearbookContentRow = {
+  content_type: string;
+  child_id: string | null;
+  question_key: string | null;
+  content: string;
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -42,27 +50,77 @@ export default function YearbookPage() {
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [yearbookKey, setYearbookKey] = useState("");
+  const [filledCount, setFilledCount] = useState(0);
+  const [familyName, setFamilyName] = useState("");
 
-  useEffect(() => { document.title = "Yearbook \u00b7 Rooted"; }, []);
+  useEffect(() => { document.title = "Yearbook · Rooted"; }, []);
 
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
-    const [{ data: mems }, { data: kids }] = await Promise.all([
-      supabase
-        .from("memories")
-        .select("id, child_id, date, type, title, caption, photo_url, include_in_book")
-        .eq("user_id", effectiveUserId)
-        .eq("include_in_book", true)
-        .order("date", { ascending: true }),
+
+    // 1. Fetch profile
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("yearbook_opened_at, yearbook_closed_at, display_name")
+      .eq("id", effectiveUserId)
+      .single();
+
+    // 2. Set yearbook_opened_at if null
+    let openedAt = profile?.yearbook_opened_at;
+    if (!openedAt) {
+      const now = new Date().toISOString();
+      await supabase.from("profiles").update({ yearbook_opened_at: now }).eq("id", effectiveUserId);
+      openedAt = now;
+    }
+
+    setFamilyName(profile?.display_name ?? "Our Family");
+
+    // 3. Compute yearbook_key
+    const m = new Date(openedAt).getMonth();
+    const y = new Date(openedAt).getFullYear();
+    const startYear = m >= 7 ? y : y - 1;
+    const key = `${startYear}-${String(startYear + 1).slice(2)}`;
+    setYearbookKey(key);
+
+    // 4-6. Fetch memories, children, yearbook_content in parallel
+    const closedAt = profile?.yearbook_closed_at;
+    let memsQuery = supabase
+      .from("memories")
+      .select("id, child_id, date, type, title, caption, photo_url, include_in_book")
+      .eq("user_id", effectiveUserId)
+      .eq("include_in_book", true)
+      .gte("date", openedAt.slice(0, 10))
+      .order("date", { ascending: true });
+
+    if (closedAt) {
+      memsQuery = memsQuery.lte("date", closedAt.slice(0, 10));
+    }
+
+    const [{ data: mems }, { data: kids }, { data: ybContent }] = await Promise.all([
+      memsQuery,
       supabase
         .from("children")
         .select("id, name, color")
         .eq("user_id", effectiveUserId)
         .eq("archived", false)
         .order("sort_order"),
+      supabase
+        .from("yearbook_content")
+        .select("content_type, child_id, question_key, content")
+        .eq("user_id", effectiveUserId)
+        .eq("yearbook_key", key),
     ]);
+
     setMemories((mems ?? []) as MemoryRow[]);
-    setChildren((kids ?? []) as Child[]);
+    const childList = (kids ?? []) as Child[];
+    setChildren(childList);
+
+    // Compute filled count
+    const rows = (ybContent ?? []) as YearbookContentRow[];
+    const filled = rows.filter((r) => r.content.trim().length > 0).length;
+    setFilledCount(filled);
+
     setLoading(false);
   }, [effectiveUserId]);
 
@@ -81,17 +139,24 @@ export default function YearbookPage() {
     setConfirmId(null);
   }
 
-  // ── Group into chapters ──────────────────────────────────────────────────
+  // ── Stats ───────────────────────────────────────────────────────────────────
+
+  const photoCount = memories.filter((m) => m.type === "photo" || m.type === "drawing").length;
+  const bookCount = memories.filter((m) => m.type === "book").length;
+  const winCount = memories.filter((m) => m.type === "win").length;
+  const quoteCount = memories.filter((m) => m.type === "quote").length;
+
+  // totalCount for progress: 1 (letter) + 1 (fav moment) + 1 (fav quote) + children * 7
+  const totalCount = 3 + children.length * 7;
+  const progressPct = totalCount > 0 ? Math.min(100, Math.round((filledCount / totalCount) * 100)) : 0;
+
+  // ── Group into chapters ─────────────────────────────────────────────────────
 
   const familyMemories = memories.filter((m) => !m.child_id);
-  const childChapters = children
-    .map((c) => ({ child: c, mems: memories.filter((m) => m.child_id === c.id) }))
-    .filter((ch) => ch.mems.length > 0);
-
-  // School year label
-  const now = new Date();
-  const syYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
-  const yearLabel = `${syYear}\u2013${syYear + 1}`;
+  const childChapters = children.map((c) => ({
+    child: c,
+    mems: memories.filter((m) => m.child_id === c.id),
+  }));
 
   if (loading) {
     return (
@@ -104,12 +169,13 @@ export default function YearbookPage() {
     );
   }
 
-  // ── Tile renderer ────────────────────────────────────────────────────────
+  // ── Tile renderer ───────────────────────────────────────────────────────────
 
   function MemoryTile({ m }: { m: MemoryRow }) {
     return (
       <div className="group relative aspect-square bg-[#f0ede8] overflow-hidden rounded-lg">
         {m.photo_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img src={m.photo_url} alt={m.title ?? "Memory"} className="w-full h-full object-cover" />
         ) : (
           <div className={`w-full h-full flex flex-col items-center justify-center px-2 ${
@@ -184,7 +250,7 @@ export default function YearbookPage() {
     );
   }
 
-  // ── Chapter renderer ─────────────────────────────────────────────────────
+  // ── Chapter renderer ────────────────────────────────────────────────────────
 
   function Chapter({ title, color, mems }: { title: string; color?: string; mems: MemoryRow[] }) {
     return (
@@ -208,53 +274,147 @@ export default function YearbookPage() {
   return (
     <>
       <PageHero
-        overline={`${yearLabel} School Year`}
-        title={`Your ${yearLabel} Yearbook 📖`}
-        subtitle={`${memories.length} memor${memories.length === 1 ? "y" : "ies"} curated`}
+        overline={`${yearbookKey} School Year`}
+        title="Your Family Yearbook 📖"
+        subtitle={memories.length === 0
+          ? "Your pages are waiting"
+          : `${memories.length} memor${memories.length === 1 ? "y" : "ies"} bookmarked`}
       />
 
-      <div className="max-w-3xl mx-auto px-4 pt-5 pb-7 space-y-8">
+      <div className="max-w-3xl mx-auto px-4 pt-5 pb-20">
 
-        {/* Back link */}
-        <Link href="/dashboard/memories" className="inline-flex items-center gap-1.5 text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
-          ← Back to Memories
-        </Link>
-
-        {/* ── Empty state ──────────────────────────────────────── */}
-        {memories.length === 0 ? (
-          <div className="py-12 flex flex-col items-center text-center">
-            <span className="text-[52px] block mb-3">📖</span>
-            <p className="text-lg font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
-              Your yearbook is empty
-            </p>
-            <p className="text-sm text-[#7a6f65] mb-5 max-w-xs">
-              Tap 🔖 on any memory to add it to your yearbook.
-            </p>
-            <Link
-              href="/dashboard/memories"
-              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
-            >
-              Browse Memories →
-            </Link>
+        {/* ── Cover card ──────────────────────────────────────── */}
+        <div className="rounded-2xl overflow-hidden border border-[#c0dd97]" style={{ background: "#faf6f0" }}>
+          {/* Top strip */}
+          <div className="relative overflow-hidden px-4 py-3" style={{ background: "#3d5c42" }}>
+            <span className="absolute top-1 right-2 text-[72px] leading-none opacity-[0.06] select-none pointer-events-none">🌿</span>
+            <span className="absolute -bottom-2 left-1 text-[56px] leading-none opacity-[0.05] select-none pointer-events-none">🌱</span>
+            <div className="relative z-10 flex items-start justify-between">
+              <div>
+                <p className="text-[18px] font-bold text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>
+                  {familyName}
+                </p>
+                <p className="text-[10px] text-[#8cba8e] uppercase tracking-wider mt-0.5">
+                  {yearbookKey} school year
+                </p>
+              </div>
+              <span className="bg-white/[0.12] text-[9px] text-[#c8e6c4] px-3 py-1 rounded-full mt-1">
+                {memories.length} memories
+              </span>
+            </div>
           </div>
-        ) : (
-          <>
-            {/* ── Family chapter ────────────────────────────────── */}
+
+          {/* Bottom strip — stats */}
+          <div className="px-4 py-3 flex items-center justify-between">
+            {[
+              { label: "Photos", count: photoCount },
+              { label: "Books", count: bookCount },
+              { label: "Wins", count: winCount },
+              { label: "Quotes", count: quoteCount },
+            ].map((stat, i) => (
+              <div key={stat.label} className="flex-1 text-center relative">
+                {i > 0 && <div className="absolute left-0 top-1 bottom-1 w-px bg-[#e8e2d9]" />}
+                <p className="text-[18px] font-bold text-[#3d5c42]">{stat.count}</p>
+                <p className="text-[10px] text-[#9a8f85]">{stat.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Progress bar ────────────────────────────────────── */}
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] text-[#9a8f85]">Pages filling up</span>
+            <span className="text-[11px] text-[#9a8f85]">{filledCount} of {totalCount} sections complete</span>
+          </div>
+          <div className="h-[5px] bg-[#e8e3dc] rounded-full overflow-hidden">
+            <div
+              className="h-full bg-[#3d5c42] rounded-full transition-all duration-500"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        </div>
+
+        {/* ── Action buttons ──────────────────────────────────── */}
+        <div className="flex gap-3 mt-4">
+          <Link
+            href="/dashboard/memories/yearbook/edit"
+            className="relative flex-1 text-center bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-xl"
+          >
+            Edit your book ✏️
+            {progressPct < 100 && (
+              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-[#8cba8e]" />
+            )}
+          </Link>
+          <Link
+            href="/dashboard/memories/yearbook/read"
+            className={`flex-1 text-center text-sm font-semibold px-5 py-3 rounded-xl border border-[#c0dd97] ${
+              memories.length === 0
+                ? "opacity-50 pointer-events-none bg-[#f0ede5] text-[#3d5c42]"
+                : "bg-[#f0ede5] text-[#3d5c42]"
+            }`}
+          >
+            View as book →
+          </Link>
+        </div>
+
+        {/* ── Empty state ─────────────────────────────────────── */}
+        {memories.length === 0 && (
+          <div className="mt-6 space-y-4">
+            <p className="text-[#5a5048] italic text-sm" style={{ fontFamily: "Georgia, serif" }}>
+              Wins, quotes, and books are added automatically.{" "}
+              Tap 🔖 on any photo or memory to add it to your yearbook.
+            </p>
+            <span className="inline-block bg-[#eaf3de] text-[#3B6D11] text-[10px] rounded-full px-3 py-1">
+              ● Wins, quotes &amp; books added automatically
+            </span>
+
+            {/* Ghost chapters */}
+            {children.map((child) => (
+              <div key={child.id} className="rounded-xl p-4 border border-dashed border-[#d4cfc8] bg-[#faf8f3]">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-5 h-5 rounded-full" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
+                  <span className="text-sm font-medium text-[#2d2926]">{child.name}</span>
+                  <span className="text-[10px] text-[#b5aca4]">0 memories</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="aspect-square rounded-lg border border-dashed border-[#d4cfc8] bg-[#f5f0e8]" />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Chapter grid ────────────────────────────────────── */}
+        {memories.length > 0 && (
+          <div className="space-y-8 mt-6">
+            {/* Family chapter */}
             {familyMemories.length > 0 && (
               <Chapter title="Our Family" mems={familyMemories} />
             )}
 
-            {/* ── Per-child chapters ───────────────────────────── */}
+            {/* Per-child chapters */}
             {childChapters.map(({ child, mems }) => (
-              <Chapter
-                key={child.id}
-                title={`${child.name}\u2019s Year`}
-                color={child.color ?? "#5c7f63"}
-                mems={mems}
-              />
+              mems.length > 0 ? (
+                <Chapter
+                  key={child.id}
+                  title={`${child.name}\u2019s Year`}
+                  color={child.color ?? "#5c7f63"}
+                  mems={mems}
+                />
+              ) : (
+                <div key={child.id} className="bg-[#faf8f3] rounded-xl p-4 border border-dashed border-[#d4cfc8]">
+                  <p className="text-[12px] text-[#9a8f85] italic">
+                    {child.name}&apos;s chapter is empty — log a win, quote, or book for{" "}
+                    {child.name} and it&apos;ll appear here automatically.
+                  </p>
+                </div>
+              )
             ))}
 
-            {/* ── Print CTA ────────────────────────────────────── */}
+            {/* ── Print CTA ───────────────────────────────────── */}
             <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-6 text-center">
               <p className="text-lg font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                 Ready to print? 📚
@@ -268,9 +428,9 @@ export default function YearbookPage() {
               >
                 🖨️ Print Yearbook · Coming Soon
               </button>
-              <p className="text-xs text-[#7a6f65] mt-2">Print orders coming soon — we're working on something beautiful.</p>
+              <p className="text-xs text-[#7a6f65] mt-2">Print orders coming soon — we&apos;re working on something beautiful.</p>
             </div>
-          </>
+          </div>
         )}
       </div>
     </>
