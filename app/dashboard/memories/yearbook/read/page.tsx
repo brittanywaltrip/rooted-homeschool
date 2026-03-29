@@ -774,24 +774,24 @@ export default function YearbookReadPage() {
             if (swipeHintVisible) setSwipeHintVisible(false);
           }}
         >
-          {/* Tap zones */}
+          {/* Half-screen tap zones — full left/right halves for page turning */}
           <button
-            className="absolute top-0 left-0 w-[30%] h-full z-20"
+            className="absolute top-0 left-0 w-1/2 h-full z-10"
             onClick={() => { goPrev(); if (swipeHintVisible) setSwipeHintVisible(false); }}
             aria-label="Previous page"
           />
           <button
-            className="absolute top-0 right-0 w-[30%] h-full z-20"
+            className="absolute top-0 right-0 w-1/2 h-full z-10"
             onClick={() => { goNext(); if (swipeHintVisible) setSwipeHintVisible(false); }}
             aria-label="Next page"
           />
 
-          {/* Visible arrow buttons — vertically centered */}
+          {/* Visible arrow buttons — positioned at ~37% from top to clear bottom UI chrome */}
           {safePage > 0 && (
             <button
               onClick={() => { goPrev(); if (swipeHintVisible) setSwipeHintVisible(false); }}
-              className="absolute left-2 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full flex items-center justify-center text-white/70 active:text-white"
-              style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)", minWidth: 44, minHeight: 44 }}
+              className="absolute left-2 z-20 w-11 h-11 rounded-full flex items-center justify-center text-white/70 active:text-white"
+              style={{ top: "37%", background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)", minWidth: 44, minHeight: 44 }}
               aria-label="Previous page"
             >
               <span className="text-lg">‹</span>
@@ -800,8 +800,8 @@ export default function YearbookReadPage() {
           {safePage < maxPage && (
             <button
               onClick={() => { goNext(); if (swipeHintVisible) setSwipeHintVisible(false); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full flex items-center justify-center text-white/70 active:text-white"
-              style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)", minWidth: 44, minHeight: 44 }}
+              className="absolute right-2 z-20 w-11 h-11 rounded-full flex items-center justify-center text-white/70 active:text-white"
+              style={{ top: "37%", background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)", minWidth: 44, minHeight: 44 }}
               aria-label="Next page"
             >
               <span className="text-lg">›</span>
