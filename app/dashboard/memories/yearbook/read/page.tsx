@@ -61,16 +61,18 @@ function Spine() {
 
 // ─── Page Wrapper ─────────────────────────────────────────────────────────────
 
-function PageShell({ children, bg = "#faf6f0", pageNum, align = "left" }: {
+function PageShell({ children, bg = "#faf6f0", pageNum, align = "left", center = false }: {
   children: ReactNode;
   bg?: string;
   pageNum?: number;
   align?: "left" | "right";
+  /** Vertically center content — use for sparse pages */
+  center?: boolean;
 }) {
   return (
     <div className="relative flex flex-col w-full h-full overflow-hidden" style={{ background: bg }}>
       {align === "left" && <Spine />}
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col">
+      <div className={`flex-1 overflow-y-auto p-4 flex flex-col${center ? " justify-center" : ""}`}>
         {children}
       </div>
       {pageNum !== undefined && (
@@ -78,6 +80,65 @@ function PageShell({ children, bg = "#faf6f0", pageNum, align = "left" }: {
           {pageNum}
         </span>
       )}
+    </div>
+  );
+}
+
+// ─── Photo Grid — adaptive layout based on count ─────────────────────────────
+
+function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
+  if (photos.length === 0) return null;
+
+  if (photos.length === 1) {
+    return (
+      <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "4/3" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={photos[0].photo_url!} alt="" className="w-full h-full object-cover" />
+      </div>
+    );
+  }
+
+  if (photos.length === 2) {
+    return (
+      <div className="grid grid-cols-2 gap-1.5">
+        {photos.map((p) => (
+          <div key={p.id} className="aspect-square rounded overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={p.photo_url!} alt="" className="w-full h-full object-cover" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (photos.length === 3) {
+    return (
+      <div className="space-y-1.5">
+        <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "16/9" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photos[0].photo_url!} alt="" className="w-full h-full object-cover" />
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {photos.slice(1).map((p) => (
+            <div key={p.id} className="aspect-square rounded overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={p.photo_url!} alt="" className="w-full h-full object-cover" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // 4+: 2×2 grid
+  return (
+    <div className="grid grid-cols-2 gap-1.5">
+      {photos.slice(0, 4).map((p) => (
+        <div key={p.id} className="aspect-square rounded overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={p.photo_url!} alt="" className="w-full h-full object-cover" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -214,29 +275,41 @@ export default function YearbookReadPage() {
     label: "Cover",
     leftContent: (
       <div className="relative flex flex-col w-full h-full overflow-hidden" style={{ background: "#3d5c42" }}>
-        <span className="absolute top-2 right-3 text-[100px] opacity-[0.06] select-none pointer-events-none">🌿</span>
-        <span className="absolute -bottom-2 left-2 text-[80px] opacity-[0.05] select-none pointer-events-none">🌱</span>
-        <div className="flex-1 flex flex-col p-5 relative z-10">
-          <div className="pt-4">
-            <p className="text-[10px] font-semibold tracking-[0.12em] uppercase text-[#8cba8e]">
-              {yearLabel} School Year
-            </p>
-            <h1 className="text-[26px] font-bold leading-tight text-[#fefcf9] mt-2" style={{ fontFamily: "var(--font-display)" }}>
-              {familyName}<br />Yearbook
-            </h1>
-            <p className="text-[11px] text-white/60 mt-1">Rooted Homeschool</p>
-          </div>
-          <div className="flex-1 mx-3 my-4 rounded-lg overflow-hidden" style={{ background: "#2a4430" }}>
-            <div className="w-full h-full flex items-center justify-center">
-              <span className="italic text-[10px] text-white/25">Your cover photo will appear here</span>
-            </div>
-          </div>
-          <div className="flex justify-between items-center px-4 pb-4">
-            <span className="text-[9px] tracking-[0.18em] text-[#8cba8e]">ROOTED</span>
-            <span className="bg-white/10 text-[9px] text-[#c8e6c4] px-3 py-1 rounded-full">
-              {memories.length} memories
-            </span>
-          </div>
+        {/* Layered botanical watermarks */}
+        <span className="absolute top-6 right-4 text-[120px] opacity-[0.06] select-none pointer-events-none" style={{ transform: "rotate(-15deg)" }}>🌿</span>
+        <span className="absolute bottom-10 left-3 text-[100px] opacity-[0.05] select-none pointer-events-none" style={{ transform: "rotate(20deg)" }}>🍃</span>
+        <span className="absolute top-1/3 left-1/2 -translate-x-1/2 text-[160px] opacity-[0.03] select-none pointer-events-none">🌱</span>
+
+        <div className="flex-1 flex flex-col items-center justify-center p-6 relative z-10 text-center">
+          <div className="w-12 h-px bg-[#8cba8e]/40 mb-5" />
+
+          <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#8cba8e] mb-3">
+            {yearLabel}
+          </p>
+
+          <h1 className="text-[28px] leading-snug text-[#fefcf9]" style={{ fontFamily: "Georgia, serif" }}>
+            The {familyName}<br />Yearbook
+          </h1>
+
+          <div className="w-9 h-px bg-[#8cba8e]/30 my-5" />
+
+          <p className="text-[11px] text-white/45 italic max-w-[220px]" style={{ fontFamily: "Georgia, serif" }}>
+            A year of learning, growing,{"\n"}and making memories
+          </p>
+
+          <Link
+            href="/dashboard/memories/yearbook/edit"
+            className="mt-6 inline-flex items-center gap-1.5 bg-white/10 text-[11px] text-[#c8e6c4] font-medium px-4 py-2 rounded-lg transition-colors active:bg-white/15"
+          >
+            ✚ Add a cover photo
+          </Link>
+        </div>
+
+        <div className="flex justify-between items-center px-5 pb-4 relative z-10">
+          <span className="text-[9px] tracking-[0.18em] text-[#8cba8e]/60">ROOTED</span>
+          <span className="bg-white/10 text-[9px] text-[#c8e6c4] px-3 py-1 rounded-full">
+            {memories.length} memories
+          </span>
         </div>
       </div>
     ),
@@ -276,18 +349,24 @@ export default function YearbookReadPage() {
           <p className="text-[9px] text-[#b5aca4] mt-0.5">A message from the heart</p>
           <div className="h-px bg-[#ddd5c0] my-3" style={{ height: 0.5 }} />
         </div>
-        <div className="flex-1">
+        <div className="flex-1 flex flex-col">
           {letterText.trim() ? (
-            <p className="text-[10px] italic text-[#4a4540] leading-relaxed whitespace-pre-wrap" style={{ fontFamily: "Georgia, serif" }}>
-              {letterText}
-            </p>
+            <>
+              <p className="text-[10px] italic text-[#4a4540] leading-relaxed whitespace-pre-wrap" style={{ fontFamily: "Georgia, serif" }}>
+                {letterText}
+              </p>
+              <p className="italic text-[11px] text-[#5c7f63] mt-3" style={{ fontFamily: "Georgia, serif" }}>With love</p>
+            </>
           ) : (
-            <p className="text-[10px] italic text-[#c4b89a]" style={{ fontFamily: "Georgia, serif" }}>
-              No letter yet — tap &apos;Edit your book&apos; to write one.
-            </p>
-          )}
-          {letterText.trim() && (
-            <p className="italic text-[11px] text-[#5c7f63] mt-3" style={{ fontFamily: "Georgia, serif" }}>With love</p>
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
+              <span className="text-[36px] mb-3 opacity-50">✉️</span>
+              <p className="text-[12px] italic text-[#c4b89a] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+                Your letter will go here —<br />a message to your family, from the heart.
+              </p>
+              <Link href="/dashboard/memories/yearbook/edit" className="mt-3 text-[10px] text-[#8cba8e] font-medium">
+                Write your letter →
+              </Link>
+            </div>
           )}
         </div>
         <div>
@@ -337,8 +416,14 @@ export default function YearbookReadPage() {
               )}
             </div>
           ) : (
-            <div className="w-full h-36 rounded-lg border-2 border-dashed border-[#d4cfc8] flex items-center justify-center">
-              <span className="text-[9px] text-[#c4b89a] text-center">Choose a favorite moment in &apos;Edit your book&apos;</span>
+            <div className="flex flex-col items-center justify-center text-center py-6">
+              <span className="text-[32px] mb-2 opacity-40">📷</span>
+              <p className="text-[10px] italic text-[#c4b89a]" style={{ fontFamily: "Georgia, serif" }}>
+                Your favorite moment will shine here
+              </p>
+              <Link href="/dashboard/memories/yearbook/edit" className="mt-2 text-[9px] text-[#8cba8e] font-medium">
+                Choose in editor →
+              </Link>
             </div>
           )}
         </div>
@@ -358,9 +443,12 @@ export default function YearbookReadPage() {
               )}
             </div>
           ) : (
-            <p className="italic text-[9px] text-[#c4b89a]" style={{ fontFamily: "Georgia, serif" }}>
-              Add a favorite quote in &apos;Edit your book&apos;
-            </p>
+            <div className="text-center py-3">
+              <span className="text-[28px] font-serif text-[#c4b0e0]/30 leading-none">&ldquo;</span>
+              <p className="italic text-[10px] text-[#c4b89a]" style={{ fontFamily: "Georgia, serif" }}>
+                A favorite quote will live here
+              </p>
+            </div>
           )}
         </div>
       </PageShell>
@@ -404,20 +492,12 @@ export default function YearbookReadPage() {
             </div>
           )}
 
-          {/* Photo grid — top 2 */}
-          <div className="grid grid-cols-2 gap-1.5 mb-3">
-            {[0, 1].map((i) => {
-              const photo = childPhotos[i];
-              return photo ? (
-                <div key={photo.id} className="aspect-square rounded overflow-hidden">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={photo.photo_url!} alt="" className="w-full h-full object-cover" />
-                </div>
-              ) : (
-                <div key={`ghost-${i}`} className="aspect-square rounded border border-dashed border-[#d4cfc8] bg-[#f5f0e8]" />
-              );
-            })}
-          </div>
+          {/* Photo grid — adaptive layout */}
+          {childPhotos.length > 0 && (
+            <div className="mb-3">
+              <PhotoGrid photos={childPhotos.slice(0, 4)} />
+            </div>
+          )}
 
           {/* Win card */}
           {latestWin && (
@@ -463,7 +543,7 @@ export default function YearbookReadPage() {
                   {answer.trim() ? (
                     <p className="text-[9px] text-[#2d2926] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{answer}</p>
                   ) : (
-                    <p className="italic text-[9px] text-[#c4b89a]">Not answered yet</p>
+                    <p className="italic text-[9px] text-[#c4b89a] leading-relaxed">—</p>
                   )}
                 </div>
               );
@@ -513,31 +593,15 @@ export default function YearbookReadPage() {
         <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
 
         {familyMemories.length > 0 ? (
-          <div className="space-y-2">
-            {famPhotos[0] && (
-              <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "3/2" }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={famPhotos[0].photo_url!} alt="" className="w-full h-full object-cover" />
-              </div>
+          <div className="space-y-2 flex-1">
+            {famPhotos.length > 0 && (
+              <PhotoGrid photos={famPhotos.slice(0, 3)} />
             )}
             {famPhotos[0] && (
               <p className="text-[8px] italic text-[#9a8f85]" style={{ fontFamily: "Georgia, serif" }}>
                 {new Date(famPhotos[0].date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric" })}
               </p>
             )}
-            <div className="grid grid-cols-2 gap-1.5">
-              {[1, 2].map((i) => {
-                const photo = famPhotos[i];
-                return photo ? (
-                  <div key={photo.id} className="aspect-square rounded overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={photo.photo_url!} alt="" className="w-full h-full object-cover" />
-                  </div>
-                ) : (
-                  <div key={`ghost-${i}`} className="aspect-square rounded border border-dashed border-[#d4cfc8] bg-[#f5f0e8]" />
-                );
-              })}
-            </div>
             {famWins.map((w) => (
               <div key={w.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[#8cba8e]">
                 <p className="text-[7px] uppercase tracking-wider text-[#5c7f63]">{w.type === "field_trip" ? "Trip" : "Win"}</p>
@@ -546,28 +610,30 @@ export default function YearbookReadPage() {
             ))}
           </div>
         ) : (
-          <p className="italic text-[9px] text-[#c4b89a] mt-4" style={{ fontFamily: "Georgia, serif" }}>
-            No family memories bookmarked yet — add memories without a specific child
-          </p>
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+            <span className="text-[36px] mb-3 opacity-40">👨‍👩‍👧‍👦</span>
+            <p className="text-[11px] italic text-[#c4b89a] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+              Family memories will fill these pages —<br />add memories without choosing a specific child.
+            </p>
+          </div>
         )}
       </PageShell>
     ),
     rightContent: (
       <PageShell pageNum={familyPageNum + 1} align="right">
-        {/* More family photos */}
-        <div className="grid grid-cols-3 gap-1.5 mb-3">
-          {[3, 4, 5].map((i) => {
-            const photo = famPhotos[i];
-            return photo ? (
-              <div key={photo.id} className="aspect-square rounded overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photo.photo_url!} alt="" className="w-full h-full object-cover" />
-              </div>
-            ) : (
-              <div key={`ghost-${i}`} className="aspect-square rounded border border-dashed border-[#d4cfc8] bg-[#f5f0e8]" />
-            );
-          })}
-        </div>
+        {famPhotos.length > 3 ? (
+          <div className="flex-1 flex flex-col justify-center">
+            <PhotoGrid photos={famPhotos.slice(3, 7)} />
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+            <div className="w-9 h-px bg-[#ddd5c0] mb-4" />
+            <p className="italic text-[10px] text-[#c4b89a] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+              More family photos will appear here as you add them.
+            </p>
+            <div className="w-9 h-px bg-[#ddd5c0] mt-4" />
+          </div>
+        )}
       </PageShell>
     ),
   });
