@@ -294,13 +294,13 @@ export default function FAQPage() {
           <div className="w-8 h-8 rounded-xl bg-[#5c7f63] flex items-center justify-center text-base">
             🌿
           </div>
-          <span className="font-bold text-[#2d2926]">Rooted Homeschool</span>
+          <span className="font-bold text-[#2d2926]">Rooted</span>
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">
           Frequently Asked Questions
         </h1>
         <p className="text-sm text-[#b5aca4] mb-12">
-          Everything you need to know about Rooted Homeschool.
+          Everything you need to know about Rooted.
         </p>
 
         {/* Sections */}

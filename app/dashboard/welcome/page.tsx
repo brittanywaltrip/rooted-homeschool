@@ -118,7 +118,7 @@ export default function WelcomePage() {
             <div className="w-9 h-9 rounded-full bg-[#5c7f63] flex items-center justify-center text-white font-bold text-sm shrink-0">B</div>
             <div>
               <p className="text-sm font-bold text-[#2d2926]">Brittany</p>
-              <p className="text-xs text-[#7a6f65]">Founder · Rooted Homeschool</p>
+              <p className="text-xs text-[#7a6f65]">Founder · Rooted</p>
             </div>
           </div>
           <p className="text-sm text-[#3d5c42] leading-relaxed italic">

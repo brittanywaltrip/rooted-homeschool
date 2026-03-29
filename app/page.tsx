@@ -1163,7 +1163,7 @@ export default function Home() {
                   className="font-bold text-[#2d2926] text-base"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
-                  Rooted Homeschool
+                  Rooted
                 </span>
               </div>
               <p className="text-xs text-[#b5aca4] leading-relaxed">
@@ -1200,7 +1200,7 @@ export default function Home() {
             {/* Copyright */}
             <div className="text-center sm:text-right space-y-1">
               <p className="text-xs text-[#b5aca4]">
-                © {new Date().getFullYear()} Rooted Homeschool
+                © {new Date().getFullYear()} Rooted
               </p>
               <p className="text-xs text-[#c8bfb5]">Made with care for learning families</p>
             </div>

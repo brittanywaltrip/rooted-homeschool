@@ -76,7 +76,7 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen bg-[#f8f7f4] flex flex-col items-center justify-center px-4 py-12">
       <Link href="/" className="flex items-center gap-2 mb-8">
         <span className="text-2xl">🌿</span>
-        <span className="text-xl font-semibold text-[#5c7f63]">Rooted Homeschool</span>
+        <span className="text-xl font-semibold text-[#5c7f63]">Rooted</span>
       </Link>
 
       <div className="w-full max-w-sm bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl shadow-sm p-8">

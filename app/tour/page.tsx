@@ -949,7 +949,7 @@ export default function TourPage() {
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-[#5c7f63] flex items-center justify-center text-sm">🌿</div>
                 <span className="font-bold text-[#2d2926] text-base" style={{ fontFamily: "var(--font-display)" }}>
-                  Rooted Homeschool
+                  Rooted
                 </span>
               </div>
               <p className="text-xs text-[#b5aca4] leading-relaxed">A calm companion for intentional families.</p>
@@ -978,7 +978,7 @@ export default function TourPage() {
             </div>
 
             <div className="text-center sm:text-right space-y-1">
-              <p className="text-xs text-[#b5aca4]">© {new Date().getFullYear()} Rooted Homeschool</p>
+              <p className="text-xs text-[#b5aca4]">© {new Date().getFullYear()} Rooted</p>
               <p className="text-xs text-[#c8bfb5]">Made with care for learning families</p>
             </div>
           </div>

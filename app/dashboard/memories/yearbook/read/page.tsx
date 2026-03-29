@@ -274,6 +274,7 @@ export default function YearbookReadPage() {
   const winCount = memories.filter((m) => m.type === "win").length;
   const quoteCount = memories.filter((m) => m.type === "quote").length;
 
+  const coverPhotoUrl = contentMap[ck("cover_photo")] ?? "";
   const letterText = contentMap[ck("letter_from_home")] ?? "";
   const favMemId = contentMap[ck("letter_favorite_memory_id")] ?? "";
   const favCaption = contentMap[ck("letter_favorite_caption")] ?? "";
@@ -299,7 +300,29 @@ export default function YearbookReadPage() {
   spreads.push({
     id: "cover",
     label: "Cover",
-    leftContent: (
+    leftContent: coverPhotoUrl ? (
+      <div className="relative flex flex-col w-full h-full overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={coverPhotoUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#2a3e2c]/90 via-[#2a3e2c]/40 to-[#2a3e2c]/20" />
+
+        <div className="flex-1 flex flex-col justify-end p-6 relative z-10">
+          <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#c8e6c4] mb-2">
+            {yearLabel}
+          </p>
+          <h1 className="text-[26px] leading-snug text-white" style={{ fontFamily: "Georgia, serif" }}>
+            The {familyName}<br />Yearbook
+          </h1>
+        </div>
+
+        <div className="flex justify-between items-center px-5 pb-4 relative z-10">
+          <span className="text-[9px] tracking-[0.18em] text-white/50">ROOTED</span>
+          <span className="bg-white/15 text-[9px] text-white/80 px-3 py-1 rounded-full">
+            {memories.length} memories
+          </span>
+        </div>
+      </div>
+    ) : (
       <div className="relative flex flex-col w-full h-full overflow-hidden" style={{ background: "#3d5c42" }}>
         <span className="absolute top-6 right-4 text-[120px] opacity-[0.06] select-none pointer-events-none" style={{ transform: "rotate(-15deg)" }}>🌿</span>
         <span className="absolute bottom-10 left-3 text-[100px] opacity-[0.05] select-none pointer-events-none" style={{ transform: "rotate(20deg)" }}>🍃</span>

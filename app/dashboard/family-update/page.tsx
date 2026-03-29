@@ -381,7 +381,7 @@ export default function FamilyUpdatePage() {
 
             {/* Footer */}
             <p className="text-[10px] text-[#7a6f65] text-center mt-3">
-              Shared via Rooted Homeschool · rootedhomeschoolapp.com
+              Shared via Rooted · rootedhomeschoolapp.com
             </p>
           </div>
 

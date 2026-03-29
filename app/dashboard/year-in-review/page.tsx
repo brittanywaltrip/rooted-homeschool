@@ -480,7 +480,7 @@ export default function YearInReviewPage() {
           {/* Footer for print */}
           <div className="hidden print:block text-center pt-4 border-t border-[#e8e2d9]">
             <p className="text-xs text-[#b5aca4]">
-              Generated with Rooted Homeschool App · rootedhomeschoolapp.com · {year}
+              Generated with Rooted · rootedhomeschoolapp.com · {year}
             </p>
           </div>
 

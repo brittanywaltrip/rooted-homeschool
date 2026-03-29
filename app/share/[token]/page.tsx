@@ -94,7 +94,7 @@ export async function generateMetadata(
       title,
       description,
       url: pageUrl,
-      siteName: 'Rooted Homeschool',
+      siteName: 'Rooted',
       images: [{ url: ogImageUrl, width: 1200, height: 630, alt: title }],
       type: 'article',
     },
@@ -206,7 +206,7 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
         <div className="max-w-2xl mx-auto px-5 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 hover:opacity-75 transition-opacity">
             <div className="w-7 h-7 rounded-lg bg-[#3d6044] flex items-center justify-center text-sm leading-none">🌿</div>
-            <span className="text-sm font-bold text-[#2d2926] tracking-tight">Rooted Homeschool</span>
+            <span className="text-sm font-bold text-[#2d2926] tracking-tight">Rooted</span>
           </Link>
           <span className="text-[11px] font-medium text-[#b5aca4] uppercase tracking-widest">Family Update</span>
         </div>
@@ -500,7 +500,7 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
               >
                 🌿
               </div>
-              <span className="text-sm font-bold text-[#2d2926] tracking-tight">Rooted Homeschool</span>
+              <span className="text-sm font-bold text-[#2d2926] tracking-tight">Rooted</span>
             </Link>
 
             <p className="text-xs font-semibold text-[#5c7f63] tracking-wide mb-1">

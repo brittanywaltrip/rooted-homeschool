@@ -7,7 +7,7 @@ export default function TermsPage() {
         </div>
         <div className="flex items-center gap-3 mb-8">
           <div className="w-8 h-8 rounded-xl bg-[#5c7f63] flex items-center justify-center text-base">🌿</div>
-          <span className="font-bold text-[#2d2926]">Rooted Homeschool</span>
+          <span className="font-bold text-[#2d2926]">Rooted</span>
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">Terms of Service</h1>
         <p className="text-sm text-[#b5aca4] mb-10">Last updated: March 2026</p>
@@ -15,12 +15,12 @@ export default function TermsPage() {
         <div className="prose prose-sm max-w-none space-y-8 text-[#5c5248]">
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">1. Acceptance of Terms</h2>
-            <p className="leading-relaxed">By creating an account and using Rooted Homeschool (&quot;the Service&quot;), you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the Service. We may update these terms from time to time and will notify users of significant changes via email.</p>
+            <p className="leading-relaxed">By creating an account and using Rooted (&quot;the Service&quot;), you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the Service. We may update these terms from time to time and will notify users of significant changes via email.</p>
           </section>
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">2. Acceptable Use</h2>
-            <p className="leading-relaxed">Rooted Homeschool is designed for homeschooling families to track lessons, celebrate growth, and generate educational records. By using the Service, you agree to:</p>
+            <p className="leading-relaxed">Rooted is designed for homeschooling families to track lessons, celebrate growth, and generate educational records. By using the Service, you agree to:</p>
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
               <li>Use the Service only for personal, non-commercial, homeschool-related purposes. Commercial use is not permitted.</li>
               <li>Maintain one account per family. Creating multiple accounts to circumvent any limits or restrictions is prohibited.</li>
@@ -43,7 +43,7 @@ export default function TermsPage() {
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">4. Your Content</h2>
-            <p className="leading-relaxed">You retain ownership of all content you create in Rooted Homeschool, including lesson records, memories, reflections, and photos. By uploading content, you grant us a limited license to store and display that content within your account. We will never use your family&apos;s content for advertising or share it with third parties without your consent.</p>
+            <p className="leading-relaxed">You retain ownership of all content you create in Rooted, including lesson records, memories, reflections, and photos. By uploading content, you grant us a limited license to store and display that content within your account. We will never use your family&apos;s content for advertising or share it with third parties without your consent.</p>
           </section>
 
           <section>
@@ -53,12 +53,12 @@ export default function TermsPage() {
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">6. Resources and Brand Disclaimer</h2>
-            <p className="leading-relaxed">The Resources section of Rooted includes links to discounts, field trips, and educational materials from third-party brands and retailers. Rooted Homeschool has no affiliation with, endorsement from, or partnership with any brands or retailers mentioned in the Resources section. Discounts, offers, and links are curated for informational purposes only and are subject to change without notice. Always verify current terms and availability directly with the retailer or provider.</p>
+            <p className="leading-relaxed">The Resources section of Rooted includes links to discounts, field trips, and educational materials from third-party brands and retailers. Rooted has no affiliation with, endorsement from, or partnership with any brands or retailers mentioned in the Resources section. Discounts, offers, and links are curated for informational purposes only and are subject to change without notice. Always verify current terms and availability directly with the retailer or provider.</p>
           </section>
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">7. Limitation of Liability</h2>
-            <p className="leading-relaxed">Rooted Homeschool is provided &quot;as is&quot; without warranty of any kind. We are not liable for any loss of data, interruption of service, or other damages arising from your use of the Service. We strongly recommend keeping backup records of important educational documentation outside of Rooted.</p>
+            <p className="leading-relaxed">Rooted is provided &quot;as is&quot; without warranty of any kind. We are not liable for any loss of data, interruption of service, or other damages arising from your use of the Service. We strongly recommend keeping backup records of important educational documentation outside of Rooted.</p>
           </section>
 
           <section>

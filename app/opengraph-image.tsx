@@ -88,7 +88,7 @@ export default function OGImage() {
               display: 'flex',
               fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
             }}>
-              Rooted Homeschool
+              Rooted
             </div>
           </div>
 

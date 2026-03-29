@@ -646,7 +646,7 @@ function certBodyHtml(style: StyleId, d: CertDisplay): string {
   const school = d.schoolName || "Family Academy";
   const child  = d.childName  || "Student Name";
   const wm     = d.showWatermark
-    ? `<p style="font-size:10px;color:#c4bfb8;margin-top:28px;">Made with Rooted Homeschool</p>`
+    ? `<p style="font-size:10px;color:#c4bfb8;margin-top:28px;">Made with Rooted</p>`
     : "";
   const today  = formatDate();
 
@@ -779,7 +779,7 @@ async function downloadCert(style: StyleId, display: CertDisplay, filename: stri
 
 function reportCardHtml(data: ReportCardData): string {
   const wm = data.showWatermark
-    ? `<p style="font-size:10px;color:#c4bfb8;margin-top:24px;text-align:center;">Made with Rooted Homeschool</p>`
+    ? `<p style="font-size:10px;color:#c4bfb8;margin-top:24px;text-align:center;">Made with Rooted</p>`
     : "";
 
   const childSections = data.children.map(c => {
@@ -1671,7 +1671,7 @@ export default function PrintablesPage() {
           <h2 className="text-base font-bold text-[#2d2926]">🪪 Homeschool ID Cards</h2>
           <p className="text-xs text-[#b5aca4] mt-1 max-w-2xl leading-relaxed">
             Homeschool ID cards are provided as a convenience tool and require a photo to be considered valid.
-            Rooted Homeschool does not guarantee acceptance at any discount program, retailer, or institution.
+            Rooted does not guarantee acceptance at any discount program, retailer, or institution.
             Always verify a program&apos;s homeschool verification requirements before applying.
           </p>
         </div>
