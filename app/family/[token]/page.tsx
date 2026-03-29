@@ -416,7 +416,7 @@ export default function FamilyViewPage() {
       <header className="w-full" style={{ backgroundColor: "#2d5a3d", padding: "32px 20px 24px" }}>
         <div className="max-w-[480px] mx-auto">
           <h1 className="text-2xl text-white leading-tight" style={{ fontFamily: "var(--font-display)", fontWeight: 500 }}>
-            The {familyName} Family 🌿
+            {familyName} 🌿
           </h1>
           {childPills.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-3">
@@ -439,7 +439,7 @@ export default function FamilyViewPage() {
             <div className="text-center space-y-2">
               <p className="text-3xl">🌿</p>
               <h2 className="text-lg font-medium text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-                Your free preview of the {familyName} Family&apos;s journey has ended.
+                Your free preview of {familyName}&apos;s journey has ended.
               </h2>
               {childPills.length > 0 && (
                 <p className="text-sm text-[#7a6f65]">
@@ -590,7 +590,7 @@ export default function FamilyViewPage() {
       <div className="fixed bottom-0 left-0 right-0 bg-[#fefcf9] border-t border-[#e8e2d9] py-2.5 px-4 z-30" style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}>
         <div className="max-w-[480px] mx-auto text-center">
           <p className="text-xs text-[#7a6f65]">
-            You&apos;re following the {familyName} Family&apos;s journey 🌿
+            You&apos;re following {familyName}&apos;s journey 🌿
           </p>
           {!trialEnded && !momPaid && trialEndFormatted && (
             <p className="text-[10px] text-[#b5aca4] mt-0.5">

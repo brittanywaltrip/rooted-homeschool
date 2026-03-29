@@ -67,16 +67,24 @@ export async function POST(
   });
 
   // Email notification to mom
+  const { data: memory } = await supabaseAdmin
+    .from("memories")
+    .select("title, type")
+    .eq("id", memory_id)
+    .maybeSingle();
+  const memoryLabel = memory?.title || "a memory";
+
   const { data: { user: momUser } } = await supabaseAdmin.auth.admin.getUserById(invite.user_id);
 
   if (momUser?.email) {
+    const memoryUrl = `https://www.rootedhomeschoolapp.com/dashboard/memories?highlight=${memory_id}`;
     const resendClient = new Resend(process.env.RESEND_API_KEY);
     await resendClient.emails.send({
       from: "Rooted <hello@rootedhomeschoolapp.com>",
       to: momUser.email,
-      subject: `${reactor_name} reacted to one of your memories ${emoji}`,
-      html: `<p>Hi! <strong>${reactor_name}</strong> reacted ${emoji} to one of your memories in Rooted.</p><p><a href="https://www.rootedhomeschoolapp.com/dashboard/memories">View your memories →</a></p>`,
-      text: `${reactor_name} reacted ${emoji} to one of your memories. View it at https://www.rootedhomeschoolapp.com/dashboard/memories`,
+      subject: `${reactor_name} reacted ${emoji} to "${memoryLabel}"`,
+      html: `<p>Hi! <strong>${reactor_name}</strong> reacted ${emoji} to <strong>"${memoryLabel}"</strong> in Rooted.</p><a href="${memoryUrl}" style="background:#4a7c59;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">See the memory →</a>`,
+      text: `${reactor_name} reacted ${emoji} to "${memoryLabel}". View it at ${memoryUrl}`,
     });
   }
 

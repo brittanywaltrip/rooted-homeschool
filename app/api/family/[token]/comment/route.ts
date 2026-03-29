@@ -58,16 +58,24 @@ export async function POST(
   });
 
   // Email notification to mom
+  const { data: memory } = await supabaseAdmin
+    .from("memories")
+    .select("title, type")
+    .eq("id", memory_id)
+    .maybeSingle();
+  const memoryLabel = memory?.title || "a memory";
+
   const { data: { user: momUser } } = await supabaseAdmin.auth.admin.getUserById(invite.user_id);
 
   if (momUser?.email) {
+    const memoryUrl = `https://www.rootedhomeschoolapp.com/dashboard/memories?highlight=${memory_id}`;
     const resendClient = new Resend(process.env.RESEND_API_KEY);
     await resendClient.emails.send({
       from: "Rooted <hello@rootedhomeschoolapp.com>",
       to: momUser.email,
-      subject: `${commenter_name} left a comment on your memory 💬`,
-      html: `<p><strong>${commenter_name}</strong> commented on one of your memories:<br/><em>"${body.trim().slice(0, 100)}"</em></p><p><a href="https://www.rootedhomeschoolapp.com/dashboard/memories">View your memories →</a></p>`,
-      text: `${commenter_name} commented: "${body.trim().slice(0, 100)}" — View at https://www.rootedhomeschoolapp.com/dashboard/memories`,
+      subject: `${commenter_name} commented on "${memoryLabel}" 💬`,
+      html: `<p><strong>${commenter_name}</strong> commented on <strong>"${memoryLabel}"</strong>:<br/><em>"${body.trim().slice(0, 100)}"</em></p><a href="${memoryUrl}" style="background:#4a7c59;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">See the memory →</a>`,
+      text: `${commenter_name} commented on "${memoryLabel}": "${body.trim().slice(0, 100)}" — View at ${memoryUrl}`,
     });
   }
 

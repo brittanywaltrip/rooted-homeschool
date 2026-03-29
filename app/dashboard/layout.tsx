@@ -180,7 +180,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         .from("family_notifications")
         .select("id", { count: "exact", head: true })
         .eq("user_id", session.user.id)
-        .eq("read", false);
+        .is("read_at", null);
       setUnreadFamilyNotifs(count ?? 0);
 
       setChecking(false);

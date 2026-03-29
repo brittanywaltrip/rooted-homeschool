@@ -154,6 +154,23 @@ export default function MemoriesPage() {
   // Milestone prompt
   const [milestonePrompt, setMilestonePrompt] = useState<{ milestone: string; message: string; badgeEmoji: string } | null>(null);
 
+  // Highlight from notification deep link
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  useEffect(() => {
+    const h = searchParams.get("highlight");
+    if (h) {
+      setHighlightId(h);
+      // Scroll to the element after a short delay for render
+      setTimeout(() => {
+        const el = document.querySelector(`[data-memory-id="${h}"]`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 500);
+      // Remove highlight after 3 seconds
+      const timer = setTimeout(() => setHighlightId(null), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams]);
+
   // Family reactions + notifications
   const [reactionCounts, setReactionCounts] = useState<Record<string, { emoji: string; count: number }>>({}); // memory_id -> { top emoji, total count }
   type FamilyNotif = { id: string; type: string; actor_name: string; emoji: string | null; preview: string | null; memory_id: string | null; created_at: string };
@@ -859,7 +876,8 @@ export default function MemoriesPage() {
                 )}
                 <button
                   key={m.id}
-                  className="group relative aspect-square bg-[#f0ede8] focus:outline-none text-left overflow-hidden"
+                  data-memory-id={m.id}
+                  className={`group relative aspect-square bg-[#f0ede8] focus:outline-none text-left overflow-hidden${highlightId === m.id ? " ring-2 ring-green-400 animate-pulse" : ""}`}
                   onClick={() => { setSelectedMemory(m); setLightboxDeleteConfirm(false); }}
                 >
                   {/* Photo or type tile */}

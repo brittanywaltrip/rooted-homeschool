@@ -5,6 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
@@ -346,9 +347,24 @@ function TodayLessonCard({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+type FamilyNotification = {
+  id: string;
+  memory_id: string | null;
+  type: string;
+  actor_name: string;
+  emoji: string | null;
+  message: string;
+  created_at: string;
+};
+
 export default function TodayPage() {
   const today = localDateStr(new Date());
+  const router = useRouter();
   const { isPartner, effectiveUserId } = usePartner();
+
+  // Family activity notifications
+  const [familyNotifs, setFamilyNotifs] = useState<FamilyNotification[]>([]);
+  const [familyNotifsDismissed, setFamilyNotifsDismissed] = useState(false);
 
   const [familyName,      setFamilyName]      = useState("");
   const [firstName,       setFirstName]       = useState("");
@@ -823,6 +839,32 @@ export default function TodayPage() {
   }, [today, effectiveUserId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Load unread family notifications
+  useEffect(() => {
+    if (!effectiveUserId || isPartner) return;
+    (async () => {
+      const { data } = await supabase
+        .from("family_notifications")
+        .select("id, memory_id, type, actor_name, emoji, message, created_at")
+        .eq("user_id", effectiveUserId)
+        .is("read_at", null)
+        .order("created_at", { ascending: false })
+        .limit(3);
+      setFamilyNotifs(data ?? []);
+    })();
+  }, [effectiveUserId, isPartner]);
+
+  async function dismissFamilyNotifs() {
+    setFamilyNotifsDismissed(true);
+    const ids = familyNotifs.map((n) => n.id);
+    if (ids.length > 0) {
+      await supabase
+        .from("family_notifications")
+        .update({ read_at: new Date().toISOString() })
+        .in("id", ids);
+    }
+  }
 
   // Poll for new memories (e.g. FAB photo saved from layout)
   useEffect(() => {
@@ -1542,6 +1584,35 @@ export default function TodayPage() {
             <p className="text-[11px] text-[#b5944a]">No pressure — pick up in Plan →</p>
           </div>
         </Link>
+      )}
+
+      {/* ── Family Activity Banner ─────────────────────────────── */}
+      {familyNotifs.length > 0 && !familyNotifsDismissed && (
+        <div className="relative bg-[#e8f5ea] border border-[#b8d9bc] rounded-2xl px-4 py-3 space-y-2">
+          <button
+            type="button"
+            onClick={dismissFamilyNotifs}
+            className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white/60 flex items-center justify-center text-[#7a6f65] hover:bg-white transition-colors text-xs"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#3d5c42] mb-1">Family Activity</p>
+          {familyNotifs.map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => {
+                if (n.memory_id) router.push(`/dashboard/memories?highlight=${n.memory_id}`);
+              }}
+              className="flex items-start gap-2 w-full text-left hover:bg-[#d4e8d4]/40 rounded-lg px-2 py-1.5 transition-colors"
+            >
+              <span className="text-sm shrink-0">{n.type === "reaction" ? (n.emoji ?? "❤️") : "💬"}</span>
+              <span className="text-[13px] text-[#2d2926] leading-snug flex-1">{n.message}</span>
+              <span className="text-[#5c7f63] text-xs shrink-0">→</span>
+            </button>
+          ))}
+        </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════

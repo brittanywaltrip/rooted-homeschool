@@ -84,7 +84,7 @@ export async function GET(
     }));
 
     return NextResponse.json({
-      familyName: profile?.display_name ?? profile?.first_name ?? "Family",
+      familyName: profile?.display_name ?? profile?.first_name ?? "Your Family",
       children: children ?? [],
       memories,
       reactions: {},
@@ -153,7 +153,7 @@ export async function GET(
   }
 
   return NextResponse.json({
-    familyName: profile?.display_name ?? profile?.first_name ?? "Family",
+    familyName: profile?.display_name ?? profile?.first_name ?? "Your Family",
     children: children ?? [],
     memories,
     reactions,
