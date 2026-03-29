@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(
@@ -64,6 +65,20 @@ export async function POST(
     emoji,
     message: `${reactor_name} reacted ${emoji} to a memory`,
   });
+
+  // Email notification to mom
+  const { data: { user: momUser } } = await supabaseAdmin.auth.admin.getUserById(invite.user_id);
+
+  if (momUser?.email) {
+    const resendClient = new Resend(process.env.RESEND_API_KEY);
+    await resendClient.emails.send({
+      from: "Rooted <hello@rootedhomeschoolapp.com>",
+      to: momUser.email,
+      subject: `${reactor_name} reacted to one of your memories ${emoji}`,
+      html: `<p>Hi! <strong>${reactor_name}</strong> reacted ${emoji} to one of your memories in Rooted.</p><p><a href="https://www.rootedhomeschoolapp.com/dashboard/memories">View your memories →</a></p>`,
+      text: `${reactor_name} reacted ${emoji} to one of your memories. View it at https://www.rootedhomeschoolapp.com/dashboard/memories`,
+    });
+  }
 
   // Return updated counts
   const { data: reactions } = await supabaseAdmin
