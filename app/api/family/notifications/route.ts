@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin
     .from("family_notifications")
-    .select("id, memory_id, type, actor_name, emoji, message, created_at, read_at")
+    .select("id, memory_id, type, actor_name, emoji, created_at, read_at")
     .eq("user_id", user.id)
     .is("read_at", null)
     .order("created_at", { ascending: false })

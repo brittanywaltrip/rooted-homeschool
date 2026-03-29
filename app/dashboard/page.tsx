@@ -353,7 +353,6 @@ type FamilyNotification = {
   type: string;
   actor_name: string;
   emoji: string | null;
-  message: string;
   created_at: string;
 };
 
@@ -846,7 +845,7 @@ export default function TodayPage() {
     (async () => {
       const { data } = await supabase
         .from("family_notifications")
-        .select("id, memory_id, type, actor_name, emoji, message, created_at")
+        .select("id, memory_id, type, actor_name, emoji, created_at")
         .eq("user_id", effectiveUserId)
         .is("read_at", null)
         .order("created_at", { ascending: false })
@@ -1608,7 +1607,7 @@ export default function TodayPage() {
               className="flex items-start gap-2 w-full text-left hover:bg-[#d4e8d4]/40 rounded-lg px-2 py-1.5 transition-colors"
             >
               <span className="text-sm shrink-0">{n.type === "reaction" ? (n.emoji ?? "❤️") : "💬"}</span>
-              <span className="text-[13px] text-[#2d2926] leading-snug flex-1">{n.message}</span>
+              <span className="text-[13px] text-[#2d2926] leading-snug flex-1">{n.type === "reaction" ? `${n.actor_name} reacted ${n.emoji ?? "❤️"}` : `${n.actor_name} left a comment`}</span>
               <span className="text-[#5c7f63] text-xs shrink-0">→</span>
             </button>
           ))}
