@@ -1742,7 +1742,8 @@ export default function TodayPage() {
         <>
           <div className="space-y-2">
             <button
-              onClick={() => setShowCaptureMenu(true)}
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
               style={{ background: "#2d5a3d" }}
             >
