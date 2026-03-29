@@ -1079,11 +1079,13 @@ export default function TodayPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingBook(false); return; }
     const nowB = new Date().toISOString();
-    const { data: inserted } = await supabase.from("memories").insert({
+    const { data: inserted, error: bookErr } = await supabase.from("memories").insert({
       user_id: user.id, type: "book", title: bookTitle.trim(),
       child_id: bookChild || null, date: today, include_in_book: true,
       created_at: nowB, updated_at: nowB,
     }).select("id").single();
+    if (bookErr) { console.error("[Rooted] Book save failed:", bookErr.message); setSavingBook(false); showCaptureToast("Save failed — try again", null); return; }
+    console.log("[Rooted] Saved:", "book", inserted);
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
@@ -1108,11 +1110,13 @@ export default function TodayPage() {
       }
     }
     const nowD = new Date().toISOString();
-    const { data: inserted } = await supabase.from("memories").insert({
+    const { data: inserted, error: drawErr } = await supabase.from("memories").insert({
       user_id: user.id, type: "drawing", title: drawingTitle.trim(),
       photo_url: photoUrl, child_id: drawingChild || null, date: today, include_in_book: true,
       created_at: nowD, updated_at: nowD,
     }).select("id").single();
+    if (drawErr) { console.error("[Rooted] Drawing save failed:", drawErr.message); setSavingDrawing(false); showCaptureToast("Save failed — try again", null); return; }
+    console.log("[Rooted] Saved:", "drawing", inserted);
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null);
@@ -1765,7 +1769,7 @@ export default function TodayPage() {
                 const compressed = await compressImage(file);
                 const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
                 const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
-                if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); return; }
+                if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); showCaptureToast("Upload failed — try again", null); return; }
                 const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
                 const memType = captureTypeRef.current;
                 const now = new Date().toISOString();
@@ -1775,7 +1779,8 @@ export default function TodayPage() {
                   date: today, include_in_book: false,
                   created_at: now, updated_at: now,
                 }).select("id").single();
-                if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); return; }
+                if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); showCaptureToast("Save failed — try again", null); return; }
+                console.log("[Rooted] Saved:", memType, ins);
                 const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
                 showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
                 captureTypeRef.current = "photo"; // reset
@@ -1965,12 +1970,14 @@ export default function TodayPage() {
                   const { data: { user } } = await supabase.auth.getUser();
                   if (user) {
                     const nowFt = new Date().toISOString();
-                    const { data: ins } = await supabase.from("memories").insert({
+                    const { data: ins, error: ftErr } = await supabase.from("memories").insert({
                       user_id: user.id, type: ftType, title: ftTitle.trim(),
                       caption: ftNote.trim() || null, child_id: ftChild || null,
                       date: today, include_in_book: false,
                       created_at: nowFt, updated_at: nowFt,
                     }).select("id").single();
+                    if (ftErr) { console.error("[Rooted] Field trip save failed:", ftErr.message); setFtSaving(false); showCaptureToast("Save failed — try again", null); return; }
+                    console.log("[Rooted] Saved:", ftType, ins);
                     const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
                     showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null);
                     checkAndAwardBadges(user.id);
@@ -2177,117 +2184,6 @@ export default function TodayPage() {
       )}
 
       {/* ── Log a Win Sheet ──────────────────────────────────── */}
-      {showWinSheet && (
-        <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowWinSheet(false)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto"
-            style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
-            <div className="px-5 pb-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="font-bold text-[#2d2926]">{winType === "win" ? "🏆 Log a Win" : "💛 Capture a Moment"}</h2>
-                <button onClick={() => setShowWinSheet(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
-              </div>
-
-              {/* Type pills */}
-              <div className="flex gap-2">
-                <button onClick={() => setWinType("win")}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "win" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
-                  🏆 Win
-                </button>
-                <button onClick={() => setWinType("quote")}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "quote" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
-                  ✍️ Moment
-                </button>
-              </div>
-
-              {/* Text input + mic */}
-              <div className="relative">
-                <textarea
-                  value={winText}
-                  onChange={(e) => setWinText(e.target.value)}
-                  placeholder={winType === "win" ? "What did they accomplish today?" : "What do you want to remember?"}
-                  rows={3}
-                  className="w-full px-3 py-2.5 pr-12 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
-                />
-                <button
-                  onClick={() => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-                    if (!SR) return;
-                    if (isListening) return;
-                    const recognition = new SR();
-                    recognition.lang = "en-US";
-                    recognition.interimResults = false;
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    recognition.onresult = (e: any) => {
-                      const transcript = e.results[0]?.[0]?.transcript ?? "";
-                      setWinText((prev: string) => (prev ? prev + " " : "") + transcript);
-                    };
-                    recognition.onend = () => setIsListening(false);
-                    recognition.onerror = () => setIsListening(false);
-                    setIsListening(true);
-                    recognition.start();
-                  }}
-                  className={`absolute right-2 top-2 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${isListening ? "bg-red-100 text-red-500" : "bg-[#f0ede8] text-[#7a6f65] hover:bg-[#e8e2d9]"}`}
-                  aria-label="Voice input"
-                >
-                  🎤
-                </button>
-              </div>
-
-              {/* Child selector */}
-              {children.length > 0 && (
-                <div className="flex gap-2 flex-wrap">
-                  {children.map(c => (
-                    <button key={c.id} onClick={() => setWinChild(winChild === c.id ? "" : c.id)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${winChild === c.id ? "text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}
-                      style={winChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : undefined}>
-                      {c.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Save button */}
-              <button
-                onClick={async () => {
-                  if (!winText.trim()) return;
-                  setSavingWin(true);
-                  const { data: { user } } = await supabase.auth.getUser();
-                  if (user) {
-                    const { data: ins } = await supabase.from("memories").insert({
-                      user_id: user.id,
-                      child_id: winChild || null,
-                      date: localDateStr(new Date()),
-                      type: winType,
-                      title: winText.trim(),
-                      include_in_book: true,
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString(),
-                    }).select("id").single();
-                    setTotalMemories(prev => prev + 1);
-                    const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
-                    showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
-                    checkAndAwardBadges(user.id);
-                  }
-                  setSavingWin(false);
-                  setWinText("");
-                  setWinChild("");
-                  setShowWinSheet(false);
-                  await refreshTodayStory();
-                  await loadData();
-                }}
-                disabled={savingWin || !winText.trim()}
-                className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
-              >
-                {savingWin ? "Saving..." : "Save"}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
       {/* ── Log a Drawing Sheet ──────────────────────────── */}
       {showDrawingSheet && (
         <>
@@ -2550,15 +2446,17 @@ export default function TodayPage() {
                     console.log("[Win save] result:", { data: ins, error });
                     if (error) {
                       console.error("[Win save] FAILED:", error.message, error.code, error.details, error.hint);
+                      showCaptureToast("Save failed — try again", null);
                       setSavingWin(false);
                       return;
                     }
                     if (!ins) {
                       console.error("[Win save] No data returned — likely RLS policy blocking insert. Check that 'Users can insert own memories' policy exists on memories table.");
+                      showCaptureToast("Save failed — try again", null);
                       setSavingWin(false);
                       return;
                     }
-                    console.log("[Win save] Success — id:", (ins as { id: string }).id, "type:", winType);
+                    console.log("[Rooted] Saved:", winType, ins);
                     setTotalMemories(prev => prev + 1);
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
                     showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
@@ -2571,6 +2469,7 @@ export default function TodayPage() {
                     await loadData();
                   } catch (err) {
                     console.error("Win save error:", err);
+                    showCaptureToast("Save failed — try again", null);
                     setSavingWin(false);
                   }
                 }}
