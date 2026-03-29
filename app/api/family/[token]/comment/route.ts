@@ -53,8 +53,6 @@ export async function POST(
     memory_id,
     type: "comment",
     actor_name: commenter_name,
-    message: `${commenter_name} left a comment on a memory`,
-    preview: body.trim().slice(0, 100),
   });
 
   // Email notification to mom

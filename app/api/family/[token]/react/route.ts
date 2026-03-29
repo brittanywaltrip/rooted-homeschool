@@ -63,7 +63,6 @@ export async function POST(
     type: "reaction",
     actor_name: reactor_name,
     emoji,
-    message: `${reactor_name} reacted ${emoji} to a memory`,
   });
 
   // Email notification to mom
