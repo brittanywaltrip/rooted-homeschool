@@ -132,6 +132,10 @@ export default function MemoriesPage() {
   // Lightbox inline delete confirm
   const [lightboxDeleteConfirm, setLightboxDeleteConfirm] = useState(false);
 
+  // Lightbox reactions + comments
+  const [lbReactions, setLbReactions] = useState<{ emoji: string; viewer_name: string }[]>([]);
+  const [lbComments, setLbComments] = useState<{ id: string; viewer_name: string; body: string; created_at: string }[]>([]);
+
   // Menu
   const [menuId, setMenuId] = useState<string | null>(null);
 
@@ -171,6 +175,30 @@ export default function MemoriesPage() {
       return () => clearTimeout(timer);
     }
   }, [searchParams]);
+
+  // Fetch reactions + comments when lightbox opens
+  useEffect(() => {
+    if (!selectedMemory) {
+      setLbReactions([]);
+      setLbComments([]);
+      return;
+    }
+    (async () => {
+      const [{ data: rxns }, { data: cmts }] = await Promise.all([
+        supabase
+          .from("memory_reactions")
+          .select("emoji, viewer_name")
+          .eq("memory_id", selectedMemory.id),
+        supabase
+          .from("memory_comments")
+          .select("id, viewer_name, body, created_at")
+          .eq("memory_id", selectedMemory.id)
+          .order("created_at", { ascending: true }),
+      ]);
+      setLbReactions((rxns ?? []) as { emoji: string; viewer_name: string }[]);
+      setLbComments((cmts ?? []) as { id: string; viewer_name: string; body: string; created_at: string }[]);
+    })();
+  }, [selectedMemory?.id]);
 
   // Family reactions + notifications
   const [reactionCounts, setReactionCounts] = useState<Record<string, { emoji: string; count: number }>>({}); // memory_id -> { top emoji, total count }
@@ -1110,22 +1138,41 @@ export default function MemoriesPage() {
                 <p className="text-sm text-[#7a6f65] leading-relaxed">{selectedMemory.caption}</p>
               )}
 
-              {/* Heart + share teaser */}
-              <div className="flex items-center gap-3 pt-1">
-                <button
-                  onClick={() => toggleHeart(selectedMemory.id)}
-                  className="flex items-center gap-1.5 text-sm transition-colors"
-                >
-                  <Heart
-                    size={18}
-                    className={hearted.has(selectedMemory.id) ? "text-red-400 fill-red-400" : "text-[#c8bfb5]"}
-                  />
-                  <span className={`text-xs font-medium ${hearted.has(selectedMemory.id) ? "text-red-400" : "text-[#b5aca4]"}`}>
-                    {hearted.has(selectedMemory.id) ? "1" : "Be the first"}
-                  </span>
-                </button>
-                <span className="text-[10px] text-[#b5aca4]">Share with family — coming soon</span>
-              </div>
+              {/* Family reactions */}
+              {lbReactions.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {lbReactions.map((r, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 text-xs bg-[#f0ede8] rounded-full px-2.5 py-1 text-[#5a5048]">
+                      {r.emoji} {r.viewer_name}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Family comments */}
+              {lbComments.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  {lbComments.map((c) => (
+                    <div key={c.id} className="bg-[#f5f2ed] rounded-xl px-3 py-2">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-semibold text-[#2d2926]">{c.viewer_name}</span>
+                        <span className="text-[10px] text-[#b5aca4]">
+                          {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      </div>
+                      <p className="text-sm text-[#5a5048] mt-0.5">{c.body}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Heart */}
+              {lbReactions.length === 0 && lbComments.length === 0 && (
+                <div className="flex items-center gap-1.5 pt-1">
+                  <Heart size={16} className="text-[#c8bfb5]" />
+                  <span className="text-xs text-[#b5aca4]">No reactions yet</span>
+                </div>
+              )}
 
               {/* Visibility badges */}
               <div className="flex flex-wrap gap-1.5">
