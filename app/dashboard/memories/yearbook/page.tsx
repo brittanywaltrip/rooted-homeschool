@@ -66,12 +66,15 @@ export default function YearbookPage() {
       .eq("id", effectiveUserId)
       .single();
 
-    // 2. Set yearbook_opened_at if null
+    // 2. Set yearbook_opened_at if null — use school year start, not today
     let openedAt = profile?.yearbook_opened_at;
     if (!openedAt) {
-      const now = new Date().toISOString();
-      await supabase.from("profiles").update({ yearbook_opened_at: now }).eq("id", effectiveUserId);
-      openedAt = now;
+      const now = new Date();
+      const schoolYearStartMonth = 7; // August = index 7
+      const startYear = now.getMonth() >= schoolYearStartMonth ? now.getFullYear() : now.getFullYear() - 1;
+      const schoolYearStart = new Date(startYear, schoolYearStartMonth, 1).toISOString();
+      await supabase.from("profiles").update({ yearbook_opened_at: schoolYearStart }).eq("id", effectiveUserId);
+      openedAt = schoolYearStart;
     }
 
     setFamilyName(profile?.display_name ?? "Our Family");

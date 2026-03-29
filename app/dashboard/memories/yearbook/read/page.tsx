@@ -113,8 +113,14 @@ export default function YearbookReadPage() {
         .eq("id", effectiveUserId)
         .single();
 
-      const openedAt = prof?.yearbook_opened_at;
-      if (!openedAt) { setLoading(false); return; }
+      let openedAt = prof?.yearbook_opened_at;
+      if (!openedAt) {
+        // Fall back to school year start
+        const now = new Date();
+        const schoolYearStartMonth = 7;
+        const sy = now.getMonth() >= schoolYearStartMonth ? now.getFullYear() : now.getFullYear() - 1;
+        openedAt = new Date(sy, schoolYearStartMonth, 1).toISOString();
+      }
 
       setProfile(prof ?? {});
       const m = new Date(openedAt).getMonth();
