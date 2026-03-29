@@ -163,9 +163,10 @@ export default function YearbookReadPage() {
 
   // ── Keyboard navigation ─────────────────────────────────────────────────────
 
+  const maxPageRef = useRef(0);
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "ArrowRight") setCurrentPage((p) => p + 1);
+      if (e.key === "ArrowRight") setCurrentPage((p) => Math.min(p + 1, maxPageRef.current));
       if (e.key === "ArrowLeft") setCurrentPage((p) => Math.max(0, p - 1));
     }
     window.addEventListener("keydown", handleKey);
@@ -175,6 +176,9 @@ export default function YearbookReadPage() {
   // ── Build spreads ───────────────────────────────────────────────────────────
 
   const familyName = profile.display_name ?? "Our Family";
+  const yearLabel = yearbookKey
+    ? `${yearbookKey.split("-")[0]}\u201320${yearbookKey.split("-")[1]}`
+    : "";
   const photoCount = memories.filter((m) => m.type === "photo" || m.type === "drawing").length;
   const bookCount = memories.filter((m) => m.type === "book").length;
   const winCount = memories.filter((m) => m.type === "win").length;
@@ -213,7 +217,7 @@ export default function YearbookReadPage() {
         <div className="flex-1 flex flex-col p-5 relative z-10">
           <div className="pt-4">
             <p className="text-[10px] font-semibold tracking-[0.12em] uppercase text-[#8cba8e]">
-              {yearbookKey} School Year
+              {yearLabel} School Year
             </p>
             <h1 className="text-[26px] font-bold leading-tight text-[#fefcf9] mt-2" style={{ fontFamily: "var(--font-display)" }}>
               {familyName}<br />Yearbook
@@ -614,7 +618,7 @@ export default function YearbookReadPage() {
     leftContent: (
       <PageShell bg="#faf6f0">
         <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-          <p className="text-[9px] text-[#9a8f85] tracking-wider uppercase">{yearbookKey}</p>
+          <p className="text-[9px] text-[#9a8f85] tracking-wider uppercase">{yearLabel}</p>
           <div className="w-9 h-px bg-[#ddd5c0] my-3" />
           <p className="italic text-[10px] text-[#5a5048] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
             {letterText.trim() ? letterText.slice(0, 80) + (letterText.length > 80 ? "…" : "") : "Our story, beautifully kept."}
@@ -647,6 +651,7 @@ export default function YearbookReadPage() {
 
   // Clamp current page
   const maxPage = pages.length - 1;
+  maxPageRef.current = maxPage;
   const safePage = Math.min(currentPage, maxPage);
 
   const goNext = useCallback(() => setCurrentPage((p) => Math.min(p + 1, maxPage)), [maxPage]);

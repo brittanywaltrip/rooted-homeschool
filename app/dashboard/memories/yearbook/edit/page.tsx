@@ -238,6 +238,10 @@ export default function YearbookEditPage() {
   ].reduce((a, b) => a + b, 0);
   const progressPct = totalCount > 0 ? Math.min(100, Math.round((filledCount / totalCount) * 100)) : 0;
 
+  const yearLabel = yearbookKey
+    ? `${yearbookKey.split("-")[0]}\u201320${yearbookKey.split("-")[1]}`
+    : "";
+
   // ── Autosave wrappers ──────────────────────────────────────────────────────
 
   const letterStatus = useAutosave(letter, useCallback((v: string) => saveContent("letter_from_home", v), [saveContent]));
@@ -262,7 +266,7 @@ export default function YearbookEditPage() {
   return (
     <>
       <PageHero
-        overline={`${yearbookKey} School Year`}
+        overline={`${yearLabel} School Year`}
         title="Edit your book ✏️"
         subtitle={isReadOnly ? "This yearbook is closed — read only" : `${filledCount} of ${totalCount} sections complete`}
       />

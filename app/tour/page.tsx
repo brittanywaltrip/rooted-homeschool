@@ -6,7 +6,7 @@ import { Check } from "lucide-react";
 
 // ─── Feature Data (preserving best copy from original tour) ──────────────────
 
-type FeatureId = "memories" | "today" | "plan" | "garden" | "reports" | "resources" | "insights";
+type FeatureId = "memories" | "today" | "plan" | "garden" | "reports" | "resources" | "insights" | "yearbook";
 
 const FEATURES: {
   id: FeatureId;
@@ -26,7 +26,7 @@ const FEATURES: {
     bullets: [
       "Save photos, field trip moments, and little things they said — it takes 10 seconds",
       "Build a book log as you go — a record of everything they've ever read",
-      "Generate a warm AI-written Family Update to share with grandparents — no app needed",
+      "Generate a warm AI-written Family Update to share with grandparents, aunts, uncles, and cousins — no app needed",
     ],
     note: "Shareable link, no app download needed 🔗",
   },
@@ -107,6 +107,20 @@ const FEATURES: {
       "Celebrate consistency — not perfection. Every streak is worth celebrating",
     ],
     note: "Streaks reset weekly — low pressure, real progress 🔥",
+  },
+  {
+    id: "yearbook",
+    label: "Yearbook",
+    emoji: "📖",
+    headline: "Your family yearbook",
+    sub: "Every win, quote, and book fills your yearbook automatically as you go. Add photos you love. At year-end, flip through a beautiful book — with your letter, each child\u2019s chapter and interview, and messages from family.",
+    bullets: [
+      "📖 Wins, quotes & books added automatically",
+      "📸 Bookmark any photo to add it",
+      "✍️ Each child gets their own chapter with interview Q&A",
+      "💌 Family can leave messages — you approve what appears",
+    ],
+    note: "Builds itself all year — flip through it any time 📖",
   },
 ];
 
@@ -399,6 +413,59 @@ function InsightsMockup() {
   );
 }
 
+function YearbookMockup() {
+  return (
+    <MockupShell title="Family Yearbook" dot="#3d5c42">
+      <div className="space-y-3">
+        {/* Cover card */}
+        <div className="rounded-xl overflow-hidden" style={{ background: "#3d5c42" }}>
+          <div className="px-3 py-2.5 relative">
+            <span className="absolute top-0 right-1 text-[28px] opacity-[0.08] select-none">🌿</span>
+            <p className="text-[12px] font-bold text-white relative z-10" style={{ fontFamily: "var(--font-display)" }}>The Parker Family</p>
+            <p className="text-[8px] text-[#8cba8e] uppercase tracking-wider">2025-26 school year</p>
+          </div>
+          <div className="bg-[#faf6f0] px-3 py-2 flex justify-between text-center">
+            {[
+              { n: "12", l: "Photos" },
+              { n: "5", l: "Books" },
+              { n: "8", l: "Wins" },
+              { n: "3", l: "Quotes" },
+            ].map((s) => (
+              <div key={s.l}>
+                <p className="text-[13px] font-bold text-[#3d5c42]">{s.n}</p>
+                <p className="text-[7px] text-[#9a8f85]">{s.l}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Chapter preview */}
+        <div className="bg-[#fefcf9] rounded-xl border border-[#e8e2d9] p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-4 h-4 rounded-full bg-[#e88da0]" />
+            <p className="text-[11px] font-bold text-[#2d2926]">Emma&apos;s year</p>
+            <span className="text-[8px] text-[#b5aca4]">8 memories</span>
+          </div>
+          <div className="grid grid-cols-3 gap-1">
+            {["🏆", "📖", "📸"].map((e, i) => (
+              <div key={i} className="aspect-square rounded bg-[#eaf3de] flex items-center justify-center text-lg">{e}</div>
+            ))}
+          </div>
+        </div>
+        {/* Progress */}
+        <div>
+          <div className="flex justify-between text-[8px] text-[#9a8f85] mb-1">
+            <span>Pages filling up</span>
+            <span>12 of 17 sections</span>
+          </div>
+          <div className="h-1 bg-[#e8e3dc] rounded-full overflow-hidden">
+            <div className="h-full bg-[#3d5c42] rounded-full" style={{ width: "70%" }} />
+          </div>
+        </div>
+      </div>
+    </MockupShell>
+  );
+}
+
 const MOCKUPS: Record<FeatureId, () => React.JSX.Element> = {
   today: TodayMockup,
   plan: PlanMockup,
@@ -407,6 +474,7 @@ const MOCKUPS: Record<FeatureId, () => React.JSX.Element> = {
   memories: () => <MemoriesMockup />,
   resources: ResourcesMockup,
   insights: InsightsMockup,
+  yearbook: YearbookMockup,
 };
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -799,8 +867,8 @@ export default function TourPage() {
               </p>
               <ul className="space-y-4 mb-8">
                 {[
-                  { emoji: "📸", title: "A keepsake, not just a document", desc: "Every lesson logged becomes part of a beautiful record of your child's entire learning life." },
-                  { emoji: "👵", title: "Share with grandparents", desc: "Send a PDF showing everything your kids learned this year. They'll treasure it." },
+                  { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook — a living record of their whole learning life." },
+                  { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles — anyone you choose. No app download needed." },
                   { emoji: "🎓", title: "High school transcripts", desc: "Build a college-ready transcript automatically as your teen logs lessons and credits." },
                   { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
                 ].map((item) => (

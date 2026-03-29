@@ -411,7 +411,7 @@ export default function Home() {
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
-            The homeschool years go by so fast. Rooted helps you capture the moments, plan your days, and build a keepsake your family will treasure forever.
+            The homeschool years go by so fast. Rooted helps you capture the moments, plan your days, and build a family yearbook you'll treasure forever.
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
@@ -442,7 +442,7 @@ export default function Home() {
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
               { number: "274+",    label: "Families Growing with Rooted", icon: "🌱" },
-              { number: "5",       label: "Sections, All-in-One", icon: "✨" },
+              { number: "5",       label: "Features, One App", icon: "✨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
               { number: "1-Click", label: "Progress Reports",  icon: "📋" },
             ].map(({ number, label, icon }) => (
@@ -582,14 +582,14 @@ export default function Home() {
                 title: "Progress Reports",
                 color: "#f5ede0",
                 border: "#d4b896",
-                desc: "See exactly how much your kids have learned \u2014 then print it, share it with grandparents, or save it forever.",
+                desc: "See exactly how much your kids have learned \u2014 then print it, share it with family, or save it forever.",
               },
               {
                 emoji: "📖",
                 title: "Your Family Yearbook",
                 color: "#f5f0fa",
                 border: "#d9bee8",
-                desc: "Every win, book, photo, and field trip \u2014 beautifully arranged into a keepsake you\u2019ll treasure for years.",
+                desc: "Wins, quotes, and books fill it automatically all year. Add photos you love. At year-end: a beautiful book with your letter, each child\u2019s chapter, and messages from family.",
               },
               {
                 emoji: "📚",
@@ -781,8 +781,8 @@ export default function Home() {
               </p>
               <ul className="space-y-4 mb-8">
                 {[
-                  { emoji: "📸", title: "A keepsake, not just a document", desc: "Every lesson logged becomes part of a beautiful record of your child's entire learning life." },
-                  { emoji: "👵", title: "Share with grandparents", desc: "Send a PDF showing everything your kids learned this year. They'll treasure it." },
+                  { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook — a living record of their whole learning life." },
+                  { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles — anyone you choose. They can view memories and leave messages for the kids. No app download needed." },
                   { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
@@ -918,7 +918,7 @@ export default function Home() {
                 "Printable progress reports",
                 "Finish Line curriculum pacing",
                 "AI Family Update",
-
+                "Family Yearbook — full year, shareable book",
                 "Priority support",
                 "Lifetime founding price 🎁",
               ].map((f) => (
@@ -964,7 +964,7 @@ export default function Home() {
                 "Printable progress reports",
                 "Finish Line curriculum pacing",
                 "AI Family Update",
-
+                "Family Yearbook — full year, shareable book",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -1002,7 +1002,7 @@ export default function Home() {
                 "Printable progress reports",
                 "Finish Line curriculum pacing",
                 "AI Family Update",
-
+                "Family Yearbook — full year, shareable book",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -1042,7 +1042,7 @@ export default function Home() {
                 { feature: "Progress reports",     free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Finish Line pacing",     free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "AI Family Update",       free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Partner/co-parent view", free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Family Yearbook",        free: "30 days", founding: "✓ Full year", standard: "✓ Full year" },
                 { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
                 { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },
               ].map((row, i) => (

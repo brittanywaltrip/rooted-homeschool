@@ -168,6 +168,82 @@ const sections = [
       },
     ],
   },
+  {
+    title: "Family Yearbook",
+    emoji: "📖",
+    items: [
+      {
+        q: "What is the family yearbook?",
+        a: "The family yearbook is a living book that builds automatically throughout your school year. Every win, quote, and book you log is added to it automatically. You can bookmark any photo to include it too. At the end of the year you have a beautiful book — a cover page, a letter from home, each child\u2019s chapter with their interview answers and a note to their future self, and messages from your family. You can flip through it page by page right on your phone.",
+      },
+      {
+        q: "Do I have to do anything to fill the yearbook?",
+        a: "Wins, quotes, and books are added automatically every time you log them — you don\u2019t have to do anything extra. For photos, tap the bookmark icon \uD83D\uDD16 on any memory to add it to the yearbook. You can add or remove photos any time during the year.",
+      },
+      {
+        q: "How do I write the letter from home and child interviews?",
+        a: "Tap \u2018Edit your book\u2019 on the yearbook page. You\u2019ll find a letter field where you can write to your family about the year — as little or as much as you want. Each child has 6 interview questions you can answer any time during the year (their answers get better the closer to year-end you ask!). Everything autosaves as you type.",
+      },
+      {
+        q: "What is the \u2018note to future self\u2019?",
+        a: "Each child\u2019s chapter includes a special section where they write a message to themselves to be read next year. Your child dictates it, you type it — or an older child can type it themselves. It seals into the archived yearbook and appears at the start of next year. It\u2019s one of the most special parts of the book.",
+      },
+      {
+        q: "Can family members see the yearbook?",
+        a: "Yes — anyone you\u2019ve shared your family link with can tap \u2018View yearbook\u2019 to see the book reader. It\u2019s the same beautiful page-by-page experience, read only. They can\u2019t edit anything.",
+      },
+      {
+        q: "Can grandparents and family leave messages in the yearbook?",
+        a: "Yes. Family viewers can write a short message addressed to a specific child, the whole family, or you. You see it first and approve it before it appears in the book. It shows up in the \u2018From the village\u2019 section at the end of the yearbook — like signing a real yearbook.",
+      },
+      {
+        q: "What happens to my yearbook at the end of the school year?",
+        a: "When you\u2019re ready, tap \u2018Close this school year\u2019 in Settings. You\u2019ll choose a cover photo, and the yearbook is saved as a beautiful read-only book. A new yearbook starts automatically for next year. Your archived yearbooks are always there to open and read.",
+      },
+      {
+        q: "What if I start Rooted mid-year — does my yearbook still work?",
+        a: "Absolutely. Your yearbook starts from the beginning of your current school year (August 1st) so any memories you add for the year — even ones you backfill with an earlier date — will appear in the right place. Starting in January or March is completely fine.",
+      },
+      {
+        q: "Do free users get a yearbook?",
+        a: "Free users can build a yearbook, but it only shows memories from the last 30 days (the same limit as the rest of the free plan). Upgrading to a paid plan unlocks your full school year. Your yearbook text — the letter, child interviews, and future notes — is always saved regardless of plan.",
+      },
+      {
+        q: "Are my archived yearbooks saved if I cancel my subscription?",
+        a: "Yes. Your archived yearbooks are yours forever, no matter what. You can always open and read any past yearbook even if you\u2019re on the free plan or have cancelled. We will never hold your memories or your yearbook hostage.",
+      },
+    ],
+  },
+  {
+    title: "Share With Family",
+    emoji: "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67",
+    items: [
+      {
+        q: "What is Share With Family?",
+        a: "Share With Family lets you give grandparents, aunts, uncles, cousins, or your co-parent a private link to view your memories and yearbook. They can see your photos and memories, react with emojis, and leave comments — without downloading any app.",
+      },
+      {
+        q: "Who can I share with?",
+        a: "Anyone you choose — grandparents, extended family, a co-parent, or a close friend. You control the list. Each person gets the same private link. You can revoke access for any individual at any time from Settings.",
+      },
+      {
+        q: "Do family members need to create an account?",
+        a: "No. They just tap the link and they\u2019re in. No account, no app download, no password.",
+      },
+      {
+        q: "Can family members see everything in my account?",
+        a: "They can only see what you\u2019ve shared — your memories and yearbook. They cannot see your curriculum, lesson plans, progress reports, or any account settings. You stay in full control.",
+      },
+      {
+        q: "Can family members add messages to the yearbook?",
+        a: "Yes — from the family viewer, they can write a message addressed to a specific child or the whole family. You see it first and approve it before it appears in the yearbook.",
+      },
+      {
+        q: "How do I set up Share With Family?",
+        a: "Go to Settings \u2192 Share With Family. You\u2019ll get a private link to copy and share however you like — text, email, whatever works for your family.",
+      },
+    ],
+  },
 ];
 
 // ─── Accordion Item ───────────────────────────────────────────────────────────

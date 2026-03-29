@@ -618,9 +618,6 @@ export default function MemoriesPage() {
         >
           Preview as family 👀
         </button>
-        <Link href="/dashboard/memories/yearbook" className="text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
-          📖 Yearbook
-        </Link>
         <button
           type="button"
           onClick={() => alert("More memory types coming soon")}
@@ -630,6 +627,20 @@ export default function MemoriesPage() {
         </button>
       </div>
 
+      {/* ── Yearbook card ──────────────────────────────────────── */}
+      <Link
+        href="/dashboard/memories/yearbook"
+        className="bg-[#faf6f0] border border-[#c0dd97] rounded-2xl p-3 flex items-center gap-3 hover:border-[#5c7f63] transition-colors"
+      >
+        <span className="text-[20px]">📖</span>
+        <div>
+          <p className="text-[13px] font-semibold text-[#3d5c42]">Your family yearbook →</p>
+          <p className="text-[11px] text-[#9a8f85]">
+            {memories.filter((m) => m.include_in_book).length} memories bookmarked this year
+          </p>
+        </div>
+      </Link>
+
       {/* ── Filter pills ─────────────────────────────────────── */}
       {/* ROW 1: Primary filters */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -637,7 +648,6 @@ export default function MemoriesPage() {
           ["all", "All"],
           ["type:photo", "📸 Photos"],
           ["favorites", "♡ Favorites"],
-          ["yearbook", "📖 Yearbook"],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -740,14 +750,39 @@ export default function MemoriesPage() {
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
             <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>🔔</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              {/* Most recent notification */}
-              <p style={{ fontSize: 12, fontWeight: 600, color: "#7a5000", margin: 0 }}>
+              {/* Most recent notification — clickable */}
+              <button
+                onClick={async () => {
+                  const notif = familyNotifs[0];
+                  // Mark as read via PATCH
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (session) {
+                      await fetch("/api/family/notifications", {
+                        method: "PATCH",
+                        headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({ ids: [notif.id] }),
+                      });
+                    }
+                  } catch { /* ignore */ }
+                  // Remove this notification from state
+                  setFamilyNotifs((prev) => prev.filter((n) => n.id !== notif.id));
+                  // Open lightbox if memory_id exists
+                  if (notif.memory_id) {
+                    const match = memories.find((m) => m.id === notif.memory_id);
+                    if (match) { setSelectedMemory(match); return; }
+                  }
+                  // Fall back: no-op (banner disappears, user stays on page)
+                }}
+                style={{ fontSize: 12, fontWeight: 600, color: "#7a5000", margin: 0, background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", width: "100%" }}
+                className="hover:opacity-80 transition-opacity"
+              >
                 {familyNotifs[0].actor_name}{" "}
                 {familyNotifs[0].type === "reaction"
                   ? `reacted ${familyNotifs[0].emoji ?? "❤️"}`
                   : "commented"}{" "}
                 {familyNotifs[0].preview ? `"${familyNotifs[0].preview.slice(0, 40)}${familyNotifs[0].preview.length > 40 ? "…" : ""}"` : "on a memory"}
-              </p>
+              </button>
 
               {/* Show all / collapse */}
               {familyNotifs.length > 1 && !showAllNotifs && (
@@ -759,9 +794,30 @@ export default function MemoriesPage() {
                 </button>
               )}
               {showAllNotifs && familyNotifs.slice(1).map((n) => (
-                <p key={n.id} style={{ fontSize: 11, color: "#7a5000", margin: "4px 0 0" }}>
+                <button
+                  key={n.id}
+                  onClick={async () => {
+                    try {
+                      const { data: { session } } = await supabase.auth.getSession();
+                      if (session) {
+                        await fetch("/api/family/notifications", {
+                          method: "PATCH",
+                          headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+                          body: JSON.stringify({ ids: [n.id] }),
+                        });
+                      }
+                    } catch { /* ignore */ }
+                    setFamilyNotifs((prev) => prev.filter((fn) => fn.id !== n.id));
+                    if (n.memory_id) {
+                      const match = memories.find((m) => m.id === n.memory_id);
+                      if (match) { setSelectedMemory(match); return; }
+                    }
+                  }}
+                  style={{ fontSize: 11, color: "#7a5000", margin: "4px 0 0", background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", width: "100%", display: "block" }}
+                  className="hover:opacity-80 transition-opacity"
+                >
                   {n.actor_name} {n.type === "reaction" ? `reacted ${n.emoji ?? "❤️"}` : `commented: "${(n.preview ?? "").slice(0, 40)}"`}
-                </p>
+                </button>
               ))}
             </div>
             <button
