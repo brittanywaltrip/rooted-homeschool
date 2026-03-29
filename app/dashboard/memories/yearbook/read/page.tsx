@@ -83,9 +83,9 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
 
   if (photos.length === 1) {
     return (
-      <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "4/3" }}>
+      <div className="w-full rounded-md overflow-hidden bg-[#f5f0e8]" style={{ aspectRatio: "4/3" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={photos[0].photo_url!} alt="" className="w-full h-full object-cover" />
+        <img src={photos[0].photo_url!} alt="" className="w-full h-full object-contain" />
       </div>
     );
   }
@@ -94,9 +94,9 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
     return (
       <div className="grid grid-cols-2 gap-1.5">
         {photos.map((p) => (
-          <div key={p.id} className="aspect-square rounded overflow-hidden">
+          <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={p.photo_url!} alt="" className="w-full h-full object-cover" />
+            <img src={p.photo_url!} alt="" className="w-full h-full object-contain" />
           </div>
         ))}
       </div>
@@ -106,15 +106,15 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
   if (photos.length === 3) {
     return (
       <div className="space-y-1.5">
-        <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "16/9" }}>
+        <div className="w-full rounded-md overflow-hidden bg-[#f5f0e8]" style={{ aspectRatio: "16/9" }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photos[0].photo_url!} alt="" className="w-full h-full object-cover" />
+          <img src={photos[0].photo_url!} alt="" className="w-full h-full object-contain" />
         </div>
         <div className="grid grid-cols-2 gap-1.5">
           {photos.slice(1).map((p) => (
-            <div key={p.id} className="aspect-square rounded overflow-hidden">
+            <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={p.photo_url!} alt="" className="w-full h-full object-cover" />
+              <img src={p.photo_url!} alt="" className="w-full h-full object-contain" />
             </div>
           ))}
         </div>
@@ -125,9 +125,9 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
   return (
     <div className="grid grid-cols-2 gap-1.5">
       {photos.slice(0, 4).map((p) => (
-        <div key={p.id} className="aspect-square rounded overflow-hidden">
+        <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={p.photo_url!} alt="" className="w-full h-full object-cover" />
+          <img src={p.photo_url!} alt="" className="w-full h-full object-contain" />
         </div>
       ))}
     </div>
