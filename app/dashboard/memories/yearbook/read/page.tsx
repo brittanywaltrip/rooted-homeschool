@@ -769,7 +769,7 @@ export default function YearbookReadPage() {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center" style={{ background: "#1a1a1a", height: "100dvh" }}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "#1a1a1a", height: "100dvh" }}>
         <div className="text-center">
           <span className="text-3xl animate-pulse block">📖</span>
           <p className="text-[12px] text-[#9a8f85] mt-3">Opening your yearbook…</p>
@@ -782,7 +782,7 @@ export default function YearbookReadPage() {
 
   if (memories.length === 0) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center" style={{ background: "#1a1a1a", height: "100dvh" }}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "#1a1a1a", height: "100dvh" }}>
         <div className="text-center px-6">
           <span className="text-[64px] block">📖</span>
           <p className="italic text-[16px] text-[#9a8f85] mt-4" style={{ fontFamily: "Georgia, serif" }}>
@@ -812,11 +812,11 @@ export default function YearbookReadPage() {
     <>
       {/* ── Mobile view ──────────────────────────────────────── */}
       <div
-        className="md:hidden fixed inset-0 flex flex-col"
+        className="md:hidden fixed inset-0 z-50 flex flex-col"
         style={{ height: "100dvh", overflow: "hidden", background: "#1a1a1a" }}
       >
         {/* Back button bar */}
-        <div className="shrink-0 h-10 flex items-center px-4 z-30" style={{ background: "rgba(26,26,26,0.95)" }}>
+        <div className="shrink-0 h-12 flex items-center px-4" style={{ background: "rgba(26,26,26,0.95)" }}>
           <Link href="/dashboard/memories/yearbook" className="text-[12px] text-[#9a8f85] hover:text-white transition-colors">
             ← Yearbook
           </Link>
@@ -837,7 +837,7 @@ export default function YearbookReadPage() {
               style={{ background: "#FAFAF7", boxShadow: "0 2px 20px rgba(0,0,0,0.08)", borderRadius: 8 }}
             >
               {/* Page header */}
-              <div className="shrink-0 pt-2.5 pb-1 text-center" style={{ background: isDark ? "transparent" : undefined }}>
+              <div className="shrink-0 pt-4 pb-1.5 text-center" style={{ background: isDark ? "transparent" : undefined }}>
                 <p className="text-[8px] font-medium tracking-[0.15em] uppercase text-[#8cba8e]">
                   {pages[safePage]?.header}
                 </p>
