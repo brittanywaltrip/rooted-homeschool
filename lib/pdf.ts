@@ -120,8 +120,18 @@ export type ReportData = {
 };
 
 export function generateProgressReport(doc: jsPDF, data: ReportData) {
-  console.log("[PDF] Starting generation:", { children: data.children.length, dailyLogDays: data.dailyLog.length, lessons: data.summary.lessons });
+  console.log("[PDF v3] Starting generation:", JSON.stringify({ children: data.children.length, dailyLogDays: data.dailyLog.length, lessons: data.summary.lessons }));
   let y = 0;
+  const MAX_PAGES = 50;
+
+  function safeAddPage() {
+    if (doc.getNumberOfPages() >= MAX_PAGES) {
+      console.warn("[PDF] Hit max page limit:", MAX_PAGES);
+      return false;
+    }
+    doc.addPage();
+    return true;
+  }
 
   // ── Page 1: Cover ────────────────────────────────────────────────────────
   // Green header block
@@ -180,7 +190,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
   for (const child of data.children) {
     // Check if we need a new page
     if (y > PH - 3) {
-      doc.addPage();
+      if (!safeAddPage()) break;
       y = MY;
     }
 
@@ -217,7 +227,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
       y += 0.25;
 
       for (const sub of child.subjects) {
-        if (y > PH - 1) { doc.addPage(); y = MY; }
+        if (y > PH - 1) { if (!safeAddPage()) break; y = MY; }
         drawLine(doc, MX, y, PW - MX, y, C.border, 0.003);
         doc.setFontSize(9);
         setColor(doc, C.dark);
@@ -233,13 +243,13 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
     // Lists
     const drawList = (title: string, items: string[]) => {
       if (items.length === 0) return;
-      if (y > PH - 1) { doc.addPage(); y = MY; }
+      if (y > PH - 1) { if (!safeAddPage()) return; y = MY; }
       doc.setFontSize(7);
       setColor(doc, C.muted);
       txt(doc,`${title} (${items.length})`.toUpperCase(), MX, y + 0.1);
       y += 0.2;
       for (const item of items) {
-        if (y > PH - 0.5) { doc.addPage(); y = MY; }
+        if (y > PH - 0.5) { if (!safeAddPage()) return; y = MY; }
         doc.setFontSize(8);
         setColor(doc, C.dark);
         const lines = wrapText(doc, `· ${item}`, CW_INNER - 0.2);
@@ -261,7 +271,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
 
   // ── Daily Activity Log ───────────────────────────────────────────────────
   if (data.dailyLog.length > 0) {
-    doc.addPage();
+    if (!safeAddPage()) { drawFooter(doc, data.familyName || "Family Academy", data.dateGenerated); console.log("[PDF] Complete (capped), pages:", doc.getNumberOfPages()); return; }
     y = MY;
 
     doc.setFontSize(13);
@@ -289,7 +299,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
     for (const day of data.dailyLog) {
       // Date header row
       if (y > PH - 0.8) {
-        doc.addPage();
+        if (!safeAddPage()) break;
         y = MY;
         // Re-draw table header
         fillRect(doc, MX, y, CW_INNER, 0.22, C.headerBg);
@@ -305,7 +315,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
 
       for (const e of day.entries) {
         if (y > PH - 0.6) {
-          doc.addPage();
+          if (!safeAddPage()) break;
           y = MY;
           fillRect(doc, MX, y, CW_INNER, 0.22, C.headerBg);
           doc.setFontSize(6.5);
