@@ -1103,7 +1103,34 @@ export default function PlanPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          SECTION 5 — BREAKS & VACATIONS
+          SECTION 5 — PROGRESS REPORT
+      ══════════════════════════════════════════════════ */}
+      {!isPartner && !loading && (
+        <div style={{ marginTop: 8 }}>
+          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+            Progress Report
+          </p>
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-[#2d2926]">📊 Progress Report</h3>
+                <p className="text-[11px] text-[#b5aca4] mt-0.5 leading-relaxed max-w-xs">
+                  A full record of your homeschool year — lessons, hours, books, and daily activity log — ready to download or share.
+                </p>
+              </div>
+              <Link
+                href="/dashboard/printables"
+                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] text-white px-4 py-2 rounded-lg transition-colors shrink-0"
+              >
+                Download Report
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          SECTION 6 — BREAKS & VACATIONS
       ══════════════════════════════════════════════════ */}
       {!isPartner && (
         <div style={{ marginTop: 8 }}>
