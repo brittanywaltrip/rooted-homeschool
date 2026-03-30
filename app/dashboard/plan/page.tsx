@@ -863,13 +863,18 @@ export default function PlanPage() {
 
                       {/* Lesson text */}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{
-                          fontSize: 12, fontWeight: 500, margin: 0,
-                          textDecoration: lesson.completed ? "line-through" : "none",
-                          color: lesson.completed ? "#bbb" : "#2d2926",
-                        }}>
-                          {lesson.title}
-                        </p>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+                          <p style={{
+                            fontSize: 12, fontWeight: 500, margin: 0,
+                            textDecoration: lesson.completed ? "line-through" : "none",
+                            color: lesson.completed ? "#bbb" : "#2d2926",
+                          }}>
+                            {lesson.title}
+                          </p>
+                          {lesson.completed && lesson.minutes_spent != null && (
+                            <span style={{ fontSize: 10, color: "#b5aca4" }}>· {lesson.minutes_spent} min</span>
+                          )}
+                        </div>
                         {lesson.subjects && (
                           <p style={{ fontSize: 10, color: "#bbb", margin: "1px 0 0" }}>{lesson.subjects.name}</p>
                         )}
@@ -879,6 +884,24 @@ export default function PlanPage() {
                 </div>
               );
             })}
+
+            {/* Day time total */}
+            {(() => {
+              const allDayLessons = lessonsByChild.flatMap(g => g.lessons);
+              const completed = allDayLessons.filter(l => l.completed);
+              if (completed.length === 0) return null;
+              const totalMins = completed.reduce((sum, l) => {
+                if (l.minutes_spent != null) return sum + l.minutes_spent;
+                if (l.hours != null && l.hours > 0) return sum + Math.round(l.hours * 60);
+                return sum + 30;
+              }, 0);
+              const display = totalMins >= 60 ? `${Math.floor(totalMins / 60)}h ${totalMins % 60 > 0 ? `${totalMins % 60}m` : ""}` : `${totalMins} min`;
+              return (
+                <div style={{ borderTop: "0.5px solid #f5f0e8", padding: "8px 13px" }}>
+                  <p style={{ fontSize: 11, color: "#b5aca4", margin: 0 }}>Total: {display}</p>
+                </div>
+              );
+            })()}
 
             {/* Past-day note */}
             {isSelectedPast && (
