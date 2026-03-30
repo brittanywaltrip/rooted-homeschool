@@ -1682,8 +1682,8 @@ export default function SettingsPage() {
 
           {/* Desktop table */}
           {allAffiliates.length > 0 && (
-            <div className="hidden sm:block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="hidden sm:block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-x-auto">
+              <table className="min-w-[800px] w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#e8e2d9] bg-[#f8f7f4]">
                     <th className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Name</th>
@@ -1756,8 +1756,10 @@ export default function SettingsPage() {
                     <span className="font-mono font-bold text-[#4338ca] tracking-wider">{aff.code}</span>
                     <span className="text-[11px] text-[#6366f1]">Tap to copy</span>
                   </button>
-                  <div className="flex items-center gap-4 text-xs text-[#7a6f65]">
+                  <div className="grid grid-cols-2 gap-2 text-xs text-[#7a6f65]">
                     <span>{aff.clicks ?? 0} clicks</span>
+                    <span>Families: <AffiliateStatCell couponId={aff.stripe_coupon_id} code={aff.code} field="totalRedemptions" /></span>
+                    <span>Revenue: <AffiliateStatCell couponId={aff.stripe_coupon_id} code={aff.code} field="revenueDriven" prefix="$" /></span>
                     <span>Since {new Date(aff.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
                   </div>
                 </div>
