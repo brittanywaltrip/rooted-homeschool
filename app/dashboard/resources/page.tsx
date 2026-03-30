@@ -639,12 +639,12 @@ export default function ResourcesPage() {
         </div>
 
         {/* ── Filter pills ──────────────────────────────────────── */}
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: "none" }}>
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-1 px-1 pr-4" style={{ scrollbarWidth: "none" }}>
           {BROWSE_CATS.map((cat) => (
             <button
               key={cat.id}
               onClick={() => { setBrowseFilter(cat.id); if (!["states", "saved"].includes(cat.id)) setSearchQuery(""); }}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap relative ${
+              className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap relative ${
                 browseFilter === cat.id
                   ? "bg-[#4a7c59] text-white shadow-sm"
                   : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#4a7c59] hover:text-[#2d2926]"
