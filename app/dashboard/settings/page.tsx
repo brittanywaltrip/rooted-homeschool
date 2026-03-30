@@ -1274,6 +1274,17 @@ export default function SettingsPage() {
             );
           })()}
 
+          {/* Preview button */}
+          <button
+            onClick={() => {
+              const token = familyInvites[0]?.token;
+              window.open(token ? `/family/${token}` : "/family/preview", "_blank");
+            }}
+            className="w-full border border-[#c8dfc8] bg-[#f0f7f0] text-[#3d5c42] rounded-xl py-2.5 mb-4 text-sm font-medium flex items-center justify-center gap-2"
+          >
+            👁 Preview family view
+          </button>
+
           {/* Invite form */}
           <div className="space-y-2 pt-2 border-t border-[#f0ede8]">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85]">Add a viewer</p>
