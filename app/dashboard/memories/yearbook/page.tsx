@@ -390,30 +390,22 @@ export default function YearbookPage() {
 
         {/* ── Empty state ─────────────────────────────────────── */}
         {memories.length === 0 && (
-          <div className="mt-6 space-y-4">
-            <p className="text-[#5a5048] italic text-sm" style={{ fontFamily: "Georgia, serif" }}>
-              Wins, quotes, and books are added automatically.{" "}
-              Tap 🔖 on any photo or memory to add it to your yearbook.
-            </p>
-            <span className="inline-block bg-[#eaf3de] text-[#3B6D11] text-[10px] rounded-full px-3 py-1">
-              ● Wins, quotes &amp; books added automatically
-            </span>
-
-            {/* Ghost chapters */}
-            {children.map((child) => (
-              <div key={child.id} className="rounded-xl p-4 border border-dashed border-[#d4cfc8] bg-[#faf8f3]">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-5 h-5 rounded-full" style={{ backgroundColor: child.color ?? "#5c7f63" }} />
-                  <span className="text-sm font-medium text-[#2d2926]">{child.name}</span>
-                  <span className="text-[10px] text-[#b5aca4]">0 memories</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="aspect-square rounded-lg border border-dashed border-[#d4cfc8] bg-[#f5f0e8]" />
-                  ))}
-                </div>
-              </div>
-            ))}
+          <div className="mt-6">
+            <div className="bg-[#fefcf9] border border-[#e8e0d9] rounded-2xl p-6 text-center">
+              <span className="text-4xl block mb-3">🔖</span>
+              <h3 className="text-base font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
+                Your yearbook starts here
+              </h3>
+              <p className="text-sm text-[#7a6f65] leading-relaxed max-w-sm mx-auto mb-5">
+                Tap the bookmark on any memory to add it. Wins, books, and quotes are added automatically — photos need a tap.
+              </p>
+              <Link
+                href="/dashboard/memories"
+                className="inline-block text-sm font-medium text-[#3d5c42] border border-[#3d5c42] rounded-xl px-5 py-2.5 hover:bg-[#f0ede8] transition-colors"
+              >
+                ← Back to Memories
+              </Link>
+            </div>
           </div>
         )}
 

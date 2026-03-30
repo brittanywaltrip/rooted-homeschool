@@ -129,6 +129,11 @@ export default function MemoriesPage() {
   const [selectedMemory, setSelectedMemory] = useState<MemoryRow | null>(null);
   const [hearted, setHearted] = useState<Set<string>>(new Set());
 
+  // First-visit yearbook tooltip
+  const [showYearbookTip, setShowYearbookTip] = useState(false);
+  const [yearbookTipVisible, setYearbookTipVisible] = useState(false);
+  const hasShownTipRef = useRef(false);
+
   // Lightbox inline delete confirm
   const [lightboxDeleteConfirm, setLightboxDeleteConfirm] = useState(false);
 
@@ -158,6 +163,33 @@ export default function MemoriesPage() {
 
   // Milestone prompt
   const [milestonePrompt, setMilestonePrompt] = useState<{ milestone: string; message: string; badgeEmoji: string } | null>(null);
+
+  // Check localStorage for yearbook tip on mount
+  useEffect(() => {
+    if (!localStorage.getItem("rooted_yearbook_tip_seen")) {
+      setShowYearbookTip(true);
+    }
+  }, []);
+
+  // Show tooltip when lightbox first opens and tip hasn't been shown yet
+  useEffect(() => {
+    if (selectedMemory && showYearbookTip && !hasShownTipRef.current) {
+      hasShownTipRef.current = true;
+      setYearbookTipVisible(true);
+      const timer = setTimeout(() => {
+        setYearbookTipVisible(false);
+        setShowYearbookTip(false);
+        localStorage.setItem("rooted_yearbook_tip_seen", "1");
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedMemory, showYearbookTip]);
+
+  function dismissYearbookTip() {
+    setYearbookTipVisible(false);
+    setShowYearbookTip(false);
+    localStorage.setItem("rooted_yearbook_tip_seen", "1");
+  }
 
   // Highlight from notification deep link
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -1022,7 +1054,10 @@ export default function MemoriesPage() {
 
                   {/* Yearbook bookmark */}
                   {!isPartner && (
-                    <div className="absolute top-0.5 right-0.5 z-10">
+                    <div
+                      className={`absolute top-0.5 right-0.5 z-10 transition-opacity ${m.include_in_book ? "opacity-100" : "opacity-0 group-hover:opacity-60"}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <YearbookBookmark
                         memoryId={m.id}
                         initialValue={m.include_in_book}
@@ -1055,7 +1090,7 @@ export default function MemoriesPage() {
       {selectedMemory && (
         <div
           className="fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-4"
-          onClick={() => { setSelectedMemory(null); setMenuId(null); setLightboxDeleteConfirm(false); }}
+          onClick={() => { setSelectedMemory(null); setMenuId(null); setLightboxDeleteConfirm(false); if (yearbookTipVisible) dismissYearbookTip(); }}
         >
           <div
             className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto"
@@ -1176,11 +1211,6 @@ export default function MemoriesPage() {
 
               {/* Visibility badges */}
               <div className="flex flex-wrap gap-1.5">
-                {selectedMemory.include_in_book && (
-                  <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#5c7f63]">
-                    ☑ In yearbook
-                  </span>
-                )}
                 <button
                   onClick={() => toggleFamilyVisible(selectedMemory)}
                   className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full transition-colors ${
@@ -1202,16 +1232,28 @@ export default function MemoriesPage() {
                   >
                     <Pencil size={14} /> Edit
                   </button>
-                  <div className="flex items-center gap-1">
+                  <div className="relative">
                     <YearbookBookmark
                       memoryId={selectedMemory.id}
                       initialValue={selectedMemory.include_in_book}
                       size="md"
+                      showLabel
                       onChange={(val) => {
                         setMemories((prev) => prev.map((mem) => mem.id === selectedMemory.id ? { ...mem, include_in_book: val } : mem));
                         setSelectedMemory({ ...selectedMemory, include_in_book: val });
                       }}
                     />
+                    {yearbookTipVisible && (
+                      <div
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap z-50"
+                        onClick={dismissYearbookTip}
+                      >
+                        <div className="bg-[#3d5c42] text-white text-xs px-3 py-1.5 rounded-full shadow-lg">
+                          Tap to add this memory to your yearbook
+                        </div>
+                        <div className="w-2 h-2 bg-[#3d5c42] rotate-45 mx-auto -mt-1" />
+                      </div>
+                    )}
                   </div>
                   {!lightboxDeleteConfirm ? (
                     <button

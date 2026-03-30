@@ -21,7 +21,9 @@ function UpgradePageInner() {
   const [planType, setPlanType] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('')
   const refParam = searchParams.get('ref')
-  const refCode = refParam || (typeof window !== 'undefined' ? localStorage.getItem('rooted_ref') : null)
+  const refCode = refParam
+    || (typeof window !== 'undefined' ? localStorage.getItem('rooted_ref') : null)
+    || (typeof document !== 'undefined' ? document.cookie.match(/rooted_ref=([^;]+)/)?.[1] : null)
 
   useEffect(() => {
     async function loadUserProfile() {
