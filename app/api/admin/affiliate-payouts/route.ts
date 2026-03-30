@@ -81,7 +81,10 @@ export async function GET(req: Request) {
 
     try {
       const invoice = await stripe.invoices.retrieve(chargeAny.invoice as string);
-      const couponId = invoice.discount?.coupon?.id ?? null;
+      const invoiceAny = invoice as any;
+      const couponId = invoiceAny.discount?.coupon?.id
+        ?? invoiceAny.discounts?.[0]?.coupon?.id
+        ?? null;
       if (!couponId || !couponToAffiliate.has(couponId)) continue;
 
       const aff = couponToAffiliate.get(couponId)!;
