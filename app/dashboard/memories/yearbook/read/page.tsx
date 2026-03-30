@@ -652,7 +652,15 @@ export default function YearbookReadPage() {
             )}
             {famWins.map((w) => (
               <div key={w.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[#8cba8e]">
-                <p className="text-[7px] uppercase tracking-wider text-[#5c7f63]">{w.type === "field_trip" ? "Trip" : "Win"}</p>
+                <p className="text-[7px] uppercase tracking-wider text-[#5c7f63] flex items-center gap-1">
+                  <span>{w.type === "field_trip" ? "🗺️" : "⭐"}</span>
+                  <span>{w.type === "field_trip" ? "Trip" : "Win"}</span>
+                  {w.date && (
+                    <span className="text-[#9a8f85] font-normal normal-case tracking-normal ml-auto">
+                      {new Date(w.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                    </span>
+                  )}
+                </p>
                 <p className="text-[9px] text-[#2d2926] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{w.title}</p>
               </div>
             ))}
