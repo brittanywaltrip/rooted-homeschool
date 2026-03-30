@@ -802,63 +802,46 @@ function fmtMins(m: number): string {
 }
 
 function reportCardHtml(data: ReportCardData): string {
-  const foot = `<div style="font-size:9px;color:#b5aca4;text-align:right;padding:4px 60px;">Generated ${data.dateGenerated} · ${data.schoolName || "Family Academy"} · rootedhomeschoolapp.com</div>`;
+  const foot = `<p style="font-size:9px;color:#b5aca4;text-align:right;padding:4px 60px;margin:0;">Generated ${data.dateGenerated} · ${data.schoolName || "Family Academy"} · rootedhomeschoolapp.com</p>`;
   const wm = data.showWatermark ? `<p style="font-size:10px;color:#c4bfb8;margin-top:16px;text-align:center;">Made with Rooted</p>` : "";
   const s = data.familySummary;
 
-  // Cover + family summary
-  const cover = `
-  <div style="background:#2d5a3d;padding:48px 60px;text-align:center;">
-    <p style="font-size:24px;margin:0 0 10px;">🌿</p>
-    <p style="font-size:22px;font-weight:900;color:white;margin:0 0 4px;">${data.schoolName || "Family Academy"}</p>
-    <p style="font-size:13px;color:rgba(255,255,255,0.6);letter-spacing:2px;text-transform:uppercase;margin:0 0 6px;">Annual Progress Report · ${data.schoolYear}</p>
-    <p style="font-size:11px;color:rgba(255,255,255,0.45);margin:0;">Generated ${data.dateGenerated}</p>
-  </div>
-  <div style="padding:36px 60px;">
-    <p style="font-size:15px;font-weight:700;color:#2d2926;margin:0 0 16px;">Family Summary</p>
-    <div style="display:flex;gap:0;border:1px solid #e8e2d9;border-radius:8px;overflow:hidden;">
-      ${[
-        { label: "Total Hours", value: s.totalHours },
-        { label: "School Days", value: String(s.totalSchoolDays) },
-        { label: "Lessons", value: String(s.totalLessons) },
-        { label: "Books", value: String(s.totalBooks) },
-        { label: "Trips/Projects", value: String(s.totalFieldTrips) },
-        { label: "Memories", value: String(s.totalMemories) },
-      ].map((x, i) => `<div style="flex:1;padding:12px 10px;text-align:center;${i > 0 ? "border-left:1px solid #e8e2d9;" : ""}">
-        <p style="font-size:10px;color:#7a6f65;margin:0 0 2px;">${x.label}</p>
-        <p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${x.value}</p>
-      </div>`).join("")}
-    </div>
-    <p style="font-size:9px;color:#b5aca4;margin:8px 0 0;font-style:italic;">* Hours marked with an asterisk are estimated based on your default lesson time settings.</p>
-  </div>
-  ${foot}`;
+  const summaryStats = [
+    { label: "Total Hours", value: s.totalHours },
+    { label: "School Days", value: String(s.totalSchoolDays) },
+    { label: "Lessons", value: String(s.totalLessons) },
+    { label: "Books", value: String(s.totalBooks) },
+    { label: "Trips/Projects", value: String(s.totalFieldTrips) },
+    { label: "Memories", value: String(s.totalMemories) },
+  ];
 
   // Per-child sections
   const childSections = data.children.map(c => {
     const subjRows = c.subjects.length > 0 ? c.subjects.map(sub => `
       <tr>
-        <td style="padding:5px 12px;font-size:12px;color:#2d2926;">${sub.name}</td>
-        <td style="padding:5px 12px;font-size:12px;color:#2d2926;text-align:right;">${sub.count}</td>
-        <td style="padding:5px 12px;font-size:12px;color:#2d2926;text-align:right;">${sub.hours}${sub.estimated ? "*" : ""}</td>
+        <td style="padding:5px 12px;font-size:12px;color:#2d2926;border-bottom:1px solid #f0ede8;">${sub.name}</td>
+        <td style="padding:5px 12px;font-size:12px;color:#2d2926;text-align:right;border-bottom:1px solid #f0ede8;">${sub.count}</td>
+        <td style="padding:5px 12px;font-size:12px;color:#2d2926;text-align:right;border-bottom:1px solid #f0ede8;">${sub.hours}${sub.estimated ? "*" : ""}</td>
       </tr>`).join("") : `<tr><td colspan="3" style="padding:10px 12px;color:#b5aca4;font-style:italic;font-size:11px;">No lessons recorded</td></tr>`;
 
-    const bookList = c.books.length > 0 ? `<div style="margin-top:16px;"><p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px;">Books Read (${c.books.length})</p>${c.books.map(b => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${b}</p>`).join("")}</div>` : "";
-    const tripList = c.fieldTrips.length > 0 ? `<div style="margin-top:16px;"><p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px;">Field Trips & Projects (${c.fieldTrips.length})</p>${c.fieldTrips.map(t => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${t.title}${t.duration ? ` — ${t.duration} min` : ""}</p>`).join("")}</div>` : "";
-    const winList = c.wins.length > 0 ? `<div style="margin-top:16px;"><p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px;">Wins & Milestones (${c.wins.length})</p>${c.wins.map(w => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${w}</p>`).join("")}</div>` : "";
-    const badgeList = c.badges.length > 0 ? `<div style="margin-top:16px;"><p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px;">Badges Earned</p>${c.badges.map(b => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">🏅 ${b}</p>`).join("")}</div>` : "";
+    const listSection = (title: string, items: string[]) => items.length > 0
+      ? `<p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:16px 0 6px 0;">${title} (${items.length})</p>${items.map(b => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${b}</p>`).join("")}`
+      : "";
+
+    const tripItems = c.fieldTrips.map(t => `${t.title}${t.duration ? ` — ${t.duration} min` : ""}`);
 
     return `
-    <div style="page-break-before:auto;margin-bottom:28px;">
-      <div style="background:#5c7f63;padding:10px 20px;border-radius:8px 8px 0 0;">
-        <p style="font-size:16px;font-weight:bold;color:white;margin:0;">🌱 ${c.name}</p>
-      </div>
-      <div style="border:1px solid #e8e2d9;border-top:none;border-radius:0 0 8px 8px;padding:16px 20px;">
-        <div style="display:flex;gap:24px;margin-bottom:16px;">
-          <div><p style="font-size:10px;color:#7a6f65;margin:0;">Hours</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalHours}</p></div>
-          <div><p style="font-size:10px;color:#7a6f65;margin:0;">Lessons</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalLessons}</p></div>
-          <div><p style="font-size:10px;color:#7a6f65;margin:0;">School Days</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalSchoolDays}</p></div>
-        </div>
-        <table style="width:100%;border-collapse:collapse;">
+    <div style="margin-bottom:28px;">
+      <table style="width:100%;border-collapse:collapse;"><tr><td style="background:#5c7f63;padding:10px 20px;border-radius:8px 8px 0 0;">
+        <p style="font-size:16px;font-weight:bold;color:white;margin:0;">${c.name}</p>
+      </td></tr></table>
+      <div style="border:1px solid #e8e2d9;border-top:none;padding:16px 20px;">
+        <table style="border-collapse:collapse;margin-bottom:16px;"><tr>
+          <td style="padding:0 24px 0 0;"><p style="font-size:10px;color:#7a6f65;margin:0;">Hours</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalHours}</p></td>
+          <td style="padding:0 24px 0 0;"><p style="font-size:10px;color:#7a6f65;margin:0;">Lessons</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalLessons}</p></td>
+          <td style="padding:0;"><p style="font-size:10px;color:#7a6f65;margin:0;">School Days</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalSchoolDays}</p></td>
+        </tr></table>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e8e2d9;">
           <thead><tr style="background:#f5f2ee;">
             <th style="padding:6px 12px;text-align:left;font-size:10px;color:#7a6f65;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Subject</th>
             <th style="padding:6px 12px;text-align:right;font-size:10px;color:#7a6f65;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Lessons</th>
@@ -866,7 +849,10 @@ function reportCardHtml(data: ReportCardData): string {
           </tr></thead>
           <tbody>${subjRows}</tbody>
         </table>
-        ${bookList}${tripList}${winList}${badgeList}
+        ${listSection("Books Read", c.books)}
+        ${listSection("Field Trips & Projects", tripItems)}
+        ${listSection("Wins & Milestones", c.wins)}
+        ${c.badges.length > 0 ? `<p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:16px 0 6px 0;">Badges Earned</p>${c.badges.map(b => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">🏅 ${b}</p>`).join("")}` : ""}
       </div>
     </div>`;
   }).join("");
@@ -876,20 +862,19 @@ function reportCardHtml(data: ReportCardData): string {
     const header = `<tr><td colspan="5" style="padding:8px 12px 4px;font-size:11px;font-weight:700;color:#2d2926;background:#f5f2ee;">${day.dateLabel}</td></tr>`;
     const rows = day.entries.map(e => `
       <tr>
-        <td style="padding:3px 12px;font-size:10px;color:#7a6f65;">${day.dateLabel}</td>
-        <td style="padding:3px 12px;font-size:10px;color:#2d2926;">${e.subject}</td>
-        <td style="padding:3px 12px;font-size:10px;color:#2d2926;">${e.description}</td>
-        <td style="padding:3px 12px;font-size:10px;color:#2d2926;text-align:right;">${e.minutes}${e.estimated ? "*" : ""}</td>
-        <td style="padding:3px 12px;font-size:10px;color:#7a6f65;">${e.type}</td>
+        <td style="padding:3px 12px;font-size:10px;color:#7a6f65;border-bottom:1px solid #f5f2ee;">${day.dateLabel}</td>
+        <td style="padding:3px 12px;font-size:10px;color:#2d2926;border-bottom:1px solid #f5f2ee;">${e.subject}</td>
+        <td style="padding:3px 12px;font-size:10px;color:#2d2926;border-bottom:1px solid #f5f2ee;">${e.description}</td>
+        <td style="padding:3px 12px;font-size:10px;color:#2d2926;text-align:right;border-bottom:1px solid #f5f2ee;">${e.minutes}${e.estimated ? "*" : ""}</td>
+        <td style="padding:3px 12px;font-size:10px;color:#7a6f65;border-bottom:1px solid #f5f2ee;">${e.type}</td>
       </tr>`).join("");
     return header + rows;
   }).join("");
 
-  const totalLogMins = data.dailyLog.reduce((sum, d) => sum + d.entries.reduce((s, e) => s + e.minutes, 0), 0);
+  const totalLogMins = data.dailyLog.reduce((sum, d) => sum + d.entries.reduce((s2, e) => s2 + e.minutes, 0), 0);
 
   const dailyLogSection = data.dailyLog.length > 0 ? `
-  <div style="page-break-before:always;"></div>
-  <div style="padding:36px 60px;">
+  <div style="padding:36px 60px 20px;">
     <p style="font-size:15px;font-weight:700;color:#2d2926;margin:0 0 4px;">Daily Activity Log</p>
     <p style="font-size:11px;color:#7a6f65;margin:0 0 16px;">For state record-keeping purposes</p>
     <table style="width:100%;border-collapse:collapse;border:1px solid #e8e2d9;">
@@ -908,11 +893,33 @@ function reportCardHtml(data: ReportCardData): string {
 
   return `
 <div style="width:816px;min-height:1056px;background:#fdfcf8;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:0;">
-  ${cover}
+
+  <div style="background:#2d5a3d;padding:48px 60px;text-align:center;">
+    <p style="font-size:24px;margin:0 0 10px;">🌿</p>
+    <p style="font-size:22px;font-weight:900;color:white;margin:0 0 4px;">${data.schoolName || "Family Academy"}</p>
+    <p style="font-size:13px;color:rgba(255,255,255,0.6);letter-spacing:2px;text-transform:uppercase;margin:0 0 6px;">Annual Progress Report · ${data.schoolYear}</p>
+    <p style="font-size:11px;color:rgba(255,255,255,0.45);margin:0;">Generated ${data.dateGenerated}</p>
+  </div>
+
+  <div style="padding:36px 60px;">
+    <p style="font-size:15px;font-weight:700;color:#2d2926;margin:0 0 16px;">Family Summary</p>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #e8e2d9;">
+      <tr>
+        ${summaryStats.map((x, i) => `<td style="padding:12px 10px;text-align:center;${i > 0 ? "border-left:1px solid #e8e2d9;" : ""}">
+          <p style="font-size:10px;color:#7a6f65;margin:0 0 2px;">${x.label}</p>
+          <p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${x.value}</p>
+        </td>`).join("")}
+      </tr>
+    </table>
+    <p style="font-size:9px;color:#b5aca4;margin:8px 0 0;font-style:italic;">* Hours marked with an asterisk are estimated based on your default lesson time settings.</p>
+  </div>
+  ${foot}
+
   <div style="padding:0 60px 36px;">
     ${childSections}
     ${wm}
   </div>
+
   ${dailyLogSection}
 </div>`;
 }
