@@ -1291,6 +1291,11 @@ export default function SettingsPage() {
               className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
               onKeyDown={(e) => { if (e.key === "Enter") sendFamilyInvite(); }}
             />
+            <div className="bg-[#f5f0e8] border border-[#e8e0d9] rounded-xl px-4 py-3">
+              <p className="text-[11px] text-[#7a6f65] leading-relaxed">
+                👁 All your memories are visible to invited family by default. Open any memory and tap &apos;Visible to family&apos; to make it private.
+              </p>
+            </div>
             <button
               onClick={sendFamilyInvite}
               disabled={sendingInvite || !familyInviteEmail.trim() || !familyInviteName.trim()}
