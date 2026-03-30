@@ -1908,6 +1908,32 @@ export default function SettingsPage() {
         </section>
       )}
 
+      {/* ── Share Rooted ─────────────────────────────────────────────── */}
+      <div className="mt-6">
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+          <p className="text-sm font-medium text-[#2d2926]">Share Rooted 🌱</p>
+          <p className="text-xs text-[#7a6f65] mt-0.5 mb-3">Know a homeschool mom who&apos;d love this? Send her the link.</p>
+          <button
+            onClick={async () => {
+              const shareData = {
+                title: "Rooted",
+                text: "I\u2019ve been using Rooted to capture our homeschool memories \u2014 thought you might love it!",
+                url: "https://rootedhomeschoolapp.com",
+              };
+              if (navigator.share) {
+                try { await navigator.share(shareData); } catch {}
+              } else {
+                await navigator.clipboard.writeText(shareData.url);
+                showCopiedToast("Link copied!");
+              }
+            }}
+            className="px-4 py-2 rounded-xl bg-[#2d5a3d] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+          >
+            Share with a friend
+          </button>
+        </div>
+      </div>
+
       {/* ── Help & More ──────────────────────────────────────────────── */}
       <div className="mt-6 mb-8">
         <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-3 px-1">Help & More</p>

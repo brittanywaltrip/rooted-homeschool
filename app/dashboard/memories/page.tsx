@@ -959,6 +959,23 @@ export default function MemoriesPage() {
             <p className="text-sm text-[#7a6f65] max-w-xs">
               Tap Capture to add your first one.
             </p>
+            <button
+              onClick={async () => {
+                const shareData = {
+                  title: "Rooted",
+                  text: "I\u2019ve been using Rooted to capture our homeschool memories \u2014 thought you might love it!",
+                  url: "https://rootedhomeschoolapp.com",
+                };
+                if (navigator.share) {
+                  try { await navigator.share(shareData); } catch {}
+                } else {
+                  await navigator.clipboard.writeText(shareData.url);
+                }
+              }}
+              className="mt-4 text-xs text-[#5c7f63] hover:text-[#3d5c42] font-medium transition-colors"
+            >
+              Loving Rooted? Share it with a friend →
+            </button>
           </div>
         )
       ) : (
