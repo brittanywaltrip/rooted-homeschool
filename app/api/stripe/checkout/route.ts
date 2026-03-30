@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       success_url: 'https://www.rootedhomeschoolapp.com/dashboard/welcome',
       cancel_url: 'https://www.rootedhomeschoolapp.com/upgrade',
       customer_email: user.email,
-      metadata: { userId: user.id },
+      metadata: { userId: user.id, referral: ref ?? '' },
     }, { idempotencyKey })
     console.log('[checkout] session created:', session.id)
     return NextResponse.json({ url: session.url })
