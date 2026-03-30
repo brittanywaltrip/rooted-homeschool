@@ -475,6 +475,12 @@ export default function TodayPage() {
   const [winChild, setWinChild] = useState("");
   const [savingWin, setSavingWin] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [winMinutes, setWinMinutes] = useState("");
+  const [ftMinutes, setFtMinutes] = useState("");
+  const [timePill, setTimePill] = useState<{ lessonId: string; minutes: number } | null>(null);
+  const [timePillEdit, setTimePillEdit] = useState(false);
+  const [timePillValue, setTimePillValue] = useState("");
+  const timePillTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
     lessons: { title: string; childId: string | null; subjectName: string | null }[];
@@ -923,6 +929,23 @@ export default function TodayPage() {
     const updatedLessons = lessons.map(l => l.id === id ? { ...l, completed: !current } : l);
     setLessons(updatedLessons);
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
+
+    // Save minutes_spent when completing a lesson
+    if (!current && lesson?.curriculum_goal_id) {
+      const { data: goalRow } = await supabase
+        .from("curriculum_goals")
+        .select("default_minutes")
+        .eq("id", lesson.curriculum_goal_id)
+        .single();
+      const mins = (goalRow as { default_minutes?: number } | null)?.default_minutes ?? 30;
+      await supabase.from("lessons").update({ minutes_spent: mins }).eq("id", id);
+      // Show dismissible time pill
+      if (timePillTimer.current) clearTimeout(timePillTimer.current);
+      setTimePill({ lessonId: id, minutes: mins });
+      setTimePillEdit(false);
+      setTimePillValue(String(mins));
+      timePillTimer.current = setTimeout(() => setTimePill(null), 3000);
+    }
 
     if (!current) {
       setCelebrating(true);
@@ -1997,8 +2020,16 @@ export default function TodayPage() {
                 </div>
               </div>
             )}
+            {/* Time spent (optional) */}
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-[#7a6f65] shrink-0">Time spent (optional)</label>
+              <input type="number" min="1" max="999" value={ftMinutes} onChange={(e) => setFtMinutes(e.target.value)}
+                placeholder="e.g. 45"
+                className="w-20 px-2.5 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] text-center" />
+              <span className="text-xs text-[#b5aca4]">min</span>
+            </div>
             <div className="flex gap-2 pt-1">
-              <button onClick={() => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); }}
+              <button onClick={() => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); setFtMinutes(""); }}
                 className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
               <button
                 disabled={ftSaving || !ftTitle.trim()}
@@ -2011,6 +2042,7 @@ export default function TodayPage() {
                       user_id: user.id, type: ftType, title: ftTitle.trim(),
                       caption: ftNote.trim() || null, child_id: ftChild || null,
                       date: today, include_in_book: false,
+                      ...(ftMinutes ? { duration_minutes: parseInt(ftMinutes) } : {}),
                       created_at: nowFt, updated_at: nowFt,
                     }).select("id").single();
                     if (ftErr) { console.error("[Rooted] Field trip save failed:", ftErr.message); setFtSaving(false); showCaptureToast("Save failed — try again", null); return; }
@@ -2020,7 +2052,7 @@ export default function TodayPage() {
                     checkAndAwardBadges(user.id);
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
-                  setFtTitle(""); setFtNote(""); setFtChild("");
+                  setFtTitle(""); setFtNote(""); setFtChild(""); setFtMinutes("");
                   await refreshTodayStory();
                   await loadData();
                 }}
@@ -2387,10 +2419,50 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* ── Time pill toast ─────────────────────────── */}
+      {timePill && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+          <div className="bg-[#2d5a3d] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-2">
+            {timePillEdit ? (
+              <>
+                <span className="text-xs text-white/70">Time spent:</span>
+                <input
+                  type="number" min="1" max="999" value={timePillValue}
+                  onChange={(e) => setTimePillValue(e.target.value)}
+                  className="w-14 px-2 py-0.5 rounded-lg bg-white/20 text-white text-sm text-center border-none focus:outline-none focus:ring-1 focus:ring-white/40"
+                  autoFocus
+                />
+                <span className="text-xs text-white/70">min</span>
+                <button
+                  onClick={async () => {
+                    const mins = parseInt(timePillValue) || timePill.minutes;
+                    await supabase.from("lessons").update({ minutes_spent: mins }).eq("id", timePill.lessonId);
+                    setTimePill(null);
+                  }}
+                  className="text-xs font-semibold bg-white/20 hover:bg-white/30 px-2 py-0.5 rounded-lg transition-colors"
+                >
+                  Save
+                </button>
+              </>
+            ) : (
+              <>
+                <span>{timePill.minutes} min logged</span>
+                <button
+                  onClick={() => { if (timePillTimer.current) clearTimeout(timePillTimer.current); setTimePillEdit(true); }}
+                  className="text-xs text-white/70 hover:text-white transition-colors"
+                >
+                  · adjust ✏️
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Log a Win Sheet ──────────────────────────── */}
       {showWinSheet && (
         <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowWinSheet(false); setWinText(""); setWinChild(""); }} />
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowWinSheet(false); setWinText(""); setWinChild(""); setWinMinutes(""); }} />
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
@@ -2459,6 +2531,15 @@ export default function TodayPage() {
                 </div>
               )}
 
+              {/* Time spent (optional) */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-[#7a6f65] shrink-0">Time spent (optional)</label>
+                <input type="number" min="1" max="999" value={winMinutes} onChange={(e) => setWinMinutes(e.target.value)}
+                  placeholder="e.g. 45"
+                  className="w-20 px-2.5 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] text-center" />
+                <span className="text-xs text-[#b5aca4]">min</span>
+              </div>
+
               {/* Save button */}
               <button
                 onClick={async () => {
@@ -2476,6 +2557,7 @@ export default function TodayPage() {
                       type: winType,
                       title: winText.trim(),
                       ...(['win','quote'].includes(winType) ? { include_in_book: true } : { include_in_book: false }),
+                      ...(winMinutes ? { duration_minutes: parseInt(winMinutes) } : {}),
                       created_at: nowW, updated_at: nowW,
                     }).select("id").single();
                     console.log("[Win save] result:", { data: ins, error });
@@ -2499,6 +2581,7 @@ export default function TodayPage() {
                     setSavingWin(false);
                     setWinText("");
                     setWinChild("");
+                    setWinMinutes("");
                     setShowWinSheet(false);
                     await refreshTodayStory();
                     await loadData();

@@ -23,6 +23,7 @@ type CurriculumGoal = {
   target_date: string | null;
   school_days: string[] | null;
   created_at: string | null;
+  default_minutes?: number | null;
 };
 type Lesson  = {
   id: string;
@@ -30,6 +31,7 @@ type Lesson  = {
   completed: boolean;
   child_id: string | null;
   hours: number | null;
+  minutes_spent: number | null;
   date: string | null;
   scheduled_date: string | null;
   subjects: { name: string; color: string | null } | null;
@@ -228,10 +230,10 @@ export default function PlanPage() {
       supabase.from("profiles").select("onboarded, school_days").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at").eq("user_id", effectiveUserId).order("created_at"),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
@@ -249,7 +251,7 @@ export default function PlanPage() {
     if (!effectiveUserId) return;
     const { data } = await supabase
       .from("lessons")
-      .select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
+      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, subjects(name, color)")
       .eq("user_id", effectiveUserId);
     setAllLessons((data as unknown as Lesson[]) ?? []);
   }, [effectiveUserId]);
@@ -270,9 +272,9 @@ export default function PlanPage() {
     const me = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
     const s = toDateStr(ms), e = toDateStr(me);
     const [{ data: bySched }, { data: byDate }] = await Promise.all([
-      supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, date, scheduled_date, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, subjects(name, color)")
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setMonthLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
@@ -502,6 +504,28 @@ export default function PlanPage() {
     {/* ── Hero Header ──────────────────────────────────── */}
     <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
     <div className="px-4 pt-5 pb-7 space-y-4 max-w-5xl">
+
+      {/* ── Total hours this year ─────────────────────────── */}
+      {!loading && allLessons.length > 0 && (() => {
+        const completedLessons = allLessons.filter(l => l.completed);
+        const totalMins = completedLessons.reduce((sum, l) => {
+          if (l.minutes_spent != null) return sum + l.minutes_spent;
+          if (l.hours != null && l.hours > 0) return sum + Math.round(l.hours * 60);
+          return sum + 30; // fallback default
+        }, 0);
+        const h = Math.floor(totalMins / 60);
+        const m = totalMins % 60;
+        return (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4]">Total hours this year</p>
+              <p className="text-2xl font-bold text-[#2d2926] mt-0.5">{h}h {m > 0 ? `${m}m` : ""}</p>
+              <p className="text-[10px] text-[#b5aca4] mt-0.5">Auto-tracked from {completedLessons.length} lessons ✓</p>
+            </div>
+            <span className="text-3xl">⏱</span>
+          </div>
+        );
+      })()}
 
       {/* ── Catch-up banner ──────────────────────────────── */}
       {!loading && hasCatchUp && (
