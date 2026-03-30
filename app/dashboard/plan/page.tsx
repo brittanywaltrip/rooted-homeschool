@@ -505,8 +505,8 @@ export default function PlanPage() {
     setDownloadingReport(true);
     try {
       const { jsPDF } = await import("jspdf");
+      const { generateProgressReport, fmtMins } = await import("@/lib/pdf");
 
-      // Fetch profile for family name
       const { data: prof } = await supabase.from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle();
       const familyName = (prof as { display_name?: string } | null)?.display_name || "Family Academy";
       const now = new Date();
@@ -528,9 +528,8 @@ export default function PlanPage() {
       const gdm: Record<string, number> = {};
       for (const g of ((gr || []) as unknown as GR[])) gdm[g.id] = g.default_minutes ?? 30;
 
-      function lm(l: LR) { if (l.minutes_spent != null) return { m: l.minutes_spent, e: false }; if (l.curriculum_goal_id && gdm[l.curriculum_goal_id]) return { m: gdm[l.curriculum_goal_id], e: true }; return { m: 30, e: true }; }
+      function lm(l: LR): { m: number; e: boolean } { if (l.minutes_spent != null) return { m: l.minutes_spent, e: false }; if (l.curriculum_goal_id && gdm[l.curriculum_goal_id]) return { m: gdm[l.curriculum_goal_id], e: true }; return { m: 30, e: true }; }
       function ld(l: LR) { return l.scheduled_date || l.date || ""; }
-      function fmt(m: number) { if (m < 60) return `${m} min`; const h = Math.floor(m / 60); const r = m % 60; return r > 0 ? `${h}h ${r}m` : `${h}h`; }
 
       const done = lessons.filter(l => l.completed);
       const tLM = done.reduce((s, l) => s + lm(l).m, 0);
@@ -539,71 +538,41 @@ export default function PlanPage() {
       const trips = memories.filter(m => ["field_trip", "project", "activity"].includes(m.type));
       const sDays = new Set(done.map(l => ld(l)).filter(Boolean)).size;
 
-      // Per-child
-      const cSections = children.map(c => {
+      const childReport = children.map(c => {
         const cl = done.filter(l => l.child_id === c.id);
         const cm = cl.reduce((s, l) => s + lm(l).m, 0);
         const cd = new Set(cl.map(l => ld(l)).filter(Boolean)).size;
         const sa: Record<string, { n: number; m: number; e: boolean }> = {};
         for (const l of cl) { const nm = l.subjects?.name || "General"; if (!sa[nm]) sa[nm] = { n: 0, m: 0, e: false }; sa[nm].n++; const r = lm(l); sa[nm].m += r.m; if (r.e) sa[nm].e = true; }
-        const subs = Object.entries(sa).map(([n, d]) => `<tr><td style="padding:5px 12px;font-size:12px;color:#2d2926;border-bottom:1px solid #f0ede8;">${n}</td><td style="padding:5px 12px;font-size:12px;text-align:right;border-bottom:1px solid #f0ede8;">${d.n}</td><td style="padding:5px 12px;font-size:12px;text-align:right;border-bottom:1px solid #f0ede8;">${fmt(d.m)}${d.e ? "*" : ""}</td></tr>`).join("") || `<tr><td colspan="3" style="padding:10px 12px;color:#b5aca4;font-style:italic;">No lessons</td></tr>`;
-        const bk = memories.filter(m => m.type === "book" && m.child_id === c.id).map(m => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${m.title || "Untitled"}</p>`).join("");
-        const tr = memories.filter(m => ["field_trip","project","activity"].includes(m.type) && m.child_id === c.id).map(m => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${m.title || "Untitled"}${m.duration_minutes ? ` — ${m.duration_minutes} min` : ""}</p>`).join("");
-        const wn = memories.filter(m => ["win","quote"].includes(m.type) && m.child_id === c.id).map(m => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${m.title || "Untitled"}</p>`).join("");
-        return `<div style="margin-bottom:28px;">
-          <table style="width:100%;border-collapse:collapse;"><tr><td style="background:#5c7f63;padding:10px 20px;"><p style="font-size:16px;font-weight:bold;color:white;margin:0;">${c.name}</p></td></tr></table>
-          <div style="border:1px solid #e8e2d9;border-top:none;padding:16px 20px;">
-            <table style="border-collapse:collapse;margin-bottom:16px;"><tr><td style="padding:0 24px 0 0;"><p style="font-size:10px;color:#7a6f65;margin:0;">Hours</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${fmt(cm)}</p></td><td style="padding:0 24px 0 0;"><p style="font-size:10px;color:#7a6f65;margin:0;">Lessons</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${cl.length}</p></td><td><p style="font-size:10px;color:#7a6f65;margin:0;">School Days</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${cd}</p></td></tr></table>
-            <table style="width:100%;border-collapse:collapse;border:1px solid #e8e2d9;"><thead><tr style="background:#f5f2ee;"><th style="padding:6px 12px;text-align:left;font-size:10px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Subject</th><th style="padding:6px 12px;text-align:right;font-size:10px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Lessons</th><th style="padding:6px 12px;text-align:right;font-size:10px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Hours</th></tr></thead><tbody>${subs}</tbody></table>
-            ${bk ? `<p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:16px 0 6px;">Books Read</p>${bk}` : ""}
-            ${tr ? `<p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:16px 0 6px;">Field Trips & Projects</p>${tr}` : ""}
-            ${wn ? `<p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:16px 0 6px;">Wins & Milestones</p>${wn}` : ""}
-          </div></div>`;
-      }).join("");
+        return {
+          name: c.name,
+          totalHours: fmtMins(cm),
+          totalLessons: cl.length,
+          schoolDays: cd,
+          subjects: Object.entries(sa).map(([n, d]) => ({ name: n, count: d.n, hours: fmtMins(d.m), estimated: d.e })).sort((a, b) => b.count - a.count),
+          books: memories.filter(m => m.type === "book" && m.child_id === c.id).map(m => m.title || "Untitled"),
+          fieldTrips: memories.filter(m => ["field_trip","project","activity"].includes(m.type) && m.child_id === c.id).map(m => ({ title: m.title || "Untitled", duration: m.duration_minutes })),
+          wins: memories.filter(m => ["win","quote"].includes(m.type) && m.child_id === c.id).map(m => m.title || "Untitled"),
+          badges: [],
+        };
+      });
 
       // Daily log
-      const logMap: Record<string, string[]> = {};
-      for (const l of done) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push(`<tr><td style="padding:3px 12px;font-size:10px;color:#7a6f65;border-bottom:1px solid #f5f2ee;">${new Date(d+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</td><td style="padding:3px 12px;font-size:10px;border-bottom:1px solid #f5f2ee;">${l.subjects?.name||"General"}</td><td style="padding:3px 12px;font-size:10px;border-bottom:1px solid #f5f2ee;">${l.title||"Lesson"}</td><td style="padding:3px 12px;font-size:10px;text-align:right;border-bottom:1px solid #f5f2ee;">${r.m}${r.e?"*":""}</td><td style="padding:3px 12px;font-size:10px;color:#7a6f65;border-bottom:1px solid #f5f2ee;">Lesson</td></tr>`); }
-      for (const m of memories) { if (!m.duration_minutes || !["field_trip","project","activity","win"].includes(m.type)) continue; if (!logMap[m.date]) logMap[m.date] = []; logMap[m.date].push(`<tr><td style="padding:3px 12px;font-size:10px;color:#7a6f65;border-bottom:1px solid #f5f2ee;">${new Date(m.date+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</td><td style="padding:3px 12px;font-size:10px;border-bottom:1px solid #f5f2ee;">${m.type==="win"?"Win":"Field Trip"}</td><td style="padding:3px 12px;font-size:10px;border-bottom:1px solid #f5f2ee;">${m.title||"Activity"}</td><td style="padding:3px 12px;font-size:10px;text-align:right;border-bottom:1px solid #f5f2ee;">${m.duration_minutes}</td><td style="padding:3px 12px;font-size:10px;color:#7a6f65;border-bottom:1px solid #f5f2ee;">Activity</td></tr>`); }
-      const logDays = Object.keys(logMap).sort();
-      const logHtml = logDays.length > 0 ? `<div style="padding:36px 60px 20px;"><p style="font-size:15px;font-weight:700;color:#2d2926;margin:0 0 4px;">Daily Activity Log</p><p style="font-size:11px;color:#7a6f65;margin:0 0 16px;">For state record-keeping purposes</p><table style="width:100%;border-collapse:collapse;border:1px solid #e8e2d9;"><thead><tr style="background:#f5f2ee;"><th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Date</th><th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Subject</th><th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Description</th><th style="padding:6px 12px;text-align:right;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Min</th><th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Type</th></tr></thead><tbody>${logDays.flatMap(d => logMap[d]).join("")}</tbody></table><p style="font-size:11px;color:#7a6f65;margin:12px 0 0;font-weight:600;">Total logged: ${fmt(tLM + mM)} across ${sDays} school days</p></div>` : "";
-
-      const sumStats = [
-        { l: "Total Hours", v: fmt(tLM + mM) }, { l: "School Days", v: String(sDays) },
-        { l: "Lessons", v: String(done.length) }, { l: "Books", v: String(books.length) },
-        { l: "Trips/Projects", v: String(trips.length) }, { l: "Memories", v: String(memories.length) },
-      ];
-
-      const foot = `<p style="font-size:9px;color:#b5aca4;text-align:right;padding:4px 60px;margin:0;">Generated ${dateGen} · ${familyName} · rootedhomeschoolapp.com</p>`;
-
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{margin:0;padding:0;box-sizing:border-box;}body{width:816px;overflow:auto;}</style></head><body>
-<div style="width:816px;min-height:1056px;background:#fdfcf8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <div style="background:#2d5a3d;padding:48px 60px;text-align:center;">
-    <p style="font-size:24px;margin:0 0 10px;">🌿</p>
-    <p style="font-size:22px;font-weight:900;color:white;margin:0 0 4px;">${familyName}</p>
-    <p style="font-size:13px;color:rgba(255,255,255,0.6);letter-spacing:2px;text-transform:uppercase;margin:0 0 6px;">Annual Progress Report · ${yr}</p>
-    <p style="font-size:11px;color:rgba(255,255,255,0.45);margin:0;">Generated ${dateGen}</p>
-  </div>
-  <div style="padding:36px 60px;">
-    <p style="font-size:15px;font-weight:700;color:#2d2926;margin:0 0 16px;">Family Summary</p>
-    <table style="width:100%;border-collapse:collapse;border:1px solid #e8e2d9;"><tr>${sumStats.map((x, i) => `<td style="padding:12px 10px;text-align:center;${i > 0 ? "border-left:1px solid #e8e2d9;" : ""}"><p style="font-size:10px;color:#7a6f65;margin:0 0 2px;">${x.l}</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${x.v}</p></td>`).join("")}</tr></table>
-    <p style="font-size:9px;color:#b5aca4;margin:8px 0 0;font-style:italic;">* Hours marked with an asterisk are estimated from default lesson time settings.</p>
-  </div>
-  ${foot}
-  <div style="padding:0 60px 36px;">${cSections}</div>
-  ${logHtml}
-</div></body></html>`;
+      const logMap: Record<string, { subject: string; description: string; minutes: number; type: string; estimated: boolean }[]> = {};
+      for (const l of done) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ subject: l.subjects?.name || "General", description: l.title || "Lesson", minutes: r.m, type: "Lesson", estimated: r.e }); }
+      for (const m of memories) { if (!m.duration_minutes || !["field_trip","project","activity","win"].includes(m.type)) continue; if (!logMap[m.date]) logMap[m.date] = []; logMap[m.date].push({ subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: "Activity", estimated: false }); }
+      const dailyLog = Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({
+        dateLabel: new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+        entries,
+      }));
 
       const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
-      const iframe = document.createElement("iframe");
-      iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:816px;height:1056px;border:none;";
-      document.body.appendChild(iframe);
-      iframe.contentDocument!.open();
-      iframe.contentDocument!.write(html);
-      iframe.contentDocument!.close();
-      await new Promise(r => setTimeout(r, 500));
-      await doc.html(iframe.contentDocument!.body, { x: 0, y: 0, width: 8.5, windowWidth: 816, html2canvas: { scale: 2, useCORS: true }, autoPaging: "text" });
-      document.body.removeChild(iframe);
+      generateProgressReport(doc, {
+        familyName, schoolYear: yr, dateGenerated: dateGen, showWatermark: true,
+        summary: { totalHours: fmtMins(tLM + mM), schoolDays: sDays, lessons: done.length, books: books.length, trips: trips.length, memories: memories.length },
+        children: childReport,
+        dailyLog,
+      });
       doc.save(`${familyName.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-progress-report.pdf`);
     } catch (e) {
       console.error("Report download failed:", e);
