@@ -9,12 +9,13 @@ import { Pencil, Trash2, Check, X, Plus, ChevronDown, ChevronUp, ExternalLink, A
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
 const CATEGORIES = [
-  { id: "discounts",    label: "💰 Discounts"    },
-  { id: "field_trips",  label: "🌍 Field Trips"  },
-  { id: "printables",   label: "🖨️ Printables"  },
-  { id: "science",      label: "🔬 Science"      },
-  { id: "weekly_picks", label: "⭐ Free Picks"   },
-  { id: "easy_win",     label: "⚡ Easy Wins"    },
+  { id: "curriculum",     label: "📚 Curriculum"      },
+  { id: "online_classes", label: "🖥️ Online Classes" },
+  { id: "science",        label: "🔬 Science"         },
+  { id: "field_trips",    label: "🌍 Field Trips"     },
+  { id: "printables",     label: "🖨️ Printables"     },
+  { id: "discounts",      label: "💰 Discounts"       },
+  { id: "easy_win",       label: "⚡ Easy Wins"       },
 ] as const;
 
 type CategoryId = typeof CATEGORIES[number]["id"];
@@ -31,6 +32,7 @@ type Resource = {
   badge_text: string;
   active: boolean;
   sort_order: number;
+  is_free_pick: boolean;
 };
 
 type EditState = Partial<Resource>;
@@ -44,6 +46,7 @@ const EMPTY_RESOURCE = (category: CategoryId): Omit<Resource, "id"> => ({
   badge_text: "",
   active: true,
   sort_order: 0,
+  is_free_pick: false,
 });
 
 function TextInput({ label, value, onChange, placeholder, multiline }: {
@@ -97,7 +100,7 @@ function ResourceForm({
             {GRADE_OPTIONS.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
         </div>
-        <div className="flex items-end pb-1">
+        <div className="flex flex-col gap-2 justify-end pb-1">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -106,6 +109,15 @@ function ResourceForm({
               className="w-4 h-4 rounded"
             />
             <span className="text-sm text-[#2d2926] font-medium">Active (visible)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.is_free_pick ?? false}
+              onChange={(e) => set("is_free_pick")(e.target.checked)}
+              className="w-4 h-4 rounded accent-[#8b6820]"
+            />
+            <span className="text-sm text-[#8b6820] font-medium">⭐ Free Pick</span>
           </label>
         </div>
       </div>
@@ -157,6 +169,9 @@ function ResourceRow({
             <span className="text-[10px] bg-[#f5ede0] text-[#8b6f47] px-2 py-0.5 rounded-full">
               {resource.grade_level}
             </span>
+            {resource.is_free_pick && (
+              <span className="text-[10px] bg-[#fef5e4] text-[#8b6820] px-2 py-0.5 rounded-full font-bold">⭐ Free Pick</span>
+            )}
             {!resource.active && (
               <span className="text-[10px] bg-red-50 text-red-500 px-2 py-0.5 rounded-full">Hidden</span>
             )}
@@ -268,7 +283,7 @@ export default function AdminResourcesPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from("resources")
-      .select("id, category, title, description, url, grade_level, badge_text, active, sort_order")
+      .select("id, category, title, description, url, grade_level, badge_text, active, sort_order, is_free_pick")
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
     if (!error && data) setResources(data as Resource[]);
@@ -285,12 +300,13 @@ export default function AdminResourcesPage() {
     const { error } = await supabase
       .from("resources")
       .update({
-        title:       form.title?.trim(),
-        description: form.description?.trim() ?? "",
-        url:         form.url?.trim() ?? "",
-        grade_level: form.grade_level ?? "All Ages",
-        badge_text:  form.badge_text?.trim() ?? "",
-        active:      form.active ?? true,
+        title:        form.title?.trim(),
+        description:  form.description?.trim() ?? "",
+        url:          form.url?.trim() ?? "",
+        grade_level:  form.grade_level ?? "All Ages",
+        badge_text:   form.badge_text?.trim() ?? "",
+        active:       form.active ?? true,
+        is_free_pick: form.is_free_pick ?? false,
       })
       .eq("id", id);
     setSaving(false);
@@ -309,13 +325,14 @@ export default function AdminResourcesPage() {
       .reduce((max, r) => Math.max(max, r.sort_order), 0);
     const { error } = await supabase.from("resources").insert({
       category,
-      title:       form.title.trim(),
-      description: form.description?.trim() ?? "",
-      url:         form.url?.trim() ?? "",
-      grade_level: form.grade_level ?? "All Ages",
-      badge_text:  form.badge_text?.trim() ?? "",
-      active:      form.active ?? true,
-      sort_order:  maxOrder + 1,
+      title:        form.title.trim(),
+      description:  form.description?.trim() ?? "",
+      url:          form.url?.trim() ?? "",
+      grade_level:  form.grade_level ?? "All Ages",
+      badge_text:   form.badge_text?.trim() ?? "",
+      active:       form.active ?? true,
+      sort_order:   maxOrder + 1,
+      is_free_pick: form.is_free_pick ?? false,
     });
     setSaving(false);
     if (error) { showToast("❌ Add failed: " + error.message); return; }
