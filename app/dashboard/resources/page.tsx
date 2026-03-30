@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bookmark, BookmarkCheck, ChevronDown, MapPin } from "lucide-react";
+import { Bookmark, BookmarkCheck, ChevronDown, ExternalLink, MapPin, Search, X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -10,16 +10,16 @@ import PageHero from "@/app/components/PageHero";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type GradeTag = "All Ages" | "K–2" | "3–5" | "6–8" | "9–12";
-const GRADE_TAGS: GradeTag[] = ["All Ages", "K–2", "3–5", "6–8", "9–12"];
 type RegLevel = "none" | "low" | "moderate" | "high";
 
 type DbResource = {
   id: string; category: string; title: string; description: string;
   url: string; grade_level: string; badge_text: string;
   metadata: Record<string, unknown>;
+  is_free_pick?: boolean;
+  created_at?: string;
 };
-type FreshDrop = { name: string; desc: string; type: string; grade: GradeTag; url: string; emoji: string; };
-type EasyWin   = { emoji: string; title: string; desc: string; time: string; grade: string; url?: string; };
+type EasyWin = { emoji: string; title: string; desc: string; time: string; grade: string; url?: string; };
 
 // ─── State Requirements (all 50 states) ──────────────────────────────────────
 
@@ -83,66 +83,13 @@ const STATE_REQS: Record<string, { level: RegLevel; summary: string }> = {
   "Wyoming":        { level: "low",      summary: "Notify local board of trustees. Teach required subjects 175 days per year." },
 };
 
-// ─── Fresh Drops Pool ─────────────────────────────────────────────────────────
-
-const FRESH_DROPS_POOL: FreshDrop[] = [
-  { emoji: "🔭", name: "NASA Virtual Tours",            type: "Field Trip",  grade: "6–8",      url: "https://www.nasa.gov/nasa-at-home-virtual-tours-and-apps/",                   desc: "Tour Kennedy Space Center and the ISS in 360° — totally free." },
-  { emoji: "📖", name: "Khan Academy",                  type: "Free Tools",  grade: "All Ages", url: "https://www.khanacademy.org",                                             desc: "100% free, world-class education for any age or subject." },
-  { emoji: "🎨", name: "Google Arts & Culture",         type: "Field Trip",  grade: "All Ages", url: "https://artsandculture.google.com",                                       desc: "Virtual museum tours from hundreds of the world's greatest institutions." },
-  { emoji: "🧪", name: "Crystal Growing",               type: "Science",     grade: "3–5",      url: "https://www.sciencebuddies.org/stem-activities/crystal-growing",      desc: "Grow stunning crystals at home — a perfect multi-day science project." },
-  { emoji: "🌿", name: "Starfall",                      type: "Printables",  grade: "K–2",      url: "https://www.starfall.com",                                                desc: "Free phonics, early reading games, and printables for young learners." },
-  { emoji: "🦒", name: "San Diego Zoo Virtual Safari",  type: "Field Trip",  grade: "K–2",      url: "https://zoo.sandiegozoo.org/school-programs",                                                  desc: "Live cams and virtual field trips featuring giraffes, pandas, and more." },
-  { emoji: "📐", name: "Math-Drills.com",               type: "Printables",  grade: "3–5",      url: "https://www.math-drills.com",                                             desc: "Thousands of free, no-login math worksheets from arithmetic to algebra." },
-  { emoji: "🌋", name: "Baking Soda Volcano",           type: "Science",     grade: "K–2",      url: "https://www.jpl.nasa.gov/edu/resources/project/make-a-volcano/", desc: "The classic acid-base eruption — add dish soap for dramatic foam." },
-  { emoji: "🌊", name: "Monterey Bay Aquarium",         type: "Field Trip",  grade: "All Ages", url: "https://www.montereybayaquarium.org/animals/live-cams",                   desc: "Watch sharks, otters, and jellyfish live 24/7. Lesson plans included." },
-  { emoji: "📚", name: "ReadWorks",                     type: "Printables",  grade: "3–5",      url: "https://www.readworks.org",                                               desc: "Free reading comprehension passages with question sets for K–12." },
-  { emoji: "🏔️", name: "Yellowstone National Park",    type: "Field Trip",  grade: "3–5",      url: "https://www.nps.gov/yell/learn/photosmultimedia/virtualtours.htm",         desc: "Ranger-led virtual tours, live geyser cams, and downloadable field journals." },
-  { emoji: "⚡", name: "Homemade Electromagnet",        type: "Science",     grade: "6–8",      url: "https://www.sciencebuddies.org/stem-activities/electromagnet",          desc: "A nail + copper wire + 9V battery = a working magnet. Teaches electromagnetism." },
-  { emoji: "📖", name: "CK-12",                         type: "Printables",  grade: "6–8",      url: "https://www.ck12.org",                                                    desc: "Free, customizable digital textbooks and simulations for every subject." },
-  { emoji: "🌍", name: "National Geographic Classroom", type: "Field Trip",  grade: "6–8",      url: "https://education.nationalgeographic.org/resource/resource-library",      desc: "Short docs, photo essays, and interactives on science, culture, and nature." },
-  { emoji: "🎭", name: "Teachers Pay Teachers (Free)",  type: "Printables",  grade: "All Ages", url: "https://www.teacherspayteachers.com/browse?price=free",                  desc: "Thousands of free units and lesson plans made by real educators." },
-];
-
-// ─── Easy Wins ────────────────────────────────────────────────────────────────
-
-const EASY_WINS: EasyWin[] = [
-  { emoji: "🎨", title: "Salt Tray Writing",          desc: "Pour salt in a tray, practice spelling words or letters with a finger.",                  time: "5 min",    grade: "K–2",      url: "https://www.growinghandsonkids.com/" },
-  { emoji: "🔭", title: "Shadow Tracing",             desc: "Trace your shadow at different times of day. Watch it move and discuss why.",              time: "10 min",   grade: "All Ages", url: "https://spaceplace.nasa.gov/" },
-  { emoji: "📚", title: "Audiobook Hour",             desc: "Put on a great audiobook and do a puzzle together. Zero prep, total engagement.",          time: "0 min prep", grade: "All Ages", url: "https://librivox.org" },
-  { emoji: "🌿", title: "Nature Alphabet Hunt",       desc: "Go outside and find something in nature for each letter of the alphabet.",                 time: "15 min",   grade: "K–5",      url: "https://www.kidsactivitiesblog.com/" },
-  { emoji: "🍳", title: "Kitchen Math",               desc: "Double a recipe together. Real fractions, real reward, and everyone eats the results.",   time: "20 min",   grade: "3–8",      url: "https://www.khanacademy.org/math/early-math" },
-  { emoji: "🎭", title: "History Podcast",            desc: "Put on a 'Stuff You Missed in History Class' episode during lunch or craft time.",         time: "0 min prep", grade: "All Ages", url: "https://www.missedinhistory.com" },
-];
-
-const EASY_WIN_COLORS = [
-  { bg: "#fffbec", border: "#f0e0a8" },
-  { bg: "#ecf8ff", border: "#a8d8f0" },
-  { bg: "#f0faec", border: "#b4dca8" },
-  { bg: "#fdf0fa", border: "#dca8d8" },
-  { bg: "#fff5ec", border: "#f0c8a8" },
-  { bg: "#ecf0fa", border: "#a8b4dc" },
-];
-
-const PICK_CARD_COLORS = [
-  { bg: "#eef5ec", accent: "#3d7045" },
-  { bg: "#fef5e4", accent: "#8b6820" },
-  { bg: "#e4f2fb", accent: "#1a5c80" },
-  { bg: "#fae4ee", accent: "#801a3c" },
-  { bg: "#eee4fa", accent: "#4a1a80" },
-];
-
 // ─── Rich State Info ───────────────────────────────────────────────────────────
 
 type RegBadge = "Low" | "Medium" | "High";
 type StateInfo = {
-  regulation: RegBadge;
-  notice: string;
-  requiredSubjects: string[];
-  attendance: string;
-  testing: string;
-  portfolios: string;
-  hsldaUrl: string;
-  localGroupUrl: string;
+  regulation: RegBadge; notice: string; requiredSubjects: string[];
+  attendance: string; testing: string; portfolios: string;
+  hsldaUrl: string; localGroupUrl: string;
 };
 
 const REG_BADGE: Record<RegBadge, { color: string; bg: string }> = {
@@ -204,6 +151,17 @@ const STATE_INFO: Record<string, StateInfo> = {
   "Wyoming":        { regulation: "Low",    notice: "Notify local board of trustees", requiredSubjects: ["Language Arts","Math","Science","Social Studies","Health","Art","Music","PE"], attendance: "175 days/year", testing: "None required", portfolios: "None required", hsldaUrl: "https://hslda.org/legal/wyoming", localGroupUrl: "https://www.wyhomeschoolers.org" },
 };
 
+// ─── Easy Wins ────────────────────────────────────────────────────────────────
+
+const EASY_WINS: EasyWin[] = [
+  { emoji: "🎨", title: "Salt Tray Writing",          desc: "Pour salt in a tray, practice spelling words or letters with a finger.",                  time: "5 min",    grade: "K–2",      url: "https://www.growinghandsonkids.com/" },
+  { emoji: "🔭", title: "Shadow Tracing",             desc: "Trace your shadow at different times of day. Watch it move and discuss why.",              time: "10 min",   grade: "All Ages", url: "https://spaceplace.nasa.gov/" },
+  { emoji: "📚", title: "Audiobook Hour",             desc: "Put on a great audiobook and do a puzzle together. Zero prep, total engagement.",          time: "0 min prep", grade: "All Ages", url: "https://librivox.org" },
+  { emoji: "🌿", title: "Nature Alphabet Hunt",       desc: "Go outside and find something in nature for each letter of the alphabet.",                 time: "15 min",   grade: "K–5",      url: "https://www.kidsactivitiesblog.com/" },
+  { emoji: "🍳", title: "Kitchen Math",               desc: "Double a recipe together. Real fractions, real reward, and everyone eats the results.",   time: "20 min",   grade: "3–8",      url: "https://www.khanacademy.org/math/early-math" },
+  { emoji: "🎭", title: "History Podcast",            desc: "Put on a 'Stuff You Missed in History Class' episode during lunch or craft time.",         time: "0 min prep", grade: "All Ages", url: "https://www.missedinhistory.com" },
+];
+
 // ─── Virtual Tours ─────────────────────────────────────────────────────────────
 
 type VirtualTour = { emoji: string; name: string; desc: string; grade: string; subject: string; url: string; };
@@ -220,74 +178,72 @@ const VIRTUAL_TOURS: VirtualTour[] = [
   { emoji: "🥒", name: "Mount Olive Pickle Factory Tour",  url: "https://www.youtube.com/watch?v=CqZJaFJVkBo",           desc: "See how pickles are made inside the Mount Olive Pickle Company — a real-world look at food manufacturing.",                            grade: "All Ages", subject: "Career/Food Science" },
 ];
 
-// ─── Static Field Trips (supplements DB field trips) ──────────────────────────
+// ─── Browse categories ───────────────────────────────────────────────────────
 
-const STATIC_FIELD_TRIPS = [
-  { id: "pickle-factory", emoji: "🥒", name: "Mount Olive Pickle Factory Tour", desc: "See how pickles are made inside the Mount Olive Pickle Company — a fun real-world look at food manufacturing.", grade: "All Ages", subject: "Career/Food Science", url: "https://www.youtube.com/watch?v=71_GQLSpYXs" },
+const BROWSE_CATS = [
+  { id: "all",            label: "All"                },
+  { id: "curriculum",     label: "📚 Curriculum"      },
+  { id: "online_classes", label: "🖥️ Online Classes" },
+  { id: "science",        label: "🔬 Science"         },
+  { id: "field_trips",    label: "🌍 Field Trips"     },
+  { id: "printables",     label: "🖨️ Printables"     },
+  { id: "discounts",      label: "💰 Discounts"       },
+  { id: "tours",          label: "🎬 Virtual Tours"   },
+  { id: "states",         label: "🗺️ By State"       },
+  { id: "saved",          label: "🔖 Saved"           },
 ];
 
-// ─── Static Science (supplements DB science resources) ────────────────────────
-
-const STATIC_SCIENCE = [
-  { id: "water-filtration", emoji: "💧", name: "Water Filtration Project", desc: "Build a DIY water filter using sand, gravel, and charcoal. Explore how water purification works at home.", grade: "3–5", badge: "Easy", time: "45 min", materials: "Sand, gravel, charcoal, plastic bottles", url: "https://www.sciencebuddies.org/stem-activities/water-filter" },
+const PICK_CARD_COLORS = [
+  { bg: "#eef5ec", accent: "#3d7045" },
+  { bg: "#fef5e4", accent: "#8b6820" },
+  { bg: "#e4f2fb", accent: "#1a5c80" },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getISOWeekNumber(date: Date): number {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const week1 = new Date(d.getFullYear(), 0, 4);
-  return 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+/** Get the Monday 00:00 UTC of the current week as a seed for rotation */
+function getMondaySeed(): number {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.getFullYear(), d.getMonth(), diff).getTime();
 }
 
-function getFreshDrops(): FreshDrop[] {
-  const week = getISOWeekNumber(new Date());
-  const n = FRESH_DROPS_POOL.length;
-  return [FRESH_DROPS_POOL[week % n], FRESH_DROPS_POOL[(week + 5) % n], FRESH_DROPS_POOL[(week + 10) % n]];
+/** Deterministic shuffle using a seed */
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  const out = [...arr];
+  let s = seed;
+  for (let i = out.length - 1; i > 0; i--) {
+    s = (s * 16807 + 0) % 2147483647;
+    const j = s % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
-function dropId(name: string): string {
-  return `drop-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+function isNewThisWeek(createdAt?: string): boolean {
+  if (!createdAt) return false;
+  const created = new Date(createdAt);
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  return created > weekAgo;
 }
 
-function getDiscountEmoji(title: string): string {
-  const t = title.toLowerCase();
-  if (t.includes("curriculum") || t.includes("book") || t.includes("read")) return "📚";
-  if (t.includes("art") || t.includes("craft"))   return "🎨";
-  if (t.includes("music"))                         return "🎵";
-  if (t.includes("science") || t.includes("lab"))  return "🔬";
-  if (t.includes("sport") || t.includes("gym"))    return "⚽";
-  if (t.includes("tech") || t.includes("code"))    return "💻";
-  if (t.includes("museum") || t.includes("zoo"))   return "🏛️";
-  if (t.includes("online") || t.includes("digital")) return "🖥️";
-  return "🏷️";
+function getCategoryEmoji(cat: string): string {
+  const map: Record<string, string> = {
+    curriculum: "📚", online_classes: "🖥️", science: "🔬",
+    field_trips: "🌍", printables: "🖨️", discounts: "💰",
+  };
+  return map[cat] || "🌿";
 }
 
-function getTripEmoji(title: string): string {
-  const t = title.toLowerCase();
-  if (t.includes("space") || t.includes("nasa") || t.includes("star")) return "🚀";
-  if (t.includes("ocean") || t.includes("aquarium") || t.includes("sea") || t.includes("bay")) return "🌊";
-  if (t.includes("zoo") || t.includes("animal") || t.includes("safari")) return "🦁";
-  if (t.includes("museum") || t.includes("history") || t.includes("smithsonian")) return "🏛️";
-  if (t.includes("art") || t.includes("culture")) return "🎨";
-  if (t.includes("national") || t.includes("park") || t.includes("yellowstone")) return "🌲";
-  if (t.includes("science") || t.includes("geographic")) return "🔬";
-  return "🌍";
+function getCategoryLabel(cat: string): string {
+  const map: Record<string, string> = {
+    curriculum: "Curriculum", online_classes: "Online Classes", science: "Science",
+    field_trips: "Field Trip", printables: "Printables", discounts: "Discount",
+  };
+  return map[cat] || cat;
 }
-
-// ─── Tabs ─────────────────────────────────────────────────────────────────────
-
-const CONTENT_TABS = [
-  { id: "discounts",  label: "💰 Discounts"      },
-  { id: "trips",      label: "🌍 Field Trips"     },
-  { id: "printables", label: "🖨️ Printables"     },
-  { id: "science",    label: "🔬 Science"         },
-  { id: "tours",      label: "🎬 Virtual Tours"   },
-  { id: "states",     label: "🗺️ By State"       },
-  { id: "saved",      label: "🔖 Saved"           },
-];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -332,38 +288,70 @@ function GradePill({ grade }: { grade: string }) {
   );
 }
 
+function ResourceCard({ r, savedMap, onToggle }: { r: DbResource; savedMap: Record<string, string>; onToggle: (id: string) => void }) {
+  const isNew = isNewThisWeek(r.created_at);
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5">
+      <div className="flex items-start gap-3">
+        <div className="bg-[#f5f3f0] rounded-xl w-10 h-10 flex items-center justify-center shrink-0 text-xl">
+          {getCategoryEmoji(r.category)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <a href={r.url} target="_blank" rel="noopener noreferrer"
+              className="font-bold text-[#2d2926] text-sm hover:text-[#4a7c59] hover:underline transition-colors leading-snug flex items-center gap-1.5">
+              {r.title}
+              <ExternalLink size={12} className="text-[#b5aca4] shrink-0" />
+            </a>
+            <BookmarkBtn id={r.id} savedMap={savedMap} onToggle={onToggle} />
+          </div>
+          <p className="text-xs text-[#7a6f65] leading-relaxed mb-2.5 line-clamp-2">{r.description}</p>
+          <div className="flex gap-1.5 flex-wrap">
+            <GradePill grade={r.grade_level} />
+            <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">{getCategoryLabel(r.category)}</span>
+            {r.badge_text && (
+              <span className="text-[10px] font-medium bg-[#e4f0e6] text-[#3d5c42] px-2 py-0.5 rounded-full">{r.badge_text}</span>
+            )}
+            {isNew && (
+              <span className="text-[10px] font-bold bg-[#fef5e4] text-[#8b6820] px-2 py-0.5 rounded-full">New 🌱</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ResourcesPage() {
   const { effectiveUserId } = usePartner();
 
-  const [activeTab,     setActiveTab]     = useState("discounts");
-  const [selectedTour,  setSelectedTour]  = useState<{ title: string; url: string } | null>(null);
-  const [gradeFilter,   setGradeFilter]   = useState<GradeTag | "">("");
-  const [stateExpanded, setStateExpanded] = useState(false);
-  const [showAllWins,   setShowAllWins]   = useState(false);
-  const [expandedCats,  setExpandedCats]  = useState<Set<string>>(new Set());
-  const [stateSearch,   setStateSearch]   = useState("");
-  const [selectedLevel, setSelectedLevel] = useState<RegLevel | "all">("all");
-  const [expandedState, setExpandedState] = useState<string | null>(null);
-  const [savedMap,      setSavedMap]      = useState<Record<string, string>>({});
-  const [loadingSaved,  setLoadingSaved]  = useState(true);
-  const [dbResources,   setDbResources]   = useState<DbResource[]>([]);
-  const [dbLoading,     setDbLoading]     = useState(true);
-  const [userState,     setUserState]     = useState<string | null>(null);
-  const [stateLoaded,   setStateLoaded]   = useState(false);
+  const [browseFilter,   setBrowseFilter]   = useState("all");
+  const [searchQuery,    setSearchQuery]    = useState("");
+  const [showAllWins,    setShowAllWins]    = useState(false);
+  const [stateExpanded,  setStateExpanded]  = useState(false);
+  const [stateSearch,    setStateSearch]    = useState("");
+  const [selectedLevel,  setSelectedLevel]  = useState<RegLevel | "all">("all");
+  const [expandedState,  setExpandedState]  = useState<string | null>(null);
+  const [savedMap,       setSavedMap]       = useState<Record<string, string>>({});
+  const [loadingSaved,   setLoadingSaved]   = useState(true);
+  const [dbResources,    setDbResources]    = useState<DbResource[]>([]);
+  const [dbLoading,      setDbLoading]      = useState(true);
+  const [userState,      setUserState]      = useState<string | null>(null);
+  const [stateLoaded,    setStateLoaded]    = useState(false);
+  const [selectedTour,   setSelectedTour]   = useState<{ title: string; url: string } | null>(null);
 
   const stateRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => { document.title = "Resources \u00b7 Rooted"; }, []);
-
-  // Load DB resources
   useEffect(() => { localStorage.setItem("rooted_visited_resources", "true"); }, []);
 
+  // Load DB resources (including created_at and is_free_pick)
   useEffect(() => {
     supabase
       .from("resources")
-      .select("id, category, title, description, url, grade_level, badge_text, metadata")
+      .select("id, category, title, description, url, grade_level, badge_text, metadata, is_free_pick, created_at")
       .eq("active", true)
       .order("sort_order", { ascending: true })
       .then(({ data }) => {
@@ -372,18 +360,12 @@ export default function ResourcesPage() {
       });
   }, []);
 
-  // Load user state from profile
+  // Load user state
   useEffect(() => {
     if (!effectiveUserId) return;
-    supabase
-      .from("profiles")
-      .select("state")
-      .eq("id", effectiveUserId)
-      .maybeSingle()
+    supabase.from("profiles").select("state").eq("id", effectiveUserId).maybeSingle()
       .then(({ data, error }) => {
-        if (!error) {
-          setUserState((data as { state?: string } | null)?.state ?? null);
-        }
+        if (!error) setUserState((data as { state?: string } | null)?.state ?? null);
         setStateLoaded(true);
       });
   }, [effectiveUserId]);
@@ -391,11 +373,7 @@ export default function ResourcesPage() {
   // Load saved resources
   useEffect(() => {
     if (!effectiveUserId) return;
-    supabase
-      .from("app_events")
-      .select("id, payload")
-      .eq("user_id", effectiveUserId)
-      .eq("type", "saved_resource")
+    supabase.from("app_events").select("id, payload").eq("user_id", effectiveUserId).eq("type", "saved_resource")
       .then(({ data }) => {
         const map: Record<string, string> = {};
         data?.forEach((e) => { if (e.payload?.resource_id) map[e.payload.resource_id] = e.id; });
@@ -404,12 +382,12 @@ export default function ResourcesPage() {
       });
   }, [effectiveUserId]);
 
-  // Auto-scroll to user's state when switching to states tab
+  // Auto-scroll to user's state
   useEffect(() => {
-    if (activeTab === "states" && userState && stateRefs.current[userState]) {
+    if (browseFilter === "states" && userState && stateRefs.current[userState]) {
       setTimeout(() => stateRefs.current[userState!]?.scrollIntoView({ behavior: "smooth", block: "center" }), 150);
     }
-  }, [activeTab, userState]);
+  }, [browseFilter, userState]);
 
   const toggleSave = useCallback(async (resourceId: string) => {
     if (!effectiveUserId) return;
@@ -418,73 +396,56 @@ export default function ResourcesPage() {
       setSavedMap((prev) => { const n = { ...prev }; delete n[resourceId]; return n; });
       await supabase.from("app_events").delete().eq("id", eventId);
     } else {
-      const { data } = await supabase
-        .from("app_events")
+      const { data } = await supabase.from("app_events")
         .insert({ user_id: effectiveUserId, type: "saved_resource", payload: { resource_id: resourceId } })
         .select("id").single();
       if (data) setSavedMap((prev) => ({ ...prev, [resourceId]: data.id }));
     }
   }, [effectiveUserId, savedMap]);
 
-  // Use DB weekly picks if available, otherwise fall back to hardcoded rotation
-  const dbWeeklyPicks = dbResources.filter((r) => r.category === "weekly_picks");
-  const freshDrops: FreshDrop[] = dbWeeklyPicks.length > 0
-    ? dbWeeklyPicks.slice(0, 3).map((r) => ({
-        name: r.title, desc: r.description, url: r.url,
-        grade: (r.grade_level as FreshDrop["grade"]) || "All Ages",
-        type: r.badge_text || "Free Pick",
-        emoji: "⭐",
-      }))
-    : getFreshDrops();
-  const dayIdx     = new Date().getDay();
-  // Use DB easy wins if available, otherwise fall back to hardcoded
+  // ── Compute Discover data ──────────────────────────────────────────────────
+
+  // Free Picks: auto-rotate weekly from is_free_pick resources
+  const freePicks = dbResources.filter((r) => r.is_free_pick);
+  const mondaySeed = getMondaySeed();
+  const weeklyPicks = seededShuffle(freePicks, mondaySeed).slice(0, 3);
+
+  // Easy Wins
   const dbEasyWins = dbResources.filter((r) => r.category === "easy_win");
   const easyWinPool: EasyWin[] = dbEasyWins.length > 0
     ? dbEasyWins.map((r) => ({
-        emoji: r.badge_text?.slice(0, 2) || "⚡",
-        title: r.title,
-        desc: r.description,
-        time: r.grade_level || "",
-        grade: r.grade_level || "All Ages",
-        url: r.url,
+        emoji: r.badge_text?.slice(0, 2) || "⚡", title: r.title,
+        desc: r.description, time: r.grade_level || "", grade: r.grade_level || "All Ages", url: r.url,
       }))
     : EASY_WINS;
   const validWins = easyWinPool.filter((w) => w.title && w.desc);
-  const todayWin1 = validWins.length > 0 ? validWins[dayIdx % validWins.length] : null;
-  const todayWin2 = validWins.length > 1 ? validWins[(dayIdx + 1) % validWins.length] : null;
-  const restWins  = validWins.filter((w) => w !== todayWin1 && w !== todayWin2);
 
-  function getEmbedUrl(url: string): string {
-    const match = url.match(/[?&]v=([^&]+)/);
-    if (match) return `https://www.youtube.com/embed/${match[1]}?autoplay=1`;
-    return '';
-  }
+  // ── Compute Browse data ────────────────────────────────────────────────────
 
-  function matchesGrade(grade: string) {
-    return !gradeFilter || grade === gradeFilter || grade === "All Ages";
-  }
+  const browsableCategories = ["curriculum", "online_classes", "science", "field_trips", "printables", "discounts"];
+  const browsableResources = dbResources.filter((r) => browsableCategories.includes(r.category));
 
-  const filteredDiscounts  = dbResources.filter((r) => r.category === "discounts"   && matchesGrade(r.grade_level));
-  const filteredTrips      = dbResources.filter((r) => r.category === "field_trips" && matchesGrade(r.grade_level));
-  const filteredPrintables = dbResources.filter((r) => r.category === "printables"  && matchesGrade(r.grade_level));
-  const filteredScience    = dbResources.filter((r) => r.category === "science"     && matchesGrade(r.grade_level));
-  const filteredFreshDrops = freshDrops.filter((f) => matchesGrade(f.grade));
+  const filteredBrowse = browsableResources.filter((r) => {
+    if (browseFilter !== "all" && !["tours", "states", "saved"].includes(browseFilter) && r.category !== browseFilter) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!r.title.toLowerCase().includes(q) && !r.description.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
 
   const filteredStates = Object.entries(STATE_REQS).filter(([name, { level }]) =>
     name.toLowerCase().includes(stateSearch.toLowerCase()) &&
     (selectedLevel === "all" || level === selectedLevel)
   );
 
-  const savedItems = [
-    ...dbResources.filter((r) => savedMap[r.id]).map((r) => ({
-      id: r.id, name: r.title, desc: r.description, url: r.url,
-      type: r.category === "discounts" ? "Discount" : r.category === "field_trips" ? "Field Trip" : r.category === "printables" ? "Printables" : "Science",
-      emoji: r.category === "discounts" ? "💰" : r.category === "field_trips" ? "🌍" : r.category === "printables" ? "🖨️" : "🔬",
-    })),
-    ...FRESH_DROPS_POOL.filter((f) => savedMap[dropId(f.name)]).map((f) => ({
-      id: dropId(f.name), name: f.name, desc: f.desc, url: f.url, type: f.type, emoji: f.emoji,
-    })),
-  ];
+  const savedItems = dbResources.filter((r) => savedMap[r.id]);
+
+  function getEmbedUrl(url: string): string {
+    const match = url.match(/[?&]v=([^&]+)/);
+    if (match) return `https://www.youtube.com/embed/${match[1]}?autoplay=1`;
+    return '';
+  }
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -493,35 +454,11 @@ export default function ResourcesPage() {
     <PageHero overline="Discover" title="Resources 🌿" subtitle="Curated for your homeschool." />
     <div className="max-w-3xl px-4 pt-6 pb-8 space-y-8" style={{ background: "#faf9f6" }}>
 
-      {/* ── 2. This Week's Free Picks ───────────────────────────── */}
-      <div>
-        <h2 className="text-lg font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>This Week&apos;s Free Picks {"\u2B50"}</h2>
-        <p className="text-xs text-[#7a6f65] mb-4">Exclusive finds for your homeschool</p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {filteredFreshDrops.map((drop, i) => {
-            const col = PICK_CARD_COLORS[i % PICK_CARD_COLORS.length];
-            const id = dropId(drop.name);
-            return (
-              <div key={drop.name} className="rounded-2xl overflow-hidden border border-white/80 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all" style={{ background: col.bg }}>
-                <a href={drop.url} target="_blank" rel="noopener noreferrer" className="block p-5">
-                  <div className="text-4xl mb-2">{drop.emoji}</div>
-                  <div className="flex items-start justify-between gap-1 mb-1.5">
-                    <p className="text-sm font-bold text-[#2d2926] leading-snug">{drop.name} {"\u2197"}</p>
-                    <BookmarkBtn id={id} savedMap={savedMap} onToggle={toggleSave} />
-                  </div>
-                  <p className="text-[11px] text-[#5c5550] leading-snug mb-2">{drop.desc}</p>
-                  <div className="flex gap-1.5 flex-wrap">
-                    <GradePill grade={drop.grade} />
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `${col.accent}22`, color: col.accent }}>{drop.type}</span>
-                  </div>
-                </a>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* ════════════════════════════════════════════════════════════
+          ZONE 1 — DISCOVER
+         ════════════════════════════════════════════════════════════ */}
 
-      {/* ── 3. Today's Easy Win ─────────────────────────────────── */}
+      {/* ── Today's Easy Win ─────────────────────────────────────── */}
       {validWins.length > 0 && (() => {
         const todayIdx = new Date().getDate() % validWins.length;
         const win = validWins[todayIdx];
@@ -563,13 +500,47 @@ export default function ResourcesPage() {
         );
       })()}
 
-      {/* ── 3b. Personalized State Banner (collapsed) ──────────── */}
+      {/* ── This Week's Free Picks (auto-rotating) ────────────── */}
+      {weeklyPicks.length > 0 && (
+        <div>
+          <h2 className="text-lg font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>This Week&apos;s Free Picks {"\u2B50"}</h2>
+          <p className="text-xs text-[#7a6f65] mb-4">Refreshes every Monday</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {weeklyPicks.map((r, i) => {
+              const col = PICK_CARD_COLORS[i % PICK_CARD_COLORS.length];
+              const isNew = isNewThisWeek(r.created_at);
+              return (
+                <div key={r.id} className="rounded-2xl overflow-hidden border border-white/80 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all" style={{ background: col.bg }}>
+                  <a href={r.url} target="_blank" rel="noopener noreferrer" className="block p-5">
+                    <div className="text-4xl mb-2">{getCategoryEmoji(r.category)}</div>
+                    <div className="flex items-start justify-between gap-1 mb-1.5">
+                      <p className="text-sm font-bold text-[#2d2926] leading-snug">{r.title} {"\u2197"}</p>
+                      <BookmarkBtn id={r.id} savedMap={savedMap} onToggle={toggleSave} />
+                    </div>
+                    <p className="text-[11px] text-[#5c5550] leading-snug mb-2">{r.description}</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      <GradePill grade={r.grade_level} />
+                      {r.badge_text && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `${col.accent}22`, color: col.accent }}>{r.badge_text}</span>
+                      )}
+                      {isNew && (
+                        <span className="text-[10px] font-bold bg-[#fef5e4] text-[#8b6820] px-2 py-0.5 rounded-full">New 🌱</span>
+                      )}
+                    </div>
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Personalized State Banner ─────────────────────────── */}
       {stateLoaded && userState && userState !== "Outside the US" && STATE_INFO[userState] ? (() => {
         const info = STATE_INFO[userState];
         const badge = REG_BADGE[info.regulation];
         return (
           <div className="rounded-2xl border border-[#b8d4be] overflow-hidden" style={{ background: "linear-gradient(135deg, #eef5ec 0%, #f5fbf0 100%)" }}>
-            {/* Collapsed header — always visible */}
             <button
               onClick={() => setStateExpanded(!stateExpanded)}
               className="w-full px-5 py-4 flex items-center justify-between gap-3 text-left"
@@ -581,54 +552,30 @@ export default function ResourcesPage() {
                   {info.regulation}
                 </span>
               </div>
-              <svg
-                width="14" height="14" viewBox="0 0 14 14" fill="none"
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
                 className="shrink-0 text-[#7a6f65] transition-transform duration-200"
-                style={{ transform: stateExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
-              >
+                style={{ transform: stateExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
                 <path d="M3 5.5L7 9.5L11 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-
-            {/* Expanded details */}
             {stateExpanded && (
               <>
                 <div className="border-t border-[#d4e8d8] px-5 py-4 space-y-3">
-                  <div className="flex gap-3">
-                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDCCB"}</span>
-                    <div>
-                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Required Subjects</p>
-                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.requiredSubjects.join(", ")}</p>
+                  {[
+                    { icon: "\uD83D\uDCCB", label: "Required Subjects", value: info.requiredSubjects.join(", ") },
+                    { icon: "\uD83C\uDFDB\uFE0F", label: "Notice Required", value: info.notice },
+                    { icon: "\uD83D\uDCCA", label: "Attendance / Days", value: info.attendance },
+                    { icon: "\uD83D\uDCDD", label: "Testing", value: info.testing },
+                    { icon: "\uD83D\uDDC2\uFE0F", label: "Portfolio / Records", value: info.portfolios },
+                  ].map((row) => (
+                    <div key={row.label} className="flex gap-3">
+                      <span className="text-base shrink-0 mt-0.5">{row.icon}</span>
+                      <div>
+                        <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">{row.label}</p>
+                        <p className="text-xs text-[#5c5550] leading-relaxed">{row.value}</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="text-base shrink-0 mt-0.5">{"\uD83C\uDFDB\uFE0F"}</span>
-                    <div>
-                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Notice Required</p>
-                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.notice}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDCCA"}</span>
-                    <div>
-                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Attendance / Days</p>
-                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.attendance}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDCDD"}</span>
-                    <div>
-                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Testing</p>
-                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.testing}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="text-base shrink-0 mt-0.5">{"\uD83D\uDDC2\uFE0F"}</span>
-                    <div>
-                      <p className="text-[11px] font-semibold text-[#2d2926] mb-0.5">Portfolio / Records</p>
-                      <p className="text-xs text-[#5c5550] leading-relaxed">{info.portfolios}</p>
-                    </div>
-                  </div>
+                  ))}
                 </div>
                 <div className="px-5 pb-4 flex gap-2 flex-wrap">
                   <a href={info.hsldaUrl} target="_blank" rel="noopener noreferrer"
@@ -667,507 +614,191 @@ export default function ResourcesPage() {
         </Link>
       ) : null}
 
-      {/* Old Free Picks section moved to top */}
+      {/* ════════════════════════════════════════════════════════════
+          ZONE 2 — BROWSE
+         ════════════════════════════════════════════════════════════ */}
 
-      {/* Old Easy Win section moved to top as daily card */}
-      {false && <div className="rounded-2xl p-6" style={{ background: "linear-gradient(135deg, #fef9e8 0%, #fef3d0 100%)" }}>
-        <div className="mb-5">
-          <h2 className="text-xl font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
-            Easy Win Today ⚡
-          </h2>
-          <p className="text-sm text-[#7a6f65]">Zero prep. Right now. You&apos;ve got this.</p>
-        </div>
+      <div className="space-y-4">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#a09890]">Browse Everything</p>
 
-        {/* Today's 2 featured activities */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-          {[todayWin1, todayWin2].filter(Boolean).map((win, i) => {
-            if (!win) return null;
-            const col = EASY_WIN_COLORS[(dayIdx + i) % EASY_WIN_COLORS.length];
-            return (
-              <div
-                key={win.title}
-                className="rounded-2xl p-5 border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
-                style={{ background: col.bg, borderColor: col.border }}
-              >
-                <div className="text-4xl mb-3">{win.emoji}</div>
-                <p className="font-bold text-[#2d2926] text-sm mb-1">{win.title}</p>
-                <p className="text-xs text-[#5c5550] leading-relaxed mb-3">{win.desc}</p>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-white/70 text-[#7a6f65] border border-white">
-                    ⏱ {win.time}
-                  </span>
-                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-white/70 text-[#7a6f65] border border-white">
-                    {win.grade}
-                  </span>
-                  {win.url && (
-                    <a href={win.url} target="_blank" rel="noopener noreferrer"
-                      className="ml-auto text-[10px] font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-2.5 py-0.5 rounded-lg transition-colors">
-                      Try it ↗
-                    </a>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Rest of activities — smaller */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {restWins.map((win, i) => {
-            const col = EASY_WIN_COLORS[(dayIdx + i + 2) % EASY_WIN_COLORS.length];
-            return (
-              <div
-                key={win.title}
-                className="rounded-xl p-3.5 border transition-all hover:shadow-sm"
-                style={{ background: col.bg, borderColor: col.border }}
-              >
-                <div className="text-2xl mb-2">{win.emoji}</div>
-                <p className="font-semibold text-[#2d2926] text-xs mb-1 leading-snug">{win.title}</p>
-                <div className="flex items-center gap-1 flex-wrap">
-                  <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-white/70 text-[#7a6f65]">
-                    ⏱ {win.time}
-                  </span>
-                  {win.url && (
-                    <a href={win.url} target="_blank" rel="noopener noreferrer"
-                      className="text-[9px] font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-1.5 py-0.5 rounded transition-colors">
-                      ↗
-                    </a>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <p className="text-[11px] text-[#b5aca4] mt-4 text-center italic">
-          Some days just showing up is the lesson. You&apos;re doing great. 🌿
-        </p>
-      </div>}
-
-      {/* ── 5. Browse Everything — Category Tabs ──────────────── */}
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-[#a09890]">Browse Everything</p>
-
-      {/* Grade Filter — hidden for now, will bring back later */}
-
-      {/* Tab Bar */}
-      <div className="flex gap-2 flex-wrap">
-        {CONTENT_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all relative ${
-              activeTab === tab.id
-                ? "bg-[#4a7c59] text-white shadow-sm"
-                : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#4a7c59] hover:text-[#2d2926]"
-            }`}
-          >
-            {tab.label}
-            {tab.id === "saved" && Object.keys(savedMap).length > 0 && (
-              <span className="ml-1.5 text-[10px] font-bold bg-white/30 px-1.5 py-0.5 rounded-full">
-                {Object.keys(savedMap).length}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Discounts ─────────────────────────────────────────── */}
-      {activeTab === "discounts" && (
-        <div className="space-y-3">
-          <p className="text-xs text-[#7a6f65]">
-            Always ask about homeschool educator discounts — many stores honor them even if not advertised.
-          </p>
-          <p className="text-[11px] italic text-[#b5aca4]">
-            Rooted is not affiliated with any listed brands. Offers are curated for informational purposes and may change — always verify with the retailer.
-          </p>
-          {dbLoading ? <LoadingSkeleton /> : filteredDiscounts.length === 0 ? (
-            <p className="text-sm text-[#b5aca4] text-center py-10">No discounts match that grade filter.</p>
-          ) : (
-            filteredDiscounts.map((d) => {
-              const tags = (d.metadata?.tags as string[] | undefined) ?? [];
-              return (
-                <div key={d.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#c4956a] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
-                  <div className="flex items-start gap-3">
-                    <div className="bg-[#fef5e4] rounded-xl w-12 h-12 flex items-center justify-center shrink-0">
-                      <span className="text-3xl">{getDiscountEmoji(d.title)}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <a href={d.url} target="_blank" rel="noopener noreferrer"
-                          className="font-bold text-[#2d2926] text-sm hover:text-[#4a7c59] hover:underline transition-colors leading-snug">
-                          {d.title} ↗
-                        </a>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {d.badge_text && (
-                            <span className="text-xs font-bold text-[#4a7c59] bg-[#e4f0e6] px-2 py-0.5 rounded-full">{d.badge_text}</span>
-                          )}
-                          <BookmarkBtn id={d.id} savedMap={savedMap} onToggle={toggleSave} />
-                        </div>
-                      </div>
-                      <p className="text-xs text-[#7a6f65] leading-relaxed mb-2.5">{d.description}</p>
-                      <div className="flex gap-1.5 flex-wrap">
-                        <GradePill grade={d.grade_level} />
-                        {tags.map((t) => (
-                          <span key={t} className="text-[10px] bg-[#f5f3f0] text-[#7a6f65] px-2 py-0.5 rounded-full">{t}</span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
+        {/* ── Search bar ────────────────────────────────────────── */}
+        <div className="relative">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#b5aca4]" />
+          <input
+            type="text"
+            placeholder="Search resources..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-10 py-2.5 text-sm rounded-xl border border-[#e8e2d9] bg-white focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 text-[#2d2926] placeholder-[#c8bfb5]"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#b5aca4] hover:text-[#7a6f65]">
+              <X size={16} />
+            </button>
           )}
         </div>
-      )}
 
-      {/* ── Field Trips ───────────────────────────────────────── */}
-      {activeTab === "trips" && (
-        <div className="space-y-3">
-          <p className="text-xs text-[#7a6f65]">All are free or freely accessible. Click any title to visit the official page.</p>
-          {dbLoading ? <LoadingSkeleton /> : filteredTrips.length === 0 ? (
-            <p className="text-sm text-[#b5aca4] text-center py-10">No field trips match that grade filter.</p>
-          ) : (
-            filteredTrips.map((t) => (
-              <div key={t.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#3d7080] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
-                <div className="flex items-start gap-3">
-                  <div className="bg-[#e4f2fb] rounded-xl w-12 h-12 flex items-center justify-center shrink-0">
-                    <span className="text-3xl">{getTripEmoji(t.title)}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2 mb-1.5">
-                      <p className="font-bold text-[#2d2926] text-sm leading-snug">{t.title}</p>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <GradePill grade={t.grade_level} />
-                        <BookmarkBtn id={t.id} savedMap={savedMap} onToggle={toggleSave} />
-                      </div>
-                    </div>
-                    <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">{t.description}</p>
-                    <a href={t.url} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
-                      Visit ↗
-                    </a>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-          {/* Static field trips */}
-          {STATIC_FIELD_TRIPS.map((t) => (
-            <div key={t.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#3d7080] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
-              <div className="flex items-start gap-3">
-                <div className="bg-[#e4f2fb] rounded-xl w-12 h-12 flex items-center justify-center shrink-0 text-3xl">{t.emoji}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <p className="font-bold text-[#2d2926] text-sm leading-snug">{t.name}</p>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <GradePill grade={t.grade} />
-                    </div>
-                  </div>
-                  <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">{t.desc}</p>
-                  <div className="flex items-center gap-2">
-                    <a href={t.url} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
-                      Visit ↗
-                    </a>
-                    <span className="text-[10px] text-[#b5aca4] bg-[#f5f3f0] px-2 py-0.5 rounded-full">{t.subject}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+        {/* ── Filter pills ──────────────────────────────────────── */}
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ scrollbarWidth: "none" }}>
+          {BROWSE_CATS.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => { setBrowseFilter(cat.id); if (!["states", "saved"].includes(cat.id)) setSearchQuery(""); }}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap relative ${
+                browseFilter === cat.id
+                  ? "bg-[#4a7c59] text-white shadow-sm"
+                  : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#4a7c59] hover:text-[#2d2926]"
+              }`}
+            >
+              {cat.label}
+              {cat.id === "saved" && Object.keys(savedMap).length > 0 && (
+                <span className="ml-1.5 text-[10px] font-bold bg-white/30 px-1.5 py-0.5 rounded-full">
+                  {Object.keys(savedMap).length}
+                </span>
+              )}
+            </button>
           ))}
         </div>
-      )}
 
-      {/* ── Printables ────────────────────────────────────────── */}
-      {activeTab === "printables" && (
-        <div className="space-y-3">
-          <p className="text-xs text-[#7a6f65]">All sources are either fully free or have a generous free tier.</p>
-          {dbLoading ? <LoadingSkeleton /> : filteredPrintables.length === 0 ? (
-            <p className="text-sm text-[#b5aca4] text-center py-10">No printables match that grade filter.</p>
-          ) : (
-            filteredPrintables.map((p) => {
-              const subjects = (p.metadata?.subjects as string[] | undefined) ?? [];
-              return (
-                <div key={p.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#5c7f63] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
-                  <div className="flex items-start gap-3">
-                    <div className="bg-[#e8f0e9] rounded-xl w-12 h-12 flex items-center justify-center shrink-0">
-                      <span className="text-3xl">🖨️</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <a href={p.url} target="_blank" rel="noopener noreferrer"
-                          className="font-bold text-[#2d2926] text-sm hover:text-[#4a7c59] hover:underline transition-colors leading-snug">
-                          {p.title} ↗
-                        </a>
-                        <BookmarkBtn id={p.id} savedMap={savedMap} onToggle={toggleSave} />
-                      </div>
-                      <p className="text-xs text-[#7a6f65] leading-relaxed mb-2.5">{p.description}</p>
-                      <div className="flex gap-1.5 flex-wrap">
-                        <GradePill grade={p.grade_level} />
-                        {subjects.map((s) => (
-                          <span key={s} className="text-[10px] bg-[#e4f0e6] text-[#3d6044] px-2 py-0.5 rounded-full">{s}</span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      {/* ── Science ───────────────────────────────────────────── */}
-      {activeTab === "science" && (
-        <div className="space-y-3">
-          {dbLoading ? <LoadingSkeleton /> : filteredScience.length === 0 ? (
-            <p className="text-sm text-[#b5aca4] text-center py-10">No science projects match that grade filter.</p>
-          ) : (
-            filteredScience.map((p) => {
-              const time      = (p.metadata?.time as string | undefined) ?? "";
-              const materials = (p.metadata?.materials as string | undefined) ?? "";
-              return (
-                <div key={p.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#7a5020] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
-                  <div className="flex items-start gap-3">
-                    <div className="bg-[#f5e8d8] rounded-xl w-12 h-12 flex items-center justify-center shrink-0">
-                      <span className="text-3xl">🔬</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <a href={p.url} target="_blank" rel="noopener noreferrer"
-                          className="font-bold text-[#2d2926] text-sm hover:text-[#4a7c59] hover:underline transition-colors leading-snug">
-                          {p.title} ↗
-                        </a>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {p.badge_text && (
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${p.badge_text === "Easy" ? "bg-[#e4f0e6] text-[#2d5c38]" : "bg-[#f5e8d8] text-[#7a5020]"}`}>
-                              {p.badge_text}
-                            </span>
-                          )}
-                          <BookmarkBtn id={p.id} savedMap={savedMap} onToggle={toggleSave} />
-                        </div>
-                      </div>
-                      <p className="text-xs text-[#7a6f65] leading-relaxed mb-2.5">{p.description}</p>
-                      <div className="flex gap-1.5 flex-wrap items-center">
-                        <GradePill grade={p.grade_level} />
-                        {time && <span className="text-[10px] bg-[#f5f3f0] text-[#7a6f65] px-2 py-0.5 rounded-full">⏱ {time}</span>}
-                        {materials && <span className="text-[10px] text-[#b5aca4]"><span className="font-medium text-[#7a6f65]">Materials: </span>{materials}</span>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-          {/* Static science resources */}
-          {STATIC_SCIENCE.map((p) => (
-            <div key={p.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#7a5020] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
-              <div className="flex items-start gap-3">
-                <div className="bg-[#f5e8d8] rounded-xl w-12 h-12 flex items-center justify-center shrink-0 text-3xl">{p.emoji}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <a href={p.url} target="_blank" rel="noopener noreferrer"
-                      className="font-bold text-[#2d2926] text-sm hover:text-[#4a7c59] hover:underline transition-colors leading-snug">
-                      {p.name} ↗
-                    </a>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-[#e4f0e6] text-[#2d5c38] shrink-0">{p.badge}</span>
-                  </div>
-                  <p className="text-xs text-[#7a6f65] leading-relaxed mb-2.5">{p.desc}</p>
-                  <div className="flex gap-1.5 flex-wrap items-center">
-                    <GradePill grade={p.grade} />
-                    <span className="text-[10px] bg-[#f5f3f0] text-[#7a6f65] px-2 py-0.5 rounded-full">⏱ {p.time}</span>
-                    <span className="text-[10px] text-[#b5aca4]"><span className="font-medium text-[#7a6f65]">Materials: </span>{p.materials}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Virtual Tours ─────────────────────────────────────── */}
-      {activeTab === "tours" && (
-        <div className="space-y-3">
-          <p className="text-xs text-[#7a6f65]">Free virtual field trips and immersive video experiences — click Watch to play inline.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {VIRTUAL_TOURS.map((tour) => {
-              const isYouTube = /[?&]v=/.test(tour.url);
-              return (
-                <div key={tour.name} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden">
-                  <div className="p-5">
-                    <div className="text-4xl mb-3">{tour.emoji}</div>
-                    <p className="font-bold text-[#2d2926] text-sm leading-snug mb-1.5">{tour.name}</p>
-                    <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">{tour.desc}</p>
-                    <div className="flex items-center gap-2 flex-wrap mb-3">
-                      <GradePill grade={tour.grade} />
-                      <span className="text-[10px] font-medium bg-[#e4f2fb] text-[#1a5c80] px-2 py-0.5 rounded-full">{tour.subject}</span>
-                    </div>
-                    {isYouTube ? (
-                      <button
-                        onClick={() => setSelectedTour({ title: tour.name, url: tour.url })}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors"
-                      >
-                        Watch ▶
-                      </button>
-                    ) : (
-                      <a href={tour.url} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
-                        Watch ↗
-                      </a>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── By State ──────────────────────────────────────────── */}
-      {activeTab === "states" && (
-        <div className="space-y-4">
-          <p className="text-xs text-[#7a6f65]">
-            Requirements vary widely. Always verify with your state homeschool association or{" "}
-            <a href="https://hslda.org" target="_blank" rel="noopener noreferrer" className="text-[#4a7c59] hover:underline">HSLDA.org</a>.
-          </p>
-          <p className="text-[11px] italic text-[#b5aca4]">
-            State homeschool information is for informational purposes only and may not reflect current law. Always verify with your state&apos;s department of education.
-          </p>
-
-          {/* Search + level filter */}
-          <div className="flex gap-2 flex-wrap items-center">
-            <input
-              type="text"
-              placeholder="Search state…"
-              value={stateSearch}
-              onChange={(e) => setStateSearch(e.target.value)}
-              className="flex-1 min-w-32 px-3.5 py-2 text-sm rounded-xl border border-[#e8e2d9] bg-white focus:outline-none focus:border-[#4a7c59] focus:ring-1 focus:ring-[#4a7c59]/30"
-            />
-            {(["all", "none", "low", "moderate", "high"] as const).map((l) => (
-              <button
-                key={l}
-                onClick={() => setSelectedLevel(l)}
-                className={`text-xs px-3 py-1.5 rounded-full transition-colors ${selectedLevel === l ? "bg-[#4a7c59] text-white" : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#4a7c59]"}`}
-              >
-                {l === "all" ? "All" : LEVEL_LABELS[l as RegLevel].label}
-              </button>
-            ))}
-          </div>
-
-          {/* State cards */}
-          <div className="space-y-2">
-            {filteredStates.length === 0 && (
-              <p className="text-sm text-[#b5aca4] text-center py-8">No states match your search.</p>
+        {/* ── Resource cards (all browsable categories) ──────── */}
+        {!["tours", "states", "saved"].includes(browseFilter) && (
+          <div className="space-y-3">
+            {dbLoading ? <LoadingSkeleton /> : filteredBrowse.length === 0 ? (
+              <p className="text-sm text-[#b5aca4] text-center py-10">
+                {searchQuery ? `No resources match "${searchQuery}"` : "No resources in this category yet."}
+              </p>
+            ) : (
+              filteredBrowse.map((r) => (
+                <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} />
+              ))
             )}
-            {filteredStates.map(([name, { level, summary }]) => {
-              const lInfo    = LEVEL_LABELS[level];
-              const isExpanded = expandedState === name;
-              const isYours  = userState === name;
-              return (
-                <div
-                  key={name}
-                  ref={(el) => { stateRefs.current[name] = el; }}
-                  className={`bg-white rounded-2xl border transition-all overflow-hidden ${isYours ? "border-[#4a7c59] ring-1 ring-[#4a7c59]/20" : "border-gray-100 hover:border-[#c8d8cc]"}`}
-                >
-                  <button
-                    onClick={() => setExpandedState(isExpanded ? null : name)}
-                    className="w-full flex items-center justify-between px-5 py-3.5 text-left"
-                  >
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <span className="font-semibold text-sm text-[#2d2926]">{name}</span>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: lInfo.bg, color: lInfo.color }}>
-                        {lInfo.label}
-                      </span>
-                      {isYours && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e4f0e6] text-[#4a7c59]">
-                          📍 Your State
-                        </span>
+          </div>
+        )}
+
+        {/* ── Virtual Tours ───────────────────────────────────── */}
+        {browseFilter === "tours" && (
+          <div className="space-y-3">
+            <p className="text-xs text-[#7a6f65]">Free virtual field trips and immersive video experiences — click Watch to play inline.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {VIRTUAL_TOURS.map((tour) => {
+                const isYouTube = /[?&]v=/.test(tour.url);
+                return (
+                  <div key={tour.name} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden">
+                    <div className="p-5">
+                      <div className="text-4xl mb-3">{tour.emoji}</div>
+                      <p className="font-bold text-[#2d2926] text-sm leading-snug mb-1.5">{tour.name}</p>
+                      <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">{tour.desc}</p>
+                      <div className="flex items-center gap-2 flex-wrap mb-3">
+                        <GradePill grade={tour.grade} />
+                        <span className="text-[10px] font-medium bg-[#e4f2fb] text-[#1a5c80] px-2 py-0.5 rounded-full">{tour.subject}</span>
+                      </div>
+                      {isYouTube ? (
+                        <button onClick={() => setSelectedTour({ title: tour.name, url: tour.url })}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
+                          Watch ▶
+                        </button>
+                      ) : (
+                        <a href={tour.url} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-white bg-[#4a7c59] hover:bg-[#3a6048] px-3 py-1.5 rounded-lg transition-colors">
+                          Watch ↗
+                        </a>
                       )}
                     </div>
-                    <ChevronDown size={14} className={`text-[#b5aca4] transition-transform shrink-0 ml-2 ${isExpanded ? "rotate-180" : ""}`} />
-                  </button>
-                  {isExpanded && (
-                    <div className="px-5 pb-4 border-t border-gray-50">
-                      <p className="text-xs text-[#5c5550] leading-relaxed pt-3">{summary}</p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Saved ─────────────────────────────────────────────── */}
-      {activeTab === "saved" && (
-        <div className="space-y-3">
-          {loadingSaved ? (
-            <LoadingSkeleton />
-          ) : savedItems.length === 0 ? (
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-              <div className="w-12 h-12 rounded-2xl bg-[#e8f0e9] flex items-center justify-center mb-4">
-                <Bookmark size={22} className="text-[#5c7f63]" />
-              </div>
-              <p className="text-base font-semibold text-[#2d2926] mb-1.5">Nothing saved yet</p>
-              <p className="text-sm text-[#7a6f65] max-w-xs leading-relaxed">
-                Tap the 🔖 icon on any resource to save it here for quick access.
-              </p>
+                  </div>
+                );
+              })}
             </div>
-          ) : (
-            savedItems.map((item) => (
-              <div key={item.id} className="bg-white rounded-2xl border border-gray-100 border-l-4 border-l-[#5c7f63] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 min-h-[3rem]">
-                <div className="flex items-start gap-3">
-                  <div className="bg-[#e8f0e9] rounded-xl w-12 h-12 flex items-center justify-center shrink-0">
-                    <span className="text-3xl">{item.emoji}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <a href={item.url} target="_blank" rel="noopener noreferrer"
-                        className="font-bold text-[#2d2926] text-sm hover:text-[#4a7c59] hover:underline transition-colors leading-snug">
-                        {item.name} ↗
-                      </a>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[10px] text-[#7a6f65] bg-[#f5f3f0] px-2 py-0.5 rounded-full">{item.type}</span>
-                        <BookmarkBtn id={item.id} savedMap={savedMap} onToggle={toggleSave} />
+          </div>
+        )}
+
+        {/* ── By State ────────────────────────────────────────── */}
+        {browseFilter === "states" && (
+          <div className="space-y-4">
+            <p className="text-xs text-[#7a6f65]">
+              Requirements vary widely. Always verify with your state homeschool association or{" "}
+              <a href="https://hslda.org" target="_blank" rel="noopener noreferrer" className="text-[#4a7c59] hover:underline">HSLDA.org</a>.
+            </p>
+            <div className="flex gap-2 flex-wrap items-center">
+              <input type="text" placeholder="Search state..." value={stateSearch} onChange={(e) => setStateSearch(e.target.value)}
+                className="flex-1 min-w-32 px-3.5 py-2 text-sm rounded-xl border border-[#e8e2d9] bg-white focus:outline-none focus:border-[#4a7c59] focus:ring-1 focus:ring-[#4a7c59]/30" />
+              {(["all", "none", "low", "moderate", "high"] as const).map((l) => (
+                <button key={l} onClick={() => setSelectedLevel(l)}
+                  className={`text-xs px-3 py-1.5 rounded-full transition-colors ${selectedLevel === l ? "bg-[#4a7c59] text-white" : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#4a7c59]"}`}>
+                  {l === "all" ? "All" : LEVEL_LABELS[l as RegLevel].label}
+                </button>
+              ))}
+            </div>
+            <div className="space-y-2">
+              {filteredStates.length === 0 && (
+                <p className="text-sm text-[#b5aca4] text-center py-8">No states match your search.</p>
+              )}
+              {filteredStates.map(([name, { level, summary }]) => {
+                const lInfo = LEVEL_LABELS[level];
+                const isExpanded = expandedState === name;
+                const isYours = userState === name;
+                return (
+                  <div key={name} ref={(el) => { stateRefs.current[name] = el; }}
+                    className={`bg-white rounded-2xl border transition-all overflow-hidden ${isYours ? "border-[#4a7c59] ring-1 ring-[#4a7c59]/20" : "border-gray-100 hover:border-[#c8d8cc]"}`}>
+                    <button onClick={() => setExpandedState(isExpanded ? null : name)}
+                      className="w-full flex items-center justify-between px-5 py-3.5 text-left">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <span className="font-semibold text-sm text-[#2d2926]">{name}</span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: lInfo.bg, color: lInfo.color }}>{lInfo.label}</span>
+                        {isYours && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e4f0e6] text-[#4a7c59]">📍 Your State</span>
+                        )}
                       </div>
-                    </div>
-                    <p className="text-xs text-[#7a6f65] leading-relaxed">{item.desc}</p>
+                      <ChevronDown size={14} className={`text-[#b5aca4] transition-transform shrink-0 ml-2 ${isExpanded ? "rotate-180" : ""}`} />
+                    </button>
+                    {isExpanded && (
+                      <div className="px-5 pb-4 border-t border-gray-50">
+                        <p className="text-xs text-[#5c5550] leading-relaxed pt-3">{summary}</p>
+                      </div>
+                    )}
                   </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Saved ───────────────────────────────────────────── */}
+        {browseFilter === "saved" && (
+          <div className="space-y-3">
+            {loadingSaved ? (
+              <LoadingSkeleton />
+            ) : savedItems.length === 0 ? (
+              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+                <div className="w-12 h-12 rounded-2xl bg-[#e8f0e9] flex items-center justify-center mb-4">
+                  <Bookmark size={22} className="text-[#5c7f63]" />
                 </div>
+                <p className="text-base font-semibold text-[#2d2926] mb-1.5">Nothing saved yet</p>
+                <p className="text-sm text-[#7a6f65] max-w-xs leading-relaxed">
+                  Tap the 🔖 icon on any resource to save it here for quick access.
+                </p>
               </div>
-            ))
-          )}
-        </div>
-      )}
+            ) : (
+              savedItems.map((r) => (
+                <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} />
+              ))
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="h-4" />
 
       {/* ── YouTube embed modal ──────────────────────────────── */}
       {selectedTour && (
-        <div
-          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
-          onClick={() => setSelectedTour(null)}
-        >
-          <div
-            className="bg-white rounded-xl w-full max-w-3xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setSelectedTour(null)}>
+          <div className="bg-white rounded-xl w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center p-4 border-b border-gray-100">
               <h3 className="font-semibold text-[#2d2926] text-sm">{selectedTour.title}</h3>
-              <button
-                onClick={() => setSelectedTour(null)}
-                className="text-gray-400 hover:text-gray-600 text-xl leading-none"
-              >
-                ✕
-              </button>
+              <button onClick={() => setSelectedTour(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
             </div>
             <div className="aspect-video">
-              <iframe
-                src={getEmbedUrl(selectedTour.url)}
-                className="w-full h-full rounded-b-xl"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
+              <iframe src={getEmbedUrl(selectedTour.url)} className="w-full h-full rounded-b-xl"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
             </div>
           </div>
         </div>
