@@ -158,7 +158,7 @@ export default function AdminPage() {
   const [showTestSection, setShowTestSection] = useState(false);
   const [affiliates, setAffiliates] = useState<{ id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; profiles: { display_name: string | null; first_name: string | null; last_name: string | null } | null }[]>([]);
   const [foundingByDay, setFoundingByDay] = useState<{ date: string; count: number }[]>([]);
-  const [partnerApps, setPartnerApps] = useState<{ id: string; first_name: string; last_name: string; email: string; platforms: string[]; platform_sizes: Record<string, string>; used_rooted: string; status: string; created_at: string; about_journey: string; paypal_email: string }[]>([]);
+  const [partnerApps, setPartnerApps] = useState<{ id: string; first_name: string; last_name: string; email: string; platforms: string[]; platform_sizes: Record<string, string>; used_rooted: string; status: string; created_at: string; about_journey: string }[]>([]);
   const [appFilter, setAppFilter] = useState<"pending" | "approved" | "declined">("pending");
   const [appProcessing, setAppProcessing] = useState<string | null>(null);
 
@@ -181,6 +181,11 @@ export default function AdminPage() {
   const [reengageCount, setReengageCount] = useState(0);
   const [sendingReengage, setSendingReengage] = useState(false);
   const [reengageSent, setReengageSent] = useState(false);
+
+  // Affiliate payouts
+  const [affiliatePayouts, setAffiliatePayouts] = useState<{ name: string; code: string; redemptions_this_month: number; gross_this_month_cents: number; commission_cents: number; paypal_email: string | null; month_label: string }[]>([]);
+  const [payoutsLoading, setPayoutsLoading] = useState(false);
+  const [payoutsError, setPayoutsError] = useState(false);
 
   // Testimonial request
   const [sendingTestimonial, setSendingTestimonial] = useState(false);
@@ -213,8 +218,8 @@ export default function AdminPage() {
 
     // Load partner applications
     const { data: appRows } = await supabase
-      .from("partner_applications")
-      .select("id, first_name, last_name, email, platforms, platform_sizes, used_rooted, status, created_at, about_journey, paypal_email")
+      .from("partner_apps")
+      .select("id, first_name, last_name, email, platforms, platform_sizes, used_rooted, status, created_at, about_journey")
       .order("created_at", { ascending: false });
     if (appRows) setPartnerApps(appRows as unknown as typeof partnerApps);
 
@@ -341,6 +346,24 @@ export default function AdminPage() {
       .lte("created_at", threeDaysAgo.toISOString());
     const noMemoryCount = (allProfiles ?? []).filter((p: { id: string }) => !userMemCounts[p.id]).length;
     setReengageCount(noMemoryCount);
+
+    // ── Affiliate payouts ────────────────────────────────
+    setPayoutsLoading(true);
+    setPayoutsError(false);
+    try {
+      const payRes = await fetch("/api/admin/affiliate-payouts", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (payRes.ok) {
+        const payJson = await payRes.json();
+        setAffiliatePayouts(payJson.payouts ?? []);
+      } else {
+        setPayoutsError(true);
+      }
+    } catch {
+      setPayoutsError(true);
+    }
+    setPayoutsLoading(false);
 
     setRefreshing(false);
   };
@@ -653,6 +676,108 @@ export default function AdminPage() {
               </button>
             )}
           </div>
+        </section>
+
+        {/* Section — Affiliate Payouts */}
+        <section>
+          <SectionHeader emoji="💸" title="Affiliate Payouts" />
+          {payoutsLoading ? (
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-6 flex items-center gap-3">
+              <div className="w-5 h-5 border-2 border-[#5c7f63] border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-[#7a6f65]">Loading Stripe data…</span>
+            </div>
+          ) : payoutsError ? (
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+              <p className="text-sm text-red-500 mb-2">Could not load Stripe data</p>
+              <button
+                onClick={async () => {
+                  setPayoutsLoading(true);
+                  setPayoutsError(false);
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const res = await fetch("/api/admin/affiliate-payouts", {
+                      headers: { Authorization: `Bearer ${session?.access_token}` },
+                    });
+                    if (res.ok) {
+                      const json = await res.json();
+                      setAffiliatePayouts(json.payouts ?? []);
+                    } else {
+                      setPayoutsError(true);
+                    }
+                  } catch {
+                    setPayoutsError(true);
+                  }
+                  setPayoutsLoading(false);
+                }}
+                className="px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          ) : affiliatePayouts.length === 0 ? (
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+              <p className="text-sm text-[#7a6f65]">No active affiliates found.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {affiliatePayouts.map((aff) => {
+                const gross = (aff.gross_this_month_cents / 100).toFixed(2);
+                const commission = (aff.commission_cents / 100).toFixed(2);
+                const nextMonth = new Date();
+                nextMonth.setMonth(nextMonth.getMonth() + 1);
+                const payoutDue = nextMonth.toLocaleDateString("en-US", { month: "long" }) + " 1";
+                return (
+                  <div key={aff.code} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+                    {/* Row 1: Name + code */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-sm font-medium text-[#2d2926]">{aff.name}</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#e8e2d9] text-[#7a6f65]">{aff.code}</span>
+                    </div>
+
+                    {/* Stats row */}
+                    <div className="grid grid-cols-3 gap-3 mb-3">
+                      <div className="bg-[#faf8f4] border border-[#e8e2d9] rounded-xl px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Sales</p>
+                        <p className="text-lg font-bold text-[#2d2926] leading-none">{aff.redemptions_this_month}</p>
+                      </div>
+                      <div className="bg-[#faf8f4] border border-[#e8e2d9] rounded-xl px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Gross</p>
+                        <p className="text-lg font-bold text-[#2d2926] leading-none">${gross}</p>
+                      </div>
+                      <div className="bg-[#faf8f4] border border-[#e8e2d9] rounded-xl px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Commission</p>
+                        <p className="text-lg font-bold text-[#5c7f63] leading-none">${commission}</p>
+                      </div>
+                    </div>
+
+                    {/* PayPal row */}
+                    {aff.paypal_email && (
+                      <div className="flex items-center gap-2 mb-2 text-sm text-[#7a6f65]">
+                        <span>Pay via PayPal Business → {aff.paypal_email}</span>
+                        <span className="text-[#2d2926] font-medium">Send ${commission}</span>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(commission)}
+                          className="text-[11px] px-2 py-0.5 rounded-lg bg-[#e8e2d9] hover:bg-[#d4cec5] text-[#7a6f65] transition-colors"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Month label */}
+                    <p className="text-xs text-[#b5aca4]">
+                      {aff.month_label} · Payout due {payoutDue}
+                    </p>
+
+                    {/* Zero sales note */}
+                    {aff.redemptions_this_month === 0 && (
+                      <p className="text-xs text-[#b5aca4] mt-1">No sales this month</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* Section 3f — Testimonial Requests */}
@@ -1136,7 +1261,7 @@ export default function AdminPage() {
                         disabled={appProcessing === app.id}
                         onClick={async () => {
                           setAppProcessing(app.id);
-                          await supabase.from("partner_applications").update({ status: "approved" }).eq("id", app.id);
+                          await supabase.from("partner_apps").update({ status: "approved" }).eq("id", app.id);
                           setPartnerApps((prev) => prev.map((a) => a.id === app.id ? { ...a, status: "approved" } : a));
                           setAppProcessing(null);
                         }}
@@ -1148,7 +1273,7 @@ export default function AdminPage() {
                         disabled={appProcessing === app.id}
                         onClick={async () => {
                           setAppProcessing(app.id);
-                          await supabase.from("partner_applications").update({ status: "declined" }).eq("id", app.id);
+                          await supabase.from("partner_apps").update({ status: "declined" }).eq("id", app.id);
                           setPartnerApps((prev) => prev.map((a) => a.id === app.id ? { ...a, status: "declined" } : a));
                           setAppProcessing(null);
                         }}

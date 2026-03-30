@@ -109,19 +109,19 @@ export async function POST(req: NextRequest) {
 
   try {
     // Save to database
-    await supabase.from('partner_applications').insert({
+    const { error: insertErr } = await supabase.from('partner_apps').insert({
       first_name: firstName,
       last_name: lastName,
       email,
       platforms,
-      platform_links: platformLinks ?? {},
       platform_sizes: platformSizes ?? {},
       about_journey: story,
-      what_share: whatToShare ?? '',
       used_rooted: usedRooted ?? '',
-      post_frequency: postFrequency ?? '',
-      paypal_email: paypalEmail ?? '',
     })
+    if (insertErr) {
+      console.error('[partners/apply] insert failed:', insertErr)
+      return NextResponse.json({ error: 'Failed to save application' }, { status: 500 })
+    }
 
     const { Resend } = await import('resend')
     const resend = new Resend(process.env.RESEND_API_KEY)

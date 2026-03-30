@@ -656,23 +656,8 @@ export default function MemoriesPage() {
       <div className="flex justify-end gap-4 -mt-2 mb--1">
         <button
           type="button"
-          onClick={async () => {
-            try {
-              const { data: { session } } = await supabase.auth.getSession();
-              if (!session) return;
-              const res = await fetch("/api/family/viewers", {
-                headers: { Authorization: `Bearer ${session.access_token}` },
-              });
-              const json = await res.json();
-              const active = (json.viewers ?? []).find((v: { is_active: boolean }) => v.is_active);
-              if (active?.token) {
-                window.open(`/family/${active.token}`, "_blank");
-              } else {
-                alert("Invite a family member first in Settings.");
-              }
-            } catch {
-              alert("Invite a family member first in Settings.");
-            }
+          onClick={() => {
+            window.open('/family/preview', '_blank');
           }}
           className="text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors cursor-pointer"
         >
