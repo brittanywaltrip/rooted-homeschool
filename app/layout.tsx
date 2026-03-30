@@ -57,6 +57,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Rooted" />
+        <meta name="p:domain_verify" content="97ddc4e6613073bc3922371f423ad372" />
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-QQPWDW5VZ6"
           strategy="afterInteractive"
