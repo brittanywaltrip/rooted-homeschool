@@ -1176,11 +1176,6 @@ export default function MemoriesPage() {
 
               {/* Visibility badges */}
               <div className="flex flex-wrap gap-1.5">
-                {selectedMemory.include_in_book && (
-                  <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#5c7f63]">
-                    ☑ In yearbook
-                  </span>
-                )}
                 <button
                   onClick={() => toggleFamilyVisible(selectedMemory)}
                   className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full transition-colors ${
@@ -1202,17 +1197,16 @@ export default function MemoriesPage() {
                   >
                     <Pencil size={14} /> Edit
                   </button>
-                  <div className="flex items-center gap-1">
-                    <YearbookBookmark
-                      memoryId={selectedMemory.id}
-                      initialValue={selectedMemory.include_in_book}
-                      size="md"
-                      onChange={(val) => {
-                        setMemories((prev) => prev.map((mem) => mem.id === selectedMemory.id ? { ...mem, include_in_book: val } : mem));
-                        setSelectedMemory({ ...selectedMemory, include_in_book: val });
-                      }}
-                    />
-                  </div>
+                  <YearbookBookmark
+                    memoryId={selectedMemory.id}
+                    initialValue={selectedMemory.include_in_book}
+                    size="md"
+                    showLabel
+                    onChange={(val) => {
+                      setMemories((prev) => prev.map((mem) => mem.id === selectedMemory.id ? { ...mem, include_in_book: val } : mem));
+                      setSelectedMemory({ ...selectedMemory, include_in_book: val });
+                    }}
+                  />
                   {!lightboxDeleteConfirm ? (
                     <button
                       onClick={() => setLightboxDeleteConfirm(true)}
