@@ -22,6 +22,7 @@ type Lesson = {
   completed: boolean;
   child_id: string;
   hours: number | null;
+  minutes_spent: number | null;
   subjects: { name: string; color: string | null } | null;
   curriculum_goal_id?: string | null;
   lesson_number?: number | null;
@@ -258,14 +259,16 @@ function TodayLessonCard({
             {lesson.subjects.name}
           </span>
         )}
-        <p className={`text-sm font-medium leading-snug ${
-          lesson.completed ? "line-through text-[#9a948e]" : "text-[#2d2926]"
-        }`}>
-          {lesson.title || (lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "Untitled")}
-        </p>
-        {lesson.hours != null && lesson.hours > 0 && (
-          <p className="text-xs text-[#b5aca4] mt-0.5">{lesson.hours}h</p>
-        )}
+        <div className="flex items-baseline gap-1.5">
+          <p className={`text-sm font-medium leading-snug ${
+            lesson.completed ? "line-through text-[#9a948e]" : "text-[#2d2926]"
+          }`}>
+            {lesson.title || (lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "Untitled")}
+          </p>
+          {lesson.completed && (lesson.minutes_spent != null || lesson.hours != null) && (
+            <span className="text-[11px] text-[#b5aca4]">· {lesson.minutes_spent != null ? `${lesson.minutes_spent} min` : lesson.hours != null && lesson.hours > 0 ? `${Math.round(lesson.hours * 60)} min` : ""}</span>
+          )}
+        </div>
       </div>
 
       {/* Child bubble */}
@@ -638,7 +641,7 @@ export default function TodayPage() {
     const [{ data: lessonsData }, { data: allLessonsData }] = await Promise.all([
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, hours, subjects(name, color), curriculum_goal_id, lesson_number, goal_id")
+        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id")
         .eq("user_id", effectiveUserId)
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
       supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
@@ -1056,7 +1059,7 @@ export default function TodayPage() {
     setEditingLesson(lesson);
     setEditTitle(lesson.title);
     setEditSubject(lesson.subjects?.name ?? "");
-    setEditHours(lesson.hours != null ? String(lesson.hours) : "");
+    setEditHours(lesson.minutes_spent != null ? String(lesson.minutes_spent) : "");
     setEditChildId(lesson.child_id ?? "");
   }
 
@@ -1080,20 +1083,20 @@ export default function TodayPage() {
     }
 
     await supabase.from("lessons").update({
-      title:      editTitle.trim(),
-      subject_id: subjectId,
-      hours:      editHours ? parseFloat(editHours) : null,
-      child_id:   editChildId || null,
+      title:         editTitle.trim(),
+      subject_id:    subjectId,
+      minutes_spent: editHours ? parseInt(editHours) : null,
+      child_id:      editChildId || null,
     }).eq("id", editingLesson.id);
 
     setLessons((prev) => prev.map((l) => {
       if (l.id !== editingLesson.id) return l;
       return {
         ...l,
-        title:    editTitle.trim(),
-        subjects: editSubject.trim() ? { name: editSubject.trim(), color: l.subjects?.color ?? null } : null,
-        hours:    editHours ? parseFloat(editHours) : null,
-        child_id: editChildId || l.child_id,
+        title:         editTitle.trim(),
+        subjects:      editSubject.trim() ? { name: editSubject.trim(), color: l.subjects?.color ?? null } : null,
+        minutes_spent: editHours ? parseInt(editHours) : null,
+        child_id:      editChildId || l.child_id,
       };
     }));
     setSavingEdit(false);
@@ -1482,6 +1485,17 @@ export default function TodayPage() {
             })()}
           </div>
         );
+      })()}
+
+      {/* ── Today time summary ──────────────────────────────────── */}
+      {hasAnyLessons && lessons.length > 0 && lessons.some(l => l.completed) && (() => {
+        const totalMins = lessons.filter(l => l.completed).reduce((sum, l) => {
+          if (l.minutes_spent != null) return sum + l.minutes_spent;
+          if (l.hours != null && l.hours > 0) return sum + Math.round(l.hours * 60);
+          return sum + 30;
+        }, 0);
+        const display = totalMins >= 60 ? `${Math.floor(totalMins / 60)}h ${totalMins % 60 > 0 ? `${totalMins % 60}m` : ""}` : `${totalMins} min`;
+        return <p className="text-xs text-[#b5aca4] px-1 -mt-2">Today: {display} logged</p>;
       })()}
 
       {/* ── Empty state: no lessons today ──────────────────────── */}
@@ -2136,8 +2150,8 @@ export default function TodayPage() {
                 className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
             <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Hours spent (optional)</label>
-              <input value={editHours} onChange={(e) => setEditHours(e.target.value)} type="number" min="0" max="24" step="0.5" placeholder="e.g. 1.5"
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Minutes spent (optional)</label>
+              <input value={editHours} onChange={(e) => setEditHours(e.target.value)} type="number" min="1" max="999" placeholder="e.g. 30"
                 className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
             <div className="flex gap-2">
