@@ -76,10 +76,11 @@ export async function GET(req: Request) {
   }
 
   for (const charge of charges) {
-    if (!charge.invoice || charge.status !== "succeeded") continue;
+    const chargeAny = charge as any;
+    if (!chargeAny.invoice || charge.status !== "succeeded") continue;
 
     try {
-      const invoice = await stripe.invoices.retrieve(charge.invoice as string);
+      const invoice = await stripe.invoices.retrieve(chargeAny.invoice as string);
       const couponId = invoice.discount?.coupon?.id ?? null;
       if (!couponId || !couponToAffiliate.has(couponId)) continue;
 
