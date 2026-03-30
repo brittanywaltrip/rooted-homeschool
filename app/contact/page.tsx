@@ -7,7 +7,7 @@ export default function ContactPage() {
         </div>
         <div className="flex items-center gap-3 mb-8">
           <div className="w-8 h-8 rounded-xl bg-[#5c7f63] flex items-center justify-center text-base">🌿</div>
-          <span className="font-bold text-[#2d2926]">Rooted Homeschool</span>
+          <span className="font-bold text-[#2d2926]">Rooted</span>
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">Get in Touch</h1>
         <p className="text-[#7a6f65] mb-10">We&apos;re a small family-run team and we read every message personally.</p>

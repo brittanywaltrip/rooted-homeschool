@@ -13,7 +13,7 @@ const supabase = createClient(
 const FROM = 'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
 
 const SIGNATURE = `— Brittany Waltrip
-Founder, Rooted Homeschool App
+Founder, Rooted
 hello@rootedhomeschoolapp.com
 rootedhomeschoolapp.com${emailFooterText()}`
 

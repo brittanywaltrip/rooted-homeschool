@@ -73,7 +73,7 @@ function foundingWelcomeHtml(firstName: string): string {
             <td align="center" style="padding:0 0 32px 0;">
               <div style="background-color:#3d5c42;border-radius:16px;padding:24px 32px;text-align:center;">
                 <div style="font-size:36px;margin-bottom:8px;">🌱</div>
-                <div style="color:#ffffff;font-size:24px;font-weight:bold;letter-spacing:-0.5px;">Rooted Homeschool</div>
+                <div style="color:#ffffff;font-size:24px;font-weight:bold;letter-spacing:-0.5px;">Rooted</div>
                 <div style="color:#a8c5ad;font-size:14px;margin-top:4px;">Founding Family Member</div>
               </div>
             </td>
@@ -192,7 +192,7 @@ function foundingWelcomeHtml(firstName: string): string {
           <!-- Footer -->
           <tr>
             <td align="center" style="padding:24px 0 0 0;">
-              <p style="margin:0;font-size:13px;color:#7a6f65;">Rooted Homeschool · rootedhomeschoolapp.com</p>
+              <p style="margin:0;font-size:13px;color:#7a6f65;">Rooted · rootedhomeschoolapp.com</p>
               <p style="margin:4px 0 0 0;font-size:13px;color:#7a6f65;">Questions? Reply to this email or reach us at hello@rootedhomeschoolapp.com</p>
             </td>
           </tr>
@@ -226,7 +226,7 @@ function standardWelcomeHtml(firstName: string): string {
             <td align="center" style="padding:0 0 32px 0;">
               <div style="background-color:#3d5c42;border-radius:16px;padding:24px 32px;text-align:center;">
                 <div style="font-size:36px;margin-bottom:8px;">🌱</div>
-                <div style="color:#ffffff;font-size:24px;font-weight:bold;letter-spacing:-0.5px;">Rooted Homeschool</div>
+                <div style="color:#ffffff;font-size:24px;font-weight:bold;letter-spacing:-0.5px;">Rooted</div>
                 <div style="color:#a8c5ad;font-size:14px;margin-top:4px;">You're in!</div>
               </div>
             </td>
@@ -318,7 +318,7 @@ function standardWelcomeHtml(firstName: string): string {
           <!-- Footer -->
           <tr>
             <td align="center" style="padding:24px 0 0 0;">
-              <p style="margin:0;font-size:13px;color:#7a6f65;">Rooted Homeschool · rootedhomeschoolapp.com</p>
+              <p style="margin:0;font-size:13px;color:#7a6f65;">Rooted · rootedhomeschoolapp.com</p>
               <p style="margin:4px 0 0 0;font-size:13px;color:#7a6f65;">Questions? Reply to this email or reach us at hello@rootedhomeschoolapp.com</p>
             </td>
           </tr>
@@ -588,7 +588,7 @@ export async function POST(req: NextRequest) {
           ).catch((err) => console.error('[webhook] welcome email FAILED for:', customerEmail, err))
         } else {
           await sendEmail(customerEmail, subjectLine,
-            `Hi ${firstName},\n\nThank you for subscribing to Rooted Standard ($59/yr) — welcome to the family! 🌱\n\nGo to your dashboard: rootedhomeschoolapp.com/dashboard\n\nHit reply anytime — I personally read every email.\n\nWelcome home. 🌿\n\n— Brittany Waltrip\nFounder, Rooted Homeschool App\nhello@rootedhomeschoolapp.com`,
+            `Hi ${firstName},\n\nThank you for subscribing to Rooted Standard ($59/yr) — welcome to the family! 🌱\n\nGo to your dashboard: rootedhomeschoolapp.com/dashboard\n\nHit reply anytime — I personally read every email.\n\nWelcome home. 🌿\n\n— Brittany Waltrip\nFounder, Rooted\nhello@rootedhomeschoolapp.com`,
             'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
             standardWelcomeHtml(firstName)
           ).catch((err) => console.error('[webhook] welcome email FAILED for:', customerEmail, err))

@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
             marginBottom: 32,
             display: 'flex',
           }}>
-            Rooted Homeschool · Family Update
+            Rooted · Family Update
           </div>
 
           {/* Family name — large + bold */}

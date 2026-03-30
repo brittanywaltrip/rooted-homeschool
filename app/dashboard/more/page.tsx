@@ -234,7 +234,7 @@ export default function MorePage() {
       </div>
 
       <p className="text-center text-xs text-[#c8bfb5] pb-4">
-        Rooted Homeschool · Built with love for learning families
+        Rooted · Built with love for learning families
       </p>
     </div>
     </>

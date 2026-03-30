@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
             currency: "usd",
             product_data: {
               name: `Gift a year of Rooted to ${familyName}`,
-              description: "12 months of Rooted Homeschool — unlimited memories, yearbook, and more.",
+              description: "12 months of Rooted — unlimited memories, yearbook, and more.",
             },
             unit_amount: 5900, // $59
           },

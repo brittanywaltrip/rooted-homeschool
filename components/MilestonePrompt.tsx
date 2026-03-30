@@ -30,7 +30,7 @@ export default function MilestonePrompt({
     if (navigator.share) {
       try {
         await navigator.share({
-          title: "Rooted Homeschool",
+          title: "Rooted",
           text: "Check out Rooted — a beautiful way to plan your homeschool and capture memories.",
           url: shareUrl,
         });

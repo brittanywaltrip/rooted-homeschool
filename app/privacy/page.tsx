@@ -7,7 +7,7 @@ export default function PrivacyPage() {
         </div>
         <div className="flex items-center gap-3 mb-8">
           <div className="w-8 h-8 rounded-xl bg-[#5c7f63] flex items-center justify-center text-base">🌿</div>
-          <span className="font-bold text-[#2d2926]">Rooted Homeschool</span>
+          <span className="font-bold text-[#2d2926]">Rooted</span>
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">Privacy Policy</h1>
         <p className="text-sm text-[#b5aca4] mb-10">Last updated: March 2026</p>
@@ -20,12 +20,12 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">2. How We Use Your Information</h2>
-            <p className="leading-relaxed">We use the information we collect to provide, maintain, and improve Rooted Homeschool. This includes generating your family&apos;s progress reports, displaying your garden growth, and personalizing your experience based on your state. We do not sell your personal information to third parties. We do not use your data for advertising purposes.</p>
+            <p className="leading-relaxed">We use the information we collect to provide, maintain, and improve Rooted. This includes generating your family&apos;s progress reports, displaying your garden growth, and personalizing your experience based on your state. We do not sell your personal information to third parties. We do not use your data for advertising purposes.</p>
           </section>
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">3. Children&apos;s Privacy (COPPA)</h2>
-            <p className="leading-relaxed">Rooted Homeschool is designed for use by parents and guardians to track their children&apos;s education. We are committed to complying with the Children&apos;s Online Privacy Protection Act (COPPA).</p>
+            <p className="leading-relaxed">Rooted is designed for use by parents and guardians to track their children&apos;s education. We are committed to complying with the Children&apos;s Online Privacy Protection Act (COPPA).</p>
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
               <li>We collect only children&apos;s first names, entered by a parent or guardian. We do not collect last names, birthdates, photos of children, or any other identifying information about minors.</li>
               <li>We do not knowingly collect personal information directly from children under 13. All data about children is entered and controlled exclusively by the parent or guardian account holder.</li>

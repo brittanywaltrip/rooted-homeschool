@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { X, MoreHorizontal, Trash2, Pencil, Heart, Search, Mic, BookmarkCheck } from "lucide-react";
+import YearbookBookmark from "@/app/components/YearbookBookmark";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -131,6 +132,10 @@ export default function MemoriesPage() {
   // Lightbox inline delete confirm
   const [lightboxDeleteConfirm, setLightboxDeleteConfirm] = useState(false);
 
+  // Lightbox reactions + comments
+  const [lbReactions, setLbReactions] = useState<{ emoji: string; viewer_name: string }[]>([]);
+  const [lbComments, setLbComments] = useState<{ id: string; viewer_name: string; body: string; created_at: string }[]>([]);
+
   // Menu
   const [menuId, setMenuId] = useState<string | null>(null);
 
@@ -170,6 +175,30 @@ export default function MemoriesPage() {
       return () => clearTimeout(timer);
     }
   }, [searchParams]);
+
+  // Fetch reactions + comments when lightbox opens
+  useEffect(() => {
+    if (!selectedMemory) {
+      setLbReactions([]);
+      setLbComments([]);
+      return;
+    }
+    (async () => {
+      const [{ data: rxns }, { data: cmts }] = await Promise.all([
+        supabase
+          .from("memory_reactions")
+          .select("emoji, viewer_name")
+          .eq("memory_id", selectedMemory.id),
+        supabase
+          .from("memory_comments")
+          .select("id, viewer_name, body, created_at")
+          .eq("memory_id", selectedMemory.id)
+          .order("created_at", { ascending: true }),
+      ]);
+      setLbReactions((rxns ?? []) as { emoji: string; viewer_name: string }[]);
+      setLbComments((cmts ?? []) as { id: string; viewer_name: string; body: string; created_at: string }[]);
+    })();
+  }, [selectedMemory?.id]);
 
   // Family reactions + notifications
   const [reactionCounts, setReactionCounts] = useState<Record<string, { emoji: string; count: number }>>({}); // memory_id -> { top emoji, total count }
@@ -615,11 +644,8 @@ export default function MemoriesPage() {
           }}
           className="text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors cursor-pointer"
         >
-          Preview as family 👀
+          👁 Preview family view
         </button>
-        <Link href="/dashboard/memories/yearbook" className="text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
-          📖 Yearbook
-        </Link>
         <button
           type="button"
           onClick={() => alert("More memory types coming soon")}
@@ -629,6 +655,20 @@ export default function MemoriesPage() {
         </button>
       </div>
 
+      {/* ── Yearbook card ──────────────────────────────────────── */}
+      <Link
+        href="/dashboard/memories/yearbook"
+        className="bg-[#faf6f0] border border-[#c0dd97] rounded-2xl p-3 flex items-center gap-3 hover:border-[#5c7f63] transition-colors"
+      >
+        <span className="text-[20px]">📖</span>
+        <div>
+          <p className="text-[13px] font-semibold text-[#3d5c42]">Your family yearbook →</p>
+          <p className="text-[11px] text-[#9a8f85]">
+            {memories.filter((m) => m.include_in_book).length} memories bookmarked this year
+          </p>
+        </div>
+      </Link>
+
       {/* ── Filter pills ─────────────────────────────────────── */}
       {/* ROW 1: Primary filters */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -636,7 +676,6 @@ export default function MemoriesPage() {
           ["all", "All"],
           ["type:photo", "📸 Photos"],
           ["favorites", "♡ Favorites"],
-          ["yearbook", "📖 Yearbook"],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -739,14 +778,39 @@ export default function MemoriesPage() {
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
             <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>🔔</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              {/* Most recent notification */}
-              <p style={{ fontSize: 12, fontWeight: 600, color: "#7a5000", margin: 0 }}>
+              {/* Most recent notification — clickable */}
+              <button
+                onClick={async () => {
+                  const notif = familyNotifs[0];
+                  // Mark as read via PATCH
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (session) {
+                      await fetch("/api/family/notifications", {
+                        method: "PATCH",
+                        headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({ ids: [notif.id] }),
+                      });
+                    }
+                  } catch { /* ignore */ }
+                  // Remove this notification from state
+                  setFamilyNotifs((prev) => prev.filter((n) => n.id !== notif.id));
+                  // Open lightbox if memory_id exists
+                  if (notif.memory_id) {
+                    const match = memories.find((m) => m.id === notif.memory_id);
+                    if (match) { setSelectedMemory(match); return; }
+                  }
+                  // Fall back: no-op (banner disappears, user stays on page)
+                }}
+                style={{ fontSize: 12, fontWeight: 600, color: "#7a5000", margin: 0, background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", width: "100%" }}
+                className="hover:opacity-80 transition-opacity"
+              >
                 {familyNotifs[0].actor_name}{" "}
                 {familyNotifs[0].type === "reaction"
                   ? `reacted ${familyNotifs[0].emoji ?? "❤️"}`
                   : "commented"}{" "}
                 {familyNotifs[0].preview ? `"${familyNotifs[0].preview.slice(0, 40)}${familyNotifs[0].preview.length > 40 ? "…" : ""}"` : "on a memory"}
-              </p>
+              </button>
 
               {/* Show all / collapse */}
               {familyNotifs.length > 1 && !showAllNotifs && (
@@ -758,9 +822,30 @@ export default function MemoriesPage() {
                 </button>
               )}
               {showAllNotifs && familyNotifs.slice(1).map((n) => (
-                <p key={n.id} style={{ fontSize: 11, color: "#7a5000", margin: "4px 0 0" }}>
+                <button
+                  key={n.id}
+                  onClick={async () => {
+                    try {
+                      const { data: { session } } = await supabase.auth.getSession();
+                      if (session) {
+                        await fetch("/api/family/notifications", {
+                          method: "PATCH",
+                          headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+                          body: JSON.stringify({ ids: [n.id] }),
+                        });
+                      }
+                    } catch { /* ignore */ }
+                    setFamilyNotifs((prev) => prev.filter((fn) => fn.id !== n.id));
+                    if (n.memory_id) {
+                      const match = memories.find((m) => m.id === n.memory_id);
+                      if (match) { setSelectedMemory(match); return; }
+                    }
+                  }}
+                  style={{ fontSize: 11, color: "#7a5000", margin: "4px 0 0", background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", width: "100%", display: "block" }}
+                  className="hover:opacity-80 transition-opacity"
+                >
                   {n.actor_name} {n.type === "reaction" ? `reacted ${n.emoji ?? "❤️"}` : `commented: "${(n.preview ?? "").slice(0, 40)}"`}
-                </p>
+                </button>
               ))}
             </div>
             <button
@@ -935,6 +1020,20 @@ export default function MemoriesPage() {
                     {new Date(m.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                   </span>
 
+                  {/* Yearbook bookmark */}
+                  {!isPartner && (
+                    <div className="absolute top-0.5 right-0.5 z-10">
+                      <YearbookBookmark
+                        memoryId={m.id}
+                        initialValue={m.include_in_book}
+                        size="sm"
+                        onChange={(val) => {
+                          setMemories((prev) => prev.map((mem) => mem.id === m.id ? { ...mem, include_in_book: val } : mem));
+                        }}
+                      />
+                    </div>
+                  )}
+
                   {/* Reaction count pill */}
                   {reactionCounts[m.id] && reactionCounts[m.id].count > 0 && (
                     <span style={{
@@ -1039,22 +1138,41 @@ export default function MemoriesPage() {
                 <p className="text-sm text-[#7a6f65] leading-relaxed">{selectedMemory.caption}</p>
               )}
 
-              {/* Heart + share teaser */}
-              <div className="flex items-center gap-3 pt-1">
-                <button
-                  onClick={() => toggleHeart(selectedMemory.id)}
-                  className="flex items-center gap-1.5 text-sm transition-colors"
-                >
-                  <Heart
-                    size={18}
-                    className={hearted.has(selectedMemory.id) ? "text-red-400 fill-red-400" : "text-[#c8bfb5]"}
-                  />
-                  <span className={`text-xs font-medium ${hearted.has(selectedMemory.id) ? "text-red-400" : "text-[#b5aca4]"}`}>
-                    {hearted.has(selectedMemory.id) ? "1" : "Be the first"}
-                  </span>
-                </button>
-                <span className="text-[10px] text-[#b5aca4]">Share with family — coming soon</span>
-              </div>
+              {/* Family reactions */}
+              {lbReactions.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {lbReactions.map((r, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 text-xs bg-[#f0ede8] rounded-full px-2.5 py-1 text-[#5a5048]">
+                      {r.emoji} {r.viewer_name}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Family comments */}
+              {lbComments.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  {lbComments.map((c) => (
+                    <div key={c.id} className="bg-[#f5f2ed] rounded-xl px-3 py-2">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-semibold text-[#2d2926]">{c.viewer_name}</span>
+                        <span className="text-[10px] text-[#b5aca4]">
+                          {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      </div>
+                      <p className="text-sm text-[#5a5048] mt-0.5">{c.body}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Heart */}
+              {lbReactions.length === 0 && lbComments.length === 0 && (
+                <div className="flex items-center gap-1.5 pt-1">
+                  <Heart size={16} className="text-[#c8bfb5]" />
+                  <span className="text-xs text-[#b5aca4]">No reactions yet</span>
+                </div>
+              )}
 
               {/* Visibility badges */}
               <div className="flex flex-wrap gap-1.5">
@@ -1075,25 +1193,26 @@ export default function MemoriesPage() {
                 </button>
               </div>
 
-              {/* ── Action buttons: Edit, Yearbook, Delete ── */}
+              {/* ── Action buttons: Edit, Yearbook Bookmark, Delete ── */}
               {!isPartner && (
-                <div className="flex gap-2 pt-1">
+                <div className="flex gap-2 pt-1 items-center">
                   <button
                     onClick={() => openEdit(selectedMemory)}
                     className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors flex items-center justify-center gap-1.5"
                   >
                     <Pencil size={14} /> Edit
                   </button>
-                  <button
-                    onClick={() => toggleYearbook(selectedMemory)}
-                    className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
-                      selectedMemory.include_in_book
-                        ? "border-[#5c7f63] bg-[#e8f0e9] text-[#5c7f63]"
-                        : "border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8]"
-                    }`}
-                  >
-                    <BookmarkCheck size={14} /> Yearbook
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <YearbookBookmark
+                      memoryId={selectedMemory.id}
+                      initialValue={selectedMemory.include_in_book}
+                      size="md"
+                      onChange={(val) => {
+                        setMemories((prev) => prev.map((mem) => mem.id === selectedMemory.id ? { ...mem, include_in_book: val } : mem));
+                        setSelectedMemory({ ...selectedMemory, include_in_book: val });
+                      }}
+                    />
+                  </div>
                   {!lightboxDeleteConfirm ? (
                     <button
                       onClick={() => setLightboxDeleteConfirm(true)}
@@ -1212,17 +1331,27 @@ export default function MemoriesPage() {
                 </div>
               </div>
 
-              {/* Include in yearbook toggle */}
-              <button
-                onClick={() => setEditInBook(!editInBook)}
-                className="flex items-center gap-2.5 w-full"
-                type="button"
-              >
-                <div className={`w-9 h-5 rounded-full transition-colors relative ${editInBook ? "bg-[#5c7f63]" : "bg-[#e8e2d9]"}`}>
-                  <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${editInBook ? "translate-x-[18px]" : "translate-x-[2px]"}`} />
-                </div>
-                <span className="text-sm text-[#2d2926]">Include in yearbook</span>
-              </button>
+              {/* Yearbook bookmark row */}
+              {!isPartner && (
+                <button
+                  onClick={() => setEditInBook(!editInBook)}
+                  className="flex items-center gap-2.5 w-full"
+                  type="button"
+                >
+                  <YearbookBookmark
+                    memoryId={editing.id}
+                    initialValue={editInBook}
+                    size="md"
+                    onChange={(val) => {
+                      setEditInBook(val);
+                      setMemories((prev) => prev.map((mem) => mem.id === editing.id ? { ...mem, include_in_book: val } : mem));
+                    }}
+                  />
+                  <span className="text-sm text-[#2d2926]">
+                    {editInBook ? "In your yearbook" : "Add to yearbook"}
+                  </span>
+                </button>
+              )}
             </div>
 
             <div className="flex gap-2 pt-1">
