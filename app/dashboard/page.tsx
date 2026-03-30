@@ -1548,7 +1548,7 @@ export default function TodayPage() {
             {/* Background */}
             {lastPhoto?.photo_url ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={lastPhoto.photo_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+              <img src={lastPhoto.photo_url} alt="" className="absolute inset-0 w-full h-full object-cover object-top" />
             ) : (
               <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #4a8c28, #0a2206)" }} />
             )}
