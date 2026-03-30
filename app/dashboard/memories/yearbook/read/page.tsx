@@ -545,7 +545,15 @@ export default function YearbookReadPage() {
 
           {latestWin && (
             <div className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[#8cba8e] mb-2 shrink-0">
-              <p className="text-[7px] uppercase tracking-wider text-[#5c7f63] mb-0.5">Win</p>
+              <p className="text-[7px] uppercase tracking-wider text-[#5c7f63] mb-0.5 flex items-center gap-1">
+                <span>⭐</span>
+                <span>Win</span>
+                {latestWin.date && (
+                  <span className="text-[#9a8f85] font-normal normal-case tracking-normal ml-auto">
+                    {new Date(latestWin.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                  </span>
+                )}
+              </p>
               <p className="text-[9px] text-[#2d2926] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{latestWin.title}</p>
             </div>
           )}
