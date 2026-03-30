@@ -128,7 +128,7 @@ function ReportMockup() {
         <div className="grid grid-cols-4 gap-1.5">
           {[
             { label: "Lessons", value: "53" },
-            { label: "Hours",   value: "26h" },
+            { label: "Hours (auto-tracked)", value: "26h" },
             { label: "Books",   value: "8" },
             { label: "Subjects",value: "4" },
           ].map(({ label, value }) => (
