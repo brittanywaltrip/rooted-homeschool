@@ -65,7 +65,7 @@ function drawFooter(doc: jsPDF, familyName: string, dateGen: string) {
     doc.setFontSize(7);
     setColor(doc, C.light);
     doc.text(`Page ${i} of ${pageCount}`, PW - MX, PH - 0.3, { align: "right" });
-    doc.text(`Generated ${dateGen} · ${familyName} · rootedhomeschoolapp.com`, MX, PH - 0.3);
+    doc.text(`Generated ${dateGen} | ${familyName} | rootedhomeschoolapp.com`, MX, PH - 0.3);
   }
 }
 
@@ -109,11 +109,10 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
   fillRect(doc, 0, 0, PW, 2.2, C.green);
   doc.setFontSize(20);
   setColor(doc, C.white);
-  doc.text("🌿", PW / 2, 0.7, { align: "center" });
   doc.setFontSize(18);
-  doc.text(data.familyName || "Family Academy", PW / 2, 1.1, { align: "center" });
+  doc.text(data.familyName || "Family Academy", PW / 2, 0.9, { align: "center" });
   doc.setFontSize(10);
-  doc.text(`Annual Progress Report · ${data.schoolYear}`, PW / 2, 1.45, { align: "center" });
+  doc.text(`Annual Progress Report | ${data.schoolYear}`, PW / 2, 1.45, { align: "center" });
   doc.setFontSize(8);
   doc.text(`Generated ${data.dateGenerated}`, PW / 2, 1.75, { align: "center" });
 
@@ -236,7 +235,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
     drawList("Books Read", child.books);
     drawList("Field Trips & Projects", child.fieldTrips.map(t => `${t.title}${t.duration ? ` — ${t.duration} min` : ""}`));
     drawList("Wins & Milestones", child.wins);
-    drawList("Badges Earned", child.badges.map(b => `🏅 ${b}`));
+    drawList("Badges Earned", child.badges);
 
     y += 0.3;
   }
@@ -397,18 +396,16 @@ export function generateCertificate(doc: jsPDF, d: CertData) {
     const yAfter = 6.2 + lines.length * 0.22 + 0.6;
     doc.setFontSize(10);
     setColor(doc, C.muted);
-    doc.text(`✦  ${d.schoolYear}  ✦`, cx, yAfter, { align: "center" });
+    doc.text(`*  ${d.schoolYear}  *`, cx, yAfter, { align: "center" });
     doc.setFontSize(9);
     setColor(doc, C.light);
     doc.text(today, cx, yAfter + 0.25, { align: "center" });
   } else if (d.style === 2) {
     // Modern Clean — sans-serif, green header
     fillRect(doc, 0, 0, PW, 2.5, C.green);
-    doc.setFontSize(18);
-    setColor(doc, C.white);
-    doc.text("🌿", cx, 0.8, { align: "center" });
     doc.setFontSize(10);
-    doc.text((d.schoolName || "Family Academy").toUpperCase(), cx, 1.2, { align: "center" });
+    setColor(doc, C.white);
+    doc.text((d.schoolName || "Family Academy").toUpperCase(), cx, 1.0, { align: "center" });
     doc.setFontSize(24);
     doc.text(d.certTitle.toUpperCase(), cx, 1.8, { align: "center" });
 
@@ -437,7 +434,7 @@ export function generateCertificate(doc: jsPDF, d: CertData) {
     fillRect(doc, 0, 0, PW, 1.8, C.greenLt);
     doc.setFontSize(18);
     setColor(doc, C.white);
-    doc.text(`🌿  ${d.schoolName || "Family Academy"}`, cx, 0.8, { align: "center" });
+    doc.text(d.schoolName || "Family Academy", cx, 0.8, { align: "center" });
     doc.setFontSize(16);
     doc.text(d.certTitle, cx, 1.3, { align: "center" });
 
@@ -449,7 +446,7 @@ export function generateCertificate(doc: jsPDF, d: CertData) {
     setColor(doc, C.dark);
     doc.text(d.childName || "Student Name", cx, 4.1, { align: "center" });
     doc.setFontSize(16);
-    doc.text("🍃🍃🍃", cx, 4.6, { align: "center" });
+    doc.text("~ ~ ~", cx, 4.6, { align: "center" });
     doc.setFontSize(13);
     setColor(doc, C.dark);
     const lines3 = wrapText(doc, d.accomplishment, 5.5);
