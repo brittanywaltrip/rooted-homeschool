@@ -22,6 +22,19 @@ const C = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Strip non-ASCII characters that jsPDF's default font can't render */
+function safe(s: string): string {
+  return s
+    .replace(/[\u2018\u2019\u201A]/g, "'")   // curly single quotes
+    .replace(/[\u201C\u201D\u201E]/g, '"')   // curly double quotes
+    .replace(/[\u2013\u2014]/g, "-")          // en-dash, em-dash
+    .replace(/[\u00B7\u2022\u2023\u25E6]/g, "-") // middle dot, bullets
+    .replace(/[\u2026]/g, "...")              // ellipsis
+    .replace(/[\u00A0]/g, " ")               // non-breaking space
+    // eslint-disable-next-line no-control-regex
+    .replace(/[^\x00-\x7E]/g, "");           // strip anything else non-ASCII
+}
+
 export function fmtMins(m: number): string {
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
@@ -44,9 +57,14 @@ function drawLine(doc: jsPDF, x1: number, y1: number, x2: number, y2: number, c:
   doc.line(x1, y1, x2, y2);
 }
 
+/** Safe text output — sanitizes non-ASCII before rendering */
+function txt(doc: jsPDF, s: string, x: number, y: number, opts?: { align?: "center" | "right" | "left" }) {
+  txt(doc,safe(s), x, y, opts);
+}
+
 /** Wrap text to fit within maxW and return lines */
 function wrapText(doc: jsPDF, text: string, maxW: number): string[] {
-  return doc.splitTextToSize(text, maxW);
+  return doc.splitTextToSize(safe(text), maxW);
 }
 
 // Page dimensions (letter, inches)
@@ -64,8 +82,8 @@ function drawFooter(doc: jsPDF, familyName: string, dateGen: string) {
     doc.setPage(i);
     doc.setFontSize(7);
     setColor(doc, C.light);
-    doc.text(`Page ${i} of ${pageCount}`, PW - MX, PH - 0.3, { align: "right" });
-    doc.text(`Generated ${dateGen} | ${familyName} | rootedhomeschoolapp.com`, MX, PH - 0.3);
+    txt(doc,`Page ${i} of ${pageCount}`, PW - MX, PH - 0.3, { align: "right" });
+    txt(doc,`Generated ${dateGen} | ${familyName} | rootedhomeschoolapp.com`, MX, PH - 0.3);
   }
 }
 
@@ -102,6 +120,7 @@ export type ReportData = {
 };
 
 export function generateProgressReport(doc: jsPDF, data: ReportData) {
+  console.log("[PDF] Starting generation:", { children: data.children.length, dailyLogDays: data.dailyLog.length, lessons: data.summary.lessons });
   let y = 0;
 
   // ── Page 1: Cover ────────────────────────────────────────────────────────
@@ -110,17 +129,17 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
   doc.setFontSize(20);
   setColor(doc, C.white);
   doc.setFontSize(18);
-  doc.text(data.familyName || "Family Academy", PW / 2, 0.9, { align: "center" });
+  txt(doc,data.familyName || "Family Academy", PW / 2, 0.9, { align: "center" });
   doc.setFontSize(10);
-  doc.text(`Annual Progress Report | ${data.schoolYear}`, PW / 2, 1.45, { align: "center" });
+  txt(doc,`Annual Progress Report | ${data.schoolYear}`, PW / 2, 1.45, { align: "center" });
   doc.setFontSize(8);
-  doc.text(`Generated ${data.dateGenerated}`, PW / 2, 1.75, { align: "center" });
+  txt(doc,`Generated ${data.dateGenerated}`, PW / 2, 1.75, { align: "center" });
 
   // Family Summary
   y = 2.6;
   doc.setFontSize(13);
   setColor(doc, C.dark);
-  doc.text("Family Summary", MX, y);
+  txt(doc,"Family Summary", MX, y);
   y += 0.3;
 
   const stats = [
@@ -144,16 +163,16 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
     const cx = MX + i * cellW + cellW / 2;
     doc.setFontSize(7);
     setColor(doc, C.muted);
-    doc.text(s.l, cx, y + 0.17, { align: "center" });
+    txt(doc,s.l, cx, y + 0.17, { align: "center" });
     doc.setFontSize(14);
     setColor(doc, C.green);
-    doc.text(s.v, cx, y + 0.42, { align: "center" });
+    txt(doc,s.v, cx, y + 0.42, { align: "center" });
   });
 
   y += 0.7;
   doc.setFontSize(7);
   setColor(doc, C.light);
-  doc.text("* Hours marked with an asterisk are estimated from default lesson time settings.", MX, y);
+  txt(doc,"* Hours marked with an asterisk are estimated from default lesson time settings.", MX, y);
 
   // ── Per-child sections ───────────────────────────────────────────────────
   y += 0.5;
@@ -169,21 +188,21 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
     fillRect(doc, MX, y, CW_INNER, 0.35, C.greenLt);
     doc.setFontSize(12);
     setColor(doc, C.white);
-    doc.text(child.name, MX + 0.2, y + 0.24);
+    txt(doc,child.name, MX + 0.2, y + 0.24);
     y += 0.5;
 
     // Stats row
     doc.setFontSize(8);
     setColor(doc, C.muted);
-    doc.text("Hours", MX, y);
-    doc.text("Lessons", MX + 1.8, y);
-    doc.text("School Days", MX + 3.6, y);
+    txt(doc,"Hours", MX, y);
+    txt(doc,"Lessons", MX + 1.8, y);
+    txt(doc,"School Days", MX + 3.6, y);
     y += 0.15;
     doc.setFontSize(14);
     setColor(doc, C.green);
-    doc.text(child.totalHours, MX, y + 0.05);
-    doc.text(String(child.totalLessons), MX + 1.8, y + 0.05);
-    doc.text(String(child.schoolDays), MX + 3.6, y + 0.05);
+    txt(doc,child.totalHours, MX, y + 0.05);
+    txt(doc,String(child.totalLessons), MX + 1.8, y + 0.05);
+    txt(doc,String(child.schoolDays), MX + 3.6, y + 0.05);
     y += 0.35;
 
     // Subject table
@@ -192,9 +211,9 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
       fillRect(doc, MX, y, CW_INNER, 0.25, C.headerBg);
       doc.setFontSize(7);
       setColor(doc, C.muted);
-      doc.text("SUBJECT", MX + 0.1, y + 0.17);
-      doc.text("LESSONS", MX + 4.5, y + 0.17, { align: "right" });
-      doc.text("HOURS", PW - MX - 0.1, y + 0.17, { align: "right" });
+      txt(doc,"SUBJECT", MX + 0.1, y + 0.17);
+      txt(doc,"LESSONS", MX + 4.5, y + 0.17, { align: "right" });
+      txt(doc,"HOURS", PW - MX - 0.1, y + 0.17, { align: "right" });
       y += 0.25;
 
       for (const sub of child.subjects) {
@@ -202,9 +221,9 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
         drawLine(doc, MX, y, PW - MX, y, C.border, 0.003);
         doc.setFontSize(9);
         setColor(doc, C.dark);
-        doc.text(sub.name, MX + 0.1, y + 0.17);
-        doc.text(String(sub.count), MX + 4.5, y + 0.17, { align: "right" });
-        doc.text(`${sub.hours}${sub.estimated ? "*" : ""}`, PW - MX - 0.1, y + 0.17, { align: "right" });
+        txt(doc,sub.name, MX + 0.1, y + 0.17);
+        txt(doc,String(sub.count), MX + 4.5, y + 0.17, { align: "right" });
+        txt(doc,`${sub.hours}${sub.estimated ? "*" : ""}`, PW - MX - 0.1, y + 0.17, { align: "right" });
         y += 0.22;
       }
       drawLine(doc, MX, y, PW - MX, y, C.border, 0.003);
@@ -217,7 +236,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
       if (y > PH - 1) { doc.addPage(); y = MY; }
       doc.setFontSize(7);
       setColor(doc, C.muted);
-      doc.text(`${title} (${items.length})`.toUpperCase(), MX, y + 0.1);
+      txt(doc,`${title} (${items.length})`.toUpperCase(), MX, y + 0.1);
       y += 0.2;
       for (const item of items) {
         if (y > PH - 0.5) { doc.addPage(); y = MY; }
@@ -225,7 +244,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
         setColor(doc, C.dark);
         const lines = wrapText(doc, `· ${item}`, CW_INNER - 0.2);
         for (const line of lines) {
-          doc.text(line, MX + 0.1, y + 0.1);
+          txt(doc,line, MX + 0.1, y + 0.1);
           y += 0.14;
         }
       }
@@ -233,7 +252,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
     };
 
     drawList("Books Read", child.books);
-    drawList("Field Trips & Projects", child.fieldTrips.map(t => `${t.title}${t.duration ? ` — ${t.duration} min` : ""}`));
+    drawList("Field Trips & Projects", child.fieldTrips.map(t => `${t.title}${t.duration ? ` - ${t.duration} min` : ""}`));
     drawList("Wins & Milestones", child.wins);
     drawList("Badges Earned", child.badges);
 
@@ -247,22 +266,22 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
 
     doc.setFontSize(13);
     setColor(doc, C.dark);
-    doc.text("Daily Activity Log", MX, y + 0.1);
+    txt(doc,"Daily Activity Log", MX, y + 0.1);
     y += 0.25;
     doc.setFontSize(8);
     setColor(doc, C.muted);
-    doc.text("For state record-keeping purposes", MX, y + 0.1);
+    txt(doc,"For state record-keeping purposes", MX, y + 0.1);
     y += 0.35;
 
     // Table header
     fillRect(doc, MX, y, CW_INNER, 0.22, C.headerBg);
     doc.setFontSize(6.5);
     setColor(doc, C.muted);
-    doc.text("DATE", MX + 0.1, y + 0.15);
-    doc.text("SUBJECT", MX + 1.5, y + 0.15);
-    doc.text("DESCRIPTION", MX + 3, y + 0.15);
-    doc.text("MIN", PW - MX - 0.6, y + 0.15, { align: "right" });
-    doc.text("TYPE", PW - MX - 0.1, y + 0.15, { align: "right" });
+    txt(doc,"DATE", MX + 0.1, y + 0.15);
+    txt(doc,"SUBJECT", MX + 1.5, y + 0.15);
+    txt(doc,"DESCRIPTION", MX + 3, y + 0.15);
+    txt(doc,"MIN", PW - MX - 0.6, y + 0.15, { align: "right" });
+    txt(doc,"TYPE", PW - MX - 0.1, y + 0.15, { align: "right" });
     y += 0.22;
 
     let totalLogMins = 0;
@@ -276,11 +295,11 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
         fillRect(doc, MX, y, CW_INNER, 0.22, C.headerBg);
         doc.setFontSize(6.5);
         setColor(doc, C.muted);
-        doc.text("DATE", MX + 0.1, y + 0.15);
-        doc.text("SUBJECT", MX + 1.5, y + 0.15);
-        doc.text("DESCRIPTION", MX + 3, y + 0.15);
-        doc.text("MIN", PW - MX - 0.6, y + 0.15, { align: "right" });
-        doc.text("TYPE", PW - MX - 0.1, y + 0.15, { align: "right" });
+        txt(doc,"DATE", MX + 0.1, y + 0.15);
+        txt(doc,"SUBJECT", MX + 1.5, y + 0.15);
+        txt(doc,"DESCRIPTION", MX + 3, y + 0.15);
+        txt(doc,"MIN", PW - MX - 0.6, y + 0.15, { align: "right" });
+        txt(doc,"TYPE", PW - MX - 0.1, y + 0.15, { align: "right" });
         y += 0.22;
       }
 
@@ -291,23 +310,23 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
           fillRect(doc, MX, y, CW_INNER, 0.22, C.headerBg);
           doc.setFontSize(6.5);
           setColor(doc, C.muted);
-          doc.text("DATE", MX + 0.1, y + 0.15);
-          doc.text("SUBJECT", MX + 1.5, y + 0.15);
-          doc.text("DESCRIPTION", MX + 3, y + 0.15);
-          doc.text("MIN", PW - MX - 0.6, y + 0.15, { align: "right" });
-          doc.text("TYPE", PW - MX - 0.1, y + 0.15, { align: "right" });
+          txt(doc,"DATE", MX + 0.1, y + 0.15);
+          txt(doc,"SUBJECT", MX + 1.5, y + 0.15);
+          txt(doc,"DESCRIPTION", MX + 3, y + 0.15);
+          txt(doc,"MIN", PW - MX - 0.6, y + 0.15, { align: "right" });
+          txt(doc,"TYPE", PW - MX - 0.1, y + 0.15, { align: "right" });
           y += 0.22;
         }
         drawLine(doc, MX, y, PW - MX, y, C.border, 0.002);
         doc.setFontSize(7);
         setColor(doc, C.muted);
-        doc.text(day.dateLabel, MX + 0.1, y + 0.13);
+        txt(doc,day.dateLabel, MX + 0.1, y + 0.13);
         setColor(doc, C.dark);
-        doc.text(e.subject.substring(0, 18), MX + 1.5, y + 0.13);
-        doc.text(e.description.substring(0, 35), MX + 3, y + 0.13);
-        doc.text(`${e.minutes}${e.estimated ? "*" : ""}`, PW - MX - 0.6, y + 0.13, { align: "right" });
+        txt(doc,e.subject.substring(0, 18), MX + 1.5, y + 0.13);
+        txt(doc,e.description.substring(0, 35), MX + 3, y + 0.13);
+        txt(doc,`${e.minutes}${e.estimated ? "*" : ""}`, PW - MX - 0.6, y + 0.13, { align: "right" });
         setColor(doc, C.muted);
-        doc.text(e.type, PW - MX - 0.1, y + 0.13, { align: "right" });
+        txt(doc,e.type, PW - MX - 0.1, y + 0.13, { align: "right" });
         y += 0.18;
         totalLogMins += e.minutes;
       }
@@ -316,7 +335,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
     y += 0.2;
     doc.setFontSize(8);
     setColor(doc, C.muted);
-    doc.text(`Total logged: ${fmtMins(totalLogMins)} across ${data.dailyLog.length} school days`, MX, y + 0.1);
+    txt(doc,`Total logged: ${fmtMins(totalLogMins)} across ${data.dailyLog.length} school days`, MX, y + 0.1);
   }
 
   // Watermark
@@ -325,11 +344,12 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
     doc.setPage(lastPage);
     doc.setFontSize(8);
     setColor(doc, C.light);
-    doc.text("Made with Rooted", PW / 2, PH - 0.6, { align: "center" });
+    txt(doc,"Made with Rooted", PW / 2, PH - 0.6, { align: "center" });
   }
 
   // Footer on all pages
   drawFooter(doc, data.familyName || "Family Academy", data.dateGenerated);
+  console.log("[PDF] Complete, pages:", doc.getNumberOfPages());
 }
 
 // ─── Certificate ─────────────────────────────────────────────────────────────
@@ -370,101 +390,101 @@ export function generateCertificate(doc: jsPDF, d: CertData) {
     // School name
     doc.setFontSize(10);
     setColor(doc, C.gold);
-    doc.text(d.schoolName || "Family Academy", cx, 3.2, { align: "center" });
+    txt(doc,d.schoolName || "Family Academy", cx, 3.2, { align: "center" });
     // Title
     doc.setFontSize(22);
     setColor(doc, C.green);
-    doc.text(d.certTitle.toUpperCase(), cx, 3.8, { align: "center" });
+    txt(doc,d.certTitle.toUpperCase(), cx, 3.8, { align: "center" });
     // "This certifies that"
     doc.setFontSize(12);
     setColor(doc, C.muted);
-    doc.text("This certifies that", cx, 4.4, { align: "center" });
+    txt(doc,"This certifies that", cx, 4.4, { align: "center" });
     // Gold line
     drawLine(doc, cx - 2, 4.6, cx + 2, 4.6, C.gold, 0.01);
     // Child name
     doc.setFontSize(32);
     setColor(doc, C.dark);
-    doc.text(d.childName || "Student Name", cx, 5.3, { align: "center" });
+    txt(doc,d.childName || "Student Name", cx, 5.3, { align: "center" });
     // Gold line
     drawLine(doc, cx - 2, 5.5, cx + 2, 5.5, C.gold, 0.01);
     // Accomplishment
     doc.setFontSize(13);
     setColor(doc, C.dark);
     const lines = wrapText(doc, d.accomplishment, 5.5);
-    lines.forEach((line, i) => doc.text(line, cx, 6.2 + i * 0.22, { align: "center" }));
+    lines.forEach((line, i) => txt(doc, line, cx, 6.2 + i * 0.22, { align: "center" }));
     // Year + date
     const yAfter = 6.2 + lines.length * 0.22 + 0.6;
     doc.setFontSize(10);
     setColor(doc, C.muted);
-    doc.text(`*  ${d.schoolYear}  *`, cx, yAfter, { align: "center" });
+    txt(doc,`*  ${d.schoolYear}  *`, cx, yAfter, { align: "center" });
     doc.setFontSize(9);
     setColor(doc, C.light);
-    doc.text(today, cx, yAfter + 0.25, { align: "center" });
+    txt(doc,today, cx, yAfter + 0.25, { align: "center" });
   } else if (d.style === 2) {
     // Modern Clean — sans-serif, green header
     fillRect(doc, 0, 0, PW, 2.5, C.green);
     doc.setFontSize(10);
     setColor(doc, C.white);
-    doc.text((d.schoolName || "Family Academy").toUpperCase(), cx, 1.0, { align: "center" });
+    txt(doc,(d.schoolName || "Family Academy").toUpperCase(), cx, 1.0, { align: "center" });
     doc.setFontSize(24);
-    doc.text(d.certTitle.toUpperCase(), cx, 1.8, { align: "center" });
+    txt(doc,d.certTitle.toUpperCase(), cx, 1.8, { align: "center" });
 
     // Content
     doc.setFontSize(11);
     setColor(doc, C.muted);
-    doc.text("PRESENTED TO", cx, 3.5, { align: "center" });
+    txt(doc,"PRESENTED TO", cx, 3.5, { align: "center" });
     doc.setFontSize(36);
     setColor(doc, C.dark);
-    doc.text(d.childName || "Student Name", cx, 4.4, { align: "center" });
+    txt(doc,d.childName || "Student Name", cx, 4.4, { align: "center" });
     // Green accent line
     fillRect(doc, cx - 0.5, 4.6, 1, 0.04, C.greenLt);
     // Accomplishment
     doc.setFontSize(14);
     setColor(doc, C.dark);
     const lines2 = wrapText(doc, d.accomplishment, 5.5);
-    lines2.forEach((line, i) => doc.text(line, cx, 5.3 + i * 0.25, { align: "center" }));
+    lines2.forEach((line, i) => txt(doc, line, cx, 5.3 + i * 0.25, { align: "center" }));
     const yA2 = 5.3 + lines2.length * 0.25 + 0.7;
     doc.setFontSize(10);
     setColor(doc, C.light);
-    doc.text(d.schoolYear, cx, yA2, { align: "center" });
+    txt(doc,d.schoolYear, cx, yA2, { align: "center" });
     doc.setFontSize(9);
-    doc.text(today, cx, yA2 + 0.2, { align: "center" });
+    txt(doc,today, cx, yA2 + 0.2, { align: "center" });
   } else {
     // Botanical Natural — serif, soft green header
     fillRect(doc, 0, 0, PW, 1.8, C.greenLt);
     doc.setFontSize(18);
     setColor(doc, C.white);
-    doc.text(d.schoolName || "Family Academy", cx, 0.8, { align: "center" });
+    txt(doc,d.schoolName || "Family Academy", cx, 0.8, { align: "center" });
     doc.setFontSize(16);
-    doc.text(d.certTitle, cx, 1.3, { align: "center" });
+    txt(doc,d.certTitle, cx, 1.3, { align: "center" });
 
     fillRect(doc, 0, 1.8, PW, PH - 1.8, C.bg);
     doc.setFontSize(11);
     setColor(doc, C.muted);
-    doc.text("This certificate is presented to", cx, 3.2, { align: "center" });
+    txt(doc,"This certificate is presented to", cx, 3.2, { align: "center" });
     doc.setFontSize(32);
     setColor(doc, C.dark);
-    doc.text(d.childName || "Student Name", cx, 4.1, { align: "center" });
+    txt(doc,d.childName || "Student Name", cx, 4.1, { align: "center" });
     doc.setFontSize(16);
-    doc.text("~ ~ ~", cx, 4.6, { align: "center" });
+    txt(doc,"~ ~ ~", cx, 4.6, { align: "center" });
     doc.setFontSize(13);
     setColor(doc, C.dark);
     const lines3 = wrapText(doc, d.accomplishment, 5.5);
-    lines3.forEach((line, i) => doc.text(line, cx, 5.3 + i * 0.24, { align: "center" }));
+    lines3.forEach((line, i) => txt(doc, line, cx, 5.3 + i * 0.24, { align: "center" }));
     const yA3 = 5.3 + lines3.length * 0.24 + 0.6;
     drawLine(doc, cx - 1.2, yA3, cx + 1.2, yA3, C.light, 0.01);
     doc.setFontSize(10);
     setColor(doc, C.muted);
-    doc.text(d.schoolYear, cx, yA3 + 0.3, { align: "center" });
+    txt(doc,d.schoolYear, cx, yA3 + 0.3, { align: "center" });
     doc.setFontSize(9);
     setColor(doc, C.light);
-    doc.text(today, cx, yA3 + 0.5, { align: "center" });
+    txt(doc,today, cx, yA3 + 0.5, { align: "center" });
   }
 
   if (d.showWatermark) {
     doc.setFontSize(8);
     setColor(doc, C.light);
-    doc.text("Made with Rooted", cx, PH - 0.5, { align: "center" });
+    txt(doc,"Made with Rooted", cx, PH - 0.5, { align: "center" });
   }
 }
 
@@ -496,37 +516,37 @@ export function drawIDCardFront(doc: jsPDF, d: IDCardData, x: number, y: number)
 
   doc.setFontSize(8);
   setColor(doc, C.white);
-  doc.text("HOMESCHOOL ID", x + w / 2, y + 0.22, { align: "center" });
+  txt(doc,"HOMESCHOOL ID", x + w / 2, y + 0.22, { align: "center" });
   doc.setFontSize(5.5);
-  doc.text(d.schoolYear, x + w / 2, y + 0.4, { align: "center" });
+  txt(doc,d.schoolYear, x + w / 2, y + 0.4, { align: "center" });
 
   // Fields
   const fieldY = y + headerH + 0.2;
   doc.setFontSize(6);
   setColor(doc, C.muted);
-  doc.text("NAME", x + 0.15, fieldY);
+  txt(doc,"NAME", x + 0.15, fieldY);
   doc.setFontSize(10);
   setColor(doc, C.dark);
-  doc.text(d.name || "Name", x + 0.15, fieldY + 0.18);
+  txt(doc,d.name || "Name", x + 0.15, fieldY + 0.18);
 
   doc.setFontSize(6);
   setColor(doc, C.muted);
-  doc.text("TITLE", x + 0.15, fieldY + 0.45);
+  txt(doc,"TITLE", x + 0.15, fieldY + 0.45);
   doc.setFontSize(8);
   setColor(doc, C.dark);
-  doc.text(d.title || "Parent / Teacher", x + 0.15, fieldY + 0.6);
+  txt(doc,d.title || "Parent / Teacher", x + 0.15, fieldY + 0.6);
 
   doc.setFontSize(6);
   setColor(doc, C.muted);
-  doc.text("SCHOOL", x + 0.15, fieldY + 0.85);
+  txt(doc,"SCHOOL", x + 0.15, fieldY + 0.85);
   doc.setFontSize(8);
   setColor(doc, C.dark);
-  doc.text(d.schoolName || "Family Academy", x + 0.15, fieldY + 1.0);
+  txt(doc,d.schoolName || "Family Academy", x + 0.15, fieldY + 1.0);
 
   if (d.showWatermark) {
     doc.setFontSize(5);
     setColor(doc, C.light);
-    doc.text("Made with Rooted", x + w - 0.15, y + h - 0.1, { align: "right" });
+    txt(doc,"Made with Rooted", x + w - 0.15, y + h - 0.1, { align: "right" });
   }
 }
 
