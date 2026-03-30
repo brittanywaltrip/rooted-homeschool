@@ -531,129 +531,47 @@ function buildSheetHtml(cardHtmlFn: () => string): string {
 // Renders the card back HTML into an off-screen div and captures it with
 // html2canvas. Needed because CardBackPreview uses an iframe (which html2canvas
 // cannot cross-capture), while the front card uses a regular React component.
-async function captureBackCard(
-  style: StyleId,
-  fields: CardFields,
-  back: BackFields,
-  qrDataUrl: string | null,
-  html2canvas: (el: HTMLElement, opts?: object) => Promise<HTMLCanvasElement>,
-): Promise<HTMLCanvasElement> {
-  const div = document.createElement("div");
-  div.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:336px;height:192px;overflow:hidden;";
-  div.innerHTML = cardBackBodyHtml(style, fields, back, qrDataUrl);
-  document.body.appendChild(div);
-  await new Promise(r => setTimeout(r, 100));
-  const canvas = await html2canvas(div, { scale: 3, useCORS: true, logging: false } as object);
-  document.body.removeChild(div);
-  return canvas;
-}
-
 async function downloadCard(
-  frontEl: HTMLElement,
+  _frontEl: HTMLElement,
   style: StyleId,
   fields: CardFields,
-  back: BackFields,
-  qrDataUrl: string | null,
+  _back: BackFields,
+  _qrDataUrl: string | null,
   label: string,
 ) {
-  const html2canvas = (await import("html2canvas")).default;
   const { jsPDF } = await import("jspdf");
+  const { drawIDCardFront } = await import("@/lib/pdf");
 
-  // 3.5" × 2" in points (1" = 72pt)
-  const W = 252, H = 144;
-
-  const frontCanvas = await html2canvas(frontEl, { scale: 3, useCORS: true, logging: false } as object);
+  const W = 252, H = 144; // 3.5" × 2" in points
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: [W, H] });
-  doc.addImage(frontCanvas.toDataURL("image/png"), "PNG", 0, 0, W, H);
-
-  if (back.include) {
-    const backCanvas = await captureBackCard(style, fields, back, qrDataUrl, html2canvas);
-    doc.addPage([W, H], "landscape");
-    doc.addImage(backCanvas.toDataURL("image/png"), "PNG", 0, 0, W, H);
-  }
-
-  doc.save(`${label.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`);
+  // Convert to inches for our drawing function
+  const docIn = new jsPDF({ orientation: "landscape", unit: "in", format: [3.5, 2] });
+  drawIDCardFront(docIn, {
+    schoolName: fields.schoolName, name: fields.name, title: fields.title,
+    schoolYear: fields.schoolYear, state: fields.state, showWatermark: fields.showWatermark,
+    style: style as 1 | 2 | 3,
+  }, 0, 0);
+  docIn.save(`${label.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`);
 }
 
 // ── Print sheet (8 cards per sheet, 2×4 grid, with crop marks) ─────────────
 async function downloadPrintSheet(
-  frontEl: HTMLElement,
+  _frontEl: HTMLElement,
   style: StyleId,
   fields: CardFields,
-  back: BackFields,
-  qrDataUrl: string | null,
+  _back: BackFields,
+  _qrDataUrl: string | null,
   label: string,
 ) {
-  const html2canvas = (await import("html2canvas")).default;
   const { jsPDF } = await import("jspdf");
-
-  // Card size in inches, page margins
-  const cardW = 3.5, cardH = 2;
-  const cols = 2, rows = 4;
-  const marginX = (8.5 - cols * cardW) / (cols + 1); // ~0.5"
-  const marginY = (11 - rows * cardH) / (rows + 1);  // ~0.6"
-
-  // Capture front card at high resolution
-  const frontCanvas = await html2canvas(frontEl, { scale: 3, useCORS: true, logging: false } as object);
+  const { drawIDCardPrintSheet } = await import("@/lib/pdf");
 
   const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
-
-  // ── PAGE 1: Front faces ──────────────────────────────────────────────────
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const x = marginX + col * (cardW + marginX);
-      const y = marginY + row * (cardH + marginY);
-      doc.addImage(frontCanvas.toDataURL("image/png"), "PNG", x, y, cardW, cardH);
-
-      // Crop marks (thin gray lines, 0.12" tick, 0.05" gap from card edge)
-      doc.setDrawColor(180, 180, 180);
-      doc.setLineWidth(0.005);
-      const gap = 0.05, tick = 0.12;
-      // top-left corner
-      doc.line(x - gap - tick, y, x - gap, y);
-      doc.line(x, y - gap - tick, x, y - gap);
-      // top-right corner
-      doc.line(x + cardW + gap, y, x + cardW + gap + tick, y);
-      doc.line(x + cardW, y - gap - tick, x + cardW, y - gap);
-      // bottom-left corner
-      doc.line(x - gap - tick, y + cardH, x - gap, y + cardH);
-      doc.line(x, y + cardH + gap, x, y + cardH + gap + tick);
-      // bottom-right corner
-      doc.line(x + cardW + gap, y + cardH, x + cardW + gap + tick, y + cardH);
-      doc.line(x + cardW, y + cardH + gap, x + cardW, y + cardH + gap + tick);
-    }
-  }
-
-  // ── PAGE 2: Back faces (if double-sided) ─────────────────────────────────
-  if (back.include) {
-    const backCanvas = await captureBackCard(style, fields, back, qrDataUrl, html2canvas);
-    doc.addPage("letter", "portrait");
-
-    // Mirror columns left↔right so backs align when flipped on short edge
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const mirroredCol = cols - 1 - col;
-        const x = marginX + mirroredCol * (cardW + marginX);
-        const y = marginY + row * (cardH + marginY);
-        doc.addImage(backCanvas.toDataURL("image/png"), "PNG", x, y, cardW, cardH);
-
-        // Crop marks
-        doc.setDrawColor(180, 180, 180);
-        doc.setLineWidth(0.005);
-        const gap = 0.05, tick = 0.12;
-        doc.line(x - gap - tick, y, x - gap, y);
-        doc.line(x, y - gap - tick, x, y - gap);
-        doc.line(x + cardW + gap, y, x + cardW + gap + tick, y);
-        doc.line(x + cardW, y - gap - tick, x + cardW, y - gap);
-        doc.line(x - gap - tick, y + cardH, x - gap, y + cardH);
-        doc.line(x, y + cardH + gap, x, y + cardH + gap + tick);
-        doc.line(x + cardW + gap, y + cardH, x + cardW + gap + tick, y + cardH);
-        doc.line(x + cardW, y + cardH + gap, x + cardW, y + cardH + gap + tick);
-      }
-    }
-  }
-
-  // Open in new tab for browser's native print dialog
+  drawIDCardPrintSheet(doc, {
+    schoolName: fields.schoolName, name: fields.name, title: fields.title,
+    schoolYear: fields.schoolYear, state: fields.state, showWatermark: fields.showWatermark,
+    style: style as 1 | 2 | 3,
+  });
   window.open(doc.output("bloburl"), "_blank");
 }
 
@@ -766,29 +684,17 @@ function CertPreview({ style, display }: { style: StyleId; display: CertDisplay 
 
 async function downloadCert(style: StyleId, display: CertDisplay, filename: string) {
   const { jsPDF } = await import("jspdf");
+  const { generateCertificate } = await import("@/lib/pdf");
   const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
-
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>*{margin:0;padding:0;box-sizing:border-box;}body{width:${CW}px;height:${CH}px;overflow:hidden;}</style>
-</head><body>${certBodyHtml(style, display)}</body></html>`;
-
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = `position:fixed;top:-9999px;left:-9999px;width:${CW}px;height:${CH}px;border:none;`;
-  document.body.appendChild(iframe);
-  iframe.contentDocument!.open();
-  iframe.contentDocument!.write(html);
-  iframe.contentDocument!.close();
-
-  await new Promise(r => setTimeout(r, 400));
-
-  await doc.html(iframe.contentDocument!.body, {
-    x: 0, y: 0,
-    width: 8.5,
-    windowWidth: CW,
-    html2canvas: { scale: 2, useCORS: true },
+  generateCertificate(doc, {
+    schoolName: display.schoolName,
+    childName: display.childName,
+    certTitle: display.certTitle,
+    accomplishment: display.accomplishment,
+    schoolYear: display.schoolYear,
+    showWatermark: display.showWatermark,
+    style: style as 1 | 2 | 3,
   });
-
-  document.body.removeChild(iframe);
   doc.save(`${filename.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`);
 }
 
@@ -1349,145 +1255,64 @@ function AnnualReportCard({
     setDownloading(true);
     try {
       const { jsPDF } = await import("jspdf");
+      const { generateProgressReport, fmtMins: fmt } = await import("@/lib/pdf");
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { setDownloading(false); return; }
       const uid = session.user.id;
 
-      type LessonRow = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null };
-      type MemoryRow = { child_id: string | null; type: string; title: string | null; date: string; duration_minutes: number | null };
-      type GoalRow = { id: string; child_id: string | null; default_minutes: number };
-      type BadgeRow = { payload: { badge_name?: string; child_id?: string } };
+      type LR = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null };
+      type MR = { child_id: string | null; type: string; title: string | null; date: string; duration_minutes: number | null };
+      type GR = { id: string; default_minutes: number };
+      type BR = { payload: { badge_name?: string; child_id?: string } };
 
-      const [{ data: lessonsRaw }, { data: memoriesRaw }, { data: goalsRaw }, { data: badgesRaw }] = await Promise.all([
+      const [{ data: lr }, { data: mr }, { data: gr }, { data: br }] = await Promise.all([
         supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name)").eq("user_id", uid),
         supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", uid),
-        supabase.from("curriculum_goals").select("id, child_id, default_minutes").eq("user_id", uid),
+        supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", uid),
         supabase.from("app_events").select("payload").eq("user_id", uid).eq("type", "badge_earned"),
       ]);
 
-      const lessons = (lessonsRaw || []) as unknown as LessonRow[];
-      const memories = (memoriesRaw || []) as unknown as MemoryRow[];
-      const goals = (goalsRaw || []) as unknown as GoalRow[];
-      const badges = (badgesRaw || []) as unknown as BadgeRow[];
+      const lessons = (lr || []) as unknown as LR[];
+      const memories = (mr || []) as unknown as MR[];
+      const badges = (br || []) as unknown as BR[];
+      const gdm: Record<string, number> = {};
+      for (const g of ((gr || []) as unknown as GR[])) gdm[g.id] = g.default_minutes ?? 30;
 
-      const goalDefaultMins: Record<string, number> = {};
-      for (const g of goals) goalDefaultMins[g.id] = g.default_minutes ?? 30;
+      function lm(l: LR): { m: number; e: boolean } { if (l.minutes_spent != null) return { m: l.minutes_spent, e: false }; if (l.curriculum_goal_id && gdm[l.curriculum_goal_id]) return { m: gdm[l.curriculum_goal_id], e: true }; return { m: 30, e: true }; }
+      function ld(l: LR) { return l.scheduled_date || l.date || ""; }
 
-      function lessonMins(l: LessonRow): { mins: number; estimated: boolean } {
-        if (l.minutes_spent != null) return { mins: l.minutes_spent, estimated: false };
-        if (l.curriculum_goal_id && goalDefaultMins[l.curriculum_goal_id]) return { mins: goalDefaultMins[l.curriculum_goal_id], estimated: true };
-        return { mins: 30, estimated: true };
-      }
+      const done = lessons.filter(l => l.completed);
+      const tLM = done.reduce((s, l) => s + lm(l).m, 0);
+      const mM = memories.filter(m => m.duration_minutes).reduce((s, m) => s + (m.duration_minutes || 0), 0);
+      const dateGen = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-      function lessonDate(l: LessonRow): string { return l.scheduled_date || l.date || ""; }
-
-      const completedLessons = lessons.filter(l => l.completed);
-      const totalLessonMins = completedLessons.reduce((s, l) => s + lessonMins(l).mins, 0);
-      const memoryMins = memories.filter(m => m.duration_minutes).reduce((s, m) => s + (m.duration_minutes || 0), 0);
-      const totalMins = totalLessonMins + memoryMins;
-      const schoolDays = new Set(completedLessons.map(l => lessonDate(l)).filter(Boolean)).size;
-      const books = memories.filter(m => m.type === "book");
-      const fieldTrips = memories.filter(m => ["field_trip", "project", "activity"].includes(m.type));
-      const dateGenerated = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-
-      // Per-child data
       const childReport = childrenList.map(c => {
-        const cLessons = completedLessons.filter(l => l.child_id === c.id);
-        const cMins = cLessons.reduce((s, l) => s + lessonMins(l).mins, 0);
-        const cDays = new Set(cLessons.map(l => lessonDate(l)).filter(Boolean)).size;
-
-        // Subject breakdown
-        const subjAgg: Record<string, { count: number; mins: number; estimated: boolean }> = {};
-        for (const l of cLessons) {
-          const name = l.subjects?.name || "General";
-          if (!subjAgg[name]) subjAgg[name] = { count: 0, mins: 0, estimated: false };
-          subjAgg[name].count++;
-          const m = lessonMins(l);
-          subjAgg[name].mins += m.mins;
-          if (m.estimated) subjAgg[name].estimated = true;
-        }
-        const subjects = Object.entries(subjAgg).map(([name, d]) => ({
-          name, count: d.count, hours: fmtMins(d.mins), estimated: d.estimated,
-        })).sort((a, b) => b.count - a.count);
-
-        const cBooks = memories.filter(m => m.type === "book" && m.child_id === c.id).map(m => m.title || "Untitled");
-        const cTrips = memories.filter(m => ["field_trip", "project", "activity"].includes(m.type) && m.child_id === c.id).map(m => ({ title: m.title || "Untitled", duration: m.duration_minutes }));
-        const cWins = memories.filter(m => ["win", "quote"].includes(m.type) && m.child_id === c.id).map(m => m.title || "Untitled");
-        const cBadges = badges.filter(b => b.payload?.child_id === c.id).map(b => b.payload?.badge_name || "Badge");
-
+        const cl = done.filter(l => l.child_id === c.id);
+        const cm = cl.reduce((s, l) => s + lm(l).m, 0);
+        const cd = new Set(cl.map(l => ld(l)).filter(Boolean)).size;
+        const sa: Record<string, { n: number; m: number; e: boolean }> = {};
+        for (const l of cl) { const nm = l.subjects?.name || "General"; if (!sa[nm]) sa[nm] = { n: 0, m: 0, e: false }; sa[nm].n++; const r = lm(l); sa[nm].m += r.m; if (r.e) sa[nm].e = true; }
         return {
-          name: c.name,
-          totalLessons: cLessons.length,
-          totalHours: fmtMins(cMins),
-          totalSchoolDays: cDays,
-          subjects,
-          books: cBooks,
-          fieldTrips: cTrips,
-          wins: cWins,
-          badges: cBadges,
+          name: c.name, totalHours: fmt(cm), totalLessons: cl.length, schoolDays: cd,
+          subjects: Object.entries(sa).map(([n, d]) => ({ name: n, count: d.n, hours: fmt(d.m), estimated: d.e })).sort((a, b) => b.count - a.count),
+          books: memories.filter(m => m.type === "book" && m.child_id === c.id).map(m => m.title || "Untitled"),
+          fieldTrips: memories.filter(m => ["field_trip","project","activity"].includes(m.type) && m.child_id === c.id).map(m => ({ title: m.title || "Untitled", duration: m.duration_minutes })),
+          wins: memories.filter(m => ["win","quote"].includes(m.type) && m.child_id === c.id).map(m => m.title || "Untitled"),
+          badges: badges.filter(b => b.payload?.child_id === c.id).map(b => b.payload?.badge_name || "Badge"),
         };
       });
 
-      // Daily log: completed lessons + memories with duration
       const logMap: Record<string, { subject: string; description: string; minutes: number; type: string; estimated: boolean }[]> = {};
-      for (const l of completedLessons) {
-        const d = lessonDate(l);
-        if (!d) continue;
-        if (!logMap[d]) logMap[d] = [];
-        const m = lessonMins(l);
-        logMap[d].push({ subject: l.subjects?.name || "General", description: l.title || "Lesson", minutes: m.mins, type: "Lesson", estimated: m.estimated });
-      }
-      for (const m of memories) {
-        if (!m.duration_minutes) continue;
-        if (!["field_trip", "project", "activity", "win"].includes(m.type)) continue;
-        if (!logMap[m.date]) logMap[m.date] = [];
-        const typeLabel = m.type === "win" ? "Win" : "Activity";
-        logMap[m.date].push({ subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: typeLabel, estimated: false });
-      }
-      const dailyLog = Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({
-        date,
-        dateLabel: new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
-        entries,
-      }));
-
-      const reportData: ReportCardData = {
-        schoolName, schoolYear, showWatermark, dateGenerated,
-        familySummary: {
-          totalHours: fmtMins(totalMins),
-          totalSchoolDays: schoolDays,
-          totalLessons: completedLessons.length,
-          totalBooks: books.length,
-          totalFieldTrips: fieldTrips.length,
-          totalMemories: memories.length,
-          activeDays: new Set([...completedLessons.map(l => lessonDate(l)), ...memories.map(m => m.date)].filter(Boolean)).size,
-        },
-        children: childReport,
-        dailyLog,
-      };
-
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>*{margin:0;padding:0;box-sizing:border-box;}body{width:816px;overflow:auto;}</style>
-</head><body>${reportCardHtml(reportData)}</body></html>`;
+      for (const l of done) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ subject: l.subjects?.name || "General", description: l.title || "Lesson", minutes: r.m, type: "Lesson", estimated: r.e }); }
+      for (const m of memories) { if (!m.duration_minutes || !["field_trip","project","activity","win"].includes(m.type)) continue; if (!logMap[m.date]) logMap[m.date] = []; logMap[m.date].push({ subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: "Activity", estimated: false }); }
 
       const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
-      const iframe = document.createElement("iframe");
-      iframe.style.cssText = `position:fixed;top:-9999px;left:-9999px;width:816px;height:1056px;border:none;`;
-      document.body.appendChild(iframe);
-      iframe.contentDocument!.open();
-      iframe.contentDocument!.write(html);
-      iframe.contentDocument!.close();
-
-      await new Promise(r => setTimeout(r, 500));
-
-      await doc.html(iframe.contentDocument!.body, {
-        x: 0, y: 0,
-        width: 8.5,
-        windowWidth: 816,
-        html2canvas: { scale: 2, useCORS: true },
-        autoPaging: "text",
+      generateProgressReport(doc, {
+        familyName: schoolName, schoolYear, dateGenerated: dateGen, showWatermark,
+        summary: { totalHours: fmt(tLM + mM), schoolDays: new Set(done.map(l => ld(l)).filter(Boolean)).size, lessons: done.length, books: memories.filter(m => m.type === "book").length, trips: memories.filter(m => ["field_trip","project","activity"].includes(m.type)).length, memories: memories.length },
+        children: childReport,
+        dailyLog: Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({ dateLabel: new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), entries })),
       });
-
-      document.body.removeChild(iframe);
       doc.save(`${(schoolName || "family-academy").replace(/[^a-z0-9]/gi, "-").toLowerCase()}-progress-report.pdf`);
     } catch (e) {
       console.error(e);

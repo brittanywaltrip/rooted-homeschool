@@ -186,6 +186,7 @@ export default function PlanPage() {
 
   // ── Curriculum management ─────────────────────────────────────────────────
   const [showCreateWizard,  setShowCreateWizard]  = useState(false);
+  const [downloadingReport, setDownloadingReport] = useState(false);
 
   useEffect(() => { document.title = "Plan · Rooted"; }, []);
 
@@ -496,6 +497,90 @@ export default function PlanPage() {
 
   const selectedDayDone = selectedDayLessons.filter(l => l.completed).length;
   const selectedDayTotal = selectedDayLessons.length;
+
+  // ── Report download ──────────────────────────────────────────────────────
+
+  async function downloadReport() {
+    if (!effectiveUserId) return;
+    setDownloadingReport(true);
+    try {
+      const { jsPDF } = await import("jspdf");
+      const { generateProgressReport, fmtMins } = await import("@/lib/pdf");
+
+      const { data: prof } = await supabase.from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle();
+      const familyName = (prof as { display_name?: string } | null)?.display_name || "Family Academy";
+      const now = new Date();
+      const yr = now.getMonth() >= 6 ? `${now.getFullYear()}–${now.getFullYear() + 1}` : `${now.getFullYear() - 1}–${now.getFullYear()}`;
+      const dateGen = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+      type LR = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null };
+      type MR = { child_id: string | null; type: string; title: string | null; date: string; duration_minutes: number | null };
+      type GR = { id: string; default_minutes: number };
+
+      const [{ data: lr }, { data: mr }, { data: gr }] = await Promise.all([
+        supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name)").eq("user_id", effectiveUserId),
+        supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", effectiveUserId),
+        supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", effectiveUserId),
+      ]);
+
+      const lessons = (lr || []) as unknown as LR[];
+      const memories = (mr || []) as unknown as MR[];
+      const gdm: Record<string, number> = {};
+      for (const g of ((gr || []) as unknown as GR[])) gdm[g.id] = g.default_minutes ?? 30;
+
+      function lm(l: LR): { m: number; e: boolean } { if (l.minutes_spent != null) return { m: l.minutes_spent, e: false }; if (l.curriculum_goal_id && gdm[l.curriculum_goal_id]) return { m: gdm[l.curriculum_goal_id], e: true }; return { m: 30, e: true }; }
+      function ld(l: LR) { return l.scheduled_date || l.date || ""; }
+
+      const done = lessons.filter(l => l.completed);
+      const tLM = done.reduce((s, l) => s + lm(l).m, 0);
+      const mM = memories.filter(m => m.duration_minutes).reduce((s, m) => s + (m.duration_minutes || 0), 0);
+      const books = memories.filter(m => m.type === "book");
+      const trips = memories.filter(m => ["field_trip", "project", "activity"].includes(m.type));
+      const sDays = new Set(done.map(l => ld(l)).filter(Boolean)).size;
+
+      const childReport = children.map(c => {
+        const cl = done.filter(l => l.child_id === c.id);
+        const cm = cl.reduce((s, l) => s + lm(l).m, 0);
+        const cd = new Set(cl.map(l => ld(l)).filter(Boolean)).size;
+        const sa: Record<string, { n: number; m: number; e: boolean }> = {};
+        for (const l of cl) { const nm = l.subjects?.name || "General"; if (!sa[nm]) sa[nm] = { n: 0, m: 0, e: false }; sa[nm].n++; const r = lm(l); sa[nm].m += r.m; if (r.e) sa[nm].e = true; }
+        return {
+          name: c.name,
+          totalHours: fmtMins(cm),
+          totalLessons: cl.length,
+          schoolDays: cd,
+          subjects: Object.entries(sa).map(([n, d]) => ({ name: n, count: d.n, hours: fmtMins(d.m), estimated: d.e })).sort((a, b) => b.count - a.count),
+          books: memories.filter(m => m.type === "book" && m.child_id === c.id).map(m => m.title || "Untitled"),
+          fieldTrips: memories.filter(m => ["field_trip","project","activity"].includes(m.type) && m.child_id === c.id).map(m => ({ title: m.title || "Untitled", duration: m.duration_minutes })),
+          wins: memories.filter(m => ["win","quote"].includes(m.type) && m.child_id === c.id).map(m => m.title || "Untitled"),
+          badges: [],
+        };
+      });
+
+      // Daily log
+      const logMap: Record<string, { subject: string; description: string; minutes: number; type: string; estimated: boolean }[]> = {};
+      for (const l of done) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ subject: l.subjects?.name || "General", description: l.title || "Lesson", minutes: r.m, type: "Lesson", estimated: r.e }); }
+      for (const m of memories) { if (!m.duration_minutes || !["field_trip","project","activity","win"].includes(m.type)) continue; if (!logMap[m.date]) logMap[m.date] = []; logMap[m.date].push({ subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: "Activity", estimated: false }); }
+      const dailyLog = Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({
+        dateLabel: new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+        entries,
+      }));
+
+      const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
+      generateProgressReport(doc, {
+        familyName, schoolYear: yr, dateGenerated: dateGen, showWatermark: true,
+        summary: { totalHours: fmtMins(tLM + mM), schoolDays: sDays, lessons: done.length, books: books.length, trips: trips.length, memories: memories.length },
+        children: childReport,
+        dailyLog,
+      });
+      doc.save(`${familyName.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-progress-report.pdf`);
+    } catch (e) {
+      console.error("Report download failed:", e);
+      alert("Download failed. Please try again.");
+    } finally {
+      setDownloadingReport(false);
+    }
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1118,12 +1203,13 @@ export default function PlanPage() {
                   A full record of your homeschool year — lessons, hours, books, and daily activity log — ready to download or share.
                 </p>
               </div>
-              <Link
-                href="/dashboard/printables"
-                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] text-white px-4 py-2 rounded-lg transition-colors shrink-0"
+              <button
+                onClick={downloadReport}
+                disabled={downloadingReport}
+                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors shrink-0"
               >
-                Download Report
-              </Link>
+                {downloadingReport ? "Generating…" : "Download Report"}
+              </button>
             </div>
           </div>
         </div>
