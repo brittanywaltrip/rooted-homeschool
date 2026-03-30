@@ -78,14 +78,31 @@ interface ReportCardData {
   schoolName: string;
   schoolYear: string;
   showWatermark: boolean;
+  dateGenerated: string;
+  familySummary: {
+    totalHours: string;
+    totalSchoolDays: number;
+    totalLessons: number;
+    totalBooks: number;
+    totalFieldTrips: number;
+    totalMemories: number;
+    activeDays: number;
+  };
   children: {
     name: string;
     totalLessons: number;
-    subjects: { name: string; count: number }[];
-    booksRead: number;
-    streak: number;
-    leaves: number;
-    stageName: string;
+    totalHours: string;
+    totalSchoolDays: number;
+    subjects: { name: string; count: number; hours: string; estimated: boolean }[];
+    books: string[];
+    fieldTrips: { title: string; duration: number | null }[];
+    wins: string[];
+    badges: string[];
+  }[];
+  dailyLog: {
+    date: string;
+    dateLabel: string;
+    entries: { subject: string; description: string; minutes: number; type: string; estimated: boolean }[];
   }[];
 }
 
@@ -777,73 +794,126 @@ async function downloadCert(style: StyleId, display: CertDisplay, filename: stri
 
 // ─── Report card HTML ─────────────────────────────────────────────────────────
 
-function reportCardHtml(data: ReportCardData): string {
-  const wm = data.showWatermark
-    ? `<p style="font-size:10px;color:#c4bfb8;margin-top:24px;text-align:center;">Made with Rooted</p>`
-    : "";
+function fmtMins(m: number): string {
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r > 0 ? `${h}h ${r}m` : `${h}h`;
+}
 
+function reportCardHtml(data: ReportCardData): string {
+  const foot = `<div style="font-size:9px;color:#b5aca4;text-align:right;padding:4px 60px;">Generated ${data.dateGenerated} · ${data.schoolName || "Family Academy"} · rootedhomeschoolapp.com</div>`;
+  const wm = data.showWatermark ? `<p style="font-size:10px;color:#c4bfb8;margin-top:16px;text-align:center;">Made with Rooted</p>` : "";
+  const s = data.familySummary;
+
+  // Cover + family summary
+  const cover = `
+  <div style="background:#2d5a3d;padding:48px 60px;text-align:center;">
+    <p style="font-size:24px;margin:0 0 10px;">🌿</p>
+    <p style="font-size:22px;font-weight:900;color:white;margin:0 0 4px;">${data.schoolName || "Family Academy"}</p>
+    <p style="font-size:13px;color:rgba(255,255,255,0.6);letter-spacing:2px;text-transform:uppercase;margin:0 0 6px;">Annual Progress Report · ${data.schoolYear}</p>
+    <p style="font-size:11px;color:rgba(255,255,255,0.45);margin:0;">Generated ${data.dateGenerated}</p>
+  </div>
+  <div style="padding:36px 60px;">
+    <p style="font-size:15px;font-weight:700;color:#2d2926;margin:0 0 16px;">Family Summary</p>
+    <div style="display:flex;gap:0;border:1px solid #e8e2d9;border-radius:8px;overflow:hidden;">
+      ${[
+        { label: "Total Hours", value: s.totalHours },
+        { label: "School Days", value: String(s.totalSchoolDays) },
+        { label: "Lessons", value: String(s.totalLessons) },
+        { label: "Books", value: String(s.totalBooks) },
+        { label: "Trips/Projects", value: String(s.totalFieldTrips) },
+        { label: "Memories", value: String(s.totalMemories) },
+      ].map((x, i) => `<div style="flex:1;padding:12px 10px;text-align:center;${i > 0 ? "border-left:1px solid #e8e2d9;" : ""}">
+        <p style="font-size:10px;color:#7a6f65;margin:0 0 2px;">${x.label}</p>
+        <p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${x.value}</p>
+      </div>`).join("")}
+    </div>
+    <p style="font-size:9px;color:#b5aca4;margin:8px 0 0;font-style:italic;">* Hours marked with an asterisk are estimated based on your default lesson time settings.</p>
+  </div>
+  ${foot}`;
+
+  // Per-child sections
   const childSections = data.children.map(c => {
-    const subjectRows = c.subjects.map(s => `
+    const subjRows = c.subjects.length > 0 ? c.subjects.map(sub => `
       <tr>
-        <td style="padding:6px 12px;color:#2d2926;font-size:14px;">${s.name}</td>
-        <td style="padding:6px 12px;color:#5c7f63;font-weight:600;font-size:14px;text-align:right;">${s.count} lessons</td>
-      </tr>`).join("");
+        <td style="padding:5px 12px;font-size:12px;color:#2d2926;">${sub.name}</td>
+        <td style="padding:5px 12px;font-size:12px;color:#2d2926;text-align:right;">${sub.count}</td>
+        <td style="padding:5px 12px;font-size:12px;color:#2d2926;text-align:right;">${sub.hours}${sub.estimated ? "*" : ""}</td>
+      </tr>`).join("") : `<tr><td colspan="3" style="padding:10px 12px;color:#b5aca4;font-style:italic;font-size:11px;">No lessons recorded</td></tr>`;
+
+    const bookList = c.books.length > 0 ? `<div style="margin-top:16px;"><p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px;">Books Read (${c.books.length})</p>${c.books.map(b => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${b}</p>`).join("")}</div>` : "";
+    const tripList = c.fieldTrips.length > 0 ? `<div style="margin-top:16px;"><p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px;">Field Trips & Projects (${c.fieldTrips.length})</p>${c.fieldTrips.map(t => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${t.title}${t.duration ? ` — ${t.duration} min` : ""}</p>`).join("")}</div>` : "";
+    const winList = c.wins.length > 0 ? `<div style="margin-top:16px;"><p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px;">Wins & Milestones (${c.wins.length})</p>${c.wins.map(w => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${w}</p>`).join("")}</div>` : "";
+    const badgeList = c.badges.length > 0 ? `<div style="margin-top:16px;"><p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px;">Badges Earned</p>${c.badges.map(b => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">🏅 ${b}</p>`).join("")}</div>` : "";
 
     return `
-    <div style="margin-bottom:36px;page-break-inside:avoid;">
-      <div style="background:#5c7f63;padding:12px 20px;border-radius:8px 8px 0 0;display:flex;align-items:center;gap:10px;">
-        <span style="font-size:20px;">🌱</span>
-        <p style="font-size:18px;font-weight:bold;color:white;margin:0;">${c.name}</p>
+    <div style="page-break-before:auto;margin-bottom:28px;">
+      <div style="background:#5c7f63;padding:10px 20px;border-radius:8px 8px 0 0;">
+        <p style="font-size:16px;font-weight:bold;color:white;margin:0;">🌱 ${c.name}</p>
       </div>
-      <div style="border:1px solid #e8e2d9;border-top:none;border-radius:0 0 8px 8px;overflow:hidden;">
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="background:#f5f2ee;">
-              <th style="padding:8px 12px;text-align:left;font-size:11px;color:#7a6f65;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Subject</th>
-              <th style="padding:8px 12px;text-align:right;font-size:11px;color:#7a6f65;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Lessons Completed</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${subjectRows || `<tr><td colspan="2" style="padding:12px;color:#b5aca4;font-style:italic;font-size:13px;">No lessons recorded</td></tr>`}
-          </tbody>
-        </table>
-        <div style="display:flex;gap:0;border-top:1px solid #e8e2d9;">
-          <div style="flex:1;padding:12px 16px;border-right:1px solid #e8e2d9;">
-            <p style="font-size:11px;color:#7a6f65;margin:0 0 2px;">Total Lessons</p>
-            <p style="font-size:22px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalLessons}</p>
-          </div>
-          <div style="flex:1;padding:12px 16px;border-right:1px solid #e8e2d9;">
-            <p style="font-size:11px;color:#7a6f65;margin:0 0 2px;">Books Read</p>
-            <p style="font-size:22px;font-weight:700;color:#2d5a3d;margin:0;">${c.booksRead}</p>
-          </div>
-          <div style="flex:1;padding:12px 16px;border-right:1px solid #e8e2d9;">
-            <p style="font-size:11px;color:#7a6f65;margin:0 0 2px;">Day Streak</p>
-            <p style="font-size:22px;font-weight:700;color:#2d5a3d;margin:0;">${c.streak}</p>
-          </div>
-          <div style="flex:1;padding:12px 16px;">
-            <p style="font-size:11px;color:#7a6f65;margin:0 0 2px;">Garden Stage</p>
-            <p style="font-size:16px;font-weight:700;color:#2d5a3d;margin:0;">${c.stageName}</p>
-          </div>
+      <div style="border:1px solid #e8e2d9;border-top:none;border-radius:0 0 8px 8px;padding:16px 20px;">
+        <div style="display:flex;gap:24px;margin-bottom:16px;">
+          <div><p style="font-size:10px;color:#7a6f65;margin:0;">Hours</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalHours}</p></div>
+          <div><p style="font-size:10px;color:#7a6f65;margin:0;">Lessons</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalLessons}</p></div>
+          <div><p style="font-size:10px;color:#7a6f65;margin:0;">School Days</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalSchoolDays}</p></div>
         </div>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:#f5f2ee;">
+            <th style="padding:6px 12px;text-align:left;font-size:10px;color:#7a6f65;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Subject</th>
+            <th style="padding:6px 12px;text-align:right;font-size:10px;color:#7a6f65;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Lessons</th>
+            <th style="padding:6px 12px;text-align:right;font-size:10px;color:#7a6f65;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Hours</th>
+          </tr></thead>
+          <tbody>${subjRows}</tbody>
+        </table>
+        ${bookList}${tripList}${winList}${badgeList}
       </div>
     </div>`;
   }).join("");
 
+  // Daily log
+  const logRows = data.dailyLog.flatMap(day => {
+    const header = `<tr><td colspan="5" style="padding:8px 12px 4px;font-size:11px;font-weight:700;color:#2d2926;background:#f5f2ee;">${day.dateLabel}</td></tr>`;
+    const rows = day.entries.map(e => `
+      <tr>
+        <td style="padding:3px 12px;font-size:10px;color:#7a6f65;">${day.dateLabel}</td>
+        <td style="padding:3px 12px;font-size:10px;color:#2d2926;">${e.subject}</td>
+        <td style="padding:3px 12px;font-size:10px;color:#2d2926;">${e.description}</td>
+        <td style="padding:3px 12px;font-size:10px;color:#2d2926;text-align:right;">${e.minutes}${e.estimated ? "*" : ""}</td>
+        <td style="padding:3px 12px;font-size:10px;color:#7a6f65;">${e.type}</td>
+      </tr>`).join("");
+    return header + rows;
+  }).join("");
+
+  const totalLogMins = data.dailyLog.reduce((sum, d) => sum + d.entries.reduce((s, e) => s + e.minutes, 0), 0);
+
+  const dailyLogSection = data.dailyLog.length > 0 ? `
+  <div style="page-break-before:always;"></div>
+  <div style="padding:36px 60px;">
+    <p style="font-size:15px;font-weight:700;color:#2d2926;margin:0 0 4px;">Daily Activity Log</p>
+    <p style="font-size:11px;color:#7a6f65;margin:0 0 16px;">For state record-keeping purposes</p>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #e8e2d9;">
+      <thead><tr style="background:#f5f2ee;">
+        <th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Date</th>
+        <th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Subject</th>
+        <th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Description</th>
+        <th style="padding:6px 12px;text-align:right;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Min</th>
+        <th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Type</th>
+      </tr></thead>
+      <tbody>${logRows}</tbody>
+    </table>
+    <p style="font-size:11px;color:#7a6f65;margin:12px 0 0;font-weight:600;">Total logged: ${fmtMins(totalLogMins)} across ${data.dailyLog.length} school days</p>
+  </div>
+  ${foot}` : "";
+
   return `
-<div style="width:816px;min-height:1056px;background:#fdfcf8;box-sizing:border-box;
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:0;">
-  <div style="background:#2d5a3d;padding:40px 60px;text-align:center;">
-    <p style="font-size:24px;margin:0 0 8px;">🌿</p>
-    <p style="font-size:22px;font-weight:900;color:white;margin:0 0 4px;">${data.schoolName || "Family Academy"}</p>
-    <p style="font-size:14px;color:rgba(255,255,255,0.75);letter-spacing:2px;text-transform:uppercase;margin:0;">Annual Report Card &nbsp;·&nbsp; ${data.schoolYear}</p>
-  </div>
-  <div style="padding:40px 60px;">
+<div style="width:816px;min-height:1056px;background:#fdfcf8;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:0;">
+  ${cover}
+  <div style="padding:0 60px 36px;">
     ${childSections}
-    <div style="text-align:center;padding-top:12px;border-top:1px solid #e8e2d9;">
-      <p style="font-size:12px;color:#b5aca4;margin:0;">Generated on ${formatDate()}</p>
-      ${wm}
-    </div>
+    ${wm}
   </div>
+  ${dailyLogSection}
 </div>`;
 }
 
@@ -1272,53 +1342,120 @@ function AnnualReportCard({
     setDownloading(true);
     try {
       const { jsPDF } = await import("jspdf");
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setDownloading(false); return; }
+      const uid = session.user.id;
 
-      // Fetch lesson counts per child per subject
-      const childIds = childrenList.map(c => c.id);
-      const { data: lessons } = await supabase
-        .from("lessons")
-        .select("child_id, subject_name")
-        .in("child_id", childIds);
+      type LessonRow = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null };
+      type MemoryRow = { child_id: string | null; type: string; title: string | null; date: string; duration_minutes: number | null };
+      type GoalRow = { id: string; child_id: string | null; default_minutes: number };
+      type BadgeRow = { payload: { badge_name?: string; child_id?: string } };
 
-      const { data: books } = await supabase
-        .from("book_events")
-        .select("child_id")
-        .eq("event_type", "completed")
-        .in("child_id", childIds);
+      const [{ data: lessonsRaw }, { data: memoriesRaw }, { data: goalsRaw }, { data: badgesRaw }] = await Promise.all([
+        supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name)").eq("user_id", uid),
+        supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", uid),
+        supabase.from("curriculum_goals").select("id, child_id, default_minutes").eq("user_id", uid),
+        supabase.from("app_events").select("payload").eq("user_id", uid).eq("type", "badge_earned"),
+      ]);
 
-      const lessonMap: Record<string, Record<string, number>> = {};
-      for (const c of childrenList) lessonMap[c.id] = {};
-      for (const l of (lessons || []) as { child_id: string; subject_name: string }[]) {
-        const subj = l.subject_name || "General";
-        lessonMap[l.child_id] = lessonMap[l.child_id] || {};
-        lessonMap[l.child_id][subj] = (lessonMap[l.child_id][subj] || 0) + 1;
+      const lessons = (lessonsRaw || []) as unknown as LessonRow[];
+      const memories = (memoriesRaw || []) as unknown as MemoryRow[];
+      const goals = (goalsRaw || []) as unknown as GoalRow[];
+      const badges = (badgesRaw || []) as unknown as BadgeRow[];
+
+      const goalDefaultMins: Record<string, number> = {};
+      for (const g of goals) goalDefaultMins[g.id] = g.default_minutes ?? 30;
+
+      function lessonMins(l: LessonRow): { mins: number; estimated: boolean } {
+        if (l.minutes_spent != null) return { mins: l.minutes_spent, estimated: false };
+        if (l.curriculum_goal_id && goalDefaultMins[l.curriculum_goal_id]) return { mins: goalDefaultMins[l.curriculum_goal_id], estimated: true };
+        return { mins: 30, estimated: true };
       }
 
-      const bookMap: Record<string, number> = {};
-      for (const b of (books || []) as { child_id: string }[]) {
-        bookMap[b.child_id] = (bookMap[b.child_id] || 0) + 1;
+      function lessonDate(l: LessonRow): string { return l.scheduled_date || l.date || ""; }
+
+      const completedLessons = lessons.filter(l => l.completed);
+      const totalLessonMins = completedLessons.reduce((s, l) => s + lessonMins(l).mins, 0);
+      const memoryMins = memories.filter(m => m.duration_minutes).reduce((s, m) => s + (m.duration_minutes || 0), 0);
+      const totalMins = totalLessonMins + memoryMins;
+      const schoolDays = new Set(completedLessons.map(l => lessonDate(l)).filter(Boolean)).size;
+      const books = memories.filter(m => m.type === "book");
+      const fieldTrips = memories.filter(m => ["field_trip", "project", "activity"].includes(m.type));
+      const dateGenerated = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+      // Per-child data
+      const childReport = childrenList.map(c => {
+        const cLessons = completedLessons.filter(l => l.child_id === c.id);
+        const cMins = cLessons.reduce((s, l) => s + lessonMins(l).mins, 0);
+        const cDays = new Set(cLessons.map(l => lessonDate(l)).filter(Boolean)).size;
+
+        // Subject breakdown
+        const subjAgg: Record<string, { count: number; mins: number; estimated: boolean }> = {};
+        for (const l of cLessons) {
+          const name = l.subjects?.name || "General";
+          if (!subjAgg[name]) subjAgg[name] = { count: 0, mins: 0, estimated: false };
+          subjAgg[name].count++;
+          const m = lessonMins(l);
+          subjAgg[name].mins += m.mins;
+          if (m.estimated) subjAgg[name].estimated = true;
+        }
+        const subjects = Object.entries(subjAgg).map(([name, d]) => ({
+          name, count: d.count, hours: fmtMins(d.mins), estimated: d.estimated,
+        })).sort((a, b) => b.count - a.count);
+
+        const cBooks = memories.filter(m => m.type === "book" && m.child_id === c.id).map(m => m.title || "Untitled");
+        const cTrips = memories.filter(m => ["field_trip", "project", "activity"].includes(m.type) && m.child_id === c.id).map(m => ({ title: m.title || "Untitled", duration: m.duration_minutes }));
+        const cWins = memories.filter(m => ["win", "quote"].includes(m.type) && m.child_id === c.id).map(m => m.title || "Untitled");
+        const cBadges = badges.filter(b => b.payload?.child_id === c.id).map(b => b.payload?.badge_name || "Badge");
+
+        return {
+          name: c.name,
+          totalLessons: cLessons.length,
+          totalHours: fmtMins(cMins),
+          totalSchoolDays: cDays,
+          subjects,
+          books: cBooks,
+          fieldTrips: cTrips,
+          wins: cWins,
+          badges: cBadges,
+        };
+      });
+
+      // Daily log: completed lessons + memories with duration
+      const logMap: Record<string, { subject: string; description: string; minutes: number; type: string; estimated: boolean }[]> = {};
+      for (const l of completedLessons) {
+        const d = lessonDate(l);
+        if (!d) continue;
+        if (!logMap[d]) logMap[d] = [];
+        const m = lessonMins(l);
+        logMap[d].push({ subject: l.subjects?.name || "General", description: l.title || "Lesson", minutes: m.mins, type: "Lesson", estimated: m.estimated });
       }
+      for (const m of memories) {
+        if (!m.duration_minutes) continue;
+        if (!["field_trip", "project", "activity", "win"].includes(m.type)) continue;
+        if (!logMap[m.date]) logMap[m.date] = [];
+        const typeLabel = m.type === "win" ? "Win" : "Activity";
+        logMap[m.date].push({ subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: typeLabel, estimated: false });
+      }
+      const dailyLog = Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({
+        date,
+        dateLabel: new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+        entries,
+      }));
 
       const reportData: ReportCardData = {
-        schoolName,
-        schoolYear,
-        showWatermark,
-        children: childrenList.map(c => {
-          const subjMap = lessonMap[c.id] || {};
-          const subjects = Object.entries(subjMap)
-            .map(([name, count]) => ({ name, count }))
-            .sort((a, b) => b.count - a.count);
-          const totalLessons = subjects.reduce((sum, s) => sum + s.count, 0);
-          return {
-            name: c.name,
-            totalLessons,
-            subjects,
-            booksRead: bookMap[c.id] || 0,
-            streak: c.streak || 0,
-            leaves: c.leaves || 0,
-            stageName: stageNameFromLeaves(c.leaves || 0),
-          };
-        }),
+        schoolName, schoolYear, showWatermark, dateGenerated,
+        familySummary: {
+          totalHours: fmtMins(totalMins),
+          totalSchoolDays: schoolDays,
+          totalLessons: completedLessons.length,
+          totalBooks: books.length,
+          totalFieldTrips: fieldTrips.length,
+          totalMemories: memories.length,
+          activeDays: new Set([...completedLessons.map(l => lessonDate(l)), ...memories.map(m => m.date)].filter(Boolean)).size,
+        },
+        children: childReport,
+        dailyLog,
       };
 
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -1344,7 +1481,7 @@ function AnnualReportCard({
       });
 
       document.body.removeChild(iframe);
-      doc.save(`${(schoolName || "family-academy").replace(/[^a-z0-9]/gi, "-").toLowerCase()}-report-card.pdf`);
+      doc.save(`${(schoolName || "family-academy").replace(/[^a-z0-9]/gi, "-").toLowerCase()}-progress-report.pdf`);
     } catch (e) {
       console.error(e);
       alert("Download failed. Please try again.");
@@ -1357,8 +1494,8 @@ function AnnualReportCard({
     <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
       <div className="px-5 py-3 border-b border-[#f0ede8] flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-bold text-[#2d2926]">📊 Annual Report Card</h3>
-          <p className="text-[11px] text-[#b5aca4] mt-0.5">Full-year summary with lessons, books, streaks, and garden progress for all students</p>
+          <h3 className="text-sm font-bold text-[#2d2926]">📊 Progress Report</h3>
+          <p className="text-[11px] text-[#b5aca4] mt-0.5">Full-year record with lessons, hours, books, activities, and daily log for state compliance</p>
         </div>
         <button
           onClick={handleDownload}
@@ -1366,7 +1503,7 @@ function AnnualReportCard({
           className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-3 py-1.5 rounded-lg transition-colors shrink-0"
         >
           <Download size={12} />
-          {downloading ? "Generating…" : "Download Report Card"}
+          {downloading ? "Generating…" : "Download Report"}
         </button>
       </div>
       <div className="px-5 py-4 flex flex-wrap items-center gap-4">
@@ -1969,11 +2106,11 @@ export default function PrintablesPage() {
         )}
       </section>
 
-      {/* ── Annual Report Card ───────────────────────────────────────────── */}
+      {/* ── Progress Report ────────────────────────────────────────────── */}
       <section>
-        <h2 className="text-base font-bold text-[#2d2926] mb-0.5">📊 Annual Report Card</h2>
+        <h2 className="text-base font-bold text-[#2d2926] mb-0.5">📊 Progress Report</h2>
         <p className="text-xs text-[#b5aca4] mb-4">
-          Generate a full-year PDF summary from your real homeschool data.
+          Download a full record of lessons, hours, and progress.
         </p>
         <AnnualReportCard
           childrenList={children}
