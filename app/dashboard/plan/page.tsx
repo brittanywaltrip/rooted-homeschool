@@ -1035,11 +1035,16 @@ export default function PlanPage() {
       {/* ══════════════════════════════════════════════════
           SECTION 4 — YOUR COURSES
       ══════════════════════════════════════════════════ */}
-      {!isPartner && curricGroups.length > 0 && (
+      {!isPartner && !loading && (
         <div style={{ marginTop: 8 }}>
           <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
             Course Progress
           </p>
+          {curricGroups.length === 0 && (
+            <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "24px 16px", textAlign: "center", marginBottom: 8 }}>
+              <p style={{ fontSize: 13, color: "#b5aca4", margin: 0 }}>No curriculum added yet</p>
+            </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {curricGroups.map((group) => {
               const completedCount = group.totalCount - group.remainingCount;
