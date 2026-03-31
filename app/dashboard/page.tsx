@@ -177,13 +177,14 @@ function FloatingLeaves({ active }: { active: boolean }) {
 type Particle = { id: number; x: number; y: number; color: string; delay: number };
 
 function TodayLessonCard({
-  lesson, childObj, onToggle, onEdit, onDelete, isPartner,
+  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, isPartner,
 }: {
   lesson:    Lesson;
   childObj:  Child | undefined;
   onToggle:  (id: string, current: boolean) => void;
   onEdit:    (lesson: Lesson) => void;
   onDelete:  (id: string) => void;
+  onReschedule: (lesson: Lesson) => void;
   isPartner: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -333,6 +334,13 @@ function TodayLessonCard({
                   ✏️ Edit
                 </button>
                 <button
+                  onClick={(e) => { e.stopPropagation(); onReschedule(lesson); setMenuOpen(false); }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
+                  data-no-toggle
+                >
+                  ⏭ Reschedule
+                </button>
+                <button
                   onClick={(e) => { e.stopPropagation(); onDelete(lesson.id); setMenuOpen(false); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
                   data-no-toggle
@@ -434,6 +442,13 @@ export default function TodayPage() {
   const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
   const [extraLessonLoading,     setExtraLessonLoading]     = useState<string | null>(null); // child ID currently logging
+
+  // Reschedule state
+  const [rescheduleLesson,       setRescheduleLesson]       = useState<Lesson | null>(null);
+  const [reschedulePicker,       setReschedulePicker]       = useState(false); // show date picker
+  const [reschedulePickerDate,   setReschedulePickerDate]   = useState("");
+  const [rescheduleUndoToast,    setRescheduleUndoToast]    = useState<{ message: string; undoData: { lessonId: string; date: string }[] } | null>(null);
+  const rescheduleUndoTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [aheadPromptChildren,    setAheadPromptChildren]    = useState<Set<string>>(new Set());
   const [dismissedAheadPrompts,  setDismissedAheadPrompts]  = useState<Set<string>>(new Set());
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
@@ -1280,6 +1295,121 @@ export default function TodayPage() {
     showCaptureToast("Schedule updated! 🌿", null);
   }
 
+  // ── Reschedule lesson functions ──────────────────────────────────────────────
+
+  function openReschedule(lesson: Lesson) {
+    setRescheduleLesson(lesson);
+    setReschedulePicker(false);
+    setReschedulePickerDate("");
+  }
+
+  function showRescheduleUndo(message: string, undoData: { lessonId: string; date: string }[]) {
+    if (rescheduleUndoTimer.current) clearTimeout(rescheduleUndoTimer.current);
+    setRescheduleUndoToast({ message, undoData });
+    rescheduleUndoTimer.current = setTimeout(() => setRescheduleUndoToast(null), 8000);
+  }
+
+  async function undoReschedule() {
+    if (!rescheduleUndoToast) return;
+    const { undoData } = rescheduleUndoToast;
+    for (let i = 0; i < undoData.length; i += 20) {
+      await Promise.all(
+        undoData.slice(i, i + 20).map(({ lessonId, date }) =>
+          supabase.from("lessons").update({ scheduled_date: date, date }).eq("id", lessonId)
+        )
+      );
+    }
+    // Restore lesson in Today view if it was moved away
+    if (undoData.length === 1 && undoData[0].date === today) {
+      const { data: restored } = await supabase.from("lessons")
+        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id")
+        .eq("id", undoData[0].lessonId).single();
+      if (restored) setLessons(prev => prev.some(l => l.id === restored.id) ? prev : [...prev, restored as unknown as Lesson]);
+    }
+    setRescheduleUndoToast(null);
+    if (rescheduleUndoTimer.current) clearTimeout(rescheduleUndoTimer.current);
+    showCaptureToast("Undo complete", null);
+  }
+
+  async function rescheduleMoveTo(targetDate: string) {
+    if (!rescheduleLesson) return;
+    const originalDate = today;
+    // Move in DB
+    await supabase.from("lessons").update({ scheduled_date: targetDate, date: targetDate }).eq("id", rescheduleLesson.id);
+    // Remove from Today view
+    setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
+    setRescheduleLesson(null);
+    const label = targetDate === localDateStr(new Date(new Date().setDate(new Date().getDate() + 1))) ? "Moved to tomorrow" : "Lesson rescheduled";
+    showRescheduleUndo(`${label}! Undo?`, [{ lessonId: rescheduleLesson.id, date: originalDate }]);
+  }
+
+  async function reschedulePushAll() {
+    if (!rescheduleLesson?.curriculum_goal_id) return;
+    const goalId = rescheduleLesson.curriculum_goal_id;
+
+    // Get school_days for this goal
+    const { data: goalRow } = await supabase.from("curriculum_goals")
+      .select("school_days").eq("id", goalId).single();
+    const schoolDays = (goalRow as { school_days?: string[] } | null)?.school_days ?? [];
+    const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+    const activeDays = schoolDays.length > 0 ? new Set(schoolDays.map(d => dayMap[d] ?? -1)) : null;
+
+    // Fetch all uncompleted future lessons for this goal
+    const { data: futureLessons } = await supabase.from("lessons")
+      .select("id, scheduled_date")
+      .eq("curriculum_goal_id", goalId)
+      .eq("completed", false)
+      .gte("scheduled_date", today)
+      .order("scheduled_date", { ascending: true });
+    if (!futureLessons || futureLessons.length === 0) { setRescheduleLesson(null); return; }
+
+    // Store undo data
+    const undoData = futureLessons.map((l: { id: string; scheduled_date: string }) => ({ lessonId: l.id, date: l.scheduled_date }));
+
+    // Push each lesson to the next school day after its current date
+    const updates: { id: string; newDate: string }[] = [];
+    for (const lesson of futureLessons) {
+      const cur = new Date((lesson as { scheduled_date: string }).scheduled_date + "T12:00:00");
+      let safety = 0;
+      while (safety < 365) {
+        cur.setDate(cur.getDate() + 1);
+        const dayIdx = (cur.getDay() + 6) % 7;
+        if (!activeDays || activeDays.has(dayIdx)) {
+          updates.push({ id: (lesson as { id: string }).id, newDate: localDateStr(cur) });
+          break;
+        }
+        safety++;
+      }
+    }
+
+    for (let i = 0; i < updates.length; i += 20) {
+      await Promise.all(
+        updates.slice(i, i + 20).map(({ id, newDate }) =>
+          supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+        )
+      );
+    }
+
+    // Remove the current lesson from Today view if it was pushed
+    setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
+    setRescheduleLesson(null);
+    showRescheduleUndo(`${undoData.length} lessons pushed back! Undo?`, undoData);
+  }
+
+  async function rescheduleDoubleUp() {
+    if (!rescheduleLesson?.curriculum_goal_id) return;
+    const originalDate = today;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = localDateStr(tomorrow);
+
+    // Move today's lesson to tomorrow (it will share the day with tomorrow's scheduled lesson)
+    await supabase.from("lessons").update({ scheduled_date: tomorrowStr, date: tomorrowStr }).eq("id", rescheduleLesson.id);
+    setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
+    setRescheduleLesson(null);
+    showRescheduleUndo("Doubled up tomorrow! Undo?", [{ lessonId: rescheduleLesson.id, date: originalDate }]);
+  }
+
   async function saveBook() {
     if (!bookTitle.trim()) return;
     setSavingBook(true);
@@ -1573,7 +1703,7 @@ export default function TodayPage() {
                     <TodayLessonCard
                       key={lesson.id} lesson={lesson}
                       childObj={card.id === "__unassigned" ? undefined : childObj}
-                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} isPartner={isPartner}
                     />
                   ))}
                 </div>
@@ -1682,7 +1812,7 @@ export default function TodayPage() {
                     <TodayLessonCard
                       key={lesson.id} lesson={lesson}
                       childObj={expandedChild === "__unassigned" ? undefined : childObj}
-                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} isPartner={isPartner}
                     />
                   ))}
                   {/* Extra lesson button — only when all scheduled lessons done */}
@@ -2653,6 +2783,126 @@ export default function TodayPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ── Reschedule bottom sheet ──────────────────────── */}
+      {rescheduleLesson && (() => {
+        const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1);
+        const tmrwStr = localDateStr(tmrw);
+        const tmrwLabel = tmrw.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+        const curricName = rescheduleLesson.title?.replace(/ — Lesson.*$/, "") ?? "";
+        return (
+          <>
+            <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => setRescheduleLesson(null)} />
+            <div className="fixed bottom-0 left-0 right-0 z-[81] bg-[#faf8f4] rounded-t-2xl shadow-xl max-w-lg mx-auto">
+              <div className="p-5">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-medium text-[#3d5c42]" style={{ fontFamily: "var(--font-display)" }}>
+                    Reschedule {rescheduleLesson.title || "this lesson"}
+                  </h3>
+                  <button onClick={() => setRescheduleLesson(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
+                </div>
+                {/* Options */}
+                <div className="space-y-3">
+                  {/* Move to tomorrow */}
+                  <button
+                    onClick={() => rescheduleMoveTo(tmrwStr)}
+                    className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                  >
+                    <span className="text-lg shrink-0">📅</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#2d3a2e]">Move to tomorrow</p>
+                      <p className="text-xs text-[#9a8e84] mt-0.5">Lesson moves to {tmrwLabel}</p>
+                    </div>
+                    <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                  </button>
+
+                  {/* Move to specific day */}
+                  <div>
+                    <button
+                      onClick={() => setReschedulePicker(v => !v)}
+                      className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                    >
+                      <span className="text-lg shrink-0">🗓</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#2d3a2e]">Move to a specific day</p>
+                        <p className="text-xs text-[#9a8e84] mt-0.5">Pick any date from the calendar</p>
+                      </div>
+                      <span className="text-[#c8bfb5] text-base shrink-0">{reschedulePicker ? "⌄" : "›"}</span>
+                    </button>
+                    {reschedulePicker && (
+                      <div className="flex items-center gap-2 mt-2 px-1">
+                        <input
+                          type="date"
+                          min={today}
+                          value={reschedulePickerDate}
+                          onChange={(e) => setReschedulePickerDate(e.target.value)}
+                          className="flex-1 text-sm border border-[#e8e2d9] rounded-xl px-3 py-2.5 text-[#2d2926] bg-white"
+                        />
+                        <button
+                          onClick={() => { if (reschedulePickerDate && reschedulePickerDate >= today) rescheduleMoveTo(reschedulePickerDate); }}
+                          disabled={!reschedulePickerDate || reschedulePickerDate < today}
+                          className="px-5 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-[#3d5c42] transition-colors"
+                        >
+                          Move
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Curriculum-specific options */}
+                  {rescheduleLesson.curriculum_goal_id && (
+                    <>
+                      {/* Push all remaining */}
+                      <button
+                        onClick={() => reschedulePushAll()}
+                        className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                      >
+                        <span className="text-lg shrink-0">⏭</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#2d3a2e]">Push all remaining lessons back one day</p>
+                          <p className="text-xs text-[#9a8e84] mt-0.5">Shifts every upcoming {curricName || "curriculum"} lesson by one school day</p>
+                        </div>
+                        <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                      </button>
+
+                      {/* Double up tomorrow */}
+                      <button
+                        onClick={() => rescheduleDoubleUp()}
+                        className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                      >
+                        <span className="text-lg shrink-0">2️⃣</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#2d3a2e]">Double up tomorrow</p>
+                          <p className="text-xs text-[#9a8e84] mt-0.5">Do 2 lessons on {tmrwLabel.split(",")[0]} — stay on track</p>
+                        </div>
+                        <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              {/* Bottom safe area */}
+              <div className="h-6" />
+            </div>
+          </>
+        );
+      })()}
+
+      {/* ── Reschedule undo toast ──────────────────────────── */}
+      {rescheduleUndoToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+          <div className="bg-[#2d5a3d] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
+            <span>{rescheduleUndoToast.message}</span>
+            <button
+              onClick={() => undoReschedule()}
+              className="text-white font-semibold underline text-sm"
+            >
+              Undo
+            </button>
+          </div>
+        </div>
       )}
 
       <FloatingLeaves active={celebrating} />
