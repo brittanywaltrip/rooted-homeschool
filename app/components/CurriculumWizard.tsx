@@ -260,7 +260,7 @@ export default function CurriculumWizard({
       })
       .select("id")
       .single();
-    if (goalErr) { setGenerating(false); setError(`Could not save goal: ${goalErr.message}`); return; }
+    if (goalErr) { console.error("curriculum_goals insert failed:", goalErr); setGenerating(false); setError(`Could not save goal: ${goalErr.message}`); return; }
     const goalId = goalData?.id;
 
     // Fetch vacation blocks
@@ -356,7 +356,7 @@ export default function CurriculumWizard({
           updated_at: new Date().toISOString(),
         })
         .eq("id", activeGoalId);
-      if (updateErr) { setGenerating(false); setError(`Could not update goal: ${updateErr.message}`); return; }
+      if (updateErr) { console.error("curriculum_goals update failed:", updateErr); setGenerating(false); setError(`Could not update goal: ${updateErr.message}`); return; }
     } else {
       // Create new goal for existing curriculum
       const { data: newGoal, error: insertErr } = await supabase
@@ -375,7 +375,7 @@ export default function CurriculumWizard({
         })
         .select("id")
         .single();
-      if (insertErr) { setGenerating(false); setError(`Could not save goal: ${insertErr.message}`); return; }
+      if (insertErr) { console.error("curriculum_goals insert failed:", insertErr); setGenerating(false); setError(`Could not save goal: ${insertErr.message}`); return; }
       activeGoalId = newGoal?.id;
 
       // Link existing lessons to new goal
