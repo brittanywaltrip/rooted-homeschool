@@ -503,6 +503,7 @@ export default function PlanPage() {
   async function downloadReport() {
     if (!effectiveUserId) return;
     setDownloadingReport(true);
+    console.log("[Report v4] downloadReport called - using jsPDF direct drawing, NO html2canvas");
     try {
       const { jsPDF } = await import("jspdf");
       const { generateProgressReport, fmtMins } = await import("@/lib/pdf");

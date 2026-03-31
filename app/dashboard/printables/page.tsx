@@ -1089,6 +1089,7 @@ function AnnualReportCard({
 
   async function handleDownload() {
     setDownloading(true);
+    console.log("[Printables Report v4] handleDownload called - using jsPDF direct drawing, NO html2canvas");
     try {
       const { jsPDF } = await import("jspdf");
       const { generateProgressReport, fmtMins: fmt } = await import("@/lib/pdf");
