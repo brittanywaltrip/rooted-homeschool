@@ -1115,22 +1115,24 @@ export default function TodayPage() {
   // ── Extra lesson: log next lesson in sequence for a child's curriculum ────
 
   async function logExtraLesson(childId: string) {
-    if (extraLessonLoading) return;
+    console.log("[logExtraLesson] called, childId:", childId);
+    if (extraLessonLoading) { console.log("[logExtraLesson] blocked — already loading"); return; }
     setExtraLessonLoading(childId);
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setExtraLessonLoading(null); return; }
+    if (!user) { console.log("[logExtraLesson] no user"); setExtraLessonLoading(null); return; }
 
     // Find curriculum goals for this child that still have lessons remaining
-    const { data: goals } = await supabase
+    const { data: goals, error: goalsErr } = await supabase
       .from("curriculum_goals")
       .select("id, curriculum_name, current_lesson, total_lessons, child_id, default_minutes, school_days")
       .eq("user_id", user.id)
-      .eq("child_id", childId)
-      .is("completed", null);
+      .eq("child_id", childId);
+    console.log("[logExtraLesson] goals query — data:", goals?.length, "error:", goalsErr);
     const activeGoals = (goals ?? []).filter(
       (g: { current_lesson: number; total_lessons: number }) => g.current_lesson < g.total_lessons
     );
+    console.log("[logExtraLesson] activeGoals:", activeGoals.length);
     if (activeGoals.length === 0) { setExtraLessonLoading(null); return; }
 
     // Find the next uncompleted lesson across all goals, preferring earliest lesson_number
@@ -1153,6 +1155,7 @@ export default function TodayPage() {
       }
     }
 
+    console.log("[logExtraLesson] nextLesson:", nextLesson ? nextLesson.title : "NONE FOUND");
     if (!nextLesson) { setExtraLessonLoading(null); return; }
 
     // Mark the lesson as completed with today's date and default minutes
@@ -1229,8 +1232,7 @@ export default function TodayPage() {
       .from("curriculum_goals")
       .select("id, school_days")
       .eq("user_id", user.id)
-      .eq("child_id", childId)
-      .is("completed", null);
+      .eq("child_id", childId);
 
     for (const goal of (goals ?? [])) {
       const schoolDays = (goal as { school_days?: string[] }).school_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
