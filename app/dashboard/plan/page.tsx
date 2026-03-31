@@ -187,6 +187,7 @@ export default function PlanPage() {
   // ── Curriculum management ─────────────────────────────────────────────────
   const [showCreateWizard,  setShowCreateWizard]  = useState(false);
   const [downloadingReport, setDownloadingReport] = useState(false);
+  const [reportChildId, setReportChildId] = useState<string>("all");
 
   useEffect(() => { document.title = "Plan · Rooted"; }, []);
 
@@ -538,7 +539,22 @@ export default function PlanPage() {
       const trips = memories.filter(m => ["field_trip", "project", "activity"].includes(m.type));
       const sDays = new Set(done.map(l => ld(l)).filter(Boolean)).size;
 
-      const childReport = children.map(c => {
+      const isPerChild = reportChildId !== "all";
+      const selectedChild = isPerChild ? children.find(c => c.id === reportChildId) : null;
+      const reportChildren = isPerChild && selectedChild ? [selectedChild] : children;
+
+      // Filter lessons/memories to selected child when per-child
+      const scopedDone = isPerChild ? done.filter(l => l.child_id === reportChildId) : done;
+      const scopedMemories = isPerChild ? memories.filter(m => m.child_id === reportChildId) : memories;
+
+      // Recalculate summary for scoped data
+      const scopedTLM = scopedDone.reduce((s, l) => s + lm(l).m, 0);
+      const scopedMM = scopedMemories.filter(m => m.duration_minutes).reduce((s, m) => s + (m.duration_minutes || 0), 0);
+      const scopedBooks = scopedMemories.filter(m => m.type === "book");
+      const scopedTrips = scopedMemories.filter(m => ["field_trip", "project", "activity"].includes(m.type));
+      const scopedSDays = new Set(scopedDone.map(l => ld(l)).filter(Boolean)).size;
+
+      const childReport = reportChildren.map(c => {
         const cl = done.filter(l => l.child_id === c.id);
         const cm = cl.reduce((s, l) => s + lm(l).m, 0);
         const cd = new Set(cl.map(l => ld(l)).filter(Boolean)).size;
@@ -557,26 +573,36 @@ export default function PlanPage() {
         };
       });
 
-      // Daily log
-      const logMap: Record<string, { subject: string; description: string; minutes: number; type: string; estimated: boolean }[]> = {};
-      for (const l of done) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ subject: l.subjects?.name || "General", description: l.title || "Lesson", minutes: r.m, type: "Lesson", estimated: r.e }); }
-      for (const m of memories) { if (!m.duration_minutes || !["field_trip","project","activity","win"].includes(m.type)) continue; if (!logMap[m.date]) logMap[m.date] = []; logMap[m.date].push({ subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: "Activity", estimated: false }); }
+      // Build child name lookup for daily log
+      const childNameMap: Record<string, string> = {};
+      for (const c of children) childNameMap[c.id] = c.name;
+
+      // Daily log — scoped to selected child when per-child
+      const logMap: Record<string, { childName: string; subject: string; description: string; minutes: number; type: string; estimated: boolean }[]> = {};
+      for (const l of scopedDone) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ childName: childNameMap[l.child_id] || "", subject: l.subjects?.name || "General", description: l.title || "Lesson", minutes: r.m, type: "Lesson", estimated: r.e }); }
+      for (const m of scopedMemories) { if (!m.duration_minutes || !["field_trip","project","activity","win"].includes(m.type)) continue; if (!logMap[m.date]) logMap[m.date] = []; logMap[m.date].push({ childName: m.child_id ? (childNameMap[m.child_id] || "") : "", subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: "Activity", estimated: false }); }
       const dailyLog = Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({
         dateLabel: new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
         entries,
       }));
 
-      console.log("[Report v4] Data ready:", JSON.stringify({ familyName, yr, children: childReport.length, lessons: done.length, memories: memories.length, dailyLogDays: dailyLog.length }));
+      const reportTitle = isPerChild && selectedChild
+        ? `${selectedChild.name} - ${familyName} Homeschool Academy`
+        : familyName;
+
+      console.log("[Report v5] Data ready:", JSON.stringify({ reportTitle, yr, children: childReport.length, lessons: scopedDone.length, memories: scopedMemories.length, dailyLogDays: dailyLog.length }));
       const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
-      console.log("[Report v4] jsPDF doc created, calling generateProgressReport...");
       generateProgressReport(doc, {
-        familyName, schoolYear: yr, dateGenerated: dateGen, showWatermark: true,
-        summary: { totalHours: fmtMins(tLM + mM), schoolDays: sDays, lessons: done.length, books: books.length, trips: trips.length, memories: memories.length },
+        familyName: reportTitle, schoolYear: yr, dateGenerated: dateGen, showWatermark: true,
+        summary: { totalHours: fmtMins(scopedTLM + scopedMM), schoolDays: scopedSDays, lessons: scopedDone.length, books: scopedBooks.length, trips: scopedTrips.length, memories: scopedMemories.length },
         children: childReport,
         dailyLog,
+        showChildColumn: !isPerChild,
       });
-      console.log("[Report v4] generateProgressReport done, pages:", doc.getNumberOfPages());
-      doc.save(`${familyName.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-progress-report.pdf`);
+      const fileSlug = isPerChild && selectedChild
+        ? `${selectedChild.name.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-${familyName.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`
+        : `the-${familyName.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-family`;
+      doc.save(`${fileSlug}-progress-report-${yr.replace(/[^\d]/g, "-")}.pdf`);
       console.log("[Report v4] PDF saved successfully");
     } catch (e: unknown) {
       const err = e instanceof Error ? e : new Error(String(e));
@@ -1208,10 +1234,23 @@ export default function PlanPage() {
                   A full record of your homeschool year — lessons, hours, books, and daily activity log — ready to download or share.
                 </p>
               </div>
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <label className="text-[11px] text-[#7a6f65] shrink-0">Download report for:</label>
+              <select
+                value={reportChildId}
+                onChange={(e) => setReportChildId(e.target.value)}
+                className="text-xs border border-[#e8e2d9] rounded-lg px-2.5 py-1.5 bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/30"
+              >
+                <option value="all">All Children</option>
+                {children.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
               <button
                 onClick={downloadReport}
                 disabled={downloadingReport}
-                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors shrink-0"
+                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors shrink-0 ml-auto"
               >
                 {downloadingReport ? "Generating…" : "Download Report"}
               </button>

@@ -115,8 +115,9 @@ export type ReportData = {
   }[];
   dailyLog: {
     dateLabel: string;
-    entries: { subject: string; description: string; minutes: number; type: string; estimated: boolean }[];
+    entries: { childName?: string; subject: string; description: string; minutes: number; type: string; estimated: boolean }[];
   }[];
+  showChildColumn?: boolean;
 };
 
 export function generateProgressReport(doc: jsPDF, data: ReportData) {
@@ -264,6 +265,12 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
     doc.addPage();
     y = MY;
 
+    // Column positions shift when showing child column
+    const sc = !!data.showChildColumn;
+    const colChild = MX + 1.1;
+    const colSubj = sc ? MX + 2.1 : MX + 1.5;
+    const colDesc = sc ? MX + 3.4 : MX + 3;
+
     doc.setFontSize(13);
     setColor(doc, C.dark);
     txt(doc,"Daily Activity Log", MX, y + 0.1);
@@ -273,57 +280,35 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
     txt(doc,"For state record-keeping purposes", MX, y + 0.1);
     y += 0.35;
 
-    // Table header
-    fillRect(doc, MX, y, CW_INNER, 0.22, C.headerBg);
-    doc.setFontSize(6.5);
-    setColor(doc, C.muted);
-    txt(doc,"DATE", MX + 0.1, y + 0.15);
-    txt(doc,"SUBJECT", MX + 1.5, y + 0.15);
-    txt(doc,"DESCRIPTION", MX + 3, y + 0.15);
-    txt(doc,"MIN", PW - MX - 0.6, y + 0.15, { align: "right" });
-    txt(doc,"TYPE", PW - MX - 0.1, y + 0.15, { align: "right" });
-    y += 0.22;
+    function drawLogHeader() {
+      fillRect(doc, MX, y, CW_INNER, 0.22, C.headerBg);
+      doc.setFontSize(6.5);
+      setColor(doc, C.muted);
+      txt(doc,"DATE", MX + 0.1, y + 0.15);
+      if (sc) txt(doc,"CHILD", colChild, y + 0.15);
+      txt(doc,"SUBJECT", colSubj, y + 0.15);
+      txt(doc,"DESCRIPTION", colDesc, y + 0.15);
+      txt(doc,"MIN", PW - MX - 0.6, y + 0.15, { align: "right" });
+      txt(doc,"TYPE", PW - MX - 0.1, y + 0.15, { align: "right" });
+      y += 0.22;
+    }
 
+    drawLogHeader();
     let totalLogMins = 0;
 
     for (const day of data.dailyLog) {
-      // Date header row
-      if (y > PH - 0.8) {
-        doc.addPage();
-        y = MY;
-        // Re-draw table header
-        fillRect(doc, MX, y, CW_INNER, 0.22, C.headerBg);
-        doc.setFontSize(6.5);
-        setColor(doc, C.muted);
-        txt(doc,"DATE", MX + 0.1, y + 0.15);
-        txt(doc,"SUBJECT", MX + 1.5, y + 0.15);
-        txt(doc,"DESCRIPTION", MX + 3, y + 0.15);
-        txt(doc,"MIN", PW - MX - 0.6, y + 0.15, { align: "right" });
-        txt(doc,"TYPE", PW - MX - 0.1, y + 0.15, { align: "right" });
-        y += 0.22;
-      }
+      if (y > PH - 0.8) { doc.addPage(); y = MY; drawLogHeader(); }
 
       for (const e of day.entries) {
-        if (y > PH - 0.6) {
-          doc.addPage();
-          y = MY;
-          fillRect(doc, MX, y, CW_INNER, 0.22, C.headerBg);
-          doc.setFontSize(6.5);
-          setColor(doc, C.muted);
-          txt(doc,"DATE", MX + 0.1, y + 0.15);
-          txt(doc,"SUBJECT", MX + 1.5, y + 0.15);
-          txt(doc,"DESCRIPTION", MX + 3, y + 0.15);
-          txt(doc,"MIN", PW - MX - 0.6, y + 0.15, { align: "right" });
-          txt(doc,"TYPE", PW - MX - 0.1, y + 0.15, { align: "right" });
-          y += 0.22;
-        }
+        if (y > PH - 0.6) { doc.addPage(); y = MY; drawLogHeader(); }
         drawLine(doc, MX, y, PW - MX, y, C.border, 0.002);
         doc.setFontSize(7);
         setColor(doc, C.muted);
         txt(doc,day.dateLabel, MX + 0.1, y + 0.13);
+        if (sc) { setColor(doc, C.dark); txt(doc,(e.childName || "").substring(0, 12), colChild, y + 0.13); }
         setColor(doc, C.dark);
-        txt(doc,e.subject.substring(0, 18), MX + 1.5, y + 0.13);
-        txt(doc,e.description.substring(0, 35), MX + 3, y + 0.13);
+        txt(doc,e.subject.substring(0, 18), colSubj, y + 0.13);
+        txt(doc,e.description.substring(0, sc ? 28 : 35), colDesc, y + 0.13);
         txt(doc,`${e.minutes}${e.estimated ? "*" : ""}`, PW - MX - 0.6, y + 0.13, { align: "right" });
         setColor(doc, C.muted);
         txt(doc,e.type, PW - MX - 0.1, y + 0.13, { align: "right" });
