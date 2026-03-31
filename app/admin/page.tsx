@@ -15,9 +15,9 @@ const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.co
 
 const TEST_EMAILS_PATTERNS = ["rooted.", "test", "finalpass", "mobiletest", "finaltest"];
 const TEST_EMAILS_EXACT = [
+  "garfieldbrittany@gmail.com",
   "zoereywaltrip@gmail.com",
   "brittanywaltrip20@gmail.com",
-  "josephgarfield12@gmail.com",
   "het787@gmail.com",
   "wovapi4416@lxbeta.com",
 ];
