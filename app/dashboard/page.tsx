@@ -1579,11 +1579,13 @@ export default function TodayPage() {
                 </div>
                 {/* Extra lesson button — only when all scheduled lessons done */}
                 {!isPartner && card.id !== "__unassigned" && card.lessons.length > 0 && card.lessons.every(l => l.completed) && (
-                  <div className="px-3 pb-2.5">
+                  <div className="px-3 pb-3" style={{ position: "relative", zIndex: 10 }}>
                     <button
-                      onClick={() => logExtraLesson(card.id)}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); console.log("[extra-btn] clicked, card.id:", card.id); logExtraLesson(card.id); }}
                       disabled={extraLessonLoading === card.id}
-                      className="w-full text-center text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] py-1.5 transition-colors disabled:opacity-50"
+                      style={{ minHeight: 44 }}
+                      className="w-full text-center text-[12px] font-medium text-[#b5aca4] hover:text-[#7a6f65] py-2 transition-colors disabled:opacity-50"
                     >
                       {extraLessonLoading === card.id ? "Logging..." : `+ ${card.name} did an extra lesson today`}
                     </button>
@@ -1685,13 +1687,17 @@ export default function TodayPage() {
                   ))}
                   {/* Extra lesson button — only when all scheduled lessons done */}
                   {!isPartner && expandedChild !== "__unassigned" && allChildDone && (
-                    <button
-                      onClick={() => logExtraLesson(expandedChild)}
-                      disabled={extraLessonLoading === expandedChild}
-                      className="w-full text-center text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] py-1.5 transition-colors disabled:opacity-50"
-                    >
-                      {extraLessonLoading === expandedChild ? "Logging..." : `+ ${childName} did an extra lesson today`}
-                    </button>
+                    <div style={{ position: "relative", zIndex: 10 }}>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); console.log("[extra-btn] clicked, expandedChild:", expandedChild); logExtraLesson(expandedChild); }}
+                        disabled={extraLessonLoading === expandedChild}
+                        style={{ minHeight: 44 }}
+                        className="w-full text-center text-[12px] font-medium text-[#b5aca4] hover:text-[#7a6f65] py-2 transition-colors disabled:opacity-50"
+                      >
+                        {extraLessonLoading === expandedChild ? "Logging..." : `+ ${childName} did an extra lesson today`}
+                      </button>
+                    </div>
                   )}
                   {/* Ahead-of-schedule pill */}
                   {aheadPromptChildren.has(expandedChild) && !dismissedAheadPrompts.has(expandedChild) && (
