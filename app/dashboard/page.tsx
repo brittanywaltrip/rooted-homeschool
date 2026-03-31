@@ -2786,76 +2786,109 @@ export default function TodayPage() {
       )}
 
       {/* ── Reschedule bottom sheet ──────────────────────── */}
-      {rescheduleLesson && (
-        <>
-          <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => setRescheduleLesson(null)} />
-          <div className="fixed bottom-0 left-0 right-0 z-[81] bg-white rounded-t-2xl shadow-xl max-w-lg mx-auto">
-            <div className="p-5">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-sm font-bold text-[#2d2926]">Reschedule {rescheduleLesson.title || "this lesson"}</h3>
+      {rescheduleLesson && (() => {
+        const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1);
+        const tmrwStr = localDateStr(tmrw);
+        const tmrwLabel = tmrw.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+        const curricName = rescheduleLesson.title?.replace(/ — Lesson.*$/, "") ?? "";
+        return (
+          <>
+            <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => setRescheduleLesson(null)} />
+            <div className="fixed bottom-0 left-0 right-0 z-[81] bg-[#faf8f4] rounded-t-2xl shadow-xl max-w-lg mx-auto">
+              <div className="p-5">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-medium text-[#3d5c42]" style={{ fontFamily: "var(--font-display)" }}>
+                    Reschedule {rescheduleLesson.title || "this lesson"}
+                  </h3>
+                  <button onClick={() => setRescheduleLesson(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
                 </div>
-                <button onClick={() => setRescheduleLesson(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
-              </div>
-              {/* Options */}
-              <div className="space-y-1.5">
-                <button
-                  onClick={() => {
-                    const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1);
-                    rescheduleMoveTo(localDateStr(tmrw));
-                  }}
-                  className="w-full text-left px-4 py-3 rounded-xl hover:bg-[#f8f7f4] text-sm text-[#2d2926] transition-colors"
-                >
-                  Move to tomorrow
-                </button>
-                <button
-                  onClick={() => setReschedulePicker(v => !v)}
-                  className="w-full text-left px-4 py-3 rounded-xl hover:bg-[#f8f7f4] text-sm text-[#2d2926] transition-colors"
-                >
-                  Move to a specific day
-                </button>
-                {reschedulePicker && (
-                  <div className="flex items-center gap-2 px-4 pb-1">
-                    <input
-                      type="date"
-                      min={today}
-                      value={reschedulePickerDate}
-                      onChange={(e) => setReschedulePickerDate(e.target.value)}
-                      className="flex-1 text-sm border border-[#e8e2d9] rounded-lg px-3 py-2 text-[#2d2926]"
-                    />
+                {/* Options */}
+                <div className="space-y-3">
+                  {/* Move to tomorrow */}
+                  <button
+                    onClick={() => rescheduleMoveTo(tmrwStr)}
+                    className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                  >
+                    <span className="text-lg shrink-0">📅</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#2d3a2e]">Move to tomorrow</p>
+                      <p className="text-xs text-[#9a8e84] mt-0.5">Lesson moves to {tmrwLabel}</p>
+                    </div>
+                    <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                  </button>
+
+                  {/* Move to specific day */}
+                  <div>
                     <button
-                      onClick={() => { if (reschedulePickerDate && reschedulePickerDate >= today) rescheduleMoveTo(reschedulePickerDate); }}
-                      disabled={!reschedulePickerDate || reschedulePickerDate < today}
-                      className="px-4 py-2 bg-[#5c7f63] text-white text-sm font-semibold rounded-lg disabled:opacity-40 hover:bg-[#3d5c42] transition-colors"
+                      onClick={() => setReschedulePicker(v => !v)}
+                      className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
                     >
-                      Move
+                      <span className="text-lg shrink-0">🗓</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#2d3a2e]">Move to a specific day</p>
+                        <p className="text-xs text-[#9a8e84] mt-0.5">Pick any date from the calendar</p>
+                      </div>
+                      <span className="text-[#c8bfb5] text-base shrink-0">{reschedulePicker ? "⌄" : "›"}</span>
                     </button>
+                    {reschedulePicker && (
+                      <div className="flex items-center gap-2 mt-2 px-1">
+                        <input
+                          type="date"
+                          min={today}
+                          value={reschedulePickerDate}
+                          onChange={(e) => setReschedulePickerDate(e.target.value)}
+                          className="flex-1 text-sm border border-[#e8e2d9] rounded-xl px-3 py-2.5 text-[#2d2926] bg-white"
+                        />
+                        <button
+                          onClick={() => { if (reschedulePickerDate && reschedulePickerDate >= today) rescheduleMoveTo(reschedulePickerDate); }}
+                          disabled={!reschedulePickerDate || reschedulePickerDate < today}
+                          className="px-5 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-[#3d5c42] transition-colors"
+                        >
+                          Move
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-                {rescheduleLesson.curriculum_goal_id && (
-                  <>
-                    <button
-                      onClick={() => reschedulePushAll()}
-                      className="w-full text-left px-4 py-3 rounded-xl hover:bg-[#f8f7f4] text-sm text-[#2d2926] transition-colors"
-                    >
-                      Push all remaining lessons back one day
-                    </button>
-                    <button
-                      onClick={() => rescheduleDoubleUp()}
-                      className="w-full text-left px-4 py-3 rounded-xl hover:bg-[#f8f7f4] text-sm text-[#2d2926] transition-colors"
-                    >
-                      Double up tomorrow
-                    </button>
-                  </>
-                )}
+
+                  {/* Curriculum-specific options */}
+                  {rescheduleLesson.curriculum_goal_id && (
+                    <>
+                      {/* Push all remaining */}
+                      <button
+                        onClick={() => reschedulePushAll()}
+                        className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                      >
+                        <span className="text-lg shrink-0">⏭</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#2d3a2e]">Push all remaining lessons back one day</p>
+                          <p className="text-xs text-[#9a8e84] mt-0.5">Shifts every upcoming {curricName || "curriculum"} lesson by one school day</p>
+                        </div>
+                        <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                      </button>
+
+                      {/* Double up tomorrow */}
+                      <button
+                        onClick={() => rescheduleDoubleUp()}
+                        className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                      >
+                        <span className="text-lg shrink-0">2️⃣</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#2d3a2e]">Double up tomorrow</p>
+                          <p className="text-xs text-[#9a8e84] mt-0.5">Do 2 lessons on {tmrwLabel.split(",")[0]} — stay on track</p>
+                        </div>
+                        <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
+              {/* Bottom safe area */}
+              <div className="h-6" />
             </div>
-            {/* Bottom safe area */}
-            <div className="h-6" />
-          </div>
-        </>
-      )}
+          </>
+        );
+      })()}
 
       {/* ── Reschedule undo toast ──────────────────────────── */}
       {rescheduleUndoToast && (
