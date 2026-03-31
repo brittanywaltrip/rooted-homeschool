@@ -599,9 +599,10 @@ export default function PlanPage() {
         dailyLog,
         showChildColumn: !isPerChild,
       });
+      const slugify = (s: string) => s.replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase();
       const fileSlug = isPerChild && selectedChild
-        ? `${selectedChild.name.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-${familyName.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`
-        : `the-${familyName.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-family`;
+        ? `${slugify(selectedChild.name)}-${slugify(familyName)}`
+        : slugify(familyName);
       doc.save(`${fileSlug}-progress-report-${yr.replace(/[^\d]/g, "-")}.pdf`);
       console.log("[Report v4] PDF saved successfully");
     } catch (e: unknown) {

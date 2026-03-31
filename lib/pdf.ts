@@ -131,13 +131,16 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
   // ── Page 1: Cover ────────────────────────────────────────────────────────
   // Green header block
   fillRect(doc, 0, 0, PW, 2.2, C.green);
-  doc.setFontSize(20);
-  setColor(doc, C.white);
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
+  setColor(doc, C.white);
   txt(doc,data.familyName || "Family Academy", PW / 2, 0.9, { align: "center" });
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
+  setColor(doc, C.white);
   txt(doc,`Annual Progress Report | ${data.schoolYear}`, PW / 2, 1.45, { align: "center" });
   doc.setFontSize(8);
+  setColor(doc, C.white);
   txt(doc,`Generated ${data.dateGenerated}`, PW / 2, 1.75, { align: "center" });
 
   // Cover disclaimer box
