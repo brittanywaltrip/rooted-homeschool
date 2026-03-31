@@ -9,6 +9,46 @@ import { ChevronLeft } from "lucide-react";
 const UPDATES = [
   {
     date: "March 2026",
+    emoji: "📅",
+    title: "Reschedule a Lesson",
+    description:
+      "Life happens — doctor appointments, off days, spontaneous field trips. Now you can reschedule any lesson right from Today. Tap ··· on any lesson and choose Reschedule. Move it to tomorrow, pick a specific day, push all remaining lessons back, or double up tomorrow to stay on track. Undo available for 8 seconds.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "March 2026",
+    emoji: "➕",
+    title: "Log Extra Lessons",
+    description:
+      'When your child is on a roll and does more than planned, tap "+ [child] did an extra lesson today" to log it. The next lesson in sequence gets checked off automatically. You can also tap Undo or edit/delete it from the ··· menu.',
+    inspiredByFamily: true,
+  },
+  {
+    date: "March 2026",
+    emoji: "✏️",
+    title: "Curriculum Edits Now Save Correctly",
+    description:
+      "Fixed a bug where editing your curriculum name, lesson count, or days done wasn't saving. All changes now update immediately on your Plan page.",
+    inspiredByFamily: false,
+  },
+  {
+    date: "March 2026",
+    emoji: "📊",
+    title: "Progress Report",
+    description:
+      "Download a full record of your homeschool year from the Plan page. Choose a specific child or all children. Includes total hours, lessons per subject, books read, field trips, wins, and a daily activity log — ready to share or save.",
+    inspiredByFamily: false,
+  },
+  {
+    date: "March 2026",
+    emoji: "⏱️",
+    title: "Hours Tracking",
+    description:
+      "Your total hours for the year are now auto-tracked every time you check off a lesson. See your running total on the Plan page. You can also log time on unplanned activities from the capture sheet.",
+    inspiredByFamily: false,
+  },
+  {
+    date: "March 2026",
     emoji: "🎉",
     title: "Celebrations When You Finish",
     description:
