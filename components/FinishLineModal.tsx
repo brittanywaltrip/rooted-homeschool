@@ -122,6 +122,7 @@ export default function FinishLineModal({ children, goal, onClose, onSaved, show
       total_lessons: total,
       current_lesson: current,
       target_date: targetDate,
+      default_minutes: 30,
       updated_at: new Date().toISOString(),
     }
 
