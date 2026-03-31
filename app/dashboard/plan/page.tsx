@@ -1049,6 +1049,8 @@ export default function PlanPage() {
             {curricGroups.map((group) => {
               const completedFromRows = group.totalCount - group.remainingCount;
               const goal = group.goalData;
+              const displaySubject = goal?.subject_label ?? group.subjectName ?? "General";
+              if (typeof window !== "undefined") console.log("[CourseProgress]", group.curricName, "goalData:", goal ? { subject_label: goal.subject_label, id: goal.id } : "NULL", "displaySubject:", displaySubject);
               const displayCompleted = goal?.current_lesson ?? completedFromRows;
               const displayTotal = goal?.total_lessons ?? group.totalCount;
               const pct = displayTotal > 0 ? Math.round((displayCompleted / displayTotal) * 100) : 0;
@@ -1090,7 +1092,7 @@ export default function PlanPage() {
                         {child?.name ?? "Unassigned"} · {group.curricName}
                       </p>
                       <p style={{ fontSize: 10, color: "#b5aca4", margin: "1px 0 0" }}>
-                        {group.goalData?.subject_label ?? group.subjectName ?? "General"} · {displayCompleted} of {displayTotal}
+                        {displaySubject} · {displayCompleted} of {displayTotal}
                       </p>
                     </div>
 
