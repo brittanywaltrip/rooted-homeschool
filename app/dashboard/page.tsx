@@ -433,6 +433,9 @@ export default function TodayPage() {
 
   const [savedMemoryToast,       setSavedMemoryToast]       = useState(false);
   const [gardenToast,            setGardenToast]            = useState<{ name: string; leaves: number } | null>(null);
+  const [extraLessonLoading,     setExtraLessonLoading]     = useState<string | null>(null); // child ID currently logging
+  const [aheadPromptChildren,    setAheadPromptChildren]    = useState<Set<string>>(new Set());
+  const [dismissedAheadPrompts,  setDismissedAheadPrompts]  = useState<Set<string>>(new Set());
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
   const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
@@ -1109,6 +1112,174 @@ export default function TodayPage() {
     await refreshLeafCounts();
   }
 
+  // ── Extra lesson: log next lesson in sequence for a child's curriculum ────
+
+  async function logExtraLesson(childId: string) {
+    console.log("[logExtraLesson] called, childId:", childId);
+    if (extraLessonLoading) { console.log("[logExtraLesson] blocked — already loading"); return; }
+    setExtraLessonLoading(childId);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { console.log("[logExtraLesson] no user"); setExtraLessonLoading(null); return; }
+
+    // Find curriculum goals for this child that still have lessons remaining
+    const { data: goals, error: goalsErr } = await supabase
+      .from("curriculum_goals")
+      .select("id, curriculum_name, current_lesson, total_lessons, child_id, default_minutes, school_days")
+      .eq("user_id", user.id)
+      .eq("child_id", childId);
+    console.log("[logExtraLesson] goals query — data:", goals?.length, "error:", goalsErr);
+    const activeGoals = (goals ?? []).filter(
+      (g: { current_lesson: number; total_lessons: number }) => g.current_lesson < g.total_lessons
+    );
+    console.log("[logExtraLesson] activeGoals:", activeGoals.length);
+    if (activeGoals.length === 0) { setExtraLessonLoading(null); return; }
+
+    // Find the next uncompleted lesson across all goals, preferring earliest lesson_number
+    type NextLessonRow = { id: string; title: string; curriculum_goal_id: string; lesson_number: number; child_id: string };
+    let nextLesson: NextLessonRow | null = null;
+
+    for (const goal of activeGoals) {
+      const { data: upcoming } = await supabase
+        .from("lessons")
+        .select("id, title, curriculum_goal_id, lesson_number, child_id")
+        .eq("curriculum_goal_id", goal.id)
+        .eq("completed", false)
+        .order("lesson_number", { ascending: true })
+        .limit(1);
+      if (upcoming && upcoming.length > 0) {
+        const candidate = upcoming[0] as NextLessonRow;
+        if (!nextLesson || candidate.lesson_number < nextLesson.lesson_number) {
+          nextLesson = candidate;
+        }
+      }
+    }
+
+    console.log("[logExtraLesson] nextLesson:", nextLesson ? nextLesson.title : "NONE FOUND");
+    if (!nextLesson) { setExtraLessonLoading(null); return; }
+
+    // Mark the lesson as completed with today's date and default minutes
+    const goalForLesson = activeGoals.find((g: { id: string }) => g.id === nextLesson!.curriculum_goal_id);
+    const mins = (goalForLesson as { default_minutes?: number })?.default_minutes ?? 30;
+
+    await supabase.from("lessons").update({
+      completed: true,
+      date: today,
+      scheduled_date: today,
+      minutes_spent: mins,
+    }).eq("id", nextLesson.id);
+
+    // Update curriculum_goal current_lesson
+    if (goalForLesson) {
+      const newCurrent = nextLesson.lesson_number;
+      await supabase.from("curriculum_goals")
+        .update({ current_lesson: newCurrent })
+        .eq("id", nextLesson.curriculum_goal_id);
+
+      // Auto-schedule the NEXT lesson (one beyond the one we just completed)
+      if (newCurrent < (goalForLesson as { total_lessons: number }).total_lessons) {
+        const nextNum = newCurrent + 1;
+        const days = schoolDaysArr.length > 0
+          ? schoolDaysArr
+          : ["monday", "tuesday", "wednesday", "thursday", "friday"];
+        const nextDate = new Date(today + "T12:00:00");
+        for (let i = 0; i < 14; i++) {
+          nextDate.setDate(nextDate.getDate() + 1);
+          const dayName = nextDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+          if (days.includes(dayName)) break;
+        }
+        await supabase.from("lessons").insert({
+          user_id: user.id,
+          child_id: childId,
+          curriculum_goal_id: nextLesson.curriculum_goal_id,
+          title: `${(goalForLesson as { curriculum_name: string }).curriculum_name} — Lesson ${nextNum}`,
+          lesson_number: nextNum,
+          scheduled_date: localDateStr(nextDate),
+          completed: false,
+          created_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    // Add the completed lesson to Today's view
+    const completedLesson: Lesson = {
+      id: nextLesson.id,
+      title: nextLesson.title,
+      completed: true,
+      child_id: childId,
+      hours: null,
+      minutes_spent: mins,
+      subjects: null,
+      curriculum_goal_id: nextLesson.curriculum_goal_id,
+      lesson_number: nextLesson.lesson_number,
+    };
+    setLessons(prev => [...prev, completedLesson]);
+
+    // Show ahead-of-schedule prompt
+    setAheadPromptChildren(prev => new Set(prev).add(childId));
+
+    // Toast
+    showCaptureToast("Extra lesson logged! 🌱", null);
+    setExtraLessonLoading(null);
+  }
+
+  async function rescheduleAfterExtra(childId: string) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Get all curriculum goals for this child
+    const { data: goals } = await supabase
+      .from("curriculum_goals")
+      .select("id, school_days")
+      .eq("user_id", user.id)
+      .eq("child_id", childId);
+
+    for (const goal of (goals ?? [])) {
+      const schoolDays = (goal as { school_days?: string[] }).school_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
+      const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+      const activeDays = new Set(schoolDays.map((d: string) => dayMap[d] ?? -1));
+
+      const { data: futureLessons } = await supabase
+        .from("lessons")
+        .select("id, scheduled_date")
+        .eq("curriculum_goal_id", goal.id)
+        .eq("completed", false)
+        .gte("scheduled_date", today)
+        .order("scheduled_date", { ascending: true });
+
+      if (!futureLessons || futureLessons.length === 0) continue;
+
+      const cursor = new Date(today + "T12:00:00");
+      const updates: { id: string; date: string }[] = [];
+      for (const lesson of futureLessons) {
+        let safety = 0;
+        while (safety < 365) {
+          cursor.setDate(cursor.getDate() + 1);
+          const dayIdx = (cursor.getDay() + 6) % 7; // Mon=0 .. Sun=6
+          if (activeDays.has(dayIdx)) {
+            updates.push({ id: (lesson as { id: string }).id, date: localDateStr(cursor) });
+            break;
+          }
+          safety++;
+        }
+      }
+      for (let i = 0; i < updates.length; i += 20) {
+        await Promise.all(
+          updates.slice(i, i + 20).map(({ id, date }) =>
+            supabase.from("lessons").update({ scheduled_date: date, date }).eq("id", id)
+          )
+        );
+      }
+    }
+
+    setAheadPromptChildren(prev => {
+      const next = new Set(prev);
+      next.delete(childId);
+      return next;
+    });
+    showCaptureToast("Schedule updated! 🌿", null);
+  }
+
   async function saveBook() {
     if (!bookTitle.trim()) return;
     setSavingBook(true);
@@ -1406,6 +1577,36 @@ export default function TodayPage() {
                     />
                   ))}
                 </div>
+                {/* Extra lesson button — only when all scheduled lessons done */}
+                {!isPartner && card.id !== "__unassigned" && card.lessons.length > 0 && card.lessons.every(l => l.completed) && (
+                  <div className="px-3 pb-2.5">
+                    <button
+                      onClick={() => logExtraLesson(card.id)}
+                      disabled={extraLessonLoading === card.id}
+                      className="w-full text-center text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] py-1.5 transition-colors disabled:opacity-50"
+                    >
+                      {extraLessonLoading === card.id ? "Logging..." : `+ ${card.name} did an extra lesson today`}
+                    </button>
+                  </div>
+                )}
+                {/* Ahead-of-schedule pill */}
+                {aheadPromptChildren.has(card.id) && !dismissedAheadPrompts.has(card.id) && (
+                  <div className="px-3 pb-2.5">
+                    <div className="flex items-center justify-between gap-2 bg-[#f4faf0] border border-[#d4e8c8] rounded-full px-3 py-1.5">
+                      <span className="text-[11px] text-[#3d5c42]">You&apos;re ahead of schedule — update your finish date?</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => rescheduleAfterExtra(card.id)}
+                          className="text-[11px] font-semibold text-[#2D5a1B] hover:underline"
+                        >Update</button>
+                        <button
+                          onClick={() => setDismissedAheadPrompts(prev => new Set(prev).add(card.id))}
+                          className="text-[#b5aca4] hover:text-[#7a6f65] text-xs leading-none"
+                        >✕</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -1471,6 +1672,8 @@ export default function TodayPage() {
                 ? lessons.filter(l => !l.child_id || !childIds.has(l.child_id))
                 : lessons.filter(l => l.child_id === expandedChild);
               if (cl.length === 0) return null;
+              const allChildDone = cl.length > 0 && cl.every(l => l.completed);
+              const childName = childObj?.name ?? "your child";
               return (
                 <div className="mt-2 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-2 space-y-1">
                   {cl.map(lesson => (
@@ -1480,6 +1683,32 @@ export default function TodayPage() {
                       onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} isPartner={isPartner}
                     />
                   ))}
+                  {/* Extra lesson button — only when all scheduled lessons done */}
+                  {!isPartner && expandedChild !== "__unassigned" && allChildDone && (
+                    <button
+                      onClick={() => logExtraLesson(expandedChild)}
+                      disabled={extraLessonLoading === expandedChild}
+                      className="w-full text-center text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] py-1.5 transition-colors disabled:opacity-50"
+                    >
+                      {extraLessonLoading === expandedChild ? "Logging..." : `+ ${childName} did an extra lesson today`}
+                    </button>
+                  )}
+                  {/* Ahead-of-schedule pill */}
+                  {aheadPromptChildren.has(expandedChild) && !dismissedAheadPrompts.has(expandedChild) && (
+                    <div className="flex items-center justify-between gap-2 bg-[#f4faf0] border border-[#d4e8c8] rounded-full px-3 py-1.5 mt-1">
+                      <span className="text-[11px] text-[#3d5c42]">You&apos;re ahead of schedule — update your finish date?</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => rescheduleAfterExtra(expandedChild)}
+                          className="text-[11px] font-semibold text-[#2D5a1B] hover:underline"
+                        >Update</button>
+                        <button
+                          onClick={() => setDismissedAheadPrompts(prev => new Set(prev).add(expandedChild))}
+                          className="text-[#b5aca4] hover:text-[#7a6f65] text-xs leading-none"
+                        >✕</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
