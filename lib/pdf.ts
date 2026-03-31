@@ -55,9 +55,11 @@ function drawLine(doc: jsPDF, x1: number, y1: number, x2: number, y2: number, c:
   doc.line(x1, y1, x2, y2);
 }
 
-/** Safe text output — sanitizes non-ASCII before rendering */
+/** Safe text output — pre-splits to prevent jsPDF internal splitter recursion */
 function txt(doc: jsPDF, s: string, x: number, y: number, opts?: { align?: "center" | "right" | "left" }) {
-  doc.text(safe(s), x, y, opts);
+  const cleaned = safe(s);
+  const lines = doc.splitTextToSize(cleaned, CW_INNER);
+  doc.text(lines, x, y, opts);
 }
 
 /** Wrap text to fit within maxW and return lines */
