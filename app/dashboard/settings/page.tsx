@@ -137,7 +137,6 @@ export default function SettingsPage() {
 
   // Family name
   const [familyName,   setFamilyName]   = useState("");
-  const [copiedShare,  setCopiedShare]  = useState(false);
   const [editingName,  setEditingName]  = useState(false);
   const [savingFamily, setSavingFamily] = useState(false);
   const [savedFamily,  setSavedFamily]  = useState(false);
@@ -1908,10 +1907,10 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {/* ── Share Rooted ─────────────────────────────────────────────── */}
+      {/* ── Spread the word ──────────────────────────────────────────── */}
       <div className="mt-6">
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-          <p className="text-sm font-medium text-[#2d2926]">Share Rooted 🌱</p>
+          <p className="text-sm font-medium text-[#2d2926]">Spread the word 🌱</p>
           <p className="text-xs text-[#7a6f65] mt-0.5 mb-3">Know a homeschool mom who&apos;d love this? Send her the link.</p>
           <button
             onClick={async () => {
@@ -1957,53 +1956,6 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
-
-      {/* ── Share Rooted ─────────────────────────────────────────────── */}
-      {(() => {
-        const slug = familyName.toLowerCase().replace(/[^a-z0-9]/g, "");
-        const shareUrl = slug
-          ? `https://www.rootedhomeschoolapp.com/join?ref=${slug}`
-          : "https://www.rootedhomeschoolapp.com";
-        return (
-          <div className="bg-[#fefcf9] border border-[#e8e0d9] rounded-2xl p-5 space-y-3">
-            <div>
-              <p className="text-sm font-semibold text-[#2d2926]">Share Rooted 🌱</p>
-              <p className="text-xs text-[#7a6f65] mt-0.5">Know a homeschool family who&apos;d love this? Share your link.</p>
-            </div>
-            <input
-              readOnly
-              value={shareUrl}
-              className="bg-[#f5f0e8] border border-[#e8e0d9] rounded-xl px-4 py-2 text-[13px] text-[#2d2926] font-mono w-full"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(shareUrl);
-                  setCopiedShare(true);
-                  setTimeout(() => setCopiedShare(false), 2000);
-                }}
-                className="flex-1 bg-[#3d5c42] text-white rounded-xl px-4 py-2 text-sm font-medium hover:bg-[#2d5a3d] transition-colors"
-              >
-                {copiedShare ? "Copied! ✓" : "Copy link"}
-              </button>
-              <button
-                onClick={() => {
-                  if (navigator.share) {
-                    navigator.share({ title: "Rooted", text: "A beautiful app for homeschool memory keeping", url: shareUrl }).catch(() => {});
-                  } else {
-                    navigator.clipboard.writeText(shareUrl);
-                    setCopiedShare(true);
-                    setTimeout(() => setCopiedShare(false), 2000);
-                  }
-                }}
-                className="flex-1 border border-[#3d5c42] text-[#3d5c42] bg-transparent rounded-xl px-4 py-2 text-sm font-medium hover:bg-[#e8f0e9] transition-colors"
-              >
-                Share
-              </button>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ── Sign Out ──────────────────────────────────────────────────── */}
       <button
