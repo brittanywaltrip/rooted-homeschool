@@ -77,6 +77,7 @@ const CW_INNER = PW - 2 * MX; // content width
 // ─── Footer ──────────────────────────────────────────────────────────────────
 
 function drawFooter(doc: jsPDF, familyName: string, dateGen: string) {
+  const disclaimer = "This report is generated from activity logged in Rooted and is provided as a personal record-keeping tool. Homeschool reporting requirements vary by state. Please consult your state's homeschool laws for official compliance requirements.";
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
@@ -84,6 +85,9 @@ function drawFooter(doc: jsPDF, familyName: string, dateGen: string) {
     setColor(doc, C.light);
     txt(doc,`Page ${i} of ${pageCount}`, PW - MX, PH - 0.3, { align: "right" });
     txt(doc,`Generated ${dateGen} | ${familyName} | rootedhomeschoolapp.com`, MX, PH - 0.3);
+    doc.setFontSize(5.5);
+    const discLines = doc.splitTextToSize(safe(disclaimer), CW_INNER);
+    doc.text(discLines, PW / 2, PH - 0.15, { align: "center" });
   }
 }
 

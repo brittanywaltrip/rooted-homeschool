@@ -587,7 +587,7 @@ export default function PlanPage() {
       }));
 
       const reportTitle = isPerChild && selectedChild
-        ? `${selectedChild.name} - ${familyName} Homeschool Academy`
+        ? `${selectedChild.name} - ${familyName}`
         : familyName;
 
       console.log("[Report v5] Data ready:", JSON.stringify({ reportTitle, yr, children: childReport.length, lessons: scopedDone.length, memories: scopedMemories.length, dailyLogDays: dailyLog.length }));
