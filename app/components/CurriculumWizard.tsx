@@ -332,6 +332,7 @@ export default function CurriculumWizard({
 
   // ── EDIT: update goal + reschedule ─────────────────────────────────────────
   async function saveEdit() {
+    console.log("[saveEdit] CALLED — editData:", JSON.stringify(editData));
     if (!editData) return;
     setGenerating(true);
     setError(null);
@@ -340,23 +341,29 @@ export default function CurriculumWizard({
 
     const todayStr = toDateStr(todayMidnight);
     let activeGoalId = editData.goalId;
+    console.log("[saveEdit] activeGoalId:", activeGoalId, "user:", user.id);
 
     if (activeGoalId) {
       // Update existing goal
-      const { error: updateErr } = await supabase
+      const updatePayload = {
+        curriculum_name: curricName.trim(),
+        subject_label: effectiveSub || null,
+        total_lessons: totalNum,
+        current_lesson: parseInt(startLesson) || 0,
+        target_date: targetDate || null,
+        school_days: booleanToDays(schoolDays),
+        default_minutes: parseInt(defaultMinutes) || 30,
+        updated_at: new Date().toISOString(),
+      };
+      console.log("[saveEdit] UPDATE payload:", JSON.stringify(updatePayload), "goalId:", activeGoalId);
+      const { data: updateData, error: updateErr } = await supabase
         .from("curriculum_goals")
-        .update({
-          curriculum_name: curricName.trim(),
-          subject_label: effectiveSub || null,
-          total_lessons: totalNum,
-          current_lesson: parseInt(startLesson) || 0,
-          target_date: targetDate || null,
-          school_days: booleanToDays(schoolDays),
-          default_minutes: parseInt(defaultMinutes) || 30,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", activeGoalId);
+        .update(updatePayload)
+        .eq("id", activeGoalId)
+        .select();
+      console.log("[saveEdit] UPDATE response — data:", JSON.stringify(updateData), "error:", updateErr);
       if (updateErr) { console.error("curriculum_goals update failed:", updateErr); setGenerating(false); setError(`Could not update goal: ${updateErr.message}`); return; }
+      if (!updateData || updateData.length === 0) { console.warn("[saveEdit] UPDATE returned 0 rows — goal may not exist or RLS blocked it"); }
     } else {
       // Create new goal for existing curriculum
       const { data: newGoal, error: insertErr } = await supabase
@@ -452,6 +459,7 @@ export default function CurriculumWizard({
     setGenerating(false);
     setDone(true);
     showToast?.("✓ Curriculum updated!");
+    console.log("[saveEdit] COMPLETE — calling onSaved() to refresh Plan page");
     onSaved();
   }
 
