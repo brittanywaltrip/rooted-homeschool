@@ -137,7 +137,6 @@ export default function SettingsPage() {
 
   // Family name
   const [familyName,   setFamilyName]   = useState("");
-  const [copiedShare,  setCopiedShare]  = useState(false);
   const [editingName,  setEditingName]  = useState(false);
   const [savingFamily, setSavingFamily] = useState(false);
   const [savedFamily,  setSavedFamily]  = useState(false);
@@ -1957,36 +1956,6 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
-
-      {/* ── Spread the word (referral) ────────────────────────────── */}
-      {(() => {
-        const slug = familyName.toLowerCase().replace(/[^a-z0-9]/g, "");
-        const shareUrl = slug
-          ? `https://www.rootedhomeschoolapp.com/join?ref=${slug}`
-          : "https://www.rootedhomeschoolapp.com";
-        return (
-          <div className="bg-[#fefcf9] border border-[#e8e0d9] rounded-2xl p-5 space-y-3">
-            <div>
-              <p className="text-sm font-semibold text-[#2d2926]">Spread the word 🌱</p>
-              <p className="text-xs text-[#7a6f65] mt-0.5">Know a homeschool family who&apos;d love this? Share your link.</p>
-            </div>
-            <button
-              onClick={async () => {
-                if (navigator.share) {
-                  try { await navigator.share({ title: "Rooted", text: "A beautiful app for homeschool memory keeping", url: shareUrl }); } catch {}
-                } else {
-                  await navigator.clipboard.writeText(shareUrl);
-                  setCopiedShare(true);
-                  setTimeout(() => setCopiedShare(false), 2000);
-                }
-              }}
-              className="bg-[#3d5c42] text-white rounded-xl px-4 py-2 text-sm font-medium hover:bg-[#2d5a3d] transition-colors"
-            >
-              {copiedShare ? "Copied! ✓" : "Share with a friend"}
-            </button>
-          </div>
-        );
-      })()}
 
       {/* ── Sign Out ──────────────────────────────────────────────────── */}
       <button
