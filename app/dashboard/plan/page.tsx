@@ -1091,7 +1091,7 @@ export default function PlanPage() {
                         {child?.name ?? "Unassigned"} · {group.curricName}
                       </p>
                       <p style={{ fontSize: 10, color: "#b5aca4", margin: "1px 0 0" }}>
-                        {group.subjectName ?? "General"} · {displayCompleted} of {displayTotal}
+                        {group.goalData?.subject_label ?? group.subjectName ?? "General"} · {displayCompleted} of {displayTotal}
                       </p>
                     </div>
 

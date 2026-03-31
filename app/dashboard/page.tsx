@@ -1410,6 +1410,63 @@ export default function TodayPage() {
     showRescheduleUndo("Doubled up tomorrow! Undo?", [{ lessonId: rescheduleLesson.id, date: originalDate }]);
   }
 
+  async function rescheduleMissedDay() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Find ALL uncompleted lessons scheduled for today
+    const todaysLessons = lessons.filter(l => !l.completed);
+    if (todaysLessons.length === 0) { setRescheduleLesson(null); return; }
+
+    // Store undo data
+    const undoData = todaysLessons.map(l => ({ lessonId: l.id, date: today }));
+
+    // Group by curriculum_goal_id to respect each curriculum's school_days
+    const goalIds = [...new Set(todaysLessons.map(l => l.curriculum_goal_id).filter(Boolean))] as string[];
+    const goalSchoolDays = new Map<string, Set<number>>();
+    if (goalIds.length > 0) {
+      const { data: goals } = await supabase.from("curriculum_goals")
+        .select("id, school_days").in("id", goalIds);
+      const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+      for (const g of (goals ?? [])) {
+        const days = (g as { school_days?: string[] }).school_days ?? [];
+        goalSchoolDays.set(g.id, days.length > 0 ? new Set(days.map((d: string) => dayMap[d] ?? -1)) : new Set([0, 1, 2, 3, 4]));
+      }
+    }
+    const defaultDays = new Set([0, 1, 2, 3, 4]); // Mon-Fri
+
+    // Move each lesson to its next valid school day
+    const updates: { id: string; newDate: string }[] = [];
+    for (const lesson of todaysLessons) {
+      const activeDays = (lesson.curriculum_goal_id && goalSchoolDays.has(lesson.curriculum_goal_id))
+        ? goalSchoolDays.get(lesson.curriculum_goal_id)!
+        : defaultDays;
+      const cur = new Date(today + "T12:00:00");
+      let safety = 0;
+      while (safety < 365) {
+        cur.setDate(cur.getDate() + 1);
+        const dayIdx = (cur.getDay() + 6) % 7;
+        if (activeDays.has(dayIdx)) {
+          updates.push({ id: lesson.id, newDate: localDateStr(cur) });
+          break;
+        }
+        safety++;
+      }
+    }
+
+    for (let i = 0; i < updates.length; i += 20) {
+      await Promise.all(
+        updates.slice(i, i + 20).map(({ id, newDate }) =>
+          supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+        )
+      );
+    }
+
+    setLessons(prev => prev.filter(l => l.completed));
+    setRescheduleLesson(null);
+    showRescheduleUndo("All of today's lessons rescheduled! Undo?", undoData);
+  }
+
   async function saveBook() {
     if (!bookTitle.trim()) return;
     setSavingBook(true);
@@ -2880,6 +2937,21 @@ export default function TodayPage() {
                         <span className="text-[#c8bfb5] text-base shrink-0">›</span>
                       </button>
                     </>
+                  )}
+
+                  {/* We missed a whole day */}
+                  {lessons.some(l => !l.completed) && (
+                    <button
+                      onClick={() => rescheduleMissedDay()}
+                      className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                    >
+                      <span className="text-lg shrink-0">🏠</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#2d3a2e]">We missed a whole day</p>
+                        <p className="text-xs text-[#9a8e84] mt-0.5">Move ALL of today&apos;s lessons to the next school day for each curriculum</p>
+                      </div>
+                      <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                    </button>
                   )}
                 </div>
               </div>
