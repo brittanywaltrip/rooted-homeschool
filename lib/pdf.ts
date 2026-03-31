@@ -85,7 +85,7 @@ function drawFooter(doc: jsPDF, familyName: string, dateGen: string) {
     setColor(doc, C.light);
     txt(doc,`Page ${i} of ${pageCount}`, PW - MX, PH - 0.3, { align: "right" });
     txt(doc,`Generated ${dateGen} | ${familyName} | rootedhomeschoolapp.com`, MX, PH - 0.3);
-    doc.setFontSize(5.5);
+    doc.setFontSize(7);
     const discLines = doc.splitTextToSize(safe(disclaimer), CW_INNER);
     doc.text(discLines, PW / 2, PH - 0.15, { align: "center" });
   }
@@ -140,8 +140,18 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
   doc.setFontSize(8);
   txt(doc,`Generated ${data.dateGenerated}`, PW / 2, 1.75, { align: "center" });
 
+  // Cover disclaimer box
+  const coverDisc = "This report is a personal record-keeping tool generated from activity logged in Rooted. Homeschool reporting requirements vary by state -- please consult your state's homeschool laws for compliance requirements.";
+  fillRect(doc, MX, 2.35, CW_INNER, 0.45, [240, 238, 234] as unknown as [number, number, number]);
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "italic");
+  setColor(doc, C.light);
+  const cdLines = doc.splitTextToSize(safe(coverDisc), CW_INNER - 0.4);
+  doc.text(cdLines, PW / 2, 2.52, { align: "center" });
+  doc.setFont("helvetica", "normal");
+
   // Family Summary
-  y = 2.6;
+  y = 2.95;
   doc.setFontSize(13);
   setColor(doc, C.dark);
   txt(doc,"Family Summary", MX, y);
