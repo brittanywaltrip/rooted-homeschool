@@ -1048,7 +1048,8 @@ export default function PlanPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {curricGroups.map((group) => {
               const completedCount = group.totalCount - group.remainingCount;
-              const pct = group.totalCount > 0 ? Math.round((completedCount / group.totalCount) * 100) : 0;
+              const displayTotal = group.goalData?.total_lessons ?? group.totalCount;
+              const pct = displayTotal > 0 ? Math.round((completedCount / displayTotal) * 100) : 0;
               const miniFillWidth = pct > 0 ? Math.max(4, Math.round((pct / 100) * 48)) : 0;
               const child = children.find(c => c.id === group.childId);
               const isExpanded = expandedCourses.has(group.key);
@@ -1088,7 +1089,7 @@ export default function PlanPage() {
                         {child?.name ?? "Unassigned"} · {group.curricName}
                       </p>
                       <p style={{ fontSize: 10, color: "#b5aca4", margin: "1px 0 0" }}>
-                        {group.subjectName ?? "General"} · {completedCount} of {group.totalCount}
+                        {group.subjectName ?? "General"} · {completedCount} of {displayTotal}
                       </p>
                     </div>
 
@@ -1111,7 +1112,7 @@ export default function PlanPage() {
                     <div style={{ borderTop: "0.5px solid #f5f0e8", padding: "10px 13px 11px" }}>
                       {/* Lesson count + percentage row */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#2d2926" }}>{completedCount} of {group.totalCount} lessons</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#2d2926" }}>{completedCount} of {displayTotal} lessons</span>
                         <span style={{ fontSize: 11, fontWeight: 700, color: "#2D5a1B" }}>{pct}%</span>
                       </div>
 

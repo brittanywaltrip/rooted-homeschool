@@ -397,6 +397,30 @@ export default function CurriculumWizard({
       }
     }
 
+    // Rename lesson titles if curriculum name changed
+    const oldName = editData.curricName;
+    const newName = curricName.trim();
+    if (oldName !== newName && activeGoalId) {
+      // Fetch all lessons linked to this goal (by goal_id or title pattern)
+      let renameQ = supabase
+        .from("lessons")
+        .select("id, title")
+        .eq("user_id", user.id)
+        .ilike("title", `${oldName} — Lesson%`);
+      if (editData.childId) renameQ = renameQ.eq("child_id", editData.childId);
+      const { data: toRename } = await renameQ;
+      if (toRename && toRename.length > 0) {
+        const renameBatch = toRename.map((l: { id: string; title: string }) => {
+          const updated = l.title.replace(oldName, newName);
+          return supabase.from("lessons").update({ title: updated }).eq("id", l.id);
+        });
+        for (let i = 0; i < renameBatch.length; i += 20) {
+          await Promise.all(renameBatch.slice(i, i + 20));
+        }
+        console.log(`[saveEdit] Renamed ${toRename.length} lesson titles: "${oldName}" → "${newName}"`);
+      }
+    }
+
     // Reschedule incomplete future lessons
     let futureLessons: { id: string; scheduled_date: string | null; date: string | null }[] = [];
 
