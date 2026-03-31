@@ -22,18 +22,16 @@ const C = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Strip non-ASCII characters that jsPDF's default font can't render */
-function safe(s: string): string {
-  return s
-    .replace(/[\u2018\u2019\u201A]/g, "'")   // curly single quotes
-    .replace(/[\u201C\u201D\u201E]/g, '"')   // curly double quotes
-    .replace(/[\u2013\u2014]/g, "-")          // en-dash, em-dash
-    .replace(/[\u00B7\u2022\u2023\u25E6]/g, "-") // middle dot, bullets
-    .replace(/[\u2026]/g, "...")              // ellipsis
-    .replace(/[\u00A0]/g, " ")               // non-breaking space
-    // eslint-disable-next-line no-control-regex
-    .replace(/[^\x00-\x7E]/g, "");           // strip anything else non-ASCII
-}
+/** Strip non-ASCII / control characters that jsPDF's default font can't render */
+const safe = (s: unknown): string =>
+  String(s ?? "")
+    .replace(/[\u2018\u2019\u201A]/g, "'")
+    .replace(/[\u201C\u201D\u201E]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/[\u00B7\u2022\u2023\u25E6]/g, "-")
+    .replace(/[\u2026]/g, "...")
+    .replace(/[\u00A0]/g, " ")
+    .replace(/[^\x20-\x7E]/g, "");
 
 export function fmtMins(m: number): string {
   if (m < 60) return `${m} min`;
@@ -57,9 +55,11 @@ function drawLine(doc: jsPDF, x1: number, y1: number, x2: number, y2: number, c:
   doc.line(x1, y1, x2, y2);
 }
 
-/** Safe text output — sanitizes non-ASCII before rendering */
+/** Safe text output — pre-splits to prevent jsPDF internal splitter recursion */
 function txt(doc: jsPDF, s: string, x: number, y: number, opts?: { align?: "center" | "right" | "left" }) {
-  txt(doc,safe(s), x, y, opts);
+  const cleaned = safe(s);
+  const lines = doc.splitTextToSize(cleaned, CW_INNER);
+  doc.text(lines, x, y, opts);
 }
 
 /** Wrap text to fit within maxW and return lines */
