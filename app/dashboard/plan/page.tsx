@@ -566,17 +566,22 @@ export default function PlanPage() {
         entries,
       }));
 
+      console.log("[Report v4] Data ready:", JSON.stringify({ familyName, yr, children: childReport.length, lessons: done.length, memories: memories.length, dailyLogDays: dailyLog.length }));
       const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
+      console.log("[Report v4] jsPDF doc created, calling generateProgressReport...");
       generateProgressReport(doc, {
         familyName, schoolYear: yr, dateGenerated: dateGen, showWatermark: true,
         summary: { totalHours: fmtMins(tLM + mM), schoolDays: sDays, lessons: done.length, books: books.length, trips: trips.length, memories: memories.length },
         children: childReport,
         dailyLog,
       });
+      console.log("[Report v4] generateProgressReport done, pages:", doc.getNumberOfPages());
       doc.save(`${familyName.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-progress-report.pdf`);
-    } catch (e) {
-      console.error("Report download failed:", e);
-      alert("Download failed. Please try again.");
+      console.log("[Report v4] PDF saved successfully");
+    } catch (e: unknown) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      console.error("[Report v4] FAILED:", err.message, err.stack);
+      alert(`Download failed: ${err.message}`);
     } finally {
       setDownloadingReport(false);
     }
