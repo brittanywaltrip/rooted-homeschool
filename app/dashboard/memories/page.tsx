@@ -544,15 +544,11 @@ export default function MemoriesPage() {
       .eq("id", editing.id)
       .select()
       .single();
-    if (data) {
-      const normalized = { ...data, date: (data as MemoryRow).date?.slice(0, 10) ?? editing.date } as MemoryRow;
-      setMemories((prev) =>
-        prev.map((m) => (m.id === editing.id ? normalized : m))
-          .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at))
-      );
-    }
     setEditSaving(false);
     setEditing(null);
+    if (data) {
+      await load();
+    }
   }
 
   // ── Delete handlers ────────────────────────────────────────────────────────
@@ -587,9 +583,9 @@ export default function MemoriesPage() {
     }
 
     await supabase.from("memories").delete().eq("id", deleteTarget.id);
-    setMemories((prev) => prev.filter((m) => m.id !== deleteTarget.id));
     setDeleting(false);
     setDeleteTarget(null);
+    await load();
   }
 
   // Delete from lightbox
@@ -615,10 +611,10 @@ export default function MemoriesPage() {
     }
 
     await supabase.from("memories").delete().eq("id", selectedMemory.id);
-    setMemories((prev) => prev.filter((m) => m.id !== selectedMemory.id));
     setDeleting(false);
     setSelectedMemory(null);
     setLightboxDeleteConfirm(false);
+    await load();
   }
 
   // ── Reflection handlers ────────────────────────────────────────────────────
