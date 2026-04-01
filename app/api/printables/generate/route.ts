@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+export const maxDuration = 30;
+
 export async function POST(req: NextRequest) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let browser: any;
+
   try {
     const { type, style, data, size } = await req.json();
     if (!type || !style || !data) {
@@ -13,15 +19,15 @@ export async function POST(req: NextRequest) {
     const chromium = (await import("@sparticuz/chromium")).default;
     const puppeteer = (await import("puppeteer-core")).default;
 
-    const browser = await puppeteer.launch({
-      args: chromium.args,
+    browser = await puppeteer.launch({
+      args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
       defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
       headless: chromium.headless,
     });
 
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "networkidle0", timeout: 15000 });
 
     const isIdCard = size === "id_card";
     const pdf = await page.pdf({
@@ -40,10 +46,9 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    console.error("[Printables API]", err);
-    return NextResponse.json(
-      { error: "PDF generation failed" },
-      { status: 500 }
-    );
+    console.error("[Printables API] PDF generation failed:", err);
+    try { if (browser) await browser.close(); } catch { /* ignore cleanup error */ }
+    const message = err instanceof Error ? err.message : "PDF generation failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

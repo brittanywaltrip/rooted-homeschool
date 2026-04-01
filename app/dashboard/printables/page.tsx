@@ -607,7 +607,10 @@ async function downloadCertificate(type: string, style: StyleId, data: Record<st
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ type, style, data, size: "certificate" }),
   });
-  if (!res.ok) throw new Error("PDF generation failed");
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "PDF generation failed — please try again");
+  }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -647,8 +650,13 @@ function AwardCard({
         </p>
       </div>
       <button onClick={onDownload} disabled={downloading}
-        className="flex items-center gap-1 text-[11px] font-semibold text-[#5c7f63] hover:text-[#3d5c42] disabled:opacity-50 shrink-0 mt-0.5">
-        <Download size={12} /> {downloading ? "\u2026" : "Download"}
+        className="flex items-center gap-1.5 text-[11px] font-semibold text-[#5c7f63] hover:text-[#3d5c42] disabled:opacity-50 shrink-0 mt-0.5">
+        {downloading ? (
+          <span className="inline-block w-3 h-3 border-2 border-[#5c7f63] border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <Download size={12} />
+        )}
+        {downloading ? "Generating\u2026" : "Download"}
       </button>
     </div>
   );
@@ -695,6 +703,7 @@ export default function PrintablesPage() {
   const [customAcademy, setCustomAcademy] = useState("");
   const [customDate, setCustomDate] = useState(todayStr());
   const [customDownloading, setCustomDownloading] = useState(false);
+  const [errorToast, setErrorToast] = useState<string | null>(null);
 
   // Manual award states
   const [gradChild, setGradChild] = useState("");
@@ -824,7 +833,7 @@ export default function PrintablesPage() {
       await downloadCertificate(award.award_type, activeStyle, award.certificate_data || {});
       await supabase.from("earned_awards").update({ downloaded_at: new Date().toISOString() }).eq("id", award.id);
       setEarnedAwards(prev => prev.map(a => a.id === award.id ? { ...a, downloaded_at: new Date().toISOString() } : a));
-    } catch (e) { console.error(e); alert("Download failed. Please try again."); }
+    } catch (e) { console.error(e); showError(e); }
     finally { setDownloadingAward(null); }
   }
 
@@ -836,7 +845,7 @@ export default function PrintablesPage() {
         recipientName: customName, awardTitle: customTitle || "Certificate of Achievement",
         awardText: customText, academyName: customAcademy, date: customDate,
       });
-    } catch (e) { console.error(e); alert("Download failed. Please try again."); }
+    } catch (e) { console.error(e); showError(e); }
     finally { setCustomDownloading(false); }
   }
 
@@ -851,7 +860,7 @@ export default function PrintablesPage() {
         schoolYear: currentYearRange(), date: todayStr(),
       };
       await downloadCertificate("graduation", activeStyle, data);
-    } catch (e) { console.error(e); alert("Download failed."); }
+    } catch (e) { console.error(e); showError(e); }
     finally { setDownloadingAward(null); }
   }
 
@@ -866,8 +875,14 @@ export default function PrintablesPage() {
         schoolYear: currentYearRange(), date: todayStr(),
       };
       await downloadCertificate("subject_mastery", activeStyle, data);
-    } catch (e) { console.error(e); alert("Download failed."); }
+    } catch (e) { console.error(e); showError(e); }
     finally { setDownloadingAward(null); }
+  }
+
+  function showError(e: unknown) {
+    const msg = e instanceof Error ? e.message : "Download failed — please try again";
+    setErrorToast(msg);
+    setTimeout(() => setErrorToast(null), 5000);
   }
 
   const schoolName = familyName ? `${familyName} Academy` : "Family Academy";
@@ -1078,6 +1093,16 @@ export default function PrintablesPage() {
         <AnnualReportCard childrenList={children} schoolName={schoolName}
           schoolYear={currentYearRange()} showWatermark={reportWatermark} setShowWatermark={setReportWatermark} />
       </section>
+
+      {/* Error toast */}
+      {errorToast && (
+        <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[70]">
+          <button onClick={() => setErrorToast(null)}
+            className="bg-red-600 text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">
+            {errorToast}
+          </button>
+        </div>
+      )}
 
     </div>
   );
