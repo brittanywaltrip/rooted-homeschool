@@ -92,11 +92,11 @@ export default function RootedClipper() {
         style={{
           position: "fixed",
           bottom: 80,
-          right: 12,
+          left: 16,
           zIndex: 9999,
           display: "flex",
           flexDirection: "column",
-          alignItems: "flex-end",
+          alignItems: "flex-start",
           gap: 6,
           animation: drooping
             ? "clippy-droop 0.6s ease-in forwards"
@@ -162,7 +162,7 @@ export default function RootedClipper() {
             style={{
               position: "absolute",
               bottom: -7,
-              right: 18,
+              left: 18,
               width: 0,
               height: 0,
               borderLeft: "7px solid transparent",
