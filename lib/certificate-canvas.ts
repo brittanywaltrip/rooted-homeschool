@@ -114,93 +114,85 @@ function drawGarden(ctx: CanvasRenderingContext2D, content: CertContent, data: R
   ctx.lineWidth = 1;
   ctx.strokeRect(22, 22, W - 44, H - 44);
 
-  // Corner leaf ornaments (simple triangular leaves)
+  // Corner leaf ornaments
   drawLeafCorner(ctx, 14, 14, 0);
   drawLeafCorner(ctx, W - 14, 14, 90);
   drawLeafCorner(ctx, W - 14, H - 14, 180);
   drawLeafCorner(ctx, 14, H - 14, 270);
 
-  let y = 160;
-
   // Academy name
   ctx.fillStyle = "#C4962A";
   ctx.font = '13px "Cormorant Garamond"';
   ctx.letterSpacing = "3px";
-  drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, y);
+  drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, 100);
   ctx.letterSpacing = "0px";
-  y += 30;
 
-  // Divider
-  drawDivider(ctx, cx, y, 200, "#C4962A", true);
-  y += 30;
+  // Top divider
+  drawDivider(ctx, cx, 120, 200, "#C4962A", true);
 
   // Title
   ctx.fillStyle = "#2D5016";
   ctx.font = '20px "Playfair Display"';
   ctx.letterSpacing = "4px";
-  drawCenteredText(ctx, content.certTitle.toUpperCase(), cx, y);
+  drawCenteredText(ctx, content.certTitle.toUpperCase(), cx, 168);
   ctx.letterSpacing = "0px";
-  y += 50;
+
+  // Bottom divider
+  drawDivider(ctx, cx, 192, 200, "#C4962A", true);
 
   // "This certifies that"
   ctx.fillStyle = "#7a6f65";
   ctx.font = 'italic 14px "Cormorant Garamond"';
-  drawCenteredText(ctx, "This certifies that", cx, y);
-  y += 20;
+  drawCenteredText(ctx, "This certifies that", cx, 270);
 
-  // Gold line
-  drawDivider(ctx, cx, y, 340, "#C4962A");
-  y += 20;
+  // Gold line above name
+  drawDivider(ctx, cx, 300, 340, "#C4962A");
 
   // Hero name
   ctx.fillStyle = "#1a1008";
-  ctx.font = 'italic 52px "Playfair Display"';
-  drawCenteredText(ctx, content.heroName, cx, y + 40);
-  y += 60;
+  ctx.font = 'italic 56px "Playfair Display"';
+  drawCenteredText(ctx, content.heroName, cx, 380);
 
-  // Gold line
-  drawDivider(ctx, cx, y, 340, "#C4962A");
-  y += 40;
+  // Gold line below name
+  drawDivider(ctx, cx, 400, 340, "#C4962A");
 
   // Body text
   ctx.fillStyle = "#3a3028";
   const bodySize = content.bodyIsEmotional ? 16 : 14;
   ctx.font = `${bodySize}px "Cormorant Garamond"`;
   const bodyLines = wrapText(ctx, content.bodyText, 500);
+  let bodyY = 460;
   for (const line of bodyLines) {
-    drawCenteredText(ctx, line, cx, y);
-    y += bodySize + 8;
+    drawCenteredText(ctx, line, cx, bodyY);
+    bodyY += 26;
   }
 
   if (content.note) {
-    y += 8;
+    bodyY += 10;
     ctx.font = 'italic 12px "Cormorant Garamond"';
     ctx.fillStyle = "#8a7558";
-    drawCenteredText(ctx, content.note, cx, y);
-    y += 20;
+    drawCenteredText(ctx, content.note, cx, bodyY);
   }
 
-  y += 30;
-
-  // Year + date
+  // Year
   ctx.fillStyle = "#8a7558";
   ctx.font = '13px "Cormorant Garamond"';
   ctx.letterSpacing = "2px";
-  if (data.schoolYear) drawCenteredText(ctx, `\u2726  ${data.schoolYear}  \u2726`, cx, y);
-  y += 20;
+  if (data.schoolYear) drawCenteredText(ctx, `\u2726  ${data.schoolYear}  \u2726`, cx, 546);
   ctx.letterSpacing = "0px";
+
+  // Date
   ctx.fillStyle = "#b5aca4";
   ctx.font = '12px "Cormorant Garamond"';
-  if (data.date) drawCenteredText(ctx, formatDisplayDate(data.date), cx, y);
-  y += 50;
+  if (data.date) drawCenteredText(ctx, formatDisplayDate(data.date), cx, 572);
 
   // Signature lines
-  drawSigLines(ctx, cx, y, "#C4962A", "#7a6f65");
+  drawSigLines(ctx, cx, 720, "#C4962A", "#7a6f65");
 
   // Footer
   ctx.fillStyle = "#c8b898";
   ctx.font = '9px "Cormorant Garamond"';
-  drawCenteredText(ctx, "Made with Rooted", cx, H - 30);
+  drawCenteredText(ctx, "Made with Rooted", cx, 1020);
 }
 
 // ─── Heritage style ──────────────────────────────────────────────────────────
@@ -230,81 +222,79 @@ function drawHeritage(ctx: CanvasRenderingContext2D, content: CertContent, data:
   drawDiamond(ctx, W - 30, H - 30, "#B8860B");
   drawDiamond(ctx, 30, H - 30, "#B8860B");
 
-  let y = 160;
-
   // Academy
   ctx.fillStyle = "#1A3A2A";
   ctx.font = '13px "Playfair Display"';
   ctx.letterSpacing = "3px";
-  drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, y);
+  drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, 100);
   ctx.letterSpacing = "0px";
-  y += 30;
 
   // Diamond divider
-  drawDivider(ctx, cx, y, 200, "#B8860B", true);
-  y += 30;
+  drawDivider(ctx, cx, 120, 200, "#B8860B", true);
 
   // Title
   ctx.fillStyle = "#1A3A2A";
   ctx.font = '22px "Playfair Display"';
   ctx.letterSpacing = "4px";
-  drawCenteredText(ctx, content.certTitle.toUpperCase(), cx, y);
+  drawCenteredText(ctx, content.certTitle.toUpperCase(), cx, 168);
   ctx.letterSpacing = "0px";
-  y += 50;
+
+  // Bottom divider
+  drawDivider(ctx, cx, 192, 200, "#B8860B", true);
 
   // "This certifies that"
   ctx.fillStyle = "#5a5a48";
   ctx.font = 'italic 14px "Cormorant Garamond"';
-  drawCenteredText(ctx, "This certifies that", cx, y);
-  y += 20;
+  drawCenteredText(ctx, "This certifies that", cx, 270);
 
-  drawDivider(ctx, cx, y, 340, "#B8860B");
-  y += 20;
+  // Line above name
+  drawDivider(ctx, cx, 300, 340, "#B8860B");
 
   // Hero name
   ctx.fillStyle = "#0a1a0a";
-  ctx.font = 'italic 52px "Playfair Display"';
-  drawCenteredText(ctx, content.heroName, cx, y + 40);
-  y += 60;
+  ctx.font = 'italic 56px "Playfair Display"';
+  drawCenteredText(ctx, content.heroName, cx, 380);
 
-  drawDivider(ctx, cx, y, 340, "#B8860B");
-  y += 40;
+  // Line below name
+  drawDivider(ctx, cx, 400, 340, "#B8860B");
 
   // Body
   ctx.fillStyle = "#2a2a20";
   const bodySize = content.bodyIsEmotional ? 16 : 13;
   ctx.font = `${bodySize}px "Cormorant Garamond"`;
   const bodyLines = wrapText(ctx, content.bodyText, 500);
+  let bodyY = 460;
   for (const line of bodyLines) {
-    drawCenteredText(ctx, line, cx, y);
-    y += bodySize + 8;
+    drawCenteredText(ctx, line, cx, bodyY);
+    bodyY += 26;
   }
 
   if (content.note) {
-    y += 8;
+    bodyY += 10;
     ctx.font = 'italic 12px "Cormorant Garamond"';
     ctx.fillStyle = "#6a6040";
-    drawCenteredText(ctx, content.note, cx, y);
-    y += 20;
+    drawCenteredText(ctx, content.note, cx, bodyY);
   }
 
-  y += 30;
+  // Year
   ctx.fillStyle = "#5a5a48";
   ctx.font = '13px "Cormorant Garamond"';
   ctx.letterSpacing = "2px";
-  if (data.schoolYear) drawCenteredText(ctx, `\u2666  ${data.schoolYear}  \u2666`, cx, y);
-  y += 20;
+  if (data.schoolYear) drawCenteredText(ctx, `\u2666  ${data.schoolYear}  \u2666`, cx, 546);
   ctx.letterSpacing = "0px";
+
+  // Date
   ctx.fillStyle = "#b5aca4";
   ctx.font = '12px "Cormorant Garamond"';
-  if (data.date) drawCenteredText(ctx, formatDisplayDate(data.date), cx, y);
-  y += 50;
+  if (data.date) drawCenteredText(ctx, formatDisplayDate(data.date), cx, 572);
 
-  drawSigLines(ctx, cx, y, "#B8860B", "#5a5a48");
+  // Signature lines
+  drawSigLines(ctx, cx, 720, "#B8860B", "#5a5a48");
 
+  // Footer
   ctx.fillStyle = "#b8a888";
   ctx.font = '9px "Cormorant Garamond"';
-  drawCenteredText(ctx, "Made with Rooted", cx, H - 30);
+  drawCenteredText(ctx, "Made with Rooted", cx, 1020);
 }
 
 // ─── Artisan style ───────────────────────────────────────────────────────────
@@ -322,68 +312,64 @@ function drawArtisan(ctx: CanvasRenderingContext2D, content: CertContent, data: 
   // Top accent bar
   ctx.fillRect(0, 0, W, 3);
 
-  let y = 180;
-
   // Academy
   ctx.fillStyle = "#C4613A";
   ctx.font = '300 10px "Jost"';
   ctx.letterSpacing = "5px";
-  drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, y);
+  drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, 80);
   ctx.letterSpacing = "0px";
-  y += 30;
 
   // Thin divider
-  drawDivider(ctx, cx, y, 120, "#e0d8d0");
-  y += 20;
+  drawDivider(ctx, cx, 100, 120, "#e0d8d0");
 
   // Title
   ctx.fillStyle = "#C4613A";
   ctx.font = '300 11px "Jost"';
   ctx.letterSpacing = "5px";
-  drawCenteredText(ctx, content.certTitle.toUpperCase(), cx, y);
+  drawCenteredText(ctx, content.certTitle.toUpperCase(), cx, 130);
   ctx.letterSpacing = "0px";
-  y += 60;
 
   // Hero name — dominant
   ctx.fillStyle = "#2C2520";
-  ctx.font = 'italic 56px "Cormorant Garamond"';
-  drawCenteredText(ctx, content.heroName, cx, y + 30);
-  y += 70;
+  ctx.font = 'italic 64px "Cormorant Garamond"';
+  drawCenteredText(ctx, content.heroName, cx, 280);
 
-  // Thin divider
-  drawDivider(ctx, cx, y, 80, "#e0d8d0");
-  y += 50;
+  // Divider under name
+  drawDivider(ctx, cx, 310, 80, "#e0d8d0");
 
   // Body
   ctx.fillStyle = "#7a6a5e";
   const bodySize = content.bodyIsEmotional ? 16 : 13;
   ctx.font = `italic ${bodySize}px "Cormorant Garamond"`;
   const bodyLines = wrapText(ctx, content.bodyText, 480);
+  let bodyY = 380;
   for (const line of bodyLines) {
-    drawCenteredText(ctx, line, cx, y);
-    y += bodySize + 10;
+    drawCenteredText(ctx, line, cx, bodyY);
+    bodyY += 26;
   }
 
   if (content.note) {
-    y += 10;
+    bodyY += 10;
     ctx.font = 'italic 12px "Cormorant Garamond"';
     ctx.fillStyle = "#a0907e";
-    drawCenteredText(ctx, content.note, cx, y);
-    y += 20;
+    drawCenteredText(ctx, content.note, cx, bodyY);
   }
 
-  y += 40;
+  // Year + date
   ctx.fillStyle = "#a0907e";
   ctx.font = '300 10px "Jost"';
   ctx.letterSpacing = "2px";
-  if (data.schoolYear) drawCenteredText(ctx, data.schoolYear, cx, y);
-  y += 18;
+  if (data.schoolYear) drawCenteredText(ctx, data.schoolYear, cx, 466);
   ctx.letterSpacing = "0px";
-  if (data.date) drawCenteredText(ctx, formatDisplayDate(data.date), cx, y);
+  if (data.date) drawCenteredText(ctx, formatDisplayDate(data.date), cx, 486);
 
+  // Signature lines
+  drawSigLines(ctx, cx, 700, "#e0d8d0", "#a0907e");
+
+  // Footer
   ctx.fillStyle = "#c0b8b0";
   ctx.font = '300 9px "Jost"';
-  drawCenteredText(ctx, "Made with Rooted", cx, H - 30);
+  drawCenteredText(ctx, "Made with Rooted", cx, 1020);
 }
 
 // ─── Shared drawing helpers ──────────────────────────────────────────────────
