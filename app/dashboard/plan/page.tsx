@@ -1050,7 +1050,6 @@ export default function PlanPage() {
               const completedFromRows = group.totalCount - group.remainingCount;
               const goal = group.goalData;
               const displaySubject = goal?.subject_label ?? group.subjectName ?? "General";
-              if (typeof window !== "undefined") console.log("[CourseProgress]", group.curricName, "goalData:", goal ? { subject_label: goal.subject_label, id: goal.id } : "NULL", "displaySubject:", displaySubject);
               const displayCompleted = goal?.current_lesson ?? completedFromRows;
               const displayTotal = goal?.total_lessons ?? group.totalCount;
               const pct = displayTotal > 0 ? Math.round((displayCompleted / displayTotal) * 100) : 0;
