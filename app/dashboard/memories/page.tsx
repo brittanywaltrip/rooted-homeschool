@@ -1317,7 +1317,7 @@ export default function MemoriesPage() {
 
               <div>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Photo</label>
-                <input ref={editPhotoRef} type="file" accept="image/*" capture="environment" className="hidden"
+                <input ref={editPhotoRef} type="file" accept="image/*" className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
