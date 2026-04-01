@@ -11,6 +11,7 @@ import { ProfileProvider, useProfile } from "@/lib/profile-context";
 import { BadgeNotificationListener } from "@/components/BadgeNotification";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { compressImage } from "@/lib/compress-image";
+import RootedClipper from "@/components/RootedClipper";
 
 const navItems = [
   { label: "Today",     href: "/dashboard",           icon: Sun      },
@@ -589,6 +590,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         )}
 
         <BadgeNotificationListener />
+        <RootedClipper />
       </div>
     </PartnerContext.Provider>
   );
