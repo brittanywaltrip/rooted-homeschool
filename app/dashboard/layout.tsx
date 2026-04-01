@@ -506,7 +506,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             <span className="text-white leading-none" style={{ fontSize: 9 }}>Quick photo</span>
           </button>
         )}
-        <input ref={fabFileRef} type="file" accept="image/*" capture="environment" className="hidden"
+        <input ref={fabFileRef} type="file" accept="image/*" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (e.target) e.target.value = ""; if (f) onFabFileChosen(f); }} />
 
         {/* ── Instant Photo Bottom Sheet ─────────────────────────── */}

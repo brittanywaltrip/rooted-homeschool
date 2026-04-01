@@ -36,6 +36,7 @@ type Lesson  = {
   scheduled_date: string | null;
   subjects: { name: string; color: string | null } | null;
   goal_id?: string | null;
+  curriculum_goal_id?: string | null;
 };
 type CurriculumGroup = {
   key: string;
@@ -215,6 +216,15 @@ export default function PlanPage() {
   const [expandedCurricMenu, setExpandedCurricMenu] = useState<string | null>(null);
   const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
 
+  // ── Reschedule state (Plan page) ─────────────────────────────────────────
+  const [planRescheduleLesson, setPlanRescheduleLesson] = useState<Lesson | null>(null);
+  const [planReschedulePicker, setPlanReschedulePicker] = useState(false);
+  const [planReschedulePickerDate, setPlanReschedulePickerDate] = useState("");
+  const [planRescheduleUndo, setPlanRescheduleUndo] = useState<{ message: string; undoData: { lessonId: string; date: string }[] } | null>(null);
+  const planRescheduleUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [planPickerConfirmDate, setPlanPickerConfirmDate] = useState<string | null>(null);
+  const [planPickerConflictCount, setPlanPickerConflictCount] = useState(0);
+
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
   });
@@ -233,9 +243,9 @@ export default function PlanPage() {
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes").eq("user_id", effectiveUserId).order("created_at"),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
@@ -253,7 +263,7 @@ export default function PlanPage() {
     if (!effectiveUserId) return;
     const { data } = await supabase
       .from("lessons")
-      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, subjects(name, color)")
+      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
       .eq("user_id", effectiveUserId);
     setAllLessons((data as unknown as Lesson[]) ?? []);
   }, [effectiveUserId]);
@@ -274,9 +284,9 @@ export default function PlanPage() {
     const me = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
     const s = toDateStr(ms), e = toDateStr(me);
     const [{ data: bySched }, { data: byDate }] = await Promise.all([
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setMonthLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
@@ -414,6 +424,189 @@ export default function PlanPage() {
   async function deleteVacationBlock(id: string) {
     setVacationBlocks((p) => p.filter((b) => b.id !== id));
     await supabase.from("vacation_blocks").delete().eq("id", id);
+  }
+
+  // ── Missed lessons (needed by reschedule functions) ─────────────────────
+  const missedLessons = allLessons
+    .filter(l => {
+      const d = l.scheduled_date ?? l.date;
+      return d && d < todayStr && !l.completed;
+    })
+    .sort((a, b) => ((a.scheduled_date ?? a.date) ?? "").localeCompare((b.scheduled_date ?? b.date) ?? ""));
+
+  // ── Reschedule functions (Plan page — anchor-aware) ──────────────────────
+
+  function openPlanReschedule(lesson: Lesson) {
+    setPlanRescheduleLesson(lesson);
+    setPlanReschedulePicker(false);
+    setPlanReschedulePickerDate("");
+    setPlanPickerConfirmDate(null);
+    setPlanPickerConflictCount(0);
+  }
+
+  function showPlanRescheduleUndo(message: string, undoData: { lessonId: string; date: string }[]) {
+    if (planRescheduleUndoTimer.current) clearTimeout(planRescheduleUndoTimer.current);
+    setPlanRescheduleUndo({ message, undoData });
+    planRescheduleUndoTimer.current = setTimeout(() => setPlanRescheduleUndo(null), 8000);
+  }
+
+  async function undoPlanReschedule() {
+    if (!planRescheduleUndo) return;
+    for (let i = 0; i < planRescheduleUndo.undoData.length; i += 20) {
+      await Promise.all(
+        planRescheduleUndo.undoData.slice(i, i + 20).map(({ lessonId, date }) =>
+          supabase.from("lessons").update({ scheduled_date: date, date }).eq("id", lessonId)
+        )
+      );
+    }
+    setPlanRescheduleUndo(null);
+    if (planRescheduleUndoTimer.current) clearTimeout(planRescheduleUndoTimer.current);
+    loadData(); loadAllLessons();
+  }
+
+  async function planRescheduleMoveTo(targetDate: string, force = false) {
+    if (!planRescheduleLesson) return;
+
+    // Check for existing lessons on target date (conflict confirmation for Pick a Day)
+    if (!force) {
+      const existingCount = allLessons.filter(l => {
+        const d = l.scheduled_date ?? l.date;
+        return d === targetDate && l.id !== planRescheduleLesson.id;
+      }).length;
+      if (existingCount > 0) {
+        setPlanPickerConfirmDate(targetDate);
+        setPlanPickerConflictCount(existingCount);
+        return;
+      }
+    }
+
+    const originalDate = planRescheduleLesson.scheduled_date ?? planRescheduleLesson.date ?? todayStr;
+    await supabase.from("lessons").update({ scheduled_date: targetDate, date: targetDate }).eq("id", planRescheduleLesson.id);
+    setAllLessons(prev => prev.map(l => l.id === planRescheduleLesson.id ? { ...l, scheduled_date: targetDate, date: targetDate } : l));
+    setLessons(prev => prev.filter(l => l.id !== planRescheduleLesson.id));
+    setPlanRescheduleLesson(null);
+    setPlanPickerConfirmDate(null);
+    const label = new Date(targetDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    showPlanRescheduleUndo(`Lesson moved to ${label} · Undo`, [{ lessonId: planRescheduleLesson.id, date: originalDate }]);
+    loadData(); loadAllLessons();
+  }
+
+  function getSchoolDaysForLesson(lesson: Lesson): string[] {
+    if (lesson.curriculum_goal_id) {
+      const goal = curriculumGoals.find(g => g.id === lesson.curriculum_goal_id);
+      if (goal?.school_days && goal.school_days.length > 0) return goal.school_days;
+    }
+    return profileSchoolDays.length > 0 ? profileSchoolDays : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+  }
+
+  /** Returns the Nth school day from afterDate (1-indexed: N=1 → next school day). */
+  function nthSchoolDay(afterDate: string, schoolDays: string[], n: number): string {
+    const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+    const activeDays = new Set(schoolDays.map(d => dayMap[d] ?? -1));
+    const cursor = new Date(afterDate + "T12:00:00");
+    let found = 0;
+    for (let i = 0; i < 365; i++) {
+      cursor.setDate(cursor.getDate() + 1);
+      if (activeDays.has((cursor.getDay() + 6) % 7)) {
+        found++;
+        if (found === n) return toDateStr(cursor);
+      }
+    }
+    return toDateStr(cursor);
+  }
+
+  function isSchoolDayDate(dateStr: string, schoolDays: string[]): boolean {
+    const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+    const activeDays = new Set(schoolDays.map(d => dayMap[d] ?? -1));
+    const d = new Date(dateStr + "T12:00:00");
+    return activeDays.has((d.getDay() + 6) % 7);
+  }
+
+  /** OPTION 1 — Add to my next school day(s). Places missed lessons sequentially. */
+  async function planAddToNextSchoolDays() {
+    const target = missedLessons.length > 0 ? missedLessons : (planRescheduleLesson ? [planRescheduleLesson] : []);
+    if (target.length === 0) return;
+
+    const undoData = target.map(l => ({
+      lessonId: l.id,
+      date: l.scheduled_date ?? l.date ?? todayStr,
+    }));
+
+    const updates: { id: string; newDate: string }[] = [];
+    for (let i = 0; i < target.length; i++) {
+      const schoolDays = getSchoolDaysForLesson(target[i]);
+      const targetDate = nthSchoolDay(todayStr, schoolDays, i + 1);
+      updates.push({ id: target[i].id, newDate: targetDate });
+    }
+
+    for (let i = 0; i < updates.length; i += 20) {
+      await Promise.all(
+        updates.slice(i, i + 20).map(({ id, newDate }) =>
+          supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+        )
+      );
+    }
+
+    setPlanRescheduleLesson(null);
+    const n = updates.length;
+    showPlanRescheduleUndo(`${n} lesson${n !== 1 ? "s" : ""} added to upcoming school days · Undo`, undoData);
+    loadData(); loadAllLessons();
+  }
+
+  /** OPTION 2 — Push schedule back N school days, fit missed lessons into vacated slots. */
+  async function planPushBackNDays() {
+    const n = missedLessons.length;
+    if (n === 0) return;
+
+    // Collect all future uncompleted lessons across all curricula from today forward
+    const { data: futureRows } = await supabase.from("lessons")
+      .select("id, scheduled_date, curriculum_goal_id")
+      .eq("user_id", effectiveUserId!)
+      .eq("completed", false)
+      .gte("scheduled_date", todayStr)
+      .order("scheduled_date", { ascending: true });
+    const futureLessons = (futureRows ?? []) as { id: string; scheduled_date: string; curriculum_goal_id: string | null }[];
+
+    // Build undo data for everything: missed + future
+    const undoData = [
+      ...missedLessons.map(l => ({ lessonId: l.id, date: l.scheduled_date ?? l.date ?? todayStr })),
+      ...futureLessons.map(l => ({ lessonId: l.id, date: l.scheduled_date })),
+    ];
+
+    // Shift each future lesson forward by N school days
+    const futureUpdates: { id: string; newDate: string }[] = [];
+    for (const lesson of futureLessons) {
+      const schoolDays = (() => {
+        if (lesson.curriculum_goal_id) {
+          const goal = curriculumGoals.find(g => g.id === lesson.curriculum_goal_id);
+          if (goal?.school_days?.length) return goal.school_days;
+        }
+        return profileSchoolDays.length > 0 ? profileSchoolDays : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+      })();
+      const newDate = nthSchoolDay(lesson.scheduled_date, schoolDays, n);
+      futureUpdates.push({ id: lesson.id, newDate });
+    }
+
+    // Place each missed lesson into the N vacated slots (sequential school days from today)
+    const missedUpdates: { id: string; newDate: string }[] = [];
+    for (let i = 0; i < n; i++) {
+      const schoolDays = getSchoolDaysForLesson(missedLessons[i]);
+      const slot = nthSchoolDay(todayStr, schoolDays, i + 1);
+      missedUpdates.push({ id: missedLessons[i].id, newDate: slot });
+    }
+
+    const allUpdates = [...futureUpdates, ...missedUpdates];
+    for (let i = 0; i < allUpdates.length; i += 20) {
+      await Promise.all(
+        allUpdates.slice(i, i + 20).map(({ id, newDate }) =>
+          supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+        )
+      );
+    }
+
+    setPlanRescheduleLesson(null);
+    showPlanRescheduleUndo(`Schedule pushed back ${n} day${n !== 1 ? "s" : ""} · Undo`, undoData);
+    loadData(); loadAllLessons();
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -679,6 +872,43 @@ export default function PlanPage() {
           Month
         </button>
       </div>
+
+      {/* ── Missed lessons banner ────────────────────────── */}
+      {!loading && missedLessons.length > 0 && (
+        <div style={{ background: "#fffbf0", border: "1px solid #f0dda8", borderRadius: 14, padding: "14px 16px", marginBottom: 8 }}>
+          <p style={{ fontSize: 12, fontWeight: 700, color: "#7a4a1a", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+            <span>⚠️</span> You have {missedLessons.length} missed lesson{missedLessons.length !== 1 ? "s" : ""}
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {missedLessons.slice(0, 10).map(lesson => {
+              const d = new Date((lesson.scheduled_date ?? lesson.date ?? "") + "T00:00:00");
+              const dateLabel = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+              const subjectLabel = lesson.subjects?.name ?? "General";
+              return (
+                <div key={lesson.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "white", borderRadius: 10, padding: "8px 12px", border: "0.5px solid #f0dda8" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: "#2d2926", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {dateLabel} · {lesson.title}
+                    </p>
+                    <p style={{ fontSize: 10, color: "#9a8e84", margin: "1px 0 0" }}>{subjectLabel}</p>
+                  </div>
+                  <button
+                    onClick={() => openPlanReschedule(lesson)}
+                    style={{ fontSize: 11, fontWeight: 600, color: "#7a4a1a", background: "#fef9e8", border: "1px solid #f0dda8", borderRadius: 8, padding: "4px 10px", cursor: "pointer", whiteSpace: "nowrap" }}
+                  >
+                    Reschedule
+                  </button>
+                </div>
+              );
+            })}
+            {missedLessons.length > 10 && (
+              <p style={{ fontSize: 11, color: "#9a8e84", textAlign: "center", margin: "2px 0 0" }}>
+                + {missedLessons.length - 10} more
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════════════
           SECTION 2A — WEEK VIEW
@@ -997,6 +1227,15 @@ export default function PlanPage() {
                           <p style={{ fontSize: 10, color: "#bbb", margin: "1px 0 0" }}>{lesson.subjects.name}</p>
                         )}
                       </div>
+                      {/* Reschedule link for past uncompleted lessons */}
+                      {isSelectedPast && !lesson.completed && !isPartner && (
+                        <button
+                          onClick={() => openPlanReschedule(lesson)}
+                          style={{ fontSize: 10, fontWeight: 600, color: "#7a4a1a", background: "none", border: "none", cursor: "pointer", padding: 0, whiteSpace: "nowrap", flexShrink: 0 }}
+                        >
+                          Reschedule
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1501,6 +1740,158 @@ export default function PlanPage() {
       )}
 
       <div className="h-4" />
+
+      {/* ── Reschedule bottom sheet (Plan page) ──────────── */}
+      {planRescheduleLesson && (() => {
+        const schoolDays = getSchoolDaysForLesson(planRescheduleLesson);
+        const n = missedLessons.length || 1;
+        const isSingle = n === 1;
+
+        // Option 1 subtitle
+        const opt1NextDay = nthSchoolDay(todayStr, schoolDays, 1);
+        const opt1Label = new Date(opt1NextDay + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+        const opt1ExistingCount = allLessons.filter(l => (l.scheduled_date ?? l.date) === opt1NextDay && l.id !== planRescheduleLesson.id).length;
+        let opt1Subtitle: string;
+        if (isSingle) {
+          opt1Subtitle = `Adds to ${opt1Label} · you'll have ${opt1ExistingCount + 1} lesson${opt1ExistingCount + 1 !== 1 ? "s" : ""}`;
+        } else {
+          const firstLabel = new Date(nthSchoolDay(todayStr, schoolDays, 1) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          const lastLabel = new Date(nthSchoolDay(todayStr, schoolDays, n) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          opt1Subtitle = `Adds ${n} lessons across ${firstLabel} – ${lastLabel}`;
+        }
+
+        // Option 2 subtitle
+        const opt2Subtitle = isSingle
+          ? "Shifts all upcoming lessons back 1 school day and fits your missed lesson in"
+          : `Shifts all upcoming lessons back ${n} school days and fits your ${n} missed lessons in`;
+
+        // Conflict confirmation state
+        const confirmD = planPickerConfirmDate ? new Date(planPickerConfirmDate + "T00:00:00") : null;
+        const confirmLabel = confirmD?.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }) ?? "";
+
+        return (
+          <>
+            <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => setPlanRescheduleLesson(null)} />
+            <div className="fixed bottom-0 left-0 right-0 z-[81] bg-[#faf8f4] rounded-t-2xl shadow-xl max-w-lg mx-auto">
+              <div className="p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-medium text-[#3d5c42]" style={{ fontFamily: "var(--font-display)" }}>
+                    Reschedule {isSingle ? (planRescheduleLesson.title || "this lesson") : `${n} missed lessons`}
+                  </h3>
+                  <button onClick={() => setPlanRescheduleLesson(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
+                </div>
+
+                {/* ── Conflict confirmation (Pick a Day) ────── */}
+                {planPickerConfirmDate ? (
+                  <div className="space-y-3">
+                    <div className="bg-[#fffbf0] border border-[#f0dda8] rounded-xl p-4">
+                      <p className="text-sm font-medium text-[#7a4a1a] mb-1">
+                        {confirmLabel} already has {planPickerConflictCount} lesson{planPickerConflictCount !== 1 ? "s" : ""}.
+                      </p>
+                      <p className="text-xs text-[#a07000]">
+                        Adding this makes {planPickerConflictCount + 1} — still good?
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => planRescheduleMoveTo(planPickerConfirmDate, true)}
+                        className="flex-1 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl hover:bg-[#3d5c42] transition-colors"
+                      >
+                        Yes, add it
+                      </button>
+                      <button
+                        onClick={() => { setPlanPickerConfirmDate(null); setPlanPickerConflictCount(0); }}
+                        className="flex-1 py-2.5 bg-white text-sm font-medium text-[#2d2926] rounded-xl border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors"
+                      >
+                        Pick a different day
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* OPTION 1 — Add to my next school day */}
+                    <button
+                      onClick={() => planAddToNextSchoolDays()}
+                      className="w-full flex items-center gap-3 p-4 rounded-xl shadow-sm text-left transition-colors hover:bg-[#f0f7f1]"
+                      style={{ background: "#f8fdf9", border: "1.5px solid #b8d89a" }}
+                    >
+                      <span className="text-lg shrink-0">📅</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#2d3a2e]">Add to my next school day{isSingle ? "" : "s"}</p>
+                        <p className="text-xs text-[#9a8e84] mt-0.5">{opt1Subtitle}</p>
+                      </div>
+                      <span className="text-[#b8d89a] text-base shrink-0">›</span>
+                    </button>
+
+                    {/* OPTION 2 — Push schedule back N school days */}
+                    <button
+                      onClick={() => planPushBackNDays()}
+                      className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                    >
+                      <span className="text-lg shrink-0">⏭</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#2d3a2e]">Push my schedule back {n} school day{n !== 1 ? "s" : ""}</p>
+                        <p className="text-xs text-[#9a8e84] mt-0.5">{opt2Subtitle}</p>
+                      </div>
+                      <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                    </button>
+
+                    {/* OPTION 3 — Pick a day myself */}
+                    <div>
+                      <button
+                        onClick={() => { setPlanReschedulePicker(v => !v); setPlanPickerConfirmDate(null); }}
+                        className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                      >
+                        <span className="text-lg shrink-0">🗓</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#2d3a2e]">Pick a day myself</p>
+                          <p className="text-xs text-[#9a8e84] mt-0.5">Choose a school day from the calendar</p>
+                        </div>
+                        <span className="text-[#c8bfb5] text-base shrink-0">{planReschedulePicker ? "⌄" : "›"}</span>
+                      </button>
+                      {planReschedulePicker && (
+                        <div className="flex items-center gap-2 mt-2 px-1">
+                          <input
+                            type="date" min={todayStr}
+                            value={planReschedulePickerDate}
+                            onChange={(e) => setPlanReschedulePickerDate(e.target.value)}
+                            className="flex-1 text-sm border border-[#e8e2d9] rounded-xl px-3 py-2.5 text-[#2d2926] bg-white"
+                          />
+                          <button
+                            onClick={() => {
+                              if (!planReschedulePickerDate || planReschedulePickerDate < todayStr) return;
+                              if (!isSchoolDayDate(planReschedulePickerDate, schoolDays)) return;
+                              planRescheduleMoveTo(planReschedulePickerDate);
+                            }}
+                            disabled={!planReschedulePickerDate || planReschedulePickerDate < todayStr || !isSchoolDayDate(planReschedulePickerDate, schoolDays)}
+                            className="px-5 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-[#3d5c42] transition-colors"
+                          >
+                            Move
+                          </button>
+                        </div>
+                      )}
+                      {planReschedulePicker && planReschedulePickerDate && !isSchoolDayDate(planReschedulePickerDate, schoolDays) && (
+                        <p className="text-xs text-[#b91c1c] mt-1 px-1">That&apos;s not a school day — pick a day your family schools.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="h-6" />
+            </div>
+          </>
+        );
+      })()}
+
+      {/* ── Reschedule undo toast (Plan page) ──────────────── */}
+      {planRescheduleUndo && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+          <div className="bg-[#2d5a3d] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
+            <span>{planRescheduleUndo.message}</span>
+            <button onClick={() => undoPlanReschedule()} className="text-white font-semibold underline text-sm">Undo</button>
+          </div>
+        </div>
+      )}
     </div>
     </>
   );

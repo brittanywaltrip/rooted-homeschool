@@ -398,11 +398,22 @@ export default function MemoriesPage() {
   const childColor = (id?: string | null) =>
     id ? (children.find((c) => c.id === id)?.color ?? "#5c7f63") : "#5c7f63";
 
-  const formatDate = (d: string) =>
-    new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const safeParseDate = (d: string | null | undefined): Date | null => {
+    if (!d) return null;
+    const iso = d.slice(0, 10); // extract YYYY-MM-DD from any format
+    const dt = new Date(iso + "T12:00:00");
+    return isNaN(dt.getTime()) ? null : dt;
+  };
 
-  const formatMonth = (d: string) =>
-    new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const formatDate = (d: string) => {
+    const dt = safeParseDate(d);
+    return dt ? dt.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Unknown date";
+  };
+
+  const formatMonth = (d: string) => {
+    const dt = safeParseDate(d);
+    return dt ? dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }) : "Unknown date";
+  };
 
   function toggleHeart(id: string) {
     setHearted((prev) => {
@@ -486,7 +497,7 @@ export default function MemoriesPage() {
     setEditing(m);
     setEditTitle(m.title ?? "");
     setEditCaption(m.caption ?? "");
-    setEditDate(m.date);
+    setEditDate(m.date?.slice(0, 10) ?? "");
     setEditChild(m.child_id ?? "");
     setEditInBook(m.include_in_book);
     setEditPhotoFile(null);
@@ -520,7 +531,7 @@ export default function MemoriesPage() {
     const updates: Record<string, any> = {
       title: editTitle.trim() || null,
       caption: editCaption.trim() || null,
-      date: editDate,
+      date: editDate.slice(0, 10),
       child_id: editChild || null,
       include_in_book: editInBook,
       updated_at: new Date().toISOString(),
@@ -533,11 +544,11 @@ export default function MemoriesPage() {
       .eq("id", editing.id)
       .select()
       .single();
-    if (data) {
-      setMemories((prev) => prev.map((m) => (m.id === editing.id ? (data as MemoryRow) : m)));
-    }
     setEditSaving(false);
     setEditing(null);
+    if (data) {
+      await load();
+    }
   }
 
   // ── Delete handlers ────────────────────────────────────────────────────────
@@ -572,9 +583,9 @@ export default function MemoriesPage() {
     }
 
     await supabase.from("memories").delete().eq("id", deleteTarget.id);
-    setMemories((prev) => prev.filter((m) => m.id !== deleteTarget.id));
     setDeleting(false);
     setDeleteTarget(null);
+    await load();
   }
 
   // Delete from lightbox
@@ -600,10 +611,10 @@ export default function MemoriesPage() {
     }
 
     await supabase.from("memories").delete().eq("id", selectedMemory.id);
-    setMemories((prev) => prev.filter((m) => m.id !== selectedMemory.id));
     setDeleting(false);
     setSelectedMemory(null);
     setLightboxDeleteConfirm(false);
+    await load();
   }
 
   // ── Reflection handlers ────────────────────────────────────────────────────
@@ -898,7 +909,7 @@ export default function MemoriesPage() {
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[11px] font-semibold text-[#5c7f63]">
-                    {new Date(r.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    {safeParseDate(r.date)?.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) ?? "Unknown date"}
                   </span>
                   {r.is_private && <span className="text-[10px] text-[#b5aca4]">🔒</span>}
                 </div>
@@ -1051,7 +1062,7 @@ export default function MemoriesPage() {
                   {/* Subtle bottom gradient + date */}
                   <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ height: "28%", background: "linear-gradient(transparent, rgba(0,0,0,0.28))" }} />
                   <span style={{ position: "absolute", bottom: 4, left: 5, fontSize: 9, color: "rgba(255,255,255,0.75)" }}>
-                    {new Date(m.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    {formatDate(m.date)}
                   </span>
 
                   {/* Yearbook bookmark */}
@@ -1317,7 +1328,7 @@ export default function MemoriesPage() {
 
               <div>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Photo</label>
-                <input ref={editPhotoRef} type="file" accept="image/*" capture="environment" className="hidden"
+                <input ref={editPhotoRef} type="file" accept="image/*" className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
@@ -1458,9 +1469,9 @@ export default function MemoriesPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold text-[#5c7f63] mb-0.5">
-                  {new Date(viewingReflection.date + "T12:00:00").toLocaleDateString("en-US", {
+                  {safeParseDate(viewingReflection.date)?.toLocaleDateString("en-US", {
                     weekday: "long", month: "long", day: "numeric", year: "numeric",
-                  })}
+                  }) ?? "Unknown date"}
                 </p>
                 <h2 className="font-bold text-[#2d2926]">📝 Reflection</h2>
               </div>

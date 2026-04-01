@@ -7,6 +7,13 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 
+function safeParseDateStr(d: string | null | undefined): Date | null {
+  if (!d) return null;
+  const iso = d.slice(0, 10);
+  const dt = new Date(iso + "T12:00:00");
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Child = { id: string; name: string; color: string | null };
@@ -457,7 +464,7 @@ export default function YearbookReadPage() {
                 </div>
               )}
               <p className="text-[8px] text-[#9a8f85] mt-1">
-                {new Date(favMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                {safeParseDateStr(favMemory.date)?.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) ?? "Unknown date"}
               </p>
               {favCaption && (
                 <p className="italic text-[9px] text-[#4a4540] mt-1 line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favCaption}</p>
@@ -532,7 +539,7 @@ export default function YearbookReadPage() {
               <span className="text-[24px] font-serif text-[#c4b0e0] leading-none">&ldquo;</span>
               <p className="italic text-[9px] text-[#2d2926] line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>{latestQuote.title}</p>
               <p className="text-[8px] text-[#9a8f85] mt-0.5">
-                {new Date(latestQuote.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                {safeParseDateStr(latestQuote.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric" }) ?? ""}
               </p>
             </div>
           )}
@@ -550,7 +557,7 @@ export default function YearbookReadPage() {
                 <span>Win</span>
                 {latestWin.date && (
                   <span className="text-[#9a8f85] font-normal normal-case tracking-normal ml-auto">
-                    {new Date(latestWin.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                    {safeParseDateStr(latestWin.date)?.toLocaleDateString("en-US", { month: "short", year: "numeric" }) ?? ""}
                   </span>
                 )}
               </p>
@@ -646,7 +653,7 @@ export default function YearbookReadPage() {
               <>
                 <PhotoGrid photos={famPhotos.slice(0, 3)} />
                 <p className="text-[8px] italic text-[#9a8f85]" style={{ fontFamily: "Georgia, serif" }}>
-                  {new Date(famPhotos[0].date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric" })}
+                  {safeParseDateStr(famPhotos[0].date)?.toLocaleDateString("en-US", { month: "long", day: "numeric" }) ?? ""}
                 </p>
               </>
             )}
@@ -657,7 +664,7 @@ export default function YearbookReadPage() {
                   <span>{w.type === "field_trip" ? "Trip" : "Win"}</span>
                   {w.date && (
                     <span className="text-[#9a8f85] font-normal normal-case tracking-normal ml-auto">
-                      {new Date(w.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                      {safeParseDateStr(w.date)?.toLocaleDateString("en-US", { month: "short", year: "numeric" }) ?? ""}
                     </span>
                   )}
                 </p>

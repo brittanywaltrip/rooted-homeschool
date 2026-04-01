@@ -74,6 +74,13 @@ function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function safeParseDateStr(d: string | null | undefined): Date | null {
+  if (!d) return null;
+  const iso = d.slice(0, 10);
+  const dt = new Date(iso + "T12:00:00");
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
 function formatDateHero(date: Date) {
   const weekday = date.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
   const rest    = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }).toUpperCase();
@@ -2026,7 +2033,7 @@ export default function TodayPage() {
             {/* Bottom overlay text */}
             <div className="absolute bottom-0 left-0 right-0 px-3.5 pb-3">
               <p style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>
-                {new Date(lastMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                {safeParseDateStr(lastMemory.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric" }) ?? "Unknown date"}
                 {lastMemory.child_id && children.find(c => c.id === lastMemory.child_id) ? ` · ${children.find(c => c.id === lastMemory.child_id)!.name}` : ""}
               </p>
               <p style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
@@ -2193,7 +2200,7 @@ export default function TodayPage() {
             style={{ backgroundColor: "#F0EAF8", border: "1px solid #D4B8E8", borderRadius: 14, padding: "14px 16px" }}
           >
             <p style={{ fontSize: 9, fontWeight: 700, color: "#8B6CAF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
-              ON THIS DAY · {onThisDayTier === 1 ? "1 YEAR AGO" : new Date(onThisDayMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase()}
+              ON THIS DAY · {onThisDayTier === 1 ? "1 YEAR AGO" : (safeParseDateStr(onThisDayMemory.date)?.toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase() ?? "")}
             </p>
             <p style={{ fontSize: 13, fontWeight: 700, color: "#4A2A6A", marginBottom: 8 }}>
               {onThisDayMemory.title ?? "A memory from this time last year"}
@@ -2250,7 +2257,6 @@ export default function TodayPage() {
             ref={captureFileRef}
             type="file"
             accept="image/*"
-            capture="environment"
             className="hidden"
             onChange={async (e) => {
               const file = e.target.files?.[0];
@@ -2324,7 +2330,7 @@ export default function TodayPage() {
               <p className="text-white text-base font-semibold mb-1">{lightboxMemory.title}</p>
             )}
             <p className="text-white/60 text-xs">
-              {new Date(lightboxMemory.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+              {safeParseDateStr(lightboxMemory.date)?.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }) ?? "Unknown date"}
             </p>
             <Link
               href={`/dashboard/memories?open=${lightboxMemory.id}`}
@@ -2703,7 +2709,7 @@ export default function TodayPage() {
               </div>
               <div>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Photo of the drawing (optional)</label>
-                <input ref={drawingFileRef} type="file" accept="image/*" capture="environment" className="hidden"
+                <input ref={drawingFileRef} type="file" accept="image/*" className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
