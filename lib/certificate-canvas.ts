@@ -122,7 +122,7 @@ function drawGarden(ctx: CanvasRenderingContext2D, content: CertContent, data: R
 
   // Academy name
   ctx.fillStyle = "#C4962A";
-  ctx.font = '13px "Cormorant Garamond"';
+  ctx.font = '18px "Cormorant Garamond"';
   ctx.letterSpacing = "3px";
   drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, 100);
   ctx.letterSpacing = "0px";
@@ -224,7 +224,7 @@ function drawHeritage(ctx: CanvasRenderingContext2D, content: CertContent, data:
 
   // Academy
   ctx.fillStyle = "#1A3A2A";
-  ctx.font = '13px "Playfair Display"';
+  ctx.font = '18px "Playfair Display"';
   ctx.letterSpacing = "3px";
   drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, 100);
   ctx.letterSpacing = "0px";
@@ -314,7 +314,7 @@ function drawArtisan(ctx: CanvasRenderingContext2D, content: CertContent, data: 
 
   // Academy
   ctx.fillStyle = "#C4613A";
-  ctx.font = '300 10px "Jost"';
+  ctx.font = '300 18px "Jost"';
   ctx.letterSpacing = "5px";
   drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, 80);
   ctx.letterSpacing = "0px";
