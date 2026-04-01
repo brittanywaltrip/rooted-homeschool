@@ -87,11 +87,13 @@ export default function RootedClipper() {
           from { opacity: 0; transform: translateY(12px); }
           to { opacity: 1; transform: translateY(0); }
         }
+        .clippy-container { bottom: 80px; }
+        @media (min-width: 768px) { .clippy-container { bottom: 120px; } }
       `}</style>
       <div
+        className="clippy-container"
         style={{
           position: "fixed",
-          bottom: 80,
           left: 16,
           zIndex: 9999,
           display: "flex",
