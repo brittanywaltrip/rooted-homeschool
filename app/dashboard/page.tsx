@@ -470,6 +470,7 @@ export default function TodayPage() {
   const [familyPhotoUrl,         setFamilyPhotoUrl]         = useState<string | null>(null);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [totalMemories, setTotalMemories] = useState(0);
+  const [achievementBanner, setAchievementBanner] = useState<{ label: string; childName?: string; isEducator: boolean; extra: number } | null>(null);
   const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
   const [lastPhoto, setLastPhoto] = useState<{ id: string; title: string; photo_url: string; date: string; child_id: string | null } | null>(null);
   const [lastMemory, setLastMemory] = useState<{ id: string; type: string; title: string | null; date: string; child_id: string | null } | null>(null);
@@ -882,6 +883,51 @@ export default function TodayPage() {
   }, [today, effectiveUserId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Check for new achievement awards
+  useEffect(() => {
+    if (!effectiveUserId || loading) return;
+    (async () => {
+      try {
+        const { checkAndGrantAwards } = await import("@/lib/award-unlocks");
+        const { AWARD_META } = await import("@/lib/certificate-templates");
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const [{ data: lessons }, { data: memories }, { data: prof }] = await Promise.all([
+          supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true),
+          supabase.from("memories").select("id, type, child_id, title, date").eq("user_id", effectiveUserId),
+          supabase.from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle(),
+        ]);
+        const allDates = new Set<string>();
+        for (const l of (lessons || []) as { date?: string }[]) { if (l.date) allDates.add(l.date); }
+        const displayName = (prof as { display_name?: string } | null)?.display_name || "";
+        const academy = displayName ? `${displayName} Academy` : "Family Academy";
+
+        const appData = {
+          children: children.map(c => ({ id: c.id, name: c.name })),
+          completedLessons: (lessons || []) as { child_id: string; date: string; scheduled_date?: string }[],
+          memories: (memories || []) as { id: string; type: string; child_id: string | null; title: string | null; date: string }[],
+          totalSchoolDays: allDates.size,
+          profile: { display_name: displayName, created_at: user.created_at },
+          academyName: academy,
+        };
+
+        const newAwards = await checkAndGrantAwards(effectiveUserId, appData);
+        if (newAwards.length > 0) {
+          const first = newAwards[0];
+          const meta = AWARD_META[first.award_type as keyof typeof AWARD_META];
+          setAchievementBanner({
+            label: meta?.label || first.award_type,
+            childName: first.certificate_data?.childName,
+            isEducator: first.isEducator,
+            extra: newAwards.length - 1,
+          });
+          setTimeout(() => setAchievementBanner(null), 8000);
+        }
+      } catch (e) { console.error("[Achievement check]", e); }
+    })();
+  }, [effectiveUserId, loading, children]);
 
   // Load unread family notifications
   useEffect(() => {
@@ -1725,6 +1771,21 @@ export default function TodayPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-5 pt-4 pb-7 space-y-5">
+
+      {/* Achievement banner */}
+      {achievementBanner && (
+        <button onClick={() => { setAchievementBanner(null); window.location.href = "/dashboard/printables"; }}
+          className="w-full rounded-2xl px-4 py-3 text-left transition-all hover:opacity-90"
+          style={{ backgroundColor: "#2D5016", color: "white" }}>
+          <p className="text-sm font-semibold">
+            {achievementBanner.isEducator ? "\uD83D\uDC9B You earned a certificate!" : `\uD83C\uDF89 ${achievementBanner.childName || "Your child"} earned a certificate!`}
+          </p>
+          <p className="text-xs opacity-80 mt-0.5">
+            {achievementBanner.label}
+            {achievementBanner.extra > 0 ? ` + ${achievementBanner.extra} more in Printables \u2192` : " \u00b7 Download \u2192"}
+          </p>
+        </button>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           LESSON SWIPE — horizontal child cards + expandable panel

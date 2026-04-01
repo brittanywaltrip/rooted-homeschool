@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Download } from "lucide-react";
+import { Download, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
-import PaywallCard from "@/components/PaywallCard";
+import { AWARD_META } from "@/lib/certificate-templates";
+import type { EarnedAward, NewAward, AppData } from "@/lib/award-unlocks";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-type StyleId = 1 | 2 | 3;
+type StyleId = "garden" | "heritage" | "artisan";
 
 interface CardFields {
   schoolName: string;
@@ -26,84 +27,11 @@ interface ChildData {
   streak: number;
 }
 
-interface CertDisplay {
-  schoolName: string;
-  childName: string;
-  certTitle: string;
-  accomplishment: string;
-  schoolYear: string;
-  showWatermark: boolean;
-}
-
-interface GradCert {
-  childId: string; childName: string;
-  schoolName: string; schoolYear: string;
-  gradeLevel: string; certText: string; showWatermark: boolean;
-}
-interface SubjectCert {
-  childId: string; childName: string;
-  schoolName: string; schoolYear: string;
-  subjectName: string; certText: string; showWatermark: boolean;
-}
-interface StreakCert {
-  childId: string; childName: string;
-  schoolName: string; schoolYear: string;
-  streakCount: string; certText: string; showWatermark: boolean;
-}
-interface GardenCert {
-  childId: string; childName: string;
-  schoolName: string; schoolYear: string;
-  leafCount: string; stageName: string; certText: string; showWatermark: boolean;
-}
-interface BookCert {
-  childId: string; childName: string;
-  schoolName: string; schoolYear: string;
-  bookTitle: string; certText: string; showWatermark: boolean;
-}
-interface PerfWeekCert {
-  childId: string; childName: string;
-  schoolName: string; schoolYear: string;
-  dateRange: string; certText: string; showWatermark: boolean;
-}
-
 interface BackFields {
   include: boolean;
   address: string;
   websiteOrEmail: string;
   note: string;
-  includeQR: boolean;
-}
-
-interface ReportCardData {
-  schoolName: string;
-  schoolYear: string;
-  showWatermark: boolean;
-  dateGenerated: string;
-  familySummary: {
-    totalHours: string;
-    totalSchoolDays: number;
-    totalLessons: number;
-    totalBooks: number;
-    totalFieldTrips: number;
-    totalMemories: number;
-    activeDays: number;
-  };
-  children: {
-    name: string;
-    totalLessons: number;
-    totalHours: string;
-    totalSchoolDays: number;
-    subjects: { name: string; count: number; hours: string; estimated: boolean }[];
-    books: string[];
-    fieldTrips: { title: string; duration: number | null }[];
-    wins: string[];
-    badges: string[];
-  }[];
-  dailyLog: {
-    date: string;
-    dateLabel: string;
-    entries: { subject: string; description: string; minutes: number; type: string; estimated: boolean }[];
-  }[];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -111,30 +39,16 @@ interface ReportCardData {
 function currentYearRange(): string {
   const now = new Date();
   const y = now.getFullYear();
-  // Academic year: Aug–Jul. Before July → still the previous school year.
-  return now.getMonth() < 7 ? `${y - 1}–${y}` : `${y}–${y + 1}`;
+  return now.getMonth() < 7 ? `${y - 1}\u2013${y}` : `${y}\u2013${y + 1}`;
+}
+
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function formatDate(): string {
   return new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-}
-
-const STAGE_THRESHOLDS = [
-  { min: 0,   name: "Seedling"     },
-  { min: 10,  name: "Sprout"       },
-  { min: 25,  name: "Sapling"      },
-  { min: 50,  name: "Young Tree"   },
-  { min: 100, name: "Growing Tree" },
-  { min: 200, name: "Tall Tree"    },
-  { min: 350, name: "Ancient Tree" },
-];
-
-function stageNameFromLeaves(leaves: number): string {
-  let stage = STAGE_THRESHOLDS[0].name;
-  for (const t of STAGE_THRESHOLDS) {
-    if (leaves >= t.min) stage = t.name;
-  }
-  return stage;
 }
 
 function makeParentDefaults(familyName: string, state: string): CardFields {
@@ -167,32 +81,21 @@ const GRADES = [
 
 // ─── Style selector data ─────────────────────────────────────────────────────
 
-const STYLES: { id: StyleId; name: string; desc: string }[] = [
-  { id: 1, name: "Classic Elegant",   desc: "Serif · Gold accents"     },
-  { id: 2, name: "Modern Clean",      desc: "Bold sans-serif · Minimal" },
-  { id: 3, name: "Botanical Natural", desc: "Warm cream · 🌿 logo"     },
+const STYLES: { id: StyleId; name: string; emoji: string; desc: string }[] = [
+  { id: "garden",   name: "The Garden",   emoji: "\uD83C\uDF3F", desc: "Warm cream \u00b7 Botanical leaves \u00b7 Gold accents" },
+  { id: "heritage", name: "The Heritage", emoji: "\uD83C\uDFDB\uFE0F", desc: "Formal \u00b7 Triple border \u00b7 Diamond ornaments" },
+  { id: "artisan",  name: "The Artisan",  emoji: "\u2726",       desc: "Minimal \u00b7 Editorial \u00b7 Terracotta accent" },
 ];
 
 // ─── Card preview (live React component, pixel-scaled) ────────────────────
 
 const BW = 252;
 const BH = 144;
-const CW = 816;
-const CH = 1056;
 
-// Photo slot dimensions in base (252×144) units.
-// On the HTML card (336×192 @ 96dpi): 96px wide × 120px tall, 10px left inset, centred vertically.
-// Scales cleanly to PDF (1.0" × 1.25").
-const PHOTO_BASE_W = 72;   // 96 * (252/336)
-const PHOTO_BASE_H = 90;   // 120 * (252/336)
-const PHOTO_BASE_L = 8;    // left inset in base units
-const PHOTO_BASE_T = Math.round((BH - PHOTO_BASE_H) / 2); // ~27
-
-// jsPDF coordinates (unit = "in", landscape 3.5"×2")
-const PHOTO_PDF_X = 0.104; // 10px / 96dpi
-const PHOTO_PDF_Y = 0.375; // 36px / 96dpi
-const PHOTO_PDF_W = 1.0;
-const PHOTO_PDF_H = 1.25;
+const PHOTO_BASE_W = 72;
+const PHOTO_BASE_H = 90;
+const PHOTO_BASE_L = 8;
+const PHOTO_BASE_T = Math.round((BH - PHOTO_BASE_H) / 2);
 
 function CardPreview({
   style, fields, photoUrl, scale = 1,
@@ -202,21 +105,16 @@ function CardPreview({
   const W = Math.round(BW * scale);
   const H = Math.round(BH * scale);
   const s = (n: number) => Math.round(n * scale);
-
-  // When photoUrl is undefined the style-selector thumbails render without a photo slot.
   const showSlot = photoUrl !== undefined;
 
   const photoSlot = showSlot ? (
     <div style={{
       flexShrink: 0,
       width: s(PHOTO_BASE_W), height: s(PHOTO_BASE_H),
-      marginTop: s(PHOTO_BASE_T),
-      marginBottom: s(PHOTO_BASE_T),
-      marginLeft: s(PHOTO_BASE_L),
-      marginRight: s(6),
+      marginTop: s(PHOTO_BASE_T), marginBottom: s(PHOTO_BASE_T),
+      marginLeft: s(PHOTO_BASE_L), marginRight: s(6),
       border: photoUrl ? "none" : `${s(1)}px dashed #c4bfb8`,
-      borderRadius: s(2),
-      overflow: "hidden",
+      borderRadius: s(2), overflow: "hidden",
       display: "flex", alignItems: "center", justifyContent: "center",
       background: photoUrl ? "transparent" : "#f5f3ef",
       alignSelf: "center",
@@ -232,28 +130,19 @@ function CardPreview({
     width: W, height: H, boxSizing: "border-box", overflow: "hidden", flexShrink: 0,
   };
 
-  if (style === 1) {
+  // Garden style
+  if (style === "garden") {
     return (
       <div style={{
-        ...base,
-        backgroundColor: "#fffef8",
-        border: `${s(2)}px solid #2d5a3d`,
-        position: "relative",
-        fontFamily: "Georgia, 'Times New Roman', serif",
+        ...base, backgroundColor: "#F7F3E9",
+        border: `${s(2)}px solid #2D5016`,
+        position: "relative", fontFamily: "'Playfair Display', Georgia, serif",
         display: "flex", flexDirection: "row", alignItems: "center",
       }}>
-        <div style={{ position: "absolute", inset: s(5), border: `${s(1)}px solid #c4922a`, pointerEvents: "none" }} />
-        {([
-          { top: s(3), left: s(3),  borderTop: `${s(1.5)}px solid #c4922a`, borderLeft:  `${s(1.5)}px solid #c4922a` },
-          { top: s(3), right: s(3), borderTop: `${s(1.5)}px solid #c4922a`, borderRight: `${s(1.5)}px solid #c4922a` },
-          { bottom: s(3), left: s(3),  borderBottom: `${s(1.5)}px solid #c4922a`, borderLeft:  `${s(1.5)}px solid #c4922a` },
-          { bottom: s(3), right: s(3), borderBottom: `${s(1.5)}px solid #c4922a`, borderRight: `${s(1.5)}px solid #c4922a` },
-        ] as React.CSSProperties[]).map((corner, i) => (
-          <div key={i} style={{ position: "absolute", width: s(10), height: s(10), ...corner }} />
-        ))}
+        <div style={{ position: "absolute", inset: s(5), border: `${s(1)}px solid #C4962A`, pointerEvents: "none" }} />
         {photoSlot}
         <div style={{ flex: 1, zIndex: 1, lineHeight: 1.4, paddingRight: s(showSlot ? 10 : 14), paddingLeft: showSlot ? 0 : s(14), textAlign: showSlot ? "left" : "center" }}>
-          <p style={{ fontSize: s(7.5), color: "#c4922a", letterSpacing: s(0.8), textTransform: "uppercase", margin: `0 0 ${s(3)}px` }}>
+          <p style={{ fontSize: s(7.5), color: "#C4962A", letterSpacing: s(0.8), textTransform: "uppercase", margin: `0 0 ${s(3)}px` }}>
             {fields.schoolName || "Family Academy"}
           </p>
           <p style={{ fontSize: s(11), fontWeight: "bold", color: "#2d2926", margin: `0 0 ${s(1)}px`, lineHeight: 1.2 }}>
@@ -262,656 +151,178 @@ function CardPreview({
           <p style={{ fontSize: s(7), color: "#7a6f65", fontStyle: "italic", margin: `0 0 ${s(4)}px` }}>
             {fields.title}
           </p>
-          <div style={{ width: s(showSlot ? 36 : 44), height: 1, backgroundColor: "#c4922a", margin: `0 ${showSlot ? "0" : "auto"} ${s(4)}px` }} />
+          <div style={{ width: s(showSlot ? 36 : 44), height: 1, backgroundColor: "#C4962A", margin: `0 ${showSlot ? "0" : "auto"} ${s(4)}px` }} />
           <p style={{ fontSize: s(6.5), color: "#7a6f65", margin: 0 }}>
-            {[fields.state, fields.schoolYear].filter(Boolean).join(" · ")}
+            {[fields.state, fields.schoolYear].filter(Boolean).join(" \u00b7 ")}
           </p>
           {fields.showWatermark && (
-            <p style={{ fontSize: s(5), color: "#c4bfb8", margin: `${s(3)}px 0 0` }}>Made with Rooted</p>
+            <p style={{ fontSize: s(5), color: "#c8b898", margin: `${s(3)}px 0 0` }}>Made with Rooted</p>
           )}
         </div>
       </div>
     );
   }
 
-  if (style === 2) {
+  // Heritage style
+  if (style === "heritage") {
     return (
       <div style={{
-        ...base,
-        backgroundColor: "#ffffff",
-        border: `${s(1)}px solid #e8e2d9`,
-        display: "flex",
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        ...base, backgroundColor: "#FFFEF7",
+        border: `${s(2)}px solid #1A3A2A`,
+        position: "relative", fontFamily: "'Playfair Display', Georgia, serif",
+        display: "flex", flexDirection: "row", alignItems: "center",
       }}>
-        <div style={{ width: s(18), backgroundColor: "#2d5a3d", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <span style={{ fontSize: s(10), transform: "rotate(-90deg)", display: "block", lineHeight: 1 }}>🌿</span>
-        </div>
+        <div style={{ position: "absolute", inset: s(5), border: `${s(0.5)}px solid #B8860B`, pointerEvents: "none" }} />
+        <div style={{ position: "absolute", inset: s(8), border: `${s(1)}px solid #1A3A2A`, pointerEvents: "none" }} />
         {photoSlot}
-        <div style={{ flex: 1, padding: `${s(10)}px ${s(10)}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-          <p style={{ fontSize: s(6), color: "#5c7f63", fontWeight: 800, textTransform: "uppercase", letterSpacing: s(0.6), margin: `0 0 ${s(2)}px` }}>
+        <div style={{ flex: 1, zIndex: 1, lineHeight: 1.4, paddingRight: s(showSlot ? 10 : 14), paddingLeft: showSlot ? 0 : s(14), textAlign: showSlot ? "left" : "center" }}>
+          <p style={{ fontSize: s(7.5), color: "#1A3A2A", letterSpacing: s(0.8), fontVariant: "small-caps", margin: `0 0 ${s(3)}px` }}>
             {fields.schoolName || "Family Academy"}
           </p>
-          <p style={{ fontSize: s(showSlot ? 11 : 13), fontWeight: 900, color: "#2d2926", lineHeight: 1.1, margin: `0 0 ${s(2)}px` }}>
+          <p style={{ fontSize: s(11), fontWeight: "bold", color: "#0a1a0a", margin: `0 0 ${s(1)}px`, lineHeight: 1.2, fontStyle: "italic" }}>
             {fields.name || "Your Name"}
           </p>
-          <p style={{ fontSize: s(7), color: "#7a6f65", margin: `0 0 ${s(6)}px` }}>
+          <p style={{ fontSize: s(7), color: "#7a6f65", fontStyle: "italic", margin: `0 0 ${s(4)}px` }}>
             {fields.title}
           </p>
-          <div style={{ display: "flex", gap: s(8) }}>
-            {fields.state    && <p style={{ fontSize: s(6.5), color: "#b5aca4", margin: 0 }}>{fields.state}</p>}
-            {fields.schoolYear && <p style={{ fontSize: s(6.5), color: "#b5aca4", margin: 0 }}>{fields.schoolYear}</p>}
-          </div>
+          <div style={{ width: s(showSlot ? 36 : 44), height: 1, backgroundColor: "#B8860B", margin: `0 ${showSlot ? "0" : "auto"} ${s(4)}px` }} />
+          <p style={{ fontSize: s(6.5), color: "#7a6f65", margin: 0 }}>
+            {[fields.state, fields.schoolYear].filter(Boolean).join(" \u00b7 ")}
+          </p>
           {fields.showWatermark && (
-            <p style={{ fontSize: s(5), color: "#d4cfc9", margin: `${s(4)}px 0 0` }}>Made with Rooted</p>
+            <p style={{ fontSize: s(5), color: "#b8a888", margin: `${s(3)}px 0 0` }}>Made with Rooted</p>
           )}
         </div>
       </div>
     );
   }
 
-  // Style 3 — Botanical Natural
+  // Artisan style
   return (
     <div style={{
-      ...base,
-      backgroundColor: "#fdfcf8",
-      border: `${s(1)}px solid #d4cfc9`,
-      display: "flex", flexDirection: "column",
-      fontFamily: "Georgia, 'Times New Roman', serif",
+      ...base, backgroundColor: "#FAFAF8",
+      display: "flex", flexDirection: "row",
+      fontFamily: "'Cormorant Garamond', Georgia, serif",
+      overflow: "hidden",
     }}>
-      <div style={{ backgroundColor: "#5c7f63", padding: `${s(5)}px ${s(10)}px`, display: "flex", alignItems: "center", gap: s(5) }}>
-        <span style={{ fontSize: s(9), lineHeight: 1 }}>🌿</span>
-        <p style={{ fontSize: s(7), fontWeight: "bold", color: "white", letterSpacing: s(0.3), margin: 0 }}>
-          {fields.schoolName || "Family Academy"}
-        </p>
-      </div>
-      <div style={{ flex: 1, display: "flex", flexDirection: "row", alignItems: "center", overflow: "hidden" }}>
-        {photoSlot}
-        <div style={{ flex: 1, padding: `${s(6)}px ${s(8)}px ${s(6)}px ${showSlot ? 0 : s(10)}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-          <p style={{ fontSize: s(showSlot ? 11 : 14), fontStyle: "italic", color: "#2d2926", margin: `0 0 ${s(2)}px`, lineHeight: 1.2 }}>
-            {fields.name || "Your Name"}
-          </p>
-          <p style={{ fontSize: s(7), color: "#7a6f65", margin: `0 0 ${s(5)}px` }}>
-            {fields.title}
-          </p>
-          <div style={{ display: "flex", alignItems: "center", gap: s(4) }}>
-            <span style={{ fontSize: s(7) }}>🍃🍃🍃</span>
-            <p style={{ fontSize: s(6.5), color: "#b5aca4", margin: 0 }}>
-              {[fields.state, fields.schoolYear].filter(Boolean).join(" · ")}
+      <div style={{ width: s(6), backgroundColor: "#C4613A", flexShrink: 0 }} />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        <div style={{ height: s(2), backgroundColor: "#C4613A" }} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "row", alignItems: "center" }}>
+          {photoSlot}
+          <div style={{ flex: 1, padding: `${s(6)}px ${s(8)}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <p style={{ fontSize: s(6), color: "#C4613A", letterSpacing: s(1), textTransform: "uppercase", fontFamily: "'Jost', sans-serif", fontWeight: 300, margin: `0 0 ${s(2)}px` }}>
+              {fields.schoolName || "Family Academy"}
             </p>
+            <p style={{ fontSize: s(showSlot ? 12 : 14), fontStyle: "italic", color: "#2C2520", margin: `0 0 ${s(2)}px`, lineHeight: 1.2 }}>
+              {fields.name || "Your Name"}
+            </p>
+            <p style={{ fontSize: s(7), color: "#7a6a5e", fontStyle: "italic", margin: `0 0 ${s(4)}px` }}>
+              {fields.title}
+            </p>
+            <p style={{ fontSize: s(6.5), color: "#b5aca4", margin: 0 }}>
+              {[fields.state, fields.schoolYear].filter(Boolean).join(" \u00b7 ")}
+            </p>
+            {fields.showWatermark && (
+              <p style={{ fontSize: s(5), color: "#c0b8b0", margin: `${s(3)}px 0 0` }}>Made with Rooted</p>
+            )}
           </div>
-          {fields.showWatermark && (
-            <p style={{ fontSize: s(5), color: "#c4bfb8", margin: `${s(4)}px 0 0` }}>Made with Rooted</p>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Card PDF (business card 3.5"×2") ────────────────────────────────────────
+// ─── Card PDF download ────────────────────────────────────────────────────────
 
-// Photo placeholder rendered in HTML for layout purposes; actual photo overlaid
-// afterwards via doc.addImage() in downloadCard().
-// HTML card is 336×192px. Photo slot: 96×120px, x=10, y=36.
-const PHOTO_HTML_X = 10;
-const PHOTO_HTML_Y = 36;
-const PHOTO_HTML_W = 96;
-const PHOTO_HTML_H = 120;
-
-const photoPlaceholderHtml = `<div style="width:${PHOTO_HTML_W}px;height:${PHOTO_HTML_H}px;flex-shrink:0;border:1px dashed #c4bfb8;box-sizing:border-box;align-self:center;margin-left:${PHOTO_HTML_X}px;margin-right:8px;"></div>`;
-
-function cardBodyHtml(style: StyleId, f: CardFields): string {
-  const school = f.schoolName || "Family Academy";
-  const name   = f.name || "Name";
-  const wm     = f.showWatermark ? `<p style="font-size:7px;color:#c4bfb8;margin:5px 0 0;">Made with Rooted</p>` : "";
-  const loc    = [f.state, f.schoolYear].filter(Boolean).join(" · ");
-
-  if (style === 1) return `
-<div style="width:336px;height:192px;background:#fffef8;border:4px solid #2d5a3d;box-sizing:border-box;
-  position:relative;font-family:Georgia,serif;display:flex;flex-direction:row;align-items:center;">
-  <div style="position:absolute;inset:6px;border:3px solid #c4922a;pointer-events:none;"></div>
-  <div style="position:absolute;top:3px;left:3px;width:13px;height:13px;border-top:3px solid #c4922a;border-left:3px solid #c4922a;"></div>
-  <div style="position:absolute;top:3px;right:3px;width:13px;height:13px;border-top:3px solid #c4922a;border-right:3px solid #c4922a;"></div>
-  <div style="position:absolute;bottom:3px;left:3px;width:13px;height:13px;border-bottom:3px solid #c4922a;border-left:3px solid #c4922a;"></div>
-  <div style="position:absolute;bottom:3px;right:3px;width:13px;height:13px;border-bottom:3px solid #c4922a;border-right:3px solid #c4922a;"></div>
-  ${photoPlaceholderHtml}
-  <div style="flex:1;line-height:1.4;padding-right:12px;z-index:1;">
-    <p style="font-size:9px;color:#c4922a;letter-spacing:1px;text-transform:uppercase;margin:0 0 3px;">${school}</p>
-    <p style="font-size:14px;font-weight:bold;color:#2d2926;margin:0 0 2px;">${name}</p>
-    <p style="font-size:9px;color:#7a6f65;font-style:italic;margin:0 0 6px;">${f.title}</p>
-    <div style="width:44px;height:1px;background:#c4922a;margin:0 0 6px;"></div>
-    <p style="font-size:8px;color:#7a6f65;margin:0;">${loc}</p>
-    ${wm}
-  </div>
-</div>`;
-
-  if (style === 2) return `
-<div style="width:336px;height:192px;background:#fff;border:3px solid #e8e2d9;box-sizing:border-box;
-  display:flex;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;align-items:center;">
-  <div style="width:24px;height:192px;background:#2d5a3d;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
-    <span style="font-size:13px;transform:rotate(-90deg);display:block;line-height:1;">🌿</span>
-  </div>
-  ${photoPlaceholderHtml}
-  <div style="flex:1;padding:12px 12px;display:flex;flex-direction:column;justify-content:center;">
-    <p style="font-size:8px;color:#5c7f63;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;margin:0 0 2px;">${school}</p>
-    <p style="font-size:14px;font-weight:900;color:#2d2926;line-height:1.1;margin:0 0 2px;">${name}</p>
-    <p style="font-size:9px;color:#7a6f65;margin:0 0 8px;">${f.title}</p>
-    <div style="display:flex;gap:10px;">
-      ${f.state      ? `<p style="font-size:8px;color:#b5aca4;margin:0;">${f.state}</p>` : ""}
-      ${f.schoolYear ? `<p style="font-size:8px;color:#b5aca4;margin:0;">${f.schoolYear}</p>` : ""}
-    </div>
-    ${wm}
-  </div>
-</div>`;
-
-  return `
-<div style="width:336px;height:192px;background:#fdfcf8;border:3px solid #d4cfc9;box-sizing:border-box;
-  display:flex;flex-direction:column;font-family:Georgia,serif;overflow:hidden;">
-  <div style="background:#5c7f63;padding:7px 14px;display:flex;align-items:center;gap:6px;">
-    <span style="font-size:11px;line-height:1;">🌿</span>
-    <p style="font-size:9px;font-weight:bold;color:white;margin:0;">${school}</p>
-  </div>
-  <div style="flex:1;display:flex;flex-direction:row;align-items:center;overflow:hidden;">
-    ${photoPlaceholderHtml}
-    <div style="flex:1;padding:8px 10px 8px 0;display:flex;flex-direction:column;justify-content:center;">
-      <p style="font-size:13px;font-style:italic;color:#2d2926;margin:0 0 2px;line-height:1.2;">${name}</p>
-      <p style="font-size:9px;color:#7a6f65;margin:0 0 6px;">${f.title}</p>
-      <div style="display:flex;align-items:center;gap:5px;">
-        <span style="font-size:9px;">🍃🍃🍃</span>
-        <p style="font-size:8px;color:#b5aca4;margin:0;">${loc}</p>
-      </div>
-      ${wm}
-    </div>
-  </div>
-</div>`;
-}
-
-// ─── Card back HTML ───────────────────────────────────────────────────────────
-
-function cardBackBodyHtml(style: StyleId, f: CardFields, back: BackFields, qrDataUrl: string | null): string {
-  const school = f.schoolName || "Family Academy";
-  const addr   = back.address       ? `<p style="font-size:8px;color:#7a6f65;margin:0 0 2px;">${back.address}</p>` : "";
-  const web    = back.websiteOrEmail ? `<p style="font-size:8px;color:#5c7f63;margin:0 0 2px;">${back.websiteOrEmail}</p>` : "";
-  const note   = back.note          ? `<p style="font-size:7.5px;color:#7a6f65;font-style:italic;margin:0 0 2px;">${back.note}</p>` : "";
-  const qr     = qrDataUrl          ? `<img src="${qrDataUrl}" style="width:44px;height:44px;display:block;margin:4px auto 0;" alt="QR" />` : "";
-
-  if (style === 1) return `
-<div style="width:336px;height:192px;background:#fffef8;border:4px solid #2d5a3d;box-sizing:border-box;
-  position:relative;font-family:Georgia,serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px;">
-  <div style="position:absolute;inset:6px;border:3px solid #c4922a;"></div>
-  <div style="position:absolute;top:3px;left:3px;width:13px;height:13px;border-top:3px solid #c4922a;border-left:3px solid #c4922a;"></div>
-  <div style="position:absolute;top:3px;right:3px;width:13px;height:13px;border-top:3px solid #c4922a;border-right:3px solid #c4922a;"></div>
-  <div style="position:absolute;bottom:3px;left:3px;width:13px;height:13px;border-bottom:3px solid #c4922a;border-left:3px solid #c4922a;"></div>
-  <div style="position:absolute;bottom:3px;right:3px;width:13px;height:13px;border-bottom:3px solid #c4922a;border-right:3px solid #c4922a;"></div>
-  <div style="text-align:center;z-index:1;line-height:1.5;">
-    <p style="font-size:10px;color:#c4922a;letter-spacing:1px;text-transform:uppercase;margin:0 0 4px;">${school}</p>
-    ${addr}${web}${note}${qr}
-  </div>
-</div>`;
-
-  if (style === 2) return `
-<div style="width:336px;height:192px;background:#fff;border:3px solid #e8e2d9;box-sizing:border-box;
-  display:flex;font-family:-apple-system,BlinkMacSystemFont,sans-serif;overflow:hidden;align-items:stretch;">
-  <div style="width:24px;background:#2d5a3d;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
-    <span style="font-size:13px;transform:rotate(-90deg);display:block;line-height:1;">🌿</span>
-  </div>
-  <div style="flex:1;padding:14px 16px;display:flex;flex-direction:column;justify-content:center;">
-    <p style="font-size:8px;color:#5c7f63;font-weight:800;text-transform:uppercase;letter-spacing:0.6px;margin:0 0 4px;">${school}</p>
-    ${addr}${web}${note}
-  </div>
-  ${qrDataUrl ? `<div style="display:flex;align-items:center;padding:0 10px;"><img src="${qrDataUrl}" style="width:44px;height:44px;" alt="QR" /></div>` : ""}
-</div>`;
-
-  return `
-<div style="width:336px;height:192px;background:#fdfcf8;border:3px solid #d4cfc9;box-sizing:border-box;
-  display:flex;flex-direction:column;font-family:Georgia,serif;overflow:hidden;">
-  <div style="background:#5c7f63;padding:7px 14px;display:flex;align-items:center;gap:6px;">
-    <span style="font-size:11px;line-height:1;">🌿</span>
-    <p style="font-size:9px;font-weight:bold;color:white;margin:0;">${school}</p>
-  </div>
-  <div style="flex:1;display:flex;flex-direction:row;align-items:center;padding:10px 14px;gap:10px;">
-    <div style="flex:1;line-height:1.5;">${addr}${web}${note}</div>
-    ${qrDataUrl ? `<img src="${qrDataUrl}" style="width:44px;height:44px;flex-shrink:0;" alt="QR" />` : ""}
-  </div>
-</div>`;
-}
-
-// ─── Card back preview (iframe) ───────────────────────────────────────────────
-
-function CardBackPreview({ style, fields, back, qrDataUrl }: {
-  style: StyleId; fields: CardFields; back: BackFields; qrDataUrl: string | null;
-}) {
-  const W = Math.round(BW * 1.55);
-  const H = Math.round(BH * 1.55);
-  const sc = W / 336;
-  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{margin:0;padding:0;box-sizing:border-box;}body{width:336px;height:192px;overflow:hidden;}</style></head><body>${cardBackBodyHtml(style, fields, back, qrDataUrl)}</body></html>`;
-  return (
-    <div style={{ width: W, height: H, overflow: "hidden", flexShrink: 0 }}>
-      <iframe srcDoc={srcDoc} style={{ width: 336, height: 192, border: "none", transform: `scale(${sc})`, transformOrigin: "0 0", pointerEvents: "none" }} sandbox="allow-same-origin" title="Card back preview" />
-    </div>
-  );
-}
-
-// ─── Print sheet HTML helpers ─────────────────────────────────────────────────
-
-// 816×1056px (8.5"×11"@96dpi). 2×5 grid. Left margin 72px, top 48px. Card 336×192.
-const SHEET_POSITIONS = (() => {
-  const positions: { x: number; y: number }[] = [];
-  for (let row = 0; row < 5; row++) {
-    for (let col = 0; col < 2; col++) {
-      positions.push({ x: 72 + col * 336, y: 48 + row * 192 });
-    }
-  }
-  return positions;
-})();
-
-// Thin dashed cut-guide lines as divs (more reliable with html2canvas than SVG)
-const CUT_GUIDES_HTML = `
-  <div style="position:absolute;left:72px;top:0;width:1px;height:1056px;background:repeating-linear-gradient(to bottom,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
-  <div style="position:absolute;left:408px;top:0;width:1px;height:1056px;background:repeating-linear-gradient(to bottom,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
-  <div style="position:absolute;left:744px;top:0;width:1px;height:1056px;background:repeating-linear-gradient(to bottom,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
-  <div style="position:absolute;left:0;top:48px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
-  <div style="position:absolute;left:0;top:240px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
-  <div style="position:absolute;left:0;top:432px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
-  <div style="position:absolute;left:0;top:624px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
-  <div style="position:absolute;left:0;top:816px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>
-  <div style="position:absolute;left:0;top:1008px;height:1px;width:816px;background:repeating-linear-gradient(to right,#ccc 0,#ccc 4px,transparent 4px,transparent 8px);"></div>`;
-
-function buildSheetHtml(cardHtmlFn: () => string): string {
-  const cards = SHEET_POSITIONS.map(p =>
-    `<div style="position:absolute;left:${p.x}px;top:${p.y}px;width:336px;height:192px;overflow:hidden;">${cardHtmlFn()}</div>`
-  ).join("");
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>*{margin:0;padding:0;box-sizing:border-box;}body{width:816px;height:1056px;overflow:hidden;background:white;}</style>
-</head><body><div style="position:relative;width:816px;height:1056px;">${cards}${CUT_GUIDES_HTML}</div></body></html>`;
-}
-
-// ─── Card PDF download (html2canvas-based) ────────────────────────────────────
-
-// Renders the card back HTML into an off-screen div and captures it with
-// html2canvas. Needed because CardBackPreview uses an iframe (which html2canvas
-// cannot cross-capture), while the front card uses a regular React component.
 async function downloadCard(
-  _frontEl: HTMLElement,
   style: StyleId,
   fields: CardFields,
-  _back: BackFields,
-  _qrDataUrl: string | null,
   label: string,
 ) {
   const { jsPDF } = await import("jspdf");
   const { drawIDCardFront } = await import("@/lib/pdf");
-
-  const W = 252, H = 144; // 3.5" × 2" in points
-  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: [W, H] });
-  // Convert to inches for our drawing function
+  const styleNum = style === "garden" ? 1 : style === "heritage" ? 2 : 3;
   const docIn = new jsPDF({ orientation: "landscape", unit: "in", format: [3.5, 2] });
   drawIDCardFront(docIn, {
     schoolName: fields.schoolName, name: fields.name, title: fields.title,
     schoolYear: fields.schoolYear, state: fields.state, showWatermark: fields.showWatermark,
-    style: style as 1 | 2 | 3,
+    style: styleNum as 1 | 2 | 3,
   }, 0, 0);
   docIn.save(`${label.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`);
 }
 
-// ── Print sheet (8 cards per sheet, 2×4 grid, with crop marks) ─────────────
 async function downloadPrintSheet(
-  _frontEl: HTMLElement,
   style: StyleId,
   fields: CardFields,
-  _back: BackFields,
-  _qrDataUrl: string | null,
   label: string,
 ) {
   const { jsPDF } = await import("jspdf");
   const { drawIDCardPrintSheet } = await import("@/lib/pdf");
-
+  const styleNum = style === "garden" ? 1 : style === "heritage" ? 2 : 3;
   const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
   drawIDCardPrintSheet(doc, {
     schoolName: fields.schoolName, name: fields.name, title: fields.title,
     schoolYear: fields.schoolYear, state: fields.state, showWatermark: fields.showWatermark,
-    style: style as 1 | 2 | 3,
+    style: styleNum as 1 | 2 | 3,
   });
   window.open(doc.output("bloburl"), "_blank");
 }
 
-// ─── Certificate HTML (letter 8.5"×11") ─────────────────────────────────────
-
-function certBodyHtml(style: StyleId, d: CertDisplay): string {
-  const school = d.schoolName || "Family Academy";
-  const child  = d.childName  || "Student Name";
-  const wm     = d.showWatermark
-    ? `<p style="font-size:10px;color:#c4bfb8;margin-top:28px;">Made with Rooted</p>`
-    : "";
-  const today  = formatDate();
-
-  if (style === 1) return `
-<div style="width:816px;height:1056px;background:#fffef8;border:8px solid #2d5a3d;box-sizing:border-box;
-  position:relative;font-family:Georgia,'Times New Roman',serif;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px;">
-  <div style="position:absolute;inset:22px;border:2px solid #c4922a;"></div>
-  <div style="position:absolute;top:10px;left:10px;width:32px;height:32px;border-top:2px solid #c4922a;border-left:2px solid #c4922a;"></div>
-  <div style="position:absolute;top:10px;right:10px;width:32px;height:32px;border-top:2px solid #c4922a;border-right:2px solid #c4922a;"></div>
-  <div style="position:absolute;bottom:10px;left:10px;width:32px;height:32px;border-bottom:2px solid #c4922a;border-left:2px solid #c4922a;"></div>
-  <div style="position:absolute;bottom:10px;right:10px;width:32px;height:32px;border-bottom:2px solid #c4922a;border-right:2px solid #c4922a;"></div>
-  <div style="text-align:center;z-index:1;">
-    <p style="font-size:13px;color:#c4922a;letter-spacing:3px;text-transform:uppercase;margin:0 0 6px;">${school}</p>
-    <p style="font-size:28px;color:#2d5a3d;letter-spacing:4px;text-transform:uppercase;font-weight:bold;margin:0 0 28px;">${d.certTitle}</p>
-    <p style="font-size:16px;color:#7a6f65;font-style:italic;margin:0 0 10px;">This certifies that</p>
-    <div style="width:340px;height:1px;background:#c4922a;margin:0 auto 10px;"></div>
-    <p style="font-size:52px;font-weight:bold;font-style:italic;color:#2d2926;margin:0 0 10px;line-height:1.1;">${child}</p>
-    <div style="width:340px;height:1px;background:#c4922a;margin:0 auto 24px;"></div>
-    <p style="font-size:19px;color:#2d2926;margin:0 0 36px;max-width:580px;line-height:1.55;">${d.accomplishment}</p>
-    <p style="font-size:13px;color:#7a6f65;letter-spacing:2px;margin:0 0 6px;">✦ &nbsp; ${d.schoolYear} &nbsp; ✦</p>
-    <p style="font-size:12px;color:#b5aca4;margin:0;">${today}</p>
-    ${wm}
-  </div>
-</div>`;
-
-  if (style === 2) return `
-<div style="width:816px;height:1056px;background:#ffffff;box-sizing:border-box;
-  display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;">
-  <div style="background:#2d5a3d;padding:52px 60px;text-align:center;">
-    <p style="font-size:30px;margin:0 0 10px;line-height:1;">🌿</p>
-    <p style="font-size:13px;color:rgba(255,255,255,0.7);font-weight:700;letter-spacing:3px;text-transform:uppercase;margin:0 0 6px;">${school}</p>
-    <p style="font-size:36px;color:white;font-weight:900;letter-spacing:6px;text-transform:uppercase;margin:0;">${d.certTitle}</p>
-  </div>
-  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px;text-align:center;">
-    <p style="font-size:16px;color:#7a6f65;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin:0 0 14px;">Presented to</p>
-    <p style="font-size:62px;font-weight:900;color:#2d2926;line-height:1.05;margin:0 0 20px;">${child}</p>
-    <div style="width:80px;height:4px;background:#5c7f63;border-radius:2px;margin:0 auto 28px;"></div>
-    <p style="font-size:20px;color:#2d2926;margin:0 0 52px;max-width:560px;line-height:1.5;">${d.accomplishment}</p>
-    <p style="font-size:13px;color:#b5aca4;letter-spacing:1px;margin:0 0 6px;">${d.schoolYear}</p>
-    <p style="font-size:12px;color:#c4bfb8;margin:0;">${today}</p>
-    ${wm}
-  </div>
-</div>`;
-
-  return `
-<div style="width:816px;height:1056px;background:#fdfcf8;box-sizing:border-box;
-  display:flex;flex-direction:column;font-family:Georgia,'Times New Roman',serif;overflow:hidden;">
-  <div style="background:#5c7f63;padding:40px 60px;display:flex;align-items:center;gap:18px;justify-content:center;">
-    <span style="font-size:30px;line-height:1;">🌿</span>
-    <div>
-      <p style="font-size:14px;color:rgba(255,255,255,0.8);letter-spacing:2px;text-transform:uppercase;margin:0 0 4px;">${school}</p>
-      <p style="font-size:24px;font-weight:bold;color:white;margin:0;">${d.certTitle}</p>
-    </div>
-  </div>
-  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px;text-align:center;">
-    <p style="font-size:15px;color:#7a6f65;font-style:italic;margin:0 0 10px;">This certificate is presented to</p>
-    <p style="font-size:54px;font-style:italic;color:#2d2926;margin:0 0 10px;line-height:1.1;">${child}</p>
-    <p style="font-size:22px;margin:0 0 24px;">🍃🍃🍃</p>
-    <p style="font-size:19px;color:#2d2926;margin:0 0 44px;max-width:560px;line-height:1.6;">${d.accomplishment}</p>
-    <div style="width:200px;height:1px;background:#c4bfb8;margin:0 auto 22px;"></div>
-    <p style="font-size:13px;color:#7a6f65;margin:0 0 6px;">${d.schoolYear}</p>
-    <p style="font-size:12px;color:#b5aca4;margin:0;">${today}</p>
-    ${wm}
-  </div>
-</div>`;
-}
-
-// ─── Certificate preview (iframe + CSS scale) ────────────────────────────────
-
-function CertPreview({ style, display }: { style: StyleId; display: CertDisplay }) {
-  const scale = 0.22;
-  const W = Math.round(CW * scale);
-  const H = Math.round(CH * scale);
-
-  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>*{margin:0;padding:0;box-sizing:border-box;}body{width:${CW}px;height:${CH}px;overflow:hidden;}</style>
-</head><body>${certBodyHtml(style, display)}</body></html>`;
-
-  return (
-    <div style={{ width: W, height: H, overflow: "hidden", flexShrink: 0, borderRadius: 4 }}>
-      <iframe
-        srcDoc={srcDoc}
-        style={{
-          width: CW,
-          height: CH,
-          border: "none",
-          transform: `scale(${scale})`,
-          transformOrigin: "0 0",
-          pointerEvents: "none",
-        }}
-        sandbox="allow-same-origin"
-        title="Certificate preview"
-      />
-    </div>
-  );
-}
-
-// ─── Certificate PDF download ─────────────────────────────────────────────────
-
-async function downloadCert(style: StyleId, display: CertDisplay, filename: string) {
-  const { jsPDF } = await import("jspdf");
-  const { generateCertificate } = await import("@/lib/pdf");
-  const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
-  generateCertificate(doc, {
-    schoolName: display.schoolName,
-    childName: display.childName,
-    certTitle: display.certTitle,
-    accomplishment: display.accomplishment,
-    schoolYear: display.schoolYear,
-    showWatermark: display.showWatermark,
-    style: style as 1 | 2 | 3,
-  });
-  doc.save(`${filename.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`);
-}
-
-// ─── Report card HTML ─────────────────────────────────────────────────────────
-
-function fmtMins(m: number): string {
-  if (m < 60) return `${m} min`;
-  const h = Math.floor(m / 60);
-  const r = m % 60;
-  return r > 0 ? `${h}h ${r}m` : `${h}h`;
-}
-
-function reportCardHtml(data: ReportCardData): string {
-  const foot = `<p style="font-size:9px;color:#b5aca4;text-align:right;padding:4px 60px;margin:0;">Generated ${data.dateGenerated} · ${data.schoolName || "Family Academy"} · rootedhomeschoolapp.com</p>`;
-  const wm = data.showWatermark ? `<p style="font-size:10px;color:#c4bfb8;margin-top:16px;text-align:center;">Made with Rooted</p>` : "";
-  const s = data.familySummary;
-
-  const summaryStats = [
-    { label: "Total Hours", value: s.totalHours },
-    { label: "School Days", value: String(s.totalSchoolDays) },
-    { label: "Lessons", value: String(s.totalLessons) },
-    { label: "Books", value: String(s.totalBooks) },
-    { label: "Trips/Projects", value: String(s.totalFieldTrips) },
-    { label: "Memories", value: String(s.totalMemories) },
-  ];
-
-  // Per-child sections
-  const childSections = data.children.map(c => {
-    const subjRows = c.subjects.length > 0 ? c.subjects.map(sub => `
-      <tr>
-        <td style="padding:5px 12px;font-size:12px;color:#2d2926;border-bottom:1px solid #f0ede8;">${sub.name}</td>
-        <td style="padding:5px 12px;font-size:12px;color:#2d2926;text-align:right;border-bottom:1px solid #f0ede8;">${sub.count}</td>
-        <td style="padding:5px 12px;font-size:12px;color:#2d2926;text-align:right;border-bottom:1px solid #f0ede8;">${sub.hours}${sub.estimated ? "*" : ""}</td>
-      </tr>`).join("") : `<tr><td colspan="3" style="padding:10px 12px;color:#b5aca4;font-style:italic;font-size:11px;">No lessons recorded</td></tr>`;
-
-    const listSection = (title: string, items: string[]) => items.length > 0
-      ? `<p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:16px 0 6px 0;">${title} (${items.length})</p>${items.map(b => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">· ${b}</p>`).join("")}`
-      : "";
-
-    const tripItems = c.fieldTrips.map(t => `${t.title}${t.duration ? ` — ${t.duration} min` : ""}`);
-
-    return `
-    <div style="margin-bottom:28px;">
-      <table style="width:100%;border-collapse:collapse;"><tr><td style="background:#5c7f63;padding:10px 20px;border-radius:8px 8px 0 0;">
-        <p style="font-size:16px;font-weight:bold;color:white;margin:0;">${c.name}</p>
-      </td></tr></table>
-      <div style="border:1px solid #e8e2d9;border-top:none;padding:16px 20px;">
-        <table style="border-collapse:collapse;margin-bottom:16px;"><tr>
-          <td style="padding:0 24px 0 0;"><p style="font-size:10px;color:#7a6f65;margin:0;">Hours</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalHours}</p></td>
-          <td style="padding:0 24px 0 0;"><p style="font-size:10px;color:#7a6f65;margin:0;">Lessons</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalLessons}</p></td>
-          <td style="padding:0;"><p style="font-size:10px;color:#7a6f65;margin:0;">School Days</p><p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${c.totalSchoolDays}</p></td>
-        </tr></table>
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e8e2d9;">
-          <thead><tr style="background:#f5f2ee;">
-            <th style="padding:6px 12px;text-align:left;font-size:10px;color:#7a6f65;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Subject</th>
-            <th style="padding:6px 12px;text-align:right;font-size:10px;color:#7a6f65;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Lessons</th>
-            <th style="padding:6px 12px;text-align:right;font-size:10px;color:#7a6f65;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Hours</th>
-          </tr></thead>
-          <tbody>${subjRows}</tbody>
-        </table>
-        ${listSection("Books Read", c.books)}
-        ${listSection("Field Trips & Projects", tripItems)}
-        ${listSection("Wins & Milestones", c.wins)}
-        ${c.badges.length > 0 ? `<p style="font-size:11px;font-weight:700;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;margin:16px 0 6px 0;">Badges Earned</p>${c.badges.map(b => `<p style="font-size:11px;color:#2d2926;margin:2px 0;">🏅 ${b}</p>`).join("")}` : ""}
-      </div>
-    </div>`;
-  }).join("");
-
-  // Daily log
-  const logRows = data.dailyLog.flatMap(day => {
-    const header = `<tr><td colspan="5" style="padding:8px 12px 4px;font-size:11px;font-weight:700;color:#2d2926;background:#f5f2ee;">${day.dateLabel}</td></tr>`;
-    const rows = day.entries.map(e => `
-      <tr>
-        <td style="padding:3px 12px;font-size:10px;color:#7a6f65;border-bottom:1px solid #f5f2ee;">${day.dateLabel}</td>
-        <td style="padding:3px 12px;font-size:10px;color:#2d2926;border-bottom:1px solid #f5f2ee;">${e.subject}</td>
-        <td style="padding:3px 12px;font-size:10px;color:#2d2926;border-bottom:1px solid #f5f2ee;">${e.description}</td>
-        <td style="padding:3px 12px;font-size:10px;color:#2d2926;text-align:right;border-bottom:1px solid #f5f2ee;">${e.minutes}${e.estimated ? "*" : ""}</td>
-        <td style="padding:3px 12px;font-size:10px;color:#7a6f65;border-bottom:1px solid #f5f2ee;">${e.type}</td>
-      </tr>`).join("");
-    return header + rows;
-  }).join("");
-
-  const totalLogMins = data.dailyLog.reduce((sum, d) => sum + d.entries.reduce((s2, e) => s2 + e.minutes, 0), 0);
-
-  const dailyLogSection = data.dailyLog.length > 0 ? `
-  <div style="padding:36px 60px 20px;">
-    <p style="font-size:15px;font-weight:700;color:#2d2926;margin:0 0 4px;">Daily Activity Log</p>
-    <p style="font-size:11px;color:#7a6f65;margin:0 0 16px;">For state record-keeping purposes</p>
-    <table style="width:100%;border-collapse:collapse;border:1px solid #e8e2d9;">
-      <thead><tr style="background:#f5f2ee;">
-        <th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Date</th>
-        <th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Subject</th>
-        <th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Description</th>
-        <th style="padding:6px 12px;text-align:right;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Min</th>
-        <th style="padding:6px 12px;text-align:left;font-size:9px;color:#7a6f65;font-weight:700;text-transform:uppercase;">Type</th>
-      </tr></thead>
-      <tbody>${logRows}</tbody>
-    </table>
-    <p style="font-size:11px;color:#7a6f65;margin:12px 0 0;font-weight:600;">Total logged: ${fmtMins(totalLogMins)} across ${data.dailyLog.length} school days</p>
-  </div>
-  ${foot}` : "";
-
-  return `
-<div style="width:816px;min-height:1056px;background:#fdfcf8;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:0;">
-
-  <div style="background:#2d5a3d;padding:48px 60px;text-align:center;">
-    <p style="font-size:24px;margin:0 0 10px;">🌿</p>
-    <p style="font-size:22px;font-weight:900;color:white;margin:0 0 4px;">${data.schoolName || "Family Academy"}</p>
-    <p style="font-size:13px;color:rgba(255,255,255,0.6);letter-spacing:2px;text-transform:uppercase;margin:0 0 6px;">Annual Progress Report · ${data.schoolYear}</p>
-    <p style="font-size:11px;color:rgba(255,255,255,0.45);margin:0;">Generated ${data.dateGenerated}</p>
-  </div>
-
-  <div style="padding:36px 60px;">
-    <p style="font-size:15px;font-weight:700;color:#2d2926;margin:0 0 16px;">Family Summary</p>
-    <table style="width:100%;border-collapse:collapse;border:1px solid #e8e2d9;">
-      <tr>
-        ${summaryStats.map((x, i) => `<td style="padding:12px 10px;text-align:center;${i > 0 ? "border-left:1px solid #e8e2d9;" : ""}">
-          <p style="font-size:10px;color:#7a6f65;margin:0 0 2px;">${x.label}</p>
-          <p style="font-size:18px;font-weight:700;color:#2d5a3d;margin:0;">${x.value}</p>
-        </td>`).join("")}
-      </tr>
-    </table>
-    <p style="font-size:9px;color:#b5aca4;margin:8px 0 0;font-style:italic;">* Hours marked with an asterisk are estimated based on your default lesson time settings.</p>
-  </div>
-  ${foot}
-
-  <div style="padding:0 60px 36px;">
-    ${childSections}
-    ${wm}
-  </div>
-
-  ${dailyLogSection}
-</div>`;
-}
-
 // ─── Shared form components ──────────────────────────────────────────────────
 
-function FieldInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function FieldInput({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <div>
       <label className="block text-[11px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-1">{label}</label>
-      <input
-        type="text"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="w-full border border-[#e8e2d9] rounded-lg px-3 py-2 text-sm text-[#2d2926] bg-[#fefcf9] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]"
-      />
+      <input type="text" value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)}
+        className="w-full border border-[#e8e2d9] rounded-lg px-3 py-2 text-sm text-[#2d2926] bg-[#fefcf9] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]" />
     </div>
   );
 }
 
-function ChildSelect({ label = "Child", childrenList, value, onChange }: {
-  label?: string;
-  childrenList: ChildData[];
-  value: string;
-  onChange: (childId: string, childName: string) => void;
-}) {
+function TextAreaInput({ label, value, placeholder, onChange }: { label: string; value: string; placeholder?: string; onChange: (v: string) => void }) {
   return (
     <div>
       <label className="block text-[11px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-1">{label}</label>
-      <select
-        value={value}
-        onChange={e => {
-          const child = childrenList.find(c => c.id === e.target.value);
-          onChange(e.target.value, child?.name || "");
-        }}
-        className="w-full border border-[#e8e2d9] rounded-lg px-3 py-2 text-sm text-[#2d2926] bg-[#fefcf9] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]"
-      >
-        {childrenList.map(c => (
-          <option key={c.id} value={c.id}>{c.name}</option>
-        ))}
-      </select>
+      <textarea value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)} rows={2}
+        className="w-full border border-[#e8e2d9] rounded-lg px-3 py-2 text-sm text-[#2d2926] bg-[#fefcf9] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63] resize-none" />
     </div>
   );
 }
 
-function SelectInput({ label, value, options, onChange }: {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (v: string) => void;
-}) {
+function SelectInput({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
   return (
     <div>
       <label className="block text-[11px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-1">{label}</label>
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="w-full border border-[#e8e2d9] rounded-lg px-3 py-2 text-sm text-[#2d2926] bg-[#fefcf9] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]"
-      >
+      <select value={value} onChange={e => onChange(e.target.value)}
+        className="w-full border border-[#e8e2d9] rounded-lg px-3 py-2 text-sm text-[#2d2926] bg-[#fefcf9] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]">
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
     </div>
   );
 }
 
-function TextAreaInput({ label, value, placeholder, onChange }: {
-  label: string;
+function ChildSelect({ childrenList, value, onChange }: {
+  childrenList: ChildData[];
   value: string;
-  placeholder?: string;
-  onChange: (v: string) => void;
+  onChange: (childId: string, childName: string) => void;
 }) {
   return (
     <div>
-      <label className="block text-[11px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-1">{label}</label>
-      <textarea
-        value={value}
-        placeholder={placeholder}
-        onChange={e => onChange(e.target.value)}
-        rows={2}
-        className="w-full border border-[#e8e2d9] rounded-lg px-3 py-2 text-sm text-[#2d2926] bg-[#fefcf9] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63] resize-none"
-      />
+      <label className="block text-[11px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-1">Child</label>
+      <select value={value} onChange={e => {
+        const child = childrenList.find(c => c.id === e.target.value);
+        onChange(e.target.value, child?.name || "");
+      }}
+        className="w-full border border-[#e8e2d9] rounded-lg px-3 py-2 text-sm text-[#2d2926] bg-[#fefcf9] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]">
+        {childrenList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
     </div>
   );
 }
 
-// ─── Photo upload (crops to 4:5 portrait ratio via canvas) ───────────────────
+// ─── Photo upload ────────────────────────────────────────────────────────────
 
 function PhotoUpload({ photoUrl, onChange }: {
   photoUrl: string | null;
@@ -926,22 +337,15 @@ function PhotoUpload({ photoUrl, onChange }: {
       const src = e.target?.result as string;
       const img = new Image();
       img.onload = () => {
-        // Crop to 4:5 ratio (portrait), keeping top of image (faces)
         const targetRatio = 4 / 5;
-        let cropW = img.width;
-        let cropH = img.height;
-        let cropX = 0;
-        let cropY = 0;
+        let cropW = img.width, cropH = img.height, cropX = 0, cropY = 0;
         if (img.width / img.height > targetRatio) {
-          cropW = img.height * targetRatio;
-          cropX = (img.width - cropW) / 2;
+          cropW = img.height * targetRatio; cropX = (img.width - cropW) / 2;
         } else {
-          cropH = img.width / targetRatio;
-          cropY = 0; // keep top (where face typically is)
+          cropH = img.width / targetRatio; cropY = 0;
         }
         const canvas = document.createElement("canvas");
-        canvas.width = Math.round(cropW);
-        canvas.height = Math.round(cropH);
+        canvas.width = Math.round(cropW); canvas.height = Math.round(cropH);
         canvas.getContext("2d")!.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
         onChange(canvas.toDataURL("image/jpeg", 0.92));
       };
@@ -956,16 +360,10 @@ function PhotoUpload({ photoUrl, onChange }: {
         Photo <span className="text-red-400 font-bold">*</span>
       </label>
       <div className="flex gap-4 items-start">
-        {/* Photo box */}
-        <div
-          onClick={() => !photoUrl && inputRef.current?.click()}
+        <div onClick={() => !photoUrl && inputRef.current?.click()}
           className={`relative flex-shrink-0 overflow-hidden rounded border-2 flex items-center justify-center transition-colors ${
-            photoUrl
-              ? "border-[#e8e2d9] w-[72px] h-[90px]"
-              : "border-dashed border-[#5c7f63] w-[72px] h-[90px] cursor-pointer hover:border-[#3d5c42] hover:bg-[#f0f7f1]"
-          }`}
-          style={{ background: photoUrl ? undefined : "#fafef8" }}
-        >
+            photoUrl ? "border-[#e8e2d9] w-[72px] h-[90px]" : "border-dashed border-[#5c7f63] w-[72px] h-[90px] cursor-pointer hover:border-[#3d5c42] hover:bg-[#f0f7f1]"
+          }`} style={{ background: photoUrl ? undefined : "#fafef8" }}>
           {photoUrl ? (
             <img src={photoUrl} className="w-full h-full object-cover object-top" alt="ID photo" />
           ) : (
@@ -975,49 +373,24 @@ function PhotoUpload({ photoUrl, onChange }: {
             </div>
           )}
         </div>
-
-        {/* Side text + actions */}
         <div className="flex-1 min-w-0 pt-1">
           {!photoUrl ? (
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              className="text-sm font-semibold text-white bg-[#5c7f63] hover:bg-[#3d5c42] px-3 py-1.5 rounded-lg transition-colors"
-            >
+            <button type="button" onClick={() => inputRef.current?.click()}
+              className="text-sm font-semibold text-white bg-[#5c7f63] hover:bg-[#3d5c42] px-3 py-1.5 rounded-lg transition-colors">
               📷 Upload photo
             </button>
           ) : (
             <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => inputRef.current?.click()}
-                className="text-xs font-semibold text-[#5c7f63] hover:underline"
-              >
-                Change
-              </button>
-              <button
-                type="button"
-                onClick={() => onChange(null)}
-                className="text-xs text-[#b5aca4] hover:text-red-400 hover:underline"
-              >
-                Remove
-              </button>
+              <button type="button" onClick={() => inputRef.current?.click()} className="text-xs font-semibold text-[#5c7f63] hover:underline">Change</button>
+              <button type="button" onClick={() => onChange(null)} className="text-xs text-[#b5aca4] hover:text-red-400 hover:underline">Remove</button>
             </div>
           )}
-          <p className="text-[11px] text-[#2d2926] font-medium mt-2 leading-relaxed">
-            Photo required — most programs require a photo ID to be valid.
-          </p>
-          <p className="text-[10px] text-[#b5aca4] mt-0.5">JPG or PNG · auto-cropped to portrait</p>
+          <p className="text-[11px] text-[#2d2926] font-medium mt-2 leading-relaxed">Photo required — most programs require a photo ID to be valid.</p>
+          <p className="text-[10px] text-[#b5aca4] mt-0.5">JPG or PNG \u00b7 auto-cropped to portrait</p>
         </div>
       </div>
-
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/png"
-        className="hidden"
-        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }}
-      />
+      <input ref={inputRef} type="file" accept="image/jpeg,image/png" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
     </div>
   );
 }
@@ -1027,61 +400,31 @@ function PhotoUpload({ photoUrl, onChange }: {
 function IDCardEditor({
   style, fields, onChange, cardLabel,
 }: {
-  style: StyleId;
-  fields: CardFields;
-  onChange: (f: CardFields) => void;
-  cardLabel: string;
+  style: StyleId; fields: CardFields; onChange: (f: CardFields) => void; cardLabel: string;
 }) {
-  const [downloading,      setDownloading]      = useState(false);
-  const [downloadingSheet, setDownloadingSheet]  = useState(false);
-  const [photoUrl,         setPhotoUrl]          = useState<string | null>(null);
-  const [back, setBack] = useState<BackFields>({
-    include: false, address: "", websiteOrEmail: "", note: "", includeQR: false,
-  });
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const frontRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadingSheet, setDownloadingSheet] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [back, setBack] = useState<BackFields>({ include: false, address: "", websiteOrEmail: "", note: "" });
 
   const set = (key: keyof CardFields, val: string | boolean) => onChange({ ...fields, [key]: val });
-  const setBackField = (key: keyof BackFields, val: string | boolean) =>
-    setBack(prev => ({ ...prev, [key]: val }));
-  const canDownload = !!photoUrl && !!frontRef.current;
-
-  async function handleToggleQR(checked: boolean) {
-    if (checked && !qrDataUrl) {
-      try {
-        const QRCode = (await import("qrcode")).default;
-        const url = await (QRCode as { toDataURL: (text: string, opts: object) => Promise<string> })
-          .toDataURL("https://rootedhomeschoolapp.com", { width: 80, margin: 1 });
-        setQrDataUrl(url);
-      } catch { /* silently skip QR if generation fails */ }
-    }
-    setBackField("includeQR", checked);
-  }
+  const setBackField = (key: keyof BackFields, val: string | boolean) => setBack(prev => ({ ...prev, [key]: val }));
+  const canDownload = !!photoUrl;
 
   async function handleDownload() {
-    if (!photoUrl || !frontRef.current) return;
+    if (!photoUrl) return;
     setDownloading(true);
-    try {
-      await downloadCard(frontRef.current, style, fields, back, back.includeQR ? qrDataUrl : null, cardLabel);
-    } catch (e) {
-      console.error(e);
-      alert("Download failed. Please try again.");
-    } finally {
-      setDownloading(false);
-    }
+    try { await downloadCard(style, fields, cardLabel); }
+    catch (e) { console.error(e); alert("Download failed. Please try again."); }
+    finally { setDownloading(false); }
   }
 
   async function handlePrintSheet() {
-    if (!photoUrl || !frontRef.current) return;
+    if (!photoUrl) return;
     setDownloadingSheet(true);
-    try {
-      await downloadPrintSheet(frontRef.current, style, fields, back, back.includeQR ? qrDataUrl : null, cardLabel);
-    } catch (e) {
-      console.error(e);
-      alert("Download failed. Please try again.");
-    } finally {
-      setDownloadingSheet(false);
-    }
+    try { await downloadPrintSheet(style, fields, cardLabel); }
+    catch (e) { console.error(e); alert("Download failed. Please try again."); }
+    finally { setDownloadingSheet(false); }
   }
 
   return (
@@ -1090,164 +433,73 @@ function IDCardEditor({
         <h3 className="text-sm font-bold text-[#2d2926] pt-0.5">{cardLabel}</h3>
         <div className="flex flex-col items-end gap-1.5 shrink-0">
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleDownload}
-              disabled={!canDownload || downloading}
+            <button onClick={handleDownload} disabled={!canDownload || downloading}
               title={!photoUrl ? "Upload a photo to enable download" : undefined}
-              className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <Download size={11} />
-              {downloading ? "Generating…" : "Download ID Card"}
+              className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors">
+              <Download size={11} /> {downloading ? "Generating\u2026" : "Download ID Card"}
             </button>
-            <button
-              onClick={handlePrintSheet}
-              disabled={!canDownload || downloadingSheet}
-              title={!photoUrl ? "Upload a photo to enable download" : undefined}
-              className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <span className="text-[11px]">📄</span>
-              {downloadingSheet ? "Generating…" : "Print Sheet"}
+            <button onClick={handlePrintSheet} disabled={!canDownload || downloadingSheet}
+              className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors">
+              <span className="text-[11px]">📄</span> {downloadingSheet ? "Generating\u2026" : "Print Sheet"}
             </button>
           </div>
-          {!photoUrl && (
-            <p className="text-[10px] text-[#b5aca4]">Upload a photo to enable download</p>
-          )}
+          {!photoUrl && <p className="text-[10px] text-[#b5aca4]">Upload a photo to enable download</p>}
           {photoUrl && (
             <p className="text-[10px] text-[#b5aca4] text-right max-w-xs leading-relaxed">
-              💡 Print at 100% (do not scale to fit). Page 1 = fronts, Page 2 = backs if double-sided. Cut on the crop marks. Print on cardstock and laminate for best results.
+              💡 Print at 100% (do not scale to fit). Cut on the crop marks. Print on cardstock and laminate.
             </p>
           )}
         </div>
       </div>
-
       <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-3">
           <PhotoUpload photoUrl={photoUrl} onChange={setPhotoUrl} />
           <FieldInput label="School Name" value={fields.schoolName} onChange={v => set("schoolName", v)} />
-          <FieldInput
-            label={cardLabel.toLowerCase().includes("student") ? "Student Name" : "Parent Name"}
-            value={fields.name}
-            onChange={v => set("name", v)}
-          />
+          <FieldInput label={cardLabel.toLowerCase().includes("student") ? "Student Name" : "Parent Name"} value={fields.name} onChange={v => set("name", v)} />
           <FieldInput label="Title" value={fields.title} onChange={v => set("title", v)} />
           <div className="grid grid-cols-2 gap-3">
             <FieldInput label="School Year" value={fields.schoolYear} onChange={v => set("schoolYear", v)} />
             <FieldInput label="State" value={fields.state} onChange={v => set("state", v)} />
           </div>
           <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input type="checkbox" checked={fields.showWatermark}
-              onChange={e => set("showWatermark", e.target.checked)}
-              className="w-4 h-4 rounded accent-[#5c7f63]" />
-            <span className="text-xs text-[#7a6f65]">Include "Made with Rooted" on card</span>
+            <input type="checkbox" checked={fields.showWatermark} onChange={e => set("showWatermark", e.target.checked)} className="w-4 h-4 rounded accent-[#5c7f63]" />
+            <span className="text-xs text-[#7a6f65]">Include &ldquo;Made with Rooted&rdquo; on card</span>
           </label>
-
-          {/* ── Card back toggle ── */}
           <div className="border-t border-[#f0ede8] pt-3 mt-1">
             <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input type="checkbox" checked={back.include}
-                onChange={e => setBackField("include", e.target.checked)}
-                className="w-4 h-4 rounded accent-[#5c7f63]" />
+              <input type="checkbox" checked={back.include} onChange={e => setBackField("include", e.target.checked)} className="w-4 h-4 rounded accent-[#5c7f63]" />
               <span className="text-xs font-semibold text-[#2d2926]">Include card back (double-sided)</span>
             </label>
           </div>
-
           {back.include && (
             <div className="space-y-2.5 pl-1">
-              <FieldInput label="School Address (optional)" value={back.address}
-                onChange={v => setBackField("address", v)} />
-              <FieldInput label="Website or Email (optional)" value={back.websiteOrEmail}
-                onChange={v => setBackField("websiteOrEmail", v)} />
-              <FieldInput label="Note (optional)" value={back.note}
-                onChange={v => setBackField("note", v)} />
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox" checked={back.includeQR}
-                  onChange={e => handleToggleQR(e.target.checked)}
-                  className="w-4 h-4 rounded accent-[#5c7f63]" />
-                <span className="text-xs text-[#7a6f65]">Include QR code linking to rootedhomeschoolapp.com</span>
-              </label>
+              <FieldInput label="School Address (optional)" value={back.address} onChange={v => setBackField("address", v)} />
+              <FieldInput label="Website or Email (optional)" value={back.websiteOrEmail} onChange={v => setBackField("websiteOrEmail", v)} />
+              <FieldInput label="Note (optional)" value={back.note} onChange={v => setBackField("note", v)} />
             </div>
           )}
         </div>
-
-        {/* Live previews */}
         <div className="flex flex-col items-center gap-4">
           <div className="flex flex-col items-center gap-2">
             <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide">Front</p>
-            <div ref={frontRef} className="shadow-lg rounded overflow-hidden">
+            <div className="shadow-lg rounded overflow-hidden">
               <CardPreview style={style} fields={fields} photoUrl={photoUrl} scale={1.55} />
             </div>
-            <p className="text-[10px] text-[#b5aca4]">3.5″ × 2″</p>
+            <p className="text-[10px] text-[#b5aca4]">3.5&Prime; &times; 2&Prime;</p>
           </div>
-          {back.include && (
-            <div className="flex flex-col items-center gap-2">
-              <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide">Card Back</p>
-              <div className="shadow-lg rounded overflow-hidden">
-                <CardBackPreview style={style} fields={fields} back={back} qrDataUrl={back.includeQR ? qrDataUrl : null} />
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Certificate card wrapper ─────────────────────────────────────────────────
-
-function CertCard({
-  icon, title, desc, style, display, onDownload, downloading, children,
-}: {
-  icon: string;
-  title: string;
-  desc: string;
-  style: StyleId;
-  display: CertDisplay;
-  onDownload: () => void;
-  downloading: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden flex flex-col">
-      <div className="px-4 py-3 border-b border-[#f0ede8] flex items-start justify-between gap-2">
-        <div>
-          <p className="text-sm font-bold text-[#2d2926] flex items-center gap-1.5">
-            <span>{icon}</span> {title}
-          </p>
-          <p className="text-[11px] text-[#b5aca4] mt-0.5">{desc}</p>
-        </div>
-        <button
-          onClick={onDownload}
-          disabled={downloading}
-          className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-3 py-1.5 rounded-lg transition-colors shrink-0 mt-0.5"
-        >
-          <Download size={11} />
-          {downloading ? "Generating…" : "Download"}
-        </button>
-      </div>
-      <div className="p-4 flex gap-4 flex-1">
-        <div className="flex-1 space-y-3 min-w-0">{children}</div>
-        <div className="flex flex-col items-center gap-2 shrink-0">
-          <p className="text-[9px] font-semibold text-[#b5aca4] uppercase tracking-wide">Preview</p>
-          <div className="shadow-md rounded overflow-hidden border border-[#e8e2d9]">
-            <CertPreview style={style} display={display} />
-          </div>
-          <p className="text-[9px] text-[#c4bfb8]">8.5″ × 11″</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Annual report card section ───────────────────────────────────────────────
+// ─── Progress Report ────────────────────────────────────────────────────────
 
 function AnnualReportCard({
   childrenList, schoolName, schoolYear, showWatermark, setShowWatermark,
 }: {
-  childrenList: ChildData[];
-  schoolName: string;
-  schoolYear: string;
-  showWatermark: boolean;
-  setShowWatermark: (v: boolean) => void;
+  childrenList: ChildData[]; schoolName: string; schoolYear: string;
+  showWatermark: boolean; setShowWatermark: (v: boolean) => void;
 }) {
   const [downloading, setDownloading] = useState(false);
 
@@ -1314,12 +566,8 @@ function AnnualReportCard({
         dailyLog: Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({ dateLabel: new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), entries })),
       });
       doc.save(`${(schoolName || "family-academy").replace(/[^a-z0-9]/gi, "-").toLowerCase()}-progress-report.pdf`);
-    } catch (e) {
-      console.error(e);
-      alert("Download failed. Please try again.");
-    } finally {
-      setDownloading(false);
-    }
+    } catch (e) { console.error(e); alert("Download failed. Please try again."); }
+    finally { setDownloading(false); }
   }
 
   return (
@@ -1329,35 +577,95 @@ function AnnualReportCard({
           <h3 className="text-sm font-bold text-[#2d2926]">📊 Progress Report</h3>
           <p className="text-[11px] text-[#b5aca4] mt-0.5">Full-year record with lessons, hours, books, activities, and daily log for state compliance</p>
         </div>
-        <button
-          onClick={handleDownload}
-          disabled={downloading || childrenList.length === 0}
-          className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-3 py-1.5 rounded-lg transition-colors shrink-0"
-        >
-          <Download size={12} />
-          {downloading ? "Generating…" : "Download Report"}
+        <button onClick={handleDownload} disabled={downloading || childrenList.length === 0}
+          className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-3 py-1.5 rounded-lg transition-colors shrink-0">
+          <Download size={12} /> {downloading ? "Generating\u2026" : "Download Report"}
         </button>
       </div>
       <div className="px-5 py-4 flex flex-wrap items-center gap-4">
         <div className="text-sm text-[#7a6f65]">
           <span className="font-semibold text-[#2d2926]">{childrenList.length}</span>{" "}
-          {childrenList.length === 1 ? "student" : "students"} · {schoolYear}
+          {childrenList.length === 1 ? "student" : "students"} \u00b7 {schoolYear}
         </div>
         <label className="flex items-center gap-2 cursor-pointer select-none ml-auto">
-          <input
-            type="checkbox"
-            checked={showWatermark}
-            onChange={e => setShowWatermark(e.target.checked)}
-            className="w-4 h-4 rounded accent-[#5c7f63]"
-          />
-          <span className="text-xs text-[#7a6f65]">Include "Made with Rooted" watermark</span>
+          <input type="checkbox" checked={showWatermark} onChange={e => setShowWatermark(e.target.checked)} className="w-4 h-4 rounded accent-[#5c7f63]" />
+          <span className="text-xs text-[#7a6f65]">Include &ldquo;Made with Rooted&rdquo; watermark</span>
         </label>
       </div>
       {childrenList.length === 0 && (
-        <p className="px-5 pb-4 text-sm text-[#b5aca4] italic">
-          Add children in Settings to generate a report card.
-        </p>
+        <p className="px-5 pb-4 text-sm text-[#b5aca4] italic">Add children in Settings to generate a report card.</p>
       )}
+    </div>
+  );
+}
+
+// ─── Certificate download via Puppeteer API ──────────────────────────────────
+
+async function downloadCertificate(type: string, style: StyleId, data: Record<string, string>) {
+  const res = await fetch("/api/printables/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, style, data, size: "certificate" }),
+  });
+  if (!res.ok) throw new Error("PDF generation failed");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${type}-certificate.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── Award card component ────────────────────────────────────────────────────
+
+function AwardCard({
+  award, style, onDownload, downloading,
+}: {
+  award: EarnedAward;
+  style: StyleId;
+  onDownload: () => void;
+  downloading: boolean;
+}) {
+  const meta = AWARD_META[award.award_type as keyof typeof AWARD_META];
+  if (!meta) return null;
+  const isNew = !award.downloaded_at;
+  const childName = award.certificate_data?.childName;
+
+  return (
+    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-4 flex items-start gap-3 hover:shadow-sm transition-shadow">
+      <span className="text-2xl shrink-0">{meta.emoji}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-[#2d2926] truncate">{meta.label}</p>
+          {isNew && (
+            <span className="text-[9px] font-bold text-white bg-[#5c7f63] px-1.5 py-0.5 rounded-full shrink-0">New!</span>
+          )}
+        </div>
+        <p className="text-[11px] text-[#b5aca4] mt-0.5">
+          {meta.isEducator ? "For you" : childName || ""}
+        </p>
+      </div>
+      <button onClick={onDownload} disabled={downloading}
+        className="flex items-center gap-1 text-[11px] font-semibold text-[#5c7f63] hover:text-[#3d5c42] disabled:opacity-50 shrink-0 mt-0.5">
+        <Download size={12} /> {downloading ? "\u2026" : "Download"}
+      </button>
+    </div>
+  );
+}
+
+// ─── Locked award card ───────────────────────────────────────────────────────
+
+function LockedAwardCard({ awardType }: { awardType: string }) {
+  const meta = AWARD_META[awardType as keyof typeof AWARD_META];
+  if (!meta) return null;
+  return (
+    <div className="bg-[#f5f3ef] border border-[#e8e2d9] rounded-xl p-4 flex items-start gap-3 opacity-60">
+      <span className="text-2xl shrink-0 grayscale">🔒</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-[#7a6f65] truncate">{meta.label}</p>
+        <p className="text-[11px] text-[#b5aca4] mt-0.5">{meta.unlockHint}</p>
+      </div>
     </div>
   );
 }
@@ -1366,23 +674,33 @@ function AnnualReportCard({
 
 export default function PrintablesPage() {
   const partnerCtx = usePartner();
-  const [activeStyle, setActiveStyle] = useState<StyleId>(1);
-  const [isPro,       setIsPro]       = useState<boolean | null>(null);
-  const [familyName,  setFamilyName]  = useState("");
-  const [stateCode,   setStateCode]   = useState("");
-  const [children,    setChildren]    = useState<ChildData[]>([]);
+  const [activeStyle, setActiveStyle] = useState<StyleId>("garden");
+  const [isPro, setIsPro] = useState<boolean | null>(null);
+  const [familyName, setFamilyName] = useState("");
+  const [stateCode, setStateCode] = useState("");
+  const [children, setChildren] = useState<ChildData[]>([]);
   const [parentFields, setParentFields] = useState<CardFields | null>(null);
-  const [childFields,  setChildFields]  = useState<Record<string, CardFields>>({});
+  const [childFields, setChildFields] = useState<Record<string, CardFields>>({});
   const [reportWatermark, setReportWatermark] = useState(true);
 
-  // ─── Cert states ──────────────────────────────────────────────────────────
-  const [gradCert,      setGradCert]      = useState<GradCert | null>(null);
-  const [subjectCert,   setSubjectCert]   = useState<SubjectCert | null>(null);
-  const [streakCert,    setStreakCert]     = useState<StreakCert | null>(null);
-  const [gardenCert,    setGardenCert]    = useState<GardenCert | null>(null);
-  const [bookCert,      setBookCert]      = useState<BookCert | null>(null);
-  const [perfWeekCert,  setPerfWeekCert]  = useState<PerfWeekCert | null>(null);
-  const [downloadingCert, setDownloadingCert] = useState<string | null>(null);
+  // Award states
+  const [earnedAwards, setEarnedAwards] = useState<EarnedAward[]>([]);
+  const [downloadingAward, setDownloadingAward] = useState<string | null>(null);
+  const [showLocked, setShowLocked] = useState(false);
+
+  // Custom certificate
+  const [customName, setCustomName] = useState("");
+  const [customTitle, setCustomTitle] = useState("");
+  const [customText, setCustomText] = useState("");
+  const [customAcademy, setCustomAcademy] = useState("");
+  const [customDate, setCustomDate] = useState(todayStr());
+  const [customDownloading, setCustomDownloading] = useState(false);
+
+  // Manual award states
+  const [gradChild, setGradChild] = useState("");
+  const [gradGrade, setGradGrade] = useState("Kindergarten");
+  const [subjectChild, setSubjectChild] = useState("");
+  const [subjectName, setSubjectName] = useState("");
 
   useEffect(() => { document.title = "Printables \u00b7 Rooted"; }, []);
 
@@ -1390,47 +708,41 @@ export default function PrintablesPage() {
     async function load() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-
       const uid = partnerCtx.effectiveUserId || session.user.id;
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, state, is_pro")
+        .select("display_name, state, is_pro, printable_style")
         .eq("id", uid)
         .maybeSingle();
 
-      const fName = (profile as { display_name?: string } | null)?.display_name || "";
-      const st    = (profile as { state?: string }         | null)?.state        || "";
+      const fName = (profile as Record<string, string> | null)?.display_name || "";
+      const st = (profile as Record<string, string> | null)?.state || "";
+      const savedStyle = (profile as Record<string, string> | null)?.printable_style;
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setFamilyName(fName);
       setStateCode(st);
       setParentFields(makeParentDefaults(fName, st));
+      setCustomAcademy(fName ? `${fName} Academy` : "Family Academy");
+      if (savedStyle && ["garden", "heritage", "artisan"].includes(savedStyle)) {
+        setActiveStyle(savedStyle as StyleId);
+      }
 
-      // Fetch children (leaves/streak are not stored columns — computed below)
       const { data: kids } = await supabase
-        .from("children")
-        .select("id, name")
-        .eq("user_id", uid)
-        .eq("archived", false)
-        .order("sort_order");
+        .from("children").select("id, name").eq("user_id", uid).eq("archived", false).order("sort_order");
 
-      // Fetch completed lessons for leaf count + streak computation
       const [{ data: completedLessons }, { data: bookEvents }] = await Promise.all([
         supabase.from("lessons").select("child_id, date").eq("user_id", uid).eq("completed", true),
         supabase.from("app_events").select("payload").eq("user_id", uid).eq("type", "book_read"),
       ]);
 
-      // Leaf count = completed lessons + book_read events (mirrors garden page)
       const leafMap: Record<string, number> = {};
-      for (const l of (completedLessons || []) as { child_id: string }[]) {
-        leafMap[l.child_id] = (leafMap[l.child_id] || 0) + 1;
-      }
+      for (const l of (completedLessons || []) as { child_id: string }[]) leafMap[l.child_id] = (leafMap[l.child_id] || 0) + 1;
       for (const e of (bookEvents || []) as { payload: { child_id?: string } }[]) {
         const cid = e.payload?.child_id;
         if (cid) leafMap[cid] = (leafMap[cid] || 0) + 1;
       }
 
-      // Per-child lesson dates for streak computation
       const childDatesMap: Record<string, Set<string>> = {};
       for (const l of (completedLessons || []) as { child_id: string; date?: string }[]) {
         if (!l.date) continue;
@@ -1440,53 +752,56 @@ export default function PrintablesPage() {
 
       function computeStreak(dates: Set<string>): number {
         let streak = 0;
-        const todayStr = (d: Date) => d.toISOString().slice(0, 10);
-        const cursor = new Date();
-        cursor.setHours(0, 0, 0, 0);
-        const tmp = new Date(cursor);
-        while (dates.has(todayStr(tmp))) { streak++; tmp.setDate(tmp.getDate() - 1); }
-        if (streak === 0) {
-          cursor.setDate(cursor.getDate() - 1);
-          while (dates.has(todayStr(cursor))) { streak++; cursor.setDate(cursor.getDate() - 1); }
-        }
+        const ds = (d: Date) => d.toISOString().slice(0, 10);
+        const tmp = new Date(); tmp.setHours(0, 0, 0, 0);
+        const c2 = new Date(tmp);
+        while (dates.has(ds(c2))) { streak++; c2.setDate(c2.getDate() - 1); }
+        if (streak === 0) { tmp.setDate(tmp.getDate() - 1); while (dates.has(ds(tmp))) { streak++; tmp.setDate(tmp.getDate() - 1); } }
         return streak;
       }
 
       const kidsArr: ChildData[] = (kids || []).map((k: { id: string; name: string }) => ({
-        id: k.id,
-        name: k.name,
+        id: k.id, name: k.name,
         leaves: leafMap[k.id] || 0,
         streak: computeStreak(childDatesMap[k.id] || new Set()),
       }));
       setChildren(kidsArr);
+      if (kidsArr[0]) { setGradChild(kidsArr[0].id); setSubjectChild(kidsArr[0].id); }
 
       const cardMap: Record<string, CardFields> = {};
-      for (const kid of kidsArr) {
-        cardMap[kid.id] = makeChildDefaults(kid.name, fName, st);
-      }
+      for (const kid of kidsArr) cardMap[kid.id] = makeChildDefaults(kid.name, fName, st);
       setChildFields(cardMap);
 
-      // Init cert states with first child (if any)
-      const firstChild = kidsArr[0];
-      const school = fName ? `${fName} Academy` : "Family Academy";
-      const yr = currentYearRange();
+      // Load earned awards
+      const { data: awards } = await supabase
+        .from("earned_awards").select("*").eq("user_id", uid).order("earned_at", { ascending: false });
+      setEarnedAwards((awards || []) as EarnedAward[]);
 
-      if (firstChild) {
-        setGradCert({ childId: firstChild.id, childName: firstChild.name, schoolName: school, schoolYear: yr, gradeLevel: "Kindergarten", certText: "", showWatermark: true });
-        setSubjectCert({ childId: firstChild.id, childName: firstChild.name, schoolName: school, schoolYear: yr, subjectName: "", certText: "", showWatermark: true });
-        setStreakCert({ childId: firstChild.id, childName: firstChild.name, schoolName: school, schoolYear: yr, streakCount: String(firstChild.streak || 0), certText: "", showWatermark: true });
-        const stage = stageNameFromLeaves(firstChild.leaves || 0);
-        setGardenCert({ childId: firstChild.id, childName: firstChild.name, schoolName: school, schoolYear: yr, leafCount: String(firstChild.leaves || 0), stageName: stage, certText: "", showWatermark: true });
-        setBookCert({ childId: firstChild.id, childName: firstChild.name, schoolName: school, schoolYear: yr, bookTitle: "", certText: "", showWatermark: true });
-        setPerfWeekCert({ childId: firstChild.id, childName: firstChild.name, schoolName: school, schoolYear: yr, dateRange: "", certText: "", showWatermark: true });
-      } else {
-        setGradCert({ childId: "", childName: "Student Name", schoolName: school, schoolYear: yr, gradeLevel: "Kindergarten", certText: "", showWatermark: true });
-        setSubjectCert({ childId: "", childName: "Student Name", schoolName: school, schoolYear: yr, subjectName: "", certText: "", showWatermark: true });
-        setStreakCert({ childId: "", childName: "Student Name", schoolName: school, schoolYear: yr, streakCount: "30", certText: "", showWatermark: true });
-        setGardenCert({ childId: "", childName: "Student Name", schoolName: school, schoolYear: yr, leafCount: "50", stageName: "Young Tree", certText: "", showWatermark: true });
-        setBookCert({ childId: "", childName: "Student Name", schoolName: school, schoolYear: yr, bookTitle: "", certText: "", showWatermark: true });
-        setPerfWeekCert({ childId: "", childName: "Student Name", schoolName: school, schoolYear: yr, dateRange: "", certText: "", showWatermark: true });
-      }
+      // Check for new awards
+      try {
+        const { checkAndGrantAwards } = await import("@/lib/award-unlocks");
+        const allDates = new Set<string>();
+        for (const l of (completedLessons || []) as { date?: string }[]) { if (l.date) allDates.add(l.date); }
+
+        const { data: memoriesData } = await supabase
+          .from("memories").select("id, type, child_id, title, date").eq("user_id", uid);
+
+        const appData: AppData = {
+          children: kidsArr.map(k => ({ id: k.id, name: k.name })),
+          completedLessons: (completedLessons || []) as { child_id: string; date: string; scheduled_date?: string }[],
+          memories: (memoriesData || []) as { id: string; type: string; child_id: string | null; title: string | null; date: string }[],
+          totalSchoolDays: allDates.size,
+          profile: { display_name: fName, created_at: session.user.created_at },
+          academyName: fName ? `${fName} Academy` : "Family Academy",
+        };
+
+        const newAwards = await checkAndGrantAwards(uid, appData);
+        if (newAwards.length > 0) {
+          const { data: refreshed } = await supabase
+            .from("earned_awards").select("*").eq("user_id", uid).order("earned_at", { ascending: false });
+          setEarnedAwards((refreshed || []) as EarnedAward[]);
+        }
+      } catch (e) { console.error("[Awards check]", e); }
     }
     load();
   }, [partnerCtx.effectiveUserId]);
@@ -1495,133 +810,120 @@ export default function PrintablesPage() {
     setChildFields(prev => ({ ...prev, [id]: f }));
   }, []);
 
-  const sampleFields: CardFields = {
-    schoolName: familyName ? `${familyName} Academy` : "Family Academy",
-    name: "Sample Name",
-    title: "Student",
-    schoolYear: currentYearRange(),
-    state: stateCode || "NV",
-    showWatermark: false,
-  };
-
-  // ─── Cert display builders ──────────────────────────────────────────────
-  function gradDisplay(): CertDisplay {
-    if (!gradCert) return { schoolName: "", childName: "", certTitle: "Graduation Certificate", accomplishment: "", schoolYear: "", showWatermark: true };
-    return {
-      schoolName: gradCert.schoolName,
-      childName: gradCert.childName || "Student Name",
-      certTitle: "Graduation Certificate",
-      accomplishment: gradCert.certText || `has successfully completed ${gradCert.gradeLevel || "this grade level"} at ${gradCert.schoolName || "Family Academy"}`,
-      schoolYear: gradCert.schoolYear,
-      showWatermark: gradCert.showWatermark,
-    };
-  }
-  function subjectDisplay(): CertDisplay {
-    if (!subjectCert) return { schoolName: "", childName: "", certTitle: "Certificate of Completion", accomplishment: "", schoolYear: "", showWatermark: true };
-    return {
-      schoolName: subjectCert.schoolName,
-      childName: subjectCert.childName || "Student Name",
-      certTitle: "Certificate of Completion",
-      accomplishment: subjectCert.certText || `has successfully completed ${subjectCert.subjectName || "the course"}`,
-      schoolYear: subjectCert.schoolYear,
-      showWatermark: subjectCert.showWatermark,
-    };
-  }
-  function streakDisplay(): CertDisplay {
-    if (!streakCert) return { schoolName: "", childName: "", certTitle: "Learning Streak Award", accomplishment: "", schoolYear: "", showWatermark: true };
-    return {
-      schoolName: streakCert.schoolName,
-      childName: streakCert.childName || "Student Name",
-      certTitle: "Learning Streak Award",
-      accomplishment: streakCert.certText || `achieved an incredible ${streakCert.streakCount || "30"}-day learning streak!`,
-      schoolYear: streakCert.schoolYear,
-      showWatermark: streakCert.showWatermark,
-    };
-  }
-  function gardenDisplay(): CertDisplay {
-    if (!gardenCert) return { schoolName: "", childName: "", certTitle: "Garden Milestone Award", accomplishment: "", schoolYear: "", showWatermark: true };
-    return {
-      schoolName: gardenCert.schoolName,
-      childName: gardenCert.childName || "Student Name",
-      certTitle: "Garden Milestone Award",
-      accomplishment: gardenCert.certText || `reached ${gardenCert.stageName || "Young Tree"} with ${gardenCert.leafCount || "50"} lessons completed!`,
-      schoolYear: gardenCert.schoolYear,
-      showWatermark: gardenCert.showWatermark,
-    };
-  }
-  function bookDisplay(): CertDisplay {
-    if (!bookCert) return { schoolName: "", childName: "", certTitle: "Reading Certificate", accomplishment: "", schoolYear: "", showWatermark: true };
-    return {
-      schoolName: bookCert.schoolName,
-      childName: bookCert.childName || "Student Name",
-      certTitle: "Reading Certificate",
-      accomplishment: bookCert.certText || `finished reading ${bookCert.bookTitle || "a wonderful book"}`,
-      schoolYear: bookCert.schoolYear,
-      showWatermark: bookCert.showWatermark,
-    };
-  }
-  function perfWeekDisplay(): CertDisplay {
-    if (!perfWeekCert) return { schoolName: "", childName: "", certTitle: "Perfect Week Award", accomplishment: "", schoolYear: "", showWatermark: true };
-    const dateNote = perfWeekCert.dateRange ? ` (${perfWeekCert.dateRange})` : "";
-    return {
-      schoolName: perfWeekCert.schoolName,
-      childName: perfWeekCert.childName || "Student Name",
-      certTitle: "Perfect Week Award",
-      accomplishment: perfWeekCert.certText || `completed a perfect week of learning!${dateNote}`,
-      schoolYear: perfWeekCert.schoolYear,
-      showWatermark: perfWeekCert.showWatermark,
-    };
-  }
-
-  async function handleCertDownload(certId: string, display: CertDisplay) {
-    setDownloadingCert(certId);
-    try {
-      const filename = `${(display.childName || "student").replace(/\s+/g, "-").toLowerCase()}-${certId}`;
-      await downloadCert(activeStyle, display, filename);
-    } catch (e) {
-      console.error(e);
-      alert("Download failed. Please try again.");
-    } finally {
-      setDownloadingCert(null);
+  async function saveStylePref(s: StyleId) {
+    setActiveStyle(s);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      await supabase.from("profiles").update({ printable_style: s }).eq("id", session.user.id);
     }
   }
 
-  const certsReady = gradCert !== null;
+  async function handleAwardDownload(award: EarnedAward) {
+    setDownloadingAward(award.id);
+    try {
+      await downloadCertificate(award.award_type, activeStyle, award.certificate_data || {});
+      await supabase.from("earned_awards").update({ downloaded_at: new Date().toISOString() }).eq("id", award.id);
+      setEarnedAwards(prev => prev.map(a => a.id === award.id ? { ...a, downloaded_at: new Date().toISOString() } : a));
+    } catch (e) { console.error(e); alert("Download failed. Please try again."); }
+    finally { setDownloadingAward(null); }
+  }
+
+  async function handleCustomDownload() {
+    if (!customName.trim()) return;
+    setCustomDownloading(true);
+    try {
+      await downloadCertificate("custom", activeStyle, {
+        recipientName: customName, awardTitle: customTitle || "Certificate of Achievement",
+        awardText: customText, academyName: customAcademy, date: customDate,
+      });
+    } catch (e) { console.error(e); alert("Download failed. Please try again."); }
+    finally { setCustomDownloading(false); }
+  }
+
+  async function handleManualGraduation() {
+    const child = children.find(c => c.id === gradChild);
+    if (!child) return;
+    setDownloadingAward("manual-grad");
+    try {
+      const data = {
+        childName: child.name, grade: gradGrade,
+        academyName: familyName ? `${familyName} Academy` : "Family Academy",
+        schoolYear: currentYearRange(), date: todayStr(),
+      };
+      await downloadCertificate("graduation", activeStyle, data);
+    } catch (e) { console.error(e); alert("Download failed."); }
+    finally { setDownloadingAward(null); }
+  }
+
+  async function handleManualSubject() {
+    const child = children.find(c => c.id === subjectChild);
+    if (!child || !subjectName.trim()) return;
+    setDownloadingAward("manual-subject");
+    try {
+      const data = {
+        childName: child.name, subjectName,
+        academyName: familyName ? `${familyName} Academy` : "Family Academy",
+        schoolYear: currentYearRange(), date: todayStr(),
+      };
+      await downloadCertificate("subject_mastery", activeStyle, data);
+    } catch (e) { console.error(e); alert("Download failed."); }
+    finally { setDownloadingAward(null); }
+  }
+
   const schoolName = familyName ? `${familyName} Academy` : "Family Academy";
+  const sampleFields: CardFields = {
+    schoolName, name: "Sample Name", title: "Student",
+    schoolYear: currentYearRange(), state: stateCode || "NV", showWatermark: false,
+  };
+
+  // Split awards
+  const childAwards = earnedAwards.filter(a => {
+    const meta = AWARD_META[a.award_type as keyof typeof AWARD_META];
+    return meta && !meta.isEducator;
+  });
+  const educatorAwards = earnedAwards.filter(a => {
+    const meta = AWARD_META[a.award_type as keyof typeof AWARD_META];
+    return meta && meta.isEducator;
+  });
+
+  // Locked awards
+  const allAwardTypes = Object.keys(AWARD_META).filter(t => t !== "custom");
+  const earnedTypes = new Set(earnedAwards.map(a => `${a.award_type}-${a.child_id || "null"}`));
+  const lockedTypes = allAwardTypes.filter(t => {
+    const meta = AWARD_META[t as keyof typeof AWARD_META];
+    if (!meta) return false;
+    if (meta.isEducator) return !earnedAwards.some(a => a.award_type === t);
+    return !earnedAwards.some(a => a.award_type === t);
+  });
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-10">
 
-      {/* Page header */}
+      {/* ── Header ───────────────────────────────────────────────── */}
       <div>
         <h1 className="text-2xl font-bold text-[#2d2926]">🖨️ Printables</h1>
         <p className="text-sm text-[#7a6f65] mt-1">
-          ID cards, certificates, and printable tools for your homeschool.
+          No Canva needed. Your certificates and ID cards — made beautiful automatically.
         </p>
       </div>
 
-      {/* ── Style selector ───────────────────────────────────────────────── */}
+      {/* ── Style Picker ──────────────────────────────────────────── */}
       <section>
-        <h2 className="text-base font-bold text-[#2d2926] mb-0.5">Card Style</h2>
-        <p className="text-xs text-[#b5aca4] mb-4">
-          Choose a style — applies to all cards and certificates on this page.
-        </p>
+        <h2 className="text-base font-bold text-[#2d2926] mb-0.5">Your style — applies to all printables</h2>
+        <p className="text-xs text-[#b5aca4] mb-4">Choose once, applied everywhere.</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {STYLES.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setActiveStyle(s.id)}
+            <button key={s.id} onClick={() => saveStylePref(s.id)}
               className={`text-left rounded-xl border-2 p-3 transition-all ${
                 activeStyle === s.id
                   ? "border-[#5c7f63] shadow-md shadow-[#5c7f63]/10 bg-[#fefcf9]"
                   : "border-[#e8e2d9] bg-white hover:border-[#c4bfb8]"
-              }`}
-            >
+              }`}>
               <div className="mb-2.5 rounded overflow-hidden shadow-sm w-fit">
                 <CardPreview style={s.id} fields={sampleFields} scale={0.6} />
               </div>
               <p className={`text-xs font-bold leading-tight ${activeStyle === s.id ? "text-[#3d5c42]" : "text-[#2d2926]"}`}>
-                {s.name}
+                {s.emoji} {s.name}
               </p>
               <p className="text-[10px] text-[#b5aca4] mt-0.5">{s.desc}</p>
               {activeStyle === s.id && (
@@ -1634,323 +936,147 @@ export default function PrintablesPage() {
         </div>
       </section>
 
-      {/* ── ID Cards ─────────────────────────────────────────────────────── */}
+      {/* ── Your Certificates (child awards) ─────────────────────── */}
+      {childAwards.length > 0 && (
+        <section>
+          <h2 className="text-base font-bold text-[#2d2926] mb-0.5">🎓 Your Certificates</h2>
+          <p className="text-xs text-[#b5aca4] mb-4">These were earned. Download and print any time.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {childAwards.map(a => (
+              <AwardCard key={a.id} award={a} style={activeStyle}
+                onDownload={() => handleAwardDownload(a)}
+                downloading={downloadingAward === a.id} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── For the Educator ──────────────────────────────────────── */}
+      <section>
+        <h2 className="text-base font-bold text-[#2d2926] mb-0.5">💛 For the Educator</h2>
+        <p className="text-xs text-[#b5aca4] mb-4">You&apos;re doing the hardest part.</p>
+        {educatorAwards.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {educatorAwards.map(a => (
+              <AwardCard key={a.id} award={a} style={activeStyle}
+                onDownload={() => handleAwardDownload(a)}
+                downloading={downloadingAward === a.id} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-[#b5aca4] italic">Keep going — your first certificates will appear here soon.</p>
+        )}
+      </section>
+
+      {/* ── Graduation & Subject (manual) ─────────────────────────── */}
+      {children.length > 0 && (
+        <section>
+          <h2 className="text-base font-bold text-[#2d2926] mb-0.5">🎓 Graduation & Subject Completion</h2>
+          <p className="text-xs text-[#b5aca4] mb-4">Create these when your child finishes a grade or subject.</p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Graduation */}
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-3">
+              <p className="text-sm font-bold text-[#2d2926]">🎓 Graduation Certificate</p>
+              <ChildSelect childrenList={children} value={gradChild} onChange={(id) => setGradChild(id)} />
+              <SelectInput label="Grade Level" value={gradGrade} options={GRADES} onChange={setGradGrade} />
+              <button onClick={handleManualGraduation} disabled={downloadingAward === "manual-grad"}
+                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors">
+                <Download size={12} /> {downloadingAward === "manual-grad" ? "Generating\u2026" : "Download Certificate"}
+              </button>
+            </div>
+            {/* Subject */}
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-3">
+              <p className="text-sm font-bold text-[#2d2926]">📚 Subject Completion</p>
+              <ChildSelect childrenList={children} value={subjectChild} onChange={(id) => setSubjectChild(id)} />
+              <FieldInput label="Subject Name" value={subjectName} onChange={setSubjectName} placeholder="e.g. Math, Reading" />
+              <button onClick={handleManualSubject} disabled={downloadingAward === "manual-subject" || !subjectName.trim()}
+                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors">
+                <Download size={12} /> {downloadingAward === "manual-subject" ? "Generating\u2026" : "Download Certificate"}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Custom Certificate ─────────────────────────────────────── */}
+      <section>
+        <h2 className="text-base font-bold text-[#2d2926] mb-0.5">🌟 Custom Certificate</h2>
+        <p className="text-xs text-[#b5aca4] mb-4">For the moments that don&apos;t fit a box.</p>
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FieldInput label="Recipient Name" value={customName} onChange={setCustomName} placeholder="e.g. Emma" />
+            <FieldInput label="Award Title" value={customTitle} onChange={setCustomTitle} placeholder="e.g. Certificate of Achievement" />
+          </div>
+          <TextAreaInput label="What they accomplished" value={customText} onChange={setCustomText} placeholder="Write what makes this special..." />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FieldInput label="Academy Name" value={customAcademy} onChange={setCustomAcademy} />
+            <div>
+              <label className="block text-[11px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-1">Date</label>
+              <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)}
+                className="w-full border border-[#e8e2d9] rounded-lg px-3 py-2 text-sm text-[#2d2926] bg-[#fefcf9] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]" />
+            </div>
+          </div>
+          <button onClick={handleCustomDownload} disabled={customDownloading || !customName.trim()}
+            className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors">
+            <Download size={12} /> {customDownloading ? "Generating\u2026" : "Download Certificate"}
+          </button>
+        </div>
+      </section>
+
+      {/* ── Coming Up (locked) ─────────────────────────────────────── */}
+      {lockedTypes.length > 0 && (
+        <section>
+          <button onClick={() => setShowLocked(!showLocked)}
+            className="flex items-center gap-2 text-base font-bold text-[#2d2926] mb-2 hover:text-[#5c7f63] transition-colors">
+            🔒 Coming Up
+            {showLocked ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+          {showLocked && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {lockedTypes.map(t => <LockedAwardCard key={t} awardType={t} />)}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ── ID Cards ─────────────────────────────────────────────────── */}
       <section className="space-y-5">
         <div>
           <h2 className="text-base font-bold text-[#2d2926]">🪪 Homeschool ID Cards</h2>
           <p className="text-xs text-[#b5aca4] mt-1 max-w-2xl leading-relaxed">
-            Homeschool ID cards are provided as a convenience tool and require a photo to be considered valid.
-            Rooted does not guarantee acceptance at any discount program, retailer, or institution.
-            Always verify a program&apos;s homeschool verification requirements before applying.
+            Auto-filled from your profile. Most programs require a photo.
           </p>
         </div>
 
         {parentFields ? (
-          <IDCardEditor
-            style={activeStyle}
-            fields={parentFields}
-            onChange={setParentFields}
-            cardLabel="Parent Homeschool Administrator ID"
-          />
+          <IDCardEditor style={activeStyle} fields={parentFields} onChange={setParentFields} cardLabel="Parent Homeschool Administrator ID" />
         ) : (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-6 py-8 flex items-center justify-center">
             <span className="text-2xl animate-pulse">🌿</span>
           </div>
         )}
 
-        {children.map((child) => {
+        {children.map(child => {
           const fields = childFields[child.id];
           if (!fields) return null;
           return (
-            <IDCardEditor
-              key={child.id}
-              style={activeStyle}
-              fields={fields}
+            <IDCardEditor key={child.id} style={activeStyle} fields={fields}
               onChange={(f) => updateChildField(child.id, f)}
-              cardLabel={`${child.name}'s Student ID`}
-            />
+              cardLabel={`${child.name}'s Student ID`} />
           );
         })}
 
         {parentFields && children.length === 0 && (
-          <p className="text-sm text-[#b5aca4] italic px-1">
-            Add children in Settings to generate their student ID cards.
-          </p>
+          <p className="text-sm text-[#b5aca4] italic px-1">Add children in Settings to generate their student ID cards.</p>
         )}
       </section>
 
-      {/* ── Certificates ─────────────────────────────────────────────────── */}
-      <section>
-        <h2 className="text-base font-bold text-[#2d2926] mb-0.5">🎓 Certificates</h2>
-        <p className="text-xs text-[#b5aca4] mb-4">
-          Achievement and completion certificates — styled to match your chosen card style.
-        </p>
-
-        {!certsReady ? (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-6 py-8 flex items-center justify-center">
-            <span className="text-2xl animate-pulse">🌿</span>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-            {/* 1. Graduation */}
-            {gradCert && (
-              <CertCard
-                icon="🎓" title="Graduation Certificate"
-                desc="Celebrate completing a grade level"
-                style={activeStyle} display={gradDisplay()}
-                onDownload={() => handleCertDownload("graduation", gradDisplay())}
-                downloading={downloadingCert === "graduation"}
-              >
-                {children.length > 0 && (
-                  <ChildSelect
-                    childrenList={children} value={gradCert.childId}
-                    onChange={(id, name) => setGradCert(p => p ? { ...p, childId: id, childName: name } : p)}
-                  />
-                )}
-                <SelectInput
-                  label="Grade Level" value={gradCert.gradeLevel} options={GRADES}
-                  onChange={v => setGradCert(p => p ? { ...p, gradeLevel: v } : p)}
-                />
-                <FieldInput
-                  label="School Year" value={gradCert.schoolYear}
-                  onChange={v => setGradCert(p => p ? { ...p, schoolYear: v } : p)}
-                />
-                <TextAreaInput
-                  label="Custom Text (optional)"
-                  value={gradCert.certText}
-                  placeholder={`has successfully completed ${gradCert.gradeLevel} at ${gradCert.schoolName || "Family Academy"}`}
-                  onChange={v => setGradCert(p => p ? { ...p, certText: v } : p)}
-                />
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={gradCert.showWatermark}
-                    onChange={e => setGradCert(p => p ? { ...p, showWatermark: e.target.checked } : p)}
-                    className="w-4 h-4 rounded accent-[#5c7f63]" />
-                  <span className="text-xs text-[#7a6f65]">Include watermark</span>
-                </label>
-              </CertCard>
-            )}
-
-            {/* 2. Subject Completion */}
-            {subjectCert && (
-              <CertCard
-                icon="📚" title="Subject Completion"
-                desc="Recognize finishing a subject or course"
-                style={activeStyle} display={subjectDisplay()}
-                onDownload={() => handleCertDownload("subject-completion", subjectDisplay())}
-                downloading={downloadingCert === "subject-completion"}
-              >
-                {children.length > 0 && (
-                  <ChildSelect
-                    childrenList={children} value={subjectCert.childId}
-                    onChange={(id, name) => setSubjectCert(p => p ? { ...p, childId: id, childName: name } : p)}
-                  />
-                )}
-                <FieldInput
-                  label="Subject Name" value={subjectCert.subjectName}
-                  onChange={v => setSubjectCert(p => p ? { ...p, subjectName: v } : p)}
-                />
-                <FieldInput
-                  label="School Year" value={subjectCert.schoolYear}
-                  onChange={v => setSubjectCert(p => p ? { ...p, schoolYear: v } : p)}
-                />
-                <TextAreaInput
-                  label="Custom Text (optional)"
-                  value={subjectCert.certText}
-                  placeholder={`has successfully completed ${subjectCert.subjectName || "the subject"}`}
-                  onChange={v => setSubjectCert(p => p ? { ...p, certText: v } : p)}
-                />
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={subjectCert.showWatermark}
-                    onChange={e => setSubjectCert(p => p ? { ...p, showWatermark: e.target.checked } : p)}
-                    className="w-4 h-4 rounded accent-[#5c7f63]" />
-                  <span className="text-xs text-[#7a6f65]">Include watermark</span>
-                </label>
-              </CertCard>
-            )}
-
-            {/* 3. Streak Milestone */}
-            {streakCert && (
-              <CertCard
-                icon="🔥" title="Streak Milestone"
-                desc="Celebrate a daily learning streak"
-                style={activeStyle} display={streakDisplay()}
-                onDownload={() => handleCertDownload("streak-milestone", streakDisplay())}
-                downloading={downloadingCert === "streak-milestone"}
-              >
-                {children.length > 0 && (
-                  <ChildSelect
-                    childrenList={children} value={streakCert.childId}
-                    onChange={(id, name) => {
-                      const child = children.find(c => c.id === id);
-                      setStreakCert(p => p ? { ...p, childId: id, childName: name, streakCount: String(child?.streak || 0) } : p);
-                    }}
-                  />
-                )}
-                <FieldInput
-                  label="Streak Count (days)" value={streakCert.streakCount}
-                  onChange={v => setStreakCert(p => p ? { ...p, streakCount: v } : p)}
-                />
-                <FieldInput
-                  label="School Year" value={streakCert.schoolYear}
-                  onChange={v => setStreakCert(p => p ? { ...p, schoolYear: v } : p)}
-                />
-                <TextAreaInput
-                  label="Custom Text (optional)"
-                  value={streakCert.certText}
-                  placeholder={`achieved an incredible ${streakCert.streakCount || "30"}-day learning streak!`}
-                  onChange={v => setStreakCert(p => p ? { ...p, certText: v } : p)}
-                />
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={streakCert.showWatermark}
-                    onChange={e => setStreakCert(p => p ? { ...p, showWatermark: e.target.checked } : p)}
-                    className="w-4 h-4 rounded accent-[#5c7f63]" />
-                  <span className="text-xs text-[#7a6f65]">Include watermark</span>
-                </label>
-              </CertCard>
-            )}
-
-            {/* 4. Garden Milestone */}
-            {gardenCert && (
-              <CertCard
-                icon="🌳" title="Garden Milestone"
-                desc="Celebrate reaching a new garden stage"
-                style={activeStyle} display={gardenDisplay()}
-                onDownload={() => handleCertDownload("garden-milestone", gardenDisplay())}
-                downloading={downloadingCert === "garden-milestone"}
-              >
-                {children.length > 0 && (
-                  <ChildSelect
-                    childrenList={children} value={gardenCert.childId}
-                    onChange={(id, name) => {
-                      const child = children.find(c => c.id === id);
-                      const stage = stageNameFromLeaves(child?.leaves || 0);
-                      setGardenCert(p => p ? { ...p, childId: id, childName: name, leafCount: String(child?.leaves || 0), stageName: stage } : p);
-                    }}
-                  />
-                )}
-                <div className="grid grid-cols-2 gap-2">
-                  <FieldInput
-                    label="Leaf Count" value={gardenCert.leafCount}
-                    onChange={v => setGardenCert(p => p ? { ...p, leafCount: v, stageName: stageNameFromLeaves(parseInt(v) || 0) } : p)}
-                  />
-                  <FieldInput
-                    label="Stage Name" value={gardenCert.stageName}
-                    onChange={v => setGardenCert(p => p ? { ...p, stageName: v } : p)}
-                  />
-                </div>
-                <FieldInput
-                  label="School Year" value={gardenCert.schoolYear}
-                  onChange={v => setGardenCert(p => p ? { ...p, schoolYear: v } : p)}
-                />
-                <TextAreaInput
-                  label="Custom Text (optional)"
-                  value={gardenCert.certText}
-                  placeholder={`reached ${gardenCert.stageName} with ${gardenCert.leafCount} lessons completed!`}
-                  onChange={v => setGardenCert(p => p ? { ...p, certText: v } : p)}
-                />
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={gardenCert.showWatermark}
-                    onChange={e => setGardenCert(p => p ? { ...p, showWatermark: e.target.checked } : p)}
-                    className="w-4 h-4 rounded accent-[#5c7f63]" />
-                  <span className="text-xs text-[#7a6f65]">Include watermark</span>
-                </label>
-              </CertCard>
-            )}
-
-            {/* 5. Book Certificate */}
-            {bookCert && (
-              <CertCard
-                icon="📖" title="Book Certificate"
-                desc="Celebrate finishing a book"
-                style={activeStyle} display={bookDisplay()}
-                onDownload={() => handleCertDownload("book-certificate", bookDisplay())}
-                downloading={downloadingCert === "book-certificate"}
-              >
-                {children.length > 0 && (
-                  <ChildSelect
-                    childrenList={children} value={bookCert.childId}
-                    onChange={(id, name) => setBookCert(p => p ? { ...p, childId: id, childName: name } : p)}
-                  />
-                )}
-                <FieldInput
-                  label="Book Title" value={bookCert.bookTitle}
-                  onChange={v => setBookCert(p => p ? { ...p, bookTitle: v } : p)}
-                />
-                <FieldInput
-                  label="School Year" value={bookCert.schoolYear}
-                  onChange={v => setBookCert(p => p ? { ...p, schoolYear: v } : p)}
-                />
-                <TextAreaInput
-                  label="Custom Text (optional)"
-                  value={bookCert.certText}
-                  placeholder={`finished reading ${bookCert.bookTitle || "a wonderful book"}`}
-                  onChange={v => setBookCert(p => p ? { ...p, certText: v } : p)}
-                />
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={bookCert.showWatermark}
-                    onChange={e => setBookCert(p => p ? { ...p, showWatermark: e.target.checked } : p)}
-                    className="w-4 h-4 rounded accent-[#5c7f63]" />
-                  <span className="text-xs text-[#7a6f65]">Include watermark</span>
-                </label>
-              </CertCard>
-            )}
-
-            {/* 6. Perfect Week */}
-            {perfWeekCert && (
-              <CertCard
-                icon="⭐" title="Perfect Week Award"
-                desc="Celebrate completing every day in a week"
-                style={activeStyle} display={perfWeekDisplay()}
-                onDownload={() => handleCertDownload("perfect-week", perfWeekDisplay())}
-                downloading={downloadingCert === "perfect-week"}
-              >
-                {children.length > 0 && (
-                  <ChildSelect
-                    childrenList={children} value={perfWeekCert.childId}
-                    onChange={(id, name) => setPerfWeekCert(p => p ? { ...p, childId: id, childName: name } : p)}
-                  />
-                )}
-                <FieldInput
-                  label="Date Range (optional)" value={perfWeekCert.dateRange}
-                  onChange={v => setPerfWeekCert(p => p ? { ...p, dateRange: v } : p)}
-                />
-                <FieldInput
-                  label="School Year" value={perfWeekCert.schoolYear}
-                  onChange={v => setPerfWeekCert(p => p ? { ...p, schoolYear: v } : p)}
-                />
-                <TextAreaInput
-                  label="Custom Text (optional)"
-                  value={perfWeekCert.certText}
-                  placeholder={`completed a perfect week of learning!${perfWeekCert.dateRange ? ` (${perfWeekCert.dateRange})` : ""}`}
-                  onChange={v => setPerfWeekCert(p => p ? { ...p, certText: v } : p)}
-                />
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={perfWeekCert.showWatermark}
-                    onChange={e => setPerfWeekCert(p => p ? { ...p, showWatermark: e.target.checked } : p)}
-                    className="w-4 h-4 rounded accent-[#5c7f63]" />
-                  <span className="text-xs text-[#7a6f65]">Include watermark</span>
-                </label>
-              </CertCard>
-            )}
-
-          </div>
-        )}
-      </section>
-
-      {/* ── Progress Report ────────────────────────────────────────────── */}
+      {/* ── Progress Report ──────────────────────────────────────── */}
       <section>
         <h2 className="text-base font-bold text-[#2d2926] mb-0.5">📊 Progress Report</h2>
-        <p className="text-xs text-[#b5aca4] mb-4">
-          Download a full record of lessons, hours, and progress.
-        </p>
-        <AnnualReportCard
-          childrenList={children}
-          schoolName={schoolName}
-          schoolYear={currentYearRange()}
-          showWatermark={reportWatermark}
-          setShowWatermark={setReportWatermark}
-        />
+        <p className="text-xs text-[#b5aca4] mb-4">Download a full record of lessons, hours, and progress.</p>
+        <AnnualReportCard childrenList={children} schoolName={schoolName}
+          schoolYear={currentYearRange()} showWatermark={reportWatermark} setShowWatermark={setReportWatermark} />
       </section>
 
     </div>
