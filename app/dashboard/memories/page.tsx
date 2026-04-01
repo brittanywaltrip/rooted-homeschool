@@ -497,7 +497,7 @@ export default function MemoriesPage() {
     setEditing(m);
     setEditTitle(m.title ?? "");
     setEditCaption(m.caption ?? "");
-    setEditDate(m.date);
+    setEditDate(m.date?.slice(0, 10) ?? "");
     setEditChild(m.child_id ?? "");
     setEditInBook(m.include_in_book);
     setEditPhotoFile(null);
@@ -546,7 +546,10 @@ export default function MemoriesPage() {
       .single();
     if (data) {
       const normalized = { ...data, date: (data as MemoryRow).date?.slice(0, 10) ?? editing.date } as MemoryRow;
-      setMemories((prev) => prev.map((m) => (m.id === editing.id ? normalized : m)));
+      setMemories((prev) =>
+        prev.map((m) => (m.id === editing.id ? normalized : m))
+          .sort((a, b) => b.date.localeCompare(a.date) || b.created_at.localeCompare(a.created_at))
+      );
     }
     setEditSaving(false);
     setEditing(null);
