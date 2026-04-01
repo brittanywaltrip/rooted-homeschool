@@ -9,29 +9,35 @@ async function loadFonts() {
   if (fontsLoaded) return;
   const playfair = new FontFace(
     "Playfair Display",
-    "url(https://fonts.gstatic.com/s/playfairdisplay/v37/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKdFvXDXbtXK-F2rxVGPV4.woff2)"
+    "url(/fonts/PlayfairDisplay-Regular.woff2)"
   );
   const playfairItalic = new FontFace(
     "Playfair Display",
-    "url(https://fonts.gstatic.com/s/playfairdisplay/v37/nuFRD-vYSZviVYUb_rj3ij__anPXDTnCjmHKM4nYO7KN_qiTbtbK-F2rxVG.woff2)",
+    "url(/fonts/PlayfairDisplay-Italic.woff2)",
     { style: "italic" }
+  );
+  const playfairBold = new FontFace(
+    "Playfair Display",
+    "url(/fonts/PlayfairDisplay-Bold.woff2)",
+    { weight: "700" }
   );
   const cormorant = new FontFace(
     "Cormorant Garamond",
-    "url(https://fonts.gstatic.com/s/cormorantgaramond/v16/co3YmX5slCNuHLi8bLeY9MK7whWMhyjYqXtK.woff2)"
+    "url(/fonts/CormorantGaramond-Light.woff2)",
+    { weight: "300" }
   );
   const cormorantItalic = new FontFace(
     "Cormorant Garamond",
-    "url(https://fonts.gstatic.com/s/cormorantgaramond/v16/co3WmX5slCNuHLi8bLeY9MK7whWMhyjQEl5dsDkA.woff2)",
-    { style: "italic" }
+    "url(/fonts/CormorantGaramond-LightItalic.woff2)",
+    { weight: "300", style: "italic" }
   );
   const jost = new FontFace(
     "Jost",
-    "url(https://fonts.gstatic.com/s/jost/v15/92zPtBhPNqw79Ij1E865zBUv7myjJQVG.woff2)",
+    "url(/fonts/Jost-Light.woff2)",
     { weight: "300" }
   );
 
-  const fonts = [playfair, playfairItalic, cormorant, cormorantItalic, jost];
+  const fonts = [playfair, playfairItalic, playfairBold, cormorant, cormorantItalic, jost];
   const loaded = await Promise.allSettled(fonts.map(f => f.load()));
   loaded.forEach((result, i) => {
     if (result.status === "fulfilled") document.fonts.add(result.value);
