@@ -6,6 +6,13 @@ import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
 
+function safeParseDateStr(d: string | null | undefined): Date | null {
+  if (!d) return null;
+  const iso = d.slice(0, 10);
+  const dt = new Date(iso + "T12:00:00");
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Child = { id: string; name: string; color: string | null };
@@ -322,7 +329,7 @@ export default function YearbookEditPage() {
               )}
               <div className="flex-1 min-w-0">
                 <p className="text-[12px] font-medium text-[#2d2926] truncate">{favMemory.title ?? "Memory"}</p>
-                <p className="text-[10px] text-[#9a8f85]">{new Date(favMemory.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
+                <p className="text-[10px] text-[#9a8f85]">{safeParseDateStr(favMemory.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) ?? "Unknown date"}</p>
               </div>
               {!isReadOnly && (
                 <button onClick={() => setShowMemoryPicker(true)} className="text-[11px] text-[#5c7f63] font-medium shrink-0">
