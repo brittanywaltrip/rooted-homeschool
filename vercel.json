@@ -16,11 +16,5 @@
       "path": "/api/cron/re-engagement",
       "schedule": "0 10 * * *"
     }
-  ],
-  "functions": {
-    "app/api/printables/generate/route.ts": {
-      "memory": 1024,
-      "maxDuration": 60
-    }
-  }
+  ]
 }
