@@ -599,77 +599,11 @@ function AnnualReportCard({
   );
 }
 
-// ─── Certificate download via client-side html2canvas + jsPDF ────────────────
+// ─── Certificate download via Canvas 2D + jsPDF ─────────────────────────────
 
 async function downloadCertificate(type: string, style: StyleId, data: Record<string, string>, filename?: string) {
-  const { generateCertificateHTML } = await import("@/lib/certificate-templates");
-  const html2canvas = (await import("html2canvas")).default;
-  const { jsPDF } = await import("jspdf");
-
-  const html = generateCertificateHTML(type, style, data);
-
-  // Create off-screen container
-  const container = document.createElement("div");
-  container.style.position = "absolute";
-  container.style.left = "-9999px";
-  container.style.top = "0";
-  container.style.width = "816px";
-  container.style.height = "1056px";
-  container.style.overflow = "hidden";
-
-  // Parse and inject the body content from the full HTML document
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-
-  // Inject the template's <style> tags into the page head
-  const styles = doc.querySelectorAll("style");
-  const injectedStyles: HTMLStyleElement[] = [];
-  styles.forEach(s => {
-    const clone = document.createElement("style");
-    clone.textContent = s.textContent;
-    document.head.appendChild(clone);
-    injectedStyles.push(clone);
-  });
-
-  // Inject Google Font <link> tags
-  const links = doc.querySelectorAll('link[rel="stylesheet"]');
-  const injectedLinks: HTMLLinkElement[] = [];
-  links.forEach(l => {
-    const clone = document.createElement("link");
-    clone.rel = "stylesheet";
-    clone.href = (l as HTMLLinkElement).href;
-    document.head.appendChild(clone);
-    injectedLinks.push(clone);
-  });
-
-  container.innerHTML = doc.body.innerHTML;
-  document.body.appendChild(container);
-
-  // Wait for fonts to load
-  await document.fonts.ready;
-  // Small extra delay for font rendering
-  await new Promise(r => setTimeout(r, 300));
-
-  const canvas = await html2canvas(container, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: null,
-    logging: false,
-    width: 816,
-    height: 1056,
-  });
-
-  const pdf = new jsPDF({ orientation: "portrait", unit: "in", format: [8.5, 11] });
-  pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 8.5, 11);
-
-  const safeName = (filename || `${data.childName || data.educatorName || data.recipientName || "certificate"}-${type}`)
-    .replace(/[^a-z0-9]/gi, "-").toLowerCase();
-  pdf.save(`${safeName}.pdf`);
-
-  // Cleanup
-  document.body.removeChild(container);
-  injectedStyles.forEach(s => s.remove());
-  injectedLinks.forEach(l => l.remove());
+  const { drawCertificatePDF } = await import("@/lib/certificate-canvas");
+  await drawCertificatePDF(type, style, data, filename);
 }
 
 // ─── Award card component ────────────────────────────────────────────────────

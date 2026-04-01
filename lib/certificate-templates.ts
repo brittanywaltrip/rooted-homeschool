@@ -161,7 +161,7 @@ export const AWARD_META: Record<
   },
 };
 
-interface CertContent {
+export interface CertContent {
   heroName: string;
   certTitle: string;
   bodyText: string;
@@ -170,7 +170,7 @@ interface CertContent {
   awardTitle?: string;
 }
 
-function resolveCertContent(
+export function resolveCertContent(
   type: string,
   data: Record<string, string>
 ): CertContent {
