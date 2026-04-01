@@ -233,40 +233,33 @@ function CardPreview({
   );
 }
 
-// ─── Card PDF download ────────────────────────────────────────────────────────
+// ─── Card PDF download via canvas ─────────────────────────────────────────────
 
-async function downloadCard(
+async function downloadIdCard(
   style: StyleId,
   fields: CardFields,
+  photoUrl: string | null,
   label: string,
 ) {
-  const { jsPDF } = await import("jspdf");
-  const { drawIDCardFront } = await import("@/lib/pdf");
-  const styleNum = style === "garden" ? 1 : style === "heritage" ? 2 : 3;
-  const docIn = new jsPDF({ orientation: "landscape", unit: "in", format: [3.5, 2] });
-  drawIDCardFront(docIn, {
+  const { drawIdCardPDF } = await import("@/lib/certificate-canvas");
+  await drawIdCardPDF(style, {
     schoolName: fields.schoolName, name: fields.name, title: fields.title,
     schoolYear: fields.schoolYear, state: fields.state, showWatermark: fields.showWatermark,
-    style: styleNum as 1 | 2 | 3,
-  }, 0, 0);
-  docIn.save(`${label.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`);
+    photoDataUrl: photoUrl,
+  }, label);
 }
 
-async function downloadPrintSheet(
+async function downloadIdPrintSheet(
   style: StyleId,
   fields: CardFields,
-  label: string,
+  photoUrl: string | null,
 ) {
-  const { jsPDF } = await import("jspdf");
-  const { drawIDCardPrintSheet } = await import("@/lib/pdf");
-  const styleNum = style === "garden" ? 1 : style === "heritage" ? 2 : 3;
-  const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
-  drawIDCardPrintSheet(doc, {
+  const { drawIdCardPrintSheetPDF } = await import("@/lib/certificate-canvas");
+  await drawIdCardPrintSheetPDF(style, {
     schoolName: fields.schoolName, name: fields.name, title: fields.title,
     schoolYear: fields.schoolYear, state: fields.state, showWatermark: fields.showWatermark,
-    style: styleNum as 1 | 2 | 3,
+    photoDataUrl: photoUrl,
   });
-  window.open(doc.output("bloburl"), "_blank");
 }
 
 // ─── Shared form components ──────────────────────────────────────────────────
@@ -414,7 +407,7 @@ function IDCardEditor({
   async function handleDownload() {
     if (!photoUrl) return;
     setDownloading(true);
-    try { await downloadCard(style, fields, cardLabel); }
+    try { await downloadIdCard(style, fields, photoUrl, cardLabel); }
     catch (e) { console.error(e); alert("Download failed. Please try again."); }
     finally { setDownloading(false); }
   }
@@ -422,7 +415,7 @@ function IDCardEditor({
   async function handlePrintSheet() {
     if (!photoUrl) return;
     setDownloadingSheet(true);
-    try { await downloadPrintSheet(style, fields, cardLabel); }
+    try { await downloadIdPrintSheet(style, fields, photoUrl); }
     catch (e) { console.error(e); alert("Download failed. Please try again."); }
     finally { setDownloadingSheet(false); }
   }
