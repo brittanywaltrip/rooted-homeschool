@@ -87,18 +87,16 @@ export default function RootedClipper() {
           from { opacity: 0; transform: translateY(12px); }
           to { opacity: 1; transform: translateY(0); }
         }
-        .clippy-container { bottom: 80px; }
-        @media (min-width: 768px) { .clippy-container { bottom: 120px; } }
       `}</style>
       <div
-        className="clippy-container"
         style={{
           position: "fixed",
-          left: 16,
+          bottom: 80,
+          right: 12,
           zIndex: 9999,
           display: "flex",
           flexDirection: "column",
-          alignItems: "flex-start",
+          alignItems: "flex-end",
           gap: 6,
           animation: drooping
             ? "clippy-droop 0.6s ease-in forwards"
@@ -164,7 +162,7 @@ export default function RootedClipper() {
             style={{
               position: "absolute",
               bottom: -7,
-              left: 18,
+              right: 18,
               width: 0,
               height: 0,
               borderLeft: "7px solid transparent",
