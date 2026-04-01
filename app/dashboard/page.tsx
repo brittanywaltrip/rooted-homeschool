@@ -1130,24 +1130,21 @@ export default function TodayPage() {
   // ── Extra lesson: log next lesson in sequence for a child's curriculum ────
 
   async function logExtraLesson(childId: string) {
-    console.log("[logExtraLesson] called, childId:", childId);
-    if (extraLessonLoading) { console.log("[logExtraLesson] blocked — already loading"); return; }
+    if (extraLessonLoading) return;
     setExtraLessonLoading(childId);
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { console.log("[logExtraLesson] no user"); setExtraLessonLoading(null); return; }
+    if (!user) { setExtraLessonLoading(null); return; }
 
     // Find curriculum goals for this child that still have lessons remaining
-    const { data: goals, error: goalsErr } = await supabase
+    const { data: goals } = await supabase
       .from("curriculum_goals")
       .select("id, curriculum_name, current_lesson, total_lessons, child_id, default_minutes, school_days")
       .eq("user_id", user.id)
       .eq("child_id", childId);
-    console.log("[logExtraLesson] goals query — data:", goals?.length, "error:", goalsErr);
     const activeGoals = (goals ?? []).filter(
       (g: { current_lesson: number; total_lessons: number }) => g.current_lesson < g.total_lessons
     );
-    console.log("[logExtraLesson] activeGoals:", activeGoals.length);
     if (activeGoals.length === 0) { setExtraLessonLoading(null); return; }
 
     // Find the next uncompleted lesson across all goals, preferring earliest lesson_number
@@ -1170,7 +1167,6 @@ export default function TodayPage() {
       }
     }
 
-    console.log("[logExtraLesson] nextLesson:", nextLesson ? nextLesson.title : "NONE FOUND");
     if (!nextLesson) { setExtraLessonLoading(null); return; }
 
     // Mark the lesson as completed with today's date and default minutes
@@ -1414,8 +1410,8 @@ export default function TodayPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Find ALL uncompleted lessons scheduled for today
-    const todaysLessons = lessons.filter(l => !l.completed);
+    // Find ALL lessons scheduled for today (including completed — mom may want to undo a checked-off day)
+    const todaysLessons = [...lessons];
     if (todaysLessons.length === 0) { setRescheduleLesson(null); return; }
 
     // Store undo data
@@ -1457,12 +1453,12 @@ export default function TodayPage() {
     for (let i = 0; i < updates.length; i += 20) {
       await Promise.all(
         updates.slice(i, i + 20).map(({ id, newDate }) =>
-          supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+          supabase.from("lessons").update({ scheduled_date: newDate, date: newDate, completed: false, minutes_spent: null }).eq("id", id)
         )
       );
     }
 
-    setLessons(prev => prev.filter(l => l.completed));
+    setLessons([]);
     setRescheduleLesson(null);
     showRescheduleUndo("All of today's lessons rescheduled! Undo?", undoData);
   }
@@ -1769,7 +1765,7 @@ export default function TodayPage() {
                   <div className="px-3 pb-3" style={{ position: "relative", zIndex: 10 }}>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); console.log("[extra-btn] clicked, card.id:", card.id); logExtraLesson(card.id); }}
+                      onClick={(e) => { e.stopPropagation(); logExtraLesson(card.id); }}
                       disabled={extraLessonLoading === card.id}
                       style={{ minHeight: 44 }}
                       className="w-full text-center text-[12px] font-medium text-[#b5aca4] hover:text-[#7a6f65] py-2 transition-colors disabled:opacity-50"
@@ -1877,7 +1873,7 @@ export default function TodayPage() {
                     <div style={{ position: "relative", zIndex: 10 }}>
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); console.log("[extra-btn] clicked, expandedChild:", expandedChild); logExtraLesson(expandedChild); }}
+                        onClick={(e) => { e.stopPropagation(); logExtraLesson(expandedChild); }}
                         disabled={extraLessonLoading === expandedChild}
                         style={{ minHeight: 44 }}
                         className="w-full text-center text-[12px] font-medium text-[#b5aca4] hover:text-[#7a6f65] py-2 transition-colors disabled:opacity-50"
@@ -2939,8 +2935,8 @@ export default function TodayPage() {
                     </>
                   )}
 
-                  {/* We missed a whole day */}
-                  {lessons.some(l => !l.completed) && (
+                  {/* We missed a whole day — always show */}
+                  {lessons.length > 0 && (
                     <button
                       onClick={() => rescheduleMissedDay()}
                       className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
