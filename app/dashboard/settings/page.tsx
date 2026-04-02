@@ -576,7 +576,8 @@ export default function SettingsPage() {
     }
 
     const { data: urlData } = supabase.storage.from("family-photos").getPublicUrl(path);
-    const url = urlData.publicUrl;
+    // Cache-bust so re-uploads to the same storage path always show the new image
+    const url = `${urlData.publicUrl}?t=${Date.now()}`;
 
     const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch("/api/profile/update", {
@@ -596,8 +597,7 @@ export default function SettingsPage() {
       return;
     }
 
-    // Cache-bust so re-uploads to the same path always show the new image
-    setFamilyPhotoUrl(`${url}?t=${Date.now()}`);
+    setFamilyPhotoUrl(url);
     setPhotoUploading(false);
     setPhotoError(null);
     refreshProfile();
