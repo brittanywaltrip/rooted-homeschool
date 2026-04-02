@@ -71,77 +71,69 @@ function TodayMockup() {
 
 function YearbookMockup() {
   return (
-    <div className="rounded-xl overflow-hidden shadow-2xl select-none w-full" style={{ fontFamily: "Georgia, serif" }}>
-      {/* Book spread */}
-      <div className="flex" style={{ minHeight: 260 }}>
+    <div className="rounded-xl overflow-hidden shadow-2xl select-none w-full">
+      {/* Open book spread — left cover */}
+      <div className="flex" style={{ minHeight: 280 }}>
 
         {/* LEFT PANEL — green cover */}
-        <div
-          className="relative flex flex-col justify-between pt-5 px-4 pb-4"
-          style={{ background: "#2D5016", flex: "0 0 48%", overflow: "hidden" }}
-        >
-          {/* Botanical leaf texture */}
-          <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.15 }}>
+        <div className="relative flex flex-col justify-between pt-5 px-4 pb-4" style={{ background: "#2D5016", flex: "0 0 48%", overflow: "hidden" }}>
+
+          {/* Leaf texture — actual leaf shapes like the real app */}
+          <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.18 }}>
             <svg viewBox="0 0 200 320" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-              <ellipse cx="175" cy="30" rx="35" ry="13" fill="#c8e6c0" transform="rotate(-35 175 30)" />
-              <line x1="155" y1="22" x2="145" y2="55" stroke="#c8e6c0" strokeWidth="1.5" />
-              <ellipse cx="175" cy="50" rx="20" ry="8" fill="#c8e6c0" transform="rotate(-50 175 50)" />
-              <ellipse cx="20" cy="260" rx="38" ry="13" fill="#c8e6c0" transform="rotate(25 20 260)" />
-              <line x1="38" y1="252" x2="50" y2="220" stroke="#c8e6c0" strokeWidth="1.5" />
-              <ellipse cx="40" cy="275" rx="22" ry="8" fill="#c8e6c0" transform="rotate(40 40 275)" />
-              <ellipse cx="15" cy="130" rx="24" ry="9" fill="#c8e6c0" transform="rotate(-15 15 130)" />
-              <ellipse cx="185" cy="180" rx="26" ry="9" fill="#c8e6c0" transform="rotate(45 185 180)" />
-              <ellipse cx="55" cy="15" rx="16" ry="6" fill="#c8e6c0" transform="rotate(20 55 15)" />
-              <ellipse cx="165" cy="295" rx="18" ry="6" fill="#c8e6c0" transform="rotate(-20 165 295)" />
+              {/* Top right branch + leaves */}
+              <path d="M160 10 Q175 25 165 45 Q155 30 160 10Z" fill="#a8d5a2" />
+              <path d="M170 8 Q190 20 178 42 Q162 28 170 8Z" fill="#a8d5a2" />
+              <line x1="165" y1="30" x2="158" y2="55" stroke="#a8d5a2" strokeWidth="1.2" />
+              {/* Bottom left branch + leaves */}
+              <path d="M15 265 Q5 280 20 295 Q28 278 15 265Z" fill="#a8d5a2" />
+              <path d="M22 260 Q8 272 18 292 Q35 275 22 260Z" fill="#a8d5a2" />
+              <line x1="18" y1="278" x2="35" y2="258" stroke="#a8d5a2" strokeWidth="1.2" />
+              {/* Left mid leaf */}
+              <path d="M5 120 Q-5 135 8 148 Q18 133 5 120Z" fill="#a8d5a2" />
+              <path d="M10 118 Q0 132 12 146 Q22 130 10 118Z" fill="#a8d5a2" />
+              {/* Top left small leaf */}
+              <path d="M38 8 Q28 18 38 30 Q46 18 38 8Z" fill="#a8d5a2" />
+              {/* Bottom right small leaves */}
+              <path d="M178 275 Q190 262 182 248 Q172 262 178 275Z" fill="#a8d5a2" />
+              <path d="M170 282 Q183 272 178 257 Q165 268 170 282Z" fill="#a8d5a2" />
             </svg>
           </div>
 
-          {/* Title — upper left */}
-          <p className="relative z-10 text-white text-[13px] font-semibold leading-snug" style={{ fontFamily: "Georgia, serif" }}>
+          {/* Title upper left */}
+          <p className="relative z-10 text-white font-semibold leading-snug text-[13px]" style={{ fontFamily: "Georgia, serif" }}>
             The Waltrip Family<br />Yearbook
           </p>
 
-          {/* Photo — large, centered */}
-          <div
-            className="relative z-10 rounded-sm overflow-hidden mx-auto"
-            style={{ border: "3px solid white", width: "88%", aspectRatio: "4/3" }}
-          >
+          {/* Photo — large, centered, white border, full family visible */}
+          <div className="relative z-10 rounded overflow-hidden mx-auto" style={{ border: "3px solid white", width: "90%", aspectRatio: "4/3" }}>
             <img
               src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/family-photos/f30ede7e-ad40-42a9-a134-8fd70932ba0f/family.jpg"
               alt="Family"
-              className="w-full h-full object-cover object-top"
+              className="w-full h-full object-cover"
+              style={{ objectPosition: "center 20%" }}
             />
           </div>
 
-          {/* Year — bottom center, wide tracking */}
-          <p className="relative z-10 text-center text-[9px] tracking-widest" style={{ color: "#C4962A", letterSpacing: "0.2em" }}>
-            2025–2026
+          {/* Year bottom center */}
+          <p className="relative z-10 text-center text-[9px]" style={{ color: "#C4962A", letterSpacing: "0.22em" }}>
+            2 0 2 5 – 2 0 2 6
           </p>
         </div>
 
         {/* SPINE */}
-        <div className="w-[3px] shrink-0" style={{ background: "linear-gradient(to right, rgba(0,0,0,0.18), rgba(0,0,0,0.04))" }} />
+        <div className="w-[3px] shrink-0" style={{ background: "linear-gradient(to right, rgba(0,0,0,0.2), rgba(0,0,0,0.04))" }} />
 
         {/* RIGHT PANEL — cream inside page */}
-        <div className="flex flex-col justify-center px-4 py-4 gap-2" style={{ background: "#fefcf9", flex: "1" }}>
-          {/* Quote mark */}
-          <p className="text-2xl leading-none" style={{ color: "#2D5016", fontFamily: "Georgia, serif" }}>&ldquo;</p>
-          {/* Italic quote */}
-          <p className="text-[10px] italic text-center leading-snug text-gray-700" style={{ fontFamily: "Georgia, serif" }}>
+        <div className="flex flex-col justify-center items-center px-4 py-5 gap-2 text-center" style={{ background: "#fefcf9", flex: "1" }}>
+          <p className="text-2xl leading-none font-bold" style={{ color: "#2D5016", fontFamily: "Georgia, serif" }}>“</p>
+          <p className="text-[10px] italic leading-snug text-gray-600 px-1" style={{ fontFamily: "Georgia, serif" }}>
             Every lesson, every photo, every little moment — Rooted holds onto it all.
           </p>
-          {/* Divider */}
-          <div className="w-8 mx-auto border-t border-gray-300 my-1" />
-          {/* TOC */}
-          <div className="flex flex-col gap-[3px] text-center">
-            {[
-              "A letter from home \u00b7 p. 2",
-              "Joey\u2019s chapter \u00b7 p. 5",
-              "Emma\u2019s chapter \u00b7 p. 7",
-              "Our family \u00b7 p. 9",
-              "From the village \u00b7 p. 11",
-            ].map((entry) => (
-              <p key={entry} className="text-[9px] text-gray-400">{entry}</p>
+          <div className="w-8 border-t border-gray-300 my-1" />
+          <div className="flex flex-col gap-[3px]">
+            {["A letter from home · p. 2","Joey’s chapter · p. 5","Emma’s chapter · p. 7","Our family · p. 9","From the village · p. 11"].map((e) => (
+              <p key={e} className="text-[9px] text-gray-400">{e}</p>
             ))}
           </div>
         </div>
@@ -149,12 +141,13 @@ function YearbookMockup() {
 
       {/* BOTTOM BAR */}
       <div className="flex items-center justify-between px-3 py-1.5" style={{ background: "#1a2e1a" }}>
-        <span className="text-[9px] tracking-widest uppercase text-white/50">Rooted</span>
+        <span className="text-[9px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.5)" }}>Rooted</span>
         <span className="text-[9px] text-white rounded-full px-2 py-0.5" style={{ background: "rgba(255,255,255,0.15)" }}>9 memories</span>
       </div>
     </div>
   );
 }
+
 
 {/* MOCKUP: swap with real screenshot when available */}
 function PrintablesMockup() {
