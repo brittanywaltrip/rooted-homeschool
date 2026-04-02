@@ -77,7 +77,7 @@ function YearbookMockup() {
         {/* Left page - cover */}
         <div className="flex-1 bg-[#fefcf9] flex flex-col border-r border-[#e8e2d9]">
           <div className="rounded-xl overflow-hidden m-2 mb-0" style={{ height: "60%" }}>
-            <img src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/family-photos/d18ca881-a776-4e82-b145-832adc88a88a/family.jpeg" alt="Family" className="w-full h-full object-cover" />
+            <img src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/family-photos/f30ede7e-ad40-42a9-a134-8fd70932ba0f/family.jpg" alt="Family" className="w-full h-full object-cover" />
           </div>
           <div className="flex-1 flex flex-col items-center justify-center p-2 text-center">
             <p className="text-[9px] font-bold text-[#2d5a3d]">The Waltrip Family Academy</p>
