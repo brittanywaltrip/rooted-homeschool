@@ -77,7 +77,7 @@ type FabChild = { id: string; name: string; color: string | null };
 function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
-  const { displayName: profileName } = useProfile();
+  const { displayName: profileName, familyPhotoUrl: ctxPhotoUrl } = useProfile();
   const [checking,  setChecking]  = useState(true);
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [isAdmin,   setIsAdmin]   = useState(false);
@@ -187,6 +187,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       setChecking(false);
     });
   }, [router]);
+
+  // Prefer context photo (updates after settings save) over one-time local fetch
+  const avatarPhotoUrl = ctxPhotoUrl ?? profileData.family_photo_url ?? null;
 
   async function handleSignOut() {
     sessionStorage.removeItem("rooted_partner");
@@ -360,8 +363,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           onClick={() => setMenuOpen(false)}
           className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
         >
-          {profileData.family_photo_url ? (
-            <img src={profileData.family_photo_url} alt="" className="w-10 h-10 rounded-full object-cover" />
+          {avatarPhotoUrl ? (
+            <img src={avatarPhotoUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
           ) : profileData.first_name ? (
             nameInitial(profileData.first_name)
           ) : displayName ? (
@@ -448,8 +451,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               href="/dashboard/settings"
               className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
             >
-              {profileData.family_photo_url ? (
-                <img src={profileData.family_photo_url} alt="" className="w-10 h-10 rounded-full object-cover" />
+              {avatarPhotoUrl ? (
+                <img src={avatarPhotoUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
               ) : profileData.first_name ? (
                 nameInitial(profileData.first_name)
               ) : displayName ? (
