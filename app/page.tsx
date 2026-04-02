@@ -1187,11 +1187,11 @@ export default function Home() {
               <Link href="/partners" className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Partners</Link>
             </div>
             <div className="flex items-center justify-center gap-4 mt-2">
-              <a href="https://instagram.com/rootedhomeschool" target="_blank" rel="noopener noreferrer"
+              <a href="https://instagram.com/rootedhomeschoolapp" target="_blank" rel="noopener noreferrer"
                 className="text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors flex items-center gap-1">
                 📸 Instagram
               </a>
-              <a href="https://facebook.com/rootedhomeschool" target="_blank" rel="noopener noreferrer"
+              <a href="https://www.facebook.com/share/1D1nmuSfHH/?mibextid=wwXIfr" target="_blank" rel="noopener noreferrer"
                 className="text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors flex items-center gap-1">
                 👥 Facebook
               </a>
