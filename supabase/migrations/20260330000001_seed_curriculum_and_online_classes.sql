@@ -7,10 +7,6 @@ SELECT * FROM (VALUES
    'Charlotte Mason-inspired curriculum with beautiful design, strong language arts, and integrated faith. Free courses available to download.',
    'https://www.goodandbeautiful.com', 'All Ages', 'Charlotte Mason', true, true, 1),
 
-  ('curriculum', 'Christian Light Education',
-   'Complete K-12 homeschool curriculum rooted in Christian values. Workbooks for math, language arts, science, social studies, and Bible.',
-   'https://www.christianlighteducation.com', 'All Ages', 'Christian · K-12', false, true, 2),
-
   ('curriculum', 'Abeka',
    'Traditional Christian homeschool curriculum trusted by millions of families. Strong phonics, grammar, and Bible integration across all grades.',
    'https://www.abeka.com', 'All Ages', 'Christian · Traditional', false, true, 3),
