@@ -627,8 +627,8 @@ export default function Home() {
                 className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
                 style={{ fontFamily: "var(--font-display)" }}
               >
-                These years go by so fast.{" "}
-                <em className="not-italic" style={{ color: "#5c7f63" }}>Hold on to every bit of it.</em>
+                The little things?{" "}
+                <em className="not-italic" style={{ color: "#5c7f63" }}>You&apos;ll want to remember them.</em>
               </h2>
               <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
                 Between the lessons, the field trips, the little things they said that made you laugh — so much gets forgotten. Rooted gives you a beautiful, simple place to save it all.
