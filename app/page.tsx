@@ -78,7 +78,7 @@ function YearbookMockup() {
         <div className="flex-1 bg-[#fefcf9] flex flex-col items-center justify-center p-4 border-r border-[#e8e2d9]">
           <div className="text-2xl mb-2">🌿</div>
           <p className="text-[9px] font-bold text-[#2d2926] text-center">The Meadows Family Academy</p>
-          <p className="text-[8px] text-[#7a6f65] mt-0.5">2025\u20132026</p>
+          <p className="text-[8px] text-[#7a6f65] mt-0.5">2025–2026</p>
         </div>
         {/* Right page - chapter */}
         <div className="flex-1 bg-white p-3">
@@ -128,7 +128,7 @@ function PrintablesMockup() {
           <p className="text-lg font-bold italic text-[#1a1008] mb-1" style={{ fontFamily: "Georgia, serif" }}>Lily</p>
           <div className="w-16 h-px bg-[#C4962A] mb-2" />
           <p className="text-[7px] text-[#3a3028] leading-relaxed mb-2">has completed her first book: Charlotte&apos;s Web</p>
-          <p className="text-[6px] text-[#8a7558]">\u2726 2025\u20132026 \u2726</p>
+          <p className="text-[6px] text-[#8a7558]">✦ 2025–2026 ✦</p>
           <p className="text-[5px] text-[#c8b898] mt-2">Made with Rooted</p>
         </div>
       </div>
