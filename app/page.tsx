@@ -76,19 +76,47 @@ function YearbookMockup() {
       <div className="flex" style={{ minHeight: 260 }}>
 
         {/* LEFT PANEL — green cover */}
-        <div className="flex flex-col items-center justify-start pt-4 px-3 pb-3 gap-2" style={{ background: "#2D5016", flex: "0 0 48%" }}>
-          <p className="text-white text-[11px] font-semibold tracking-wide text-center leading-tight">
-            The Waltrip Family Yearbook
+        <div
+          className="relative flex flex-col justify-between pt-5 px-4 pb-4"
+          style={{ background: "#2D5016", flex: "0 0 48%", overflow: "hidden" }}
+        >
+          {/* Botanical leaf texture */}
+          <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.15 }}>
+            <svg viewBox="0 0 200 320" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+              <ellipse cx="175" cy="30" rx="35" ry="13" fill="#c8e6c0" transform="rotate(-35 175 30)" />
+              <line x1="155" y1="22" x2="145" y2="55" stroke="#c8e6c0" strokeWidth="1.5" />
+              <ellipse cx="175" cy="50" rx="20" ry="8" fill="#c8e6c0" transform="rotate(-50 175 50)" />
+              <ellipse cx="20" cy="260" rx="38" ry="13" fill="#c8e6c0" transform="rotate(25 20 260)" />
+              <line x1="38" y1="252" x2="50" y2="220" stroke="#c8e6c0" strokeWidth="1.5" />
+              <ellipse cx="40" cy="275" rx="22" ry="8" fill="#c8e6c0" transform="rotate(40 40 275)" />
+              <ellipse cx="15" cy="130" rx="24" ry="9" fill="#c8e6c0" transform="rotate(-15 15 130)" />
+              <ellipse cx="185" cy="180" rx="26" ry="9" fill="#c8e6c0" transform="rotate(45 185 180)" />
+              <ellipse cx="55" cy="15" rx="16" ry="6" fill="#c8e6c0" transform="rotate(20 55 15)" />
+              <ellipse cx="165" cy="295" rx="18" ry="6" fill="#c8e6c0" transform="rotate(-20 165 295)" />
+            </svg>
+          </div>
+
+          {/* Title — upper left */}
+          <p className="relative z-10 text-white text-[13px] font-semibold leading-snug" style={{ fontFamily: "Georgia, serif" }}>
+            The Waltrip Family<br />Yearbook
           </p>
-          {/* Photo with white border */}
-          <div className="rounded-sm overflow-hidden" style={{ border: "3px solid white", width: "80%", aspectRatio: "4/3" }}>
+
+          {/* Photo — large, centered */}
+          <div
+            className="relative z-10 rounded-sm overflow-hidden mx-auto"
+            style={{ border: "3px solid white", width: "88%", aspectRatio: "4/3" }}
+          >
             <img
               src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/family-photos/f30ede7e-ad40-42a9-a134-8fd70932ba0f/family.jpg"
               alt="Family"
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover object-top"
             />
           </div>
-          <p className="text-[10px] tracking-widest" style={{ color: "#C4962A" }}>2025–2026</p>
+
+          {/* Year — bottom center, wide tracking */}
+          <p className="relative z-10 text-center text-[9px] tracking-widest" style={{ color: "#C4962A", letterSpacing: "0.2em" }}>
+            2025–2026
+          </p>
         </div>
 
         {/* SPINE */}
