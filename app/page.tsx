@@ -69,48 +69,60 @@ function TodayMockup() {
   );
 }
 
-{/* MOCKUP: swap with real screenshot when available */}
 function YearbookMockup() {
   return (
-    <div className="rounded-xl overflow-hidden shadow-xl text-left select-none" style={{ background: "#1a2e1a" }}>
-      <div className="flex" style={{ minHeight: 220 }}>
-        {/* Left panel - cover */}
-        <div className="flex-1 flex flex-col" style={{ background: "#2D5016" }}>
-          <div className="rounded-lg overflow-hidden m-2" style={{ height: "55%" }}>
-            <img src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/family-photos/f30ede7e-ad40-42a9-a134-8fd70932ba0f/family.jpg" alt="Family" className="w-full h-full object-cover" />
+    <div className="rounded-xl overflow-hidden shadow-2xl select-none w-full" style={{ fontFamily: "Georgia, serif" }}>
+      {/* Book spread */}
+      <div className="flex" style={{ minHeight: 260 }}>
+
+        {/* LEFT PANEL — green cover */}
+        <div className="flex flex-col items-center justify-start pt-4 px-3 pb-3 gap-2" style={{ background: "#2D5016", flex: "0 0 48%" }}>
+          <p className="text-white text-[11px] font-semibold tracking-wide text-center leading-tight">
+            The Waltrip Family Yearbook
+          </p>
+          {/* Photo with white border */}
+          <div className="rounded-sm overflow-hidden" style={{ border: "3px solid white", width: "80%", aspectRatio: "4/3" }}>
+            <img
+              src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/family-photos/f30ede7e-ad40-42a9-a134-8fd70932ba0f/family.jpg"
+              alt="Family"
+              className="w-full h-full object-cover"
+            />
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center px-2 pb-2 text-center">
-            <p className="text-[9px] font-bold text-[#fefcf9]">The Waltrip Family Academy</p>
-            <p className="text-[8px] mt-0.5" style={{ color: "#C4962A" }}>2025–2026</p>
-          </div>
+          <p className="text-[10px] tracking-widest" style={{ color: "#C4962A" }}>2025–2026</p>
         </div>
-        {/* Center spine shadow */}
-        <div className="w-[3px] shrink-0" style={{ background: "linear-gradient(to right, rgba(0,0,0,0.2), rgba(0,0,0,0.05))" }} />
-        {/* Right panel - inside page */}
-        <div className="flex-1 p-3" style={{ background: "#F7F3E9" }}>
-          <p className="text-[9px] font-semibold text-[#2D5016] mb-2">🌿 Lily&apos;s Year</p>
-          <div className="space-y-1.5">
-            <div className="bg-[#e8f0e9] border border-[#c2dbc5] rounded-lg p-1.5">
-              <p className="text-[7px] font-bold text-[#5c7f63]">🏆 WIN</p>
-              <p className="text-[7px] text-[#2d2926]">First chapter book!</p>
-            </div>
-            <div className="bg-[#fef9f0] border border-[#f0d090] rounded-lg p-1.5 flex items-center gap-1.5">
-              <span className="text-sm">📖</span>
-              <p className="text-[7px] text-[#2d2926]">Charlotte&apos;s Web</p>
-            </div>
-            <div className="rounded-lg p-1.5" style={{ background: "linear-gradient(135deg, #d8c0f0, #c0a0e0)" }}>
-              <p className="text-[7px] font-semibold text-[#3d1f5c]">🦋 Butterfly lifecycle</p>
-            </div>
+
+        {/* SPINE */}
+        <div className="w-[3px] shrink-0" style={{ background: "linear-gradient(to right, rgba(0,0,0,0.18), rgba(0,0,0,0.04))" }} />
+
+        {/* RIGHT PANEL — cream inside page */}
+        <div className="flex flex-col justify-center px-4 py-4 gap-2" style={{ background: "#fefcf9", flex: "1" }}>
+          {/* Quote mark */}
+          <p className="text-2xl leading-none" style={{ color: "#2D5016", fontFamily: "Georgia, serif" }}>&ldquo;</p>
+          {/* Italic quote */}
+          <p className="text-[10px] italic text-center leading-snug text-gray-700" style={{ fontFamily: "Georgia, serif" }}>
+            Every lesson, every photo, every little moment — Rooted holds onto it all.
+          </p>
+          {/* Divider */}
+          <div className="w-8 mx-auto border-t border-gray-300 my-1" />
+          {/* TOC */}
+          <div className="flex flex-col gap-[3px] text-center">
+            {[
+              "A letter from home \u00b7 p. 2",
+              "Joey\u2019s chapter \u00b7 p. 5",
+              "Emma\u2019s chapter \u00b7 p. 7",
+              "Our family \u00b7 p. 9",
+              "From the village \u00b7 p. 11",
+            ].map((entry) => (
+              <p key={entry} className="text-[9px] text-gray-400">{entry}</p>
+            ))}
           </div>
         </div>
       </div>
-      <div className="px-3 py-2" style={{ background: "#F7F3E9" }}>
-        <div className="flex items-center gap-2">
-          <div className="flex-1 h-1 bg-[#d4cfc9] rounded-full overflow-hidden">
-            <div className="h-full w-2/3 bg-[#2D5016] rounded-full" />
-          </div>
-          <p className="text-[8px] text-[#5c7f63] shrink-0">14 memories bookmarked</p>
-        </div>
+
+      {/* BOTTOM BAR */}
+      <div className="flex items-center justify-between px-3 py-1.5" style={{ background: "#1a2e1a" }}>
+        <span className="text-[9px] tracking-widest uppercase text-white/50">Rooted</span>
+        <span className="text-[9px] text-white rounded-full px-2 py-0.5" style={{ background: "rgba(255,255,255,0.15)" }}>9 memories</span>
       </div>
     </div>
   );
