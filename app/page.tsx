@@ -389,7 +389,7 @@ export default function Home() {
         <div className="relative z-10 flex flex-col items-center max-w-3xl">
           <h1 className="anim-fade-in-up delay-150 leading-[1.08] mb-6 text-white" style={{ fontFamily: "var(--font-display)", textShadow: "0 2px 32px rgba(0,0,0,0.4)", letterSpacing: "-0.02em" }}>
             <span className="block text-3xl sm:text-4xl lg:text-5xl font-bold text-white/80">The homeschool years go fast.</span>
-            <span className="block text-4xl sm:text-5xl lg:text-[5rem] font-bold mt-2" style={{ color: "#86c98a" }}>Rooted helps you hold on to all of it.</span>
+            <span className="block text-4xl sm:text-5xl lg:text-[5rem] font-bold mt-2" style={{ color: "#86c98a" }}>Rooted helps you hold on to it all.</span>
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
@@ -628,7 +628,7 @@ export default function Home() {
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 These years go by so fast.{" "}
-                <em className="not-italic" style={{ color: "#5c7f63" }}>Hold onto them.</em>
+                <em className="not-italic" style={{ color: "#5c7f63" }}>Hold on to every bit of it.</em>
               </h2>
               <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
                 Between the lessons, the field trips, the little things they said that made you laugh — so much gets forgotten. Rooted gives you a beautiful, simple place to save it all.
