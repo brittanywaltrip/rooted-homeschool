@@ -11,11 +11,11 @@ import { supabase } from "@/lib/supabase";
 function MemoriesMockup() {
   const tiles = [
     { bg: "linear-gradient(135deg, #c8e8d0, #a8d4b8)", text: "Rainbow butterfly 🎨", date: "Mar 21", color: "#1a3d1e" },
-    { bg: "linear-gradient(135deg, #e8c8a0, #d4a878)", text: null, date: "Mar 25", color: "" },
+    { bg: "linear-gradient(135deg, #e8c8a0, #d4a878)", text: "Nature walk with Dad 🌲", date: "Mar 25", color: "#5a3818" },
     { bg: "linear-gradient(135deg, #fde8a0, #f5c842)", text: "Zoe\u2019s first chapter book! 🏆", date: "Mar 28", color: "#4a3200" },
     { bg: "linear-gradient(135deg, #d8c0f0, #c0a0e0)", text: "Butterfly lifecycle \u2014 backyard science! 🦋", date: "Mar 14", color: "#3d1f5c" },
-    { bg: "linear-gradient(135deg, #b8d8c8, #98c8b0)", text: null, date: "Mar 16", color: "" },
-    { bg: "linear-gradient(135deg, #c8e8d0, #a8d4b8)", text: null, date: "Mar 19", color: "" },
+    { bg: "linear-gradient(135deg, #b8d8c8, #98c8b0)", text: "Baking fractions 🧁", date: "Mar 16", color: "#1a3d1e" },
+    { bg: "linear-gradient(135deg, #c8e8d0, #a8d4b8)", text: "Library trip 📚", date: "Mar 19", color: "#1a3d1e" },
   ];
   return (
     <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none">
@@ -43,7 +43,7 @@ function TodayMockup() {
         <p className="text-[8px] text-white/60 uppercase tracking-widest">The Meadows Family</p>
         <p className="text-sm font-semibold text-white">Good morning! 🌿</p>
         <p className="text-[10px] text-white/70 mt-0.5">Wednesday, April 2</p>
-        <p className="text-[9px] text-white/50 mt-1">12 memories \u00b7 31 days active</p>
+        <p className="text-[9px] text-white/50 mt-1">12 memories · 31 days active</p>
       </div>
       <div className="p-3 space-y-2">
         <p className="text-[9px] font-semibold text-[#7a6f65] uppercase tracking-widest">Today&apos;s lessons</p>
@@ -75,10 +75,14 @@ function YearbookMockup() {
     <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none">
       <div className="flex" style={{ minHeight: 200 }}>
         {/* Left page - cover */}
-        <div className="flex-1 bg-[#fefcf9] flex flex-col items-center justify-center p-4 border-r border-[#e8e2d9]">
-          <div className="text-2xl mb-2">🌿</div>
-          <p className="text-[9px] font-bold text-[#2d2926] text-center">The Meadows Family Academy</p>
-          <p className="text-[8px] text-[#7a6f65] mt-0.5">2025–2026</p>
+        <div className="flex-1 bg-[#fefcf9] flex flex-col border-r border-[#e8e2d9]">
+          <div className="rounded-xl overflow-hidden m-2 mb-0" style={{ height: "60%" }}>
+            <img src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/family-photos/d18ca881-a776-4e82-b145-832adc88a88a/family.jpeg" alt="Family" className="w-full h-full object-cover" />
+          </div>
+          <div className="flex-1 flex flex-col items-center justify-center p-2 text-center">
+            <p className="text-[9px] font-bold text-[#2d5a3d]">The Waltrip Family Academy</p>
+            <p className="text-[8px] text-[#5c7f63] mt-0.5">2025–2026</p>
+          </div>
         </div>
         {/* Right page - chapter */}
         <div className="flex-1 bg-white p-3">
