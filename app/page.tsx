@@ -72,40 +72,44 @@ function TodayMockup() {
 {/* MOCKUP: swap with real screenshot when available */}
 function YearbookMockup() {
   return (
-    <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none">
-      <div className="flex" style={{ minHeight: 200 }}>
-        {/* Left page - cover */}
-        <div className="flex-1 bg-[#fefcf9] flex flex-col border-r border-[#e8e2d9]">
-          <div className="rounded-xl overflow-hidden m-2 mb-0" style={{ height: "60%" }}>
+    <div className="rounded-xl overflow-hidden shadow-xl text-left select-none" style={{ background: "#1a2e1a" }}>
+      <div className="flex" style={{ minHeight: 220 }}>
+        {/* Left panel - cover */}
+        <div className="flex-1 flex flex-col" style={{ background: "#2D5016" }}>
+          <div className="rounded-lg overflow-hidden m-2" style={{ height: "55%" }}>
             <img src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/family-photos/f30ede7e-ad40-42a9-a134-8fd70932ba0f/family.jpg" alt="Family" className="w-full h-full object-cover" />
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center p-2 text-center">
-            <p className="text-[9px] font-bold text-[#2d5a3d]">The Waltrip Family Academy</p>
-            <p className="text-[8px] text-[#5c7f63] mt-0.5">2025–2026</p>
+          <div className="flex-1 flex flex-col items-center justify-center px-2 pb-2 text-center">
+            <p className="text-[9px] font-bold text-[#fefcf9]">The Waltrip Family Academy</p>
+            <p className="text-[8px] mt-0.5" style={{ color: "#C4962A" }}>2025–2026</p>
           </div>
         </div>
-        {/* Right page - chapter */}
-        <div className="flex-1 bg-white p-3">
-          <p className="text-[9px] font-semibold text-[#5c7f63] mb-2">🌿 Lily&apos;s Year</p>
+        {/* Center spine shadow */}
+        <div className="w-[3px] shrink-0" style={{ background: "linear-gradient(to right, rgba(0,0,0,0.2), rgba(0,0,0,0.05))" }} />
+        {/* Right panel - inside page */}
+        <div className="flex-1 p-3" style={{ background: "#F7F3E9" }}>
+          <p className="text-[9px] font-semibold text-[#2D5016] mb-2">🌿 Lily&apos;s Year</p>
           <div className="space-y-1.5">
-            <div className="h-10 rounded-lg" style={{ background: "linear-gradient(135deg, #c8e8d0, #a8d4b8)" }} />
-            <div className="bg-[#fef9f0] border border-[#f0d090] rounded-lg p-1.5">
-              <p className="text-[7px] font-bold text-[#8b6f47]">🏆 WIN</p>
+            <div className="bg-[#e8f0e9] border border-[#c2dbc5] rounded-lg p-1.5">
+              <p className="text-[7px] font-bold text-[#5c7f63]">🏆 WIN</p>
               <p className="text-[7px] text-[#2d2926]">First chapter book!</p>
             </div>
-            <div className="bg-[#f0f4ff] border border-[#c8d0f0] rounded-lg p-1.5 flex items-center gap-1.5">
+            <div className="bg-[#fef9f0] border border-[#f0d090] rounded-lg p-1.5 flex items-center gap-1.5">
               <span className="text-sm">📖</span>
               <p className="text-[7px] text-[#2d2926]">Charlotte&apos;s Web</p>
+            </div>
+            <div className="rounded-lg p-1.5" style={{ background: "linear-gradient(135deg, #d8c0f0, #c0a0e0)" }}>
+              <p className="text-[7px] font-semibold text-[#3d1f5c]">🦋 Butterfly lifecycle</p>
             </div>
           </div>
         </div>
       </div>
-      <div className="px-3 py-2 bg-[#fefcf9] border-t border-[#e8e2d9]">
+      <div className="px-3 py-2" style={{ background: "#F7F3E9" }}>
         <div className="flex items-center gap-2">
-          <div className="flex-1 h-1 bg-[#e8e2d9] rounded-full overflow-hidden">
-            <div className="h-full w-2/3 bg-[#5c7f63] rounded-full" />
+          <div className="flex-1 h-1 bg-[#d4cfc9] rounded-full overflow-hidden">
+            <div className="h-full w-2/3 bg-[#2D5016] rounded-full" />
           </div>
-          <p className="text-[8px] text-[#b5aca4] shrink-0">14 memories bookmarked</p>
+          <p className="text-[8px] text-[#5c7f63] shrink-0">14 memories bookmarked</p>
         </div>
       </div>
     </div>
