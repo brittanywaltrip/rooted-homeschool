@@ -788,7 +788,14 @@ export default function Home() {
               Share a private link with grandparents, aunts, uncles — anyone you choose. They can see memories as you add them, react, and leave messages for the kids. No app download. No account needed.
             </p>
           </div>
-          <ul className="space-y-4 max-w-xl mx-auto mb-10">
+          <div className="flex justify-center mb-10">
+            <img
+              src="/images/share-with-family.png"
+              alt="Family view of Rooted memories"
+              style={{ maxWidth: '280px', borderRadius: '20px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}
+            />
+          </div>
+          <ul className="space-y-4 max-w-xl mx-auto">
             {[
               { emoji: "🔗", title: "One private link", desc: "You control who sees it and can revoke access anytime." },
               { emoji: "💬", title: "Reactions & comments", desc: "Family can leave messages the kids will love reading." },
@@ -805,11 +812,6 @@ export default function Home() {
               </li>
             ))}
           </ul>
-          <div className="text-center">
-            <Link href="/signup" className="inline-flex items-center gap-2 border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm">
-              Start sharing with family →
-            </Link>
-          </div>
         </div>
       </section>
 
