@@ -772,34 +772,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 7. FOUNDER QUOTE ───────────────────────────────────────────────── */}
-      <section className="bg-[#fefcf9] border-y border-[#e8e2d9]">
-        <div className="max-w-2xl mx-auto px-6 sm:px-8 py-20 text-center">
-          <div
-            className="w-12 h-12 rounded-2xl bg-[#5c7f63] flex items-center justify-center text-2xl mx-auto mb-8 shadow-sm"
-            aria-hidden="true"
-          >
-            🌿
-          </div>
-          <div
-            className="text-[3.5rem] leading-none select-none text-[#d4ead6] mb-2"
-            style={{ fontFamily: "var(--font-display)", lineHeight: 0.85 }}
-            aria-hidden="true"
-          >
-            &ldquo;
-          </div>
-          <p
-            className="text-xl sm:text-2xl text-[#2d2926] leading-relaxed italic mb-8"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            I built the app I always wanted — one that reminds you that the ordinary days are the ones worth remembering.
-          </p>
-          <p className="text-sm font-semibold text-[#5c7f63]">
-            — Brittany, homeschool mom &amp; founder
-          </p>
-        </div>
-      </section>
-
       {/* ── 8. PRICING ─────────────────────────────────────────────────────── */}
       <section className="px-6 sm:px-8 py-20 max-w-4xl mx-auto">
         <div className="text-center mb-12">
