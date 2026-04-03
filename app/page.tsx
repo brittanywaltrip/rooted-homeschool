@@ -71,35 +71,12 @@ function TodayMockup() {
 
 function YearbookMockup() {
   return (
-    <div className="flex flex-col items-center gap-3 select-none">
-      <div
-        className="relative rounded-xl overflow-hidden shadow-2xl flex flex-col justify-end"
-        style={{
-          background: "linear-gradient(160deg, #3a6b28 0%, #2D5016 60%, #1e3a0f 100%)",
-          width: 180,
-          height: 270,
-        }}
-      >
-        <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.1 }}>
-          <svg viewBox="0 0 180 270" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-            <path d="M150 15 Q168 28 158 50 Q142 35 150 15Z" fill="#a8d5a2" />
-            <path d="M162 12 Q178 22 170 46 Q152 30 162 12Z" fill="#a8d5a2" />
-            <path d="M12 210 Q2 228 18 242 Q28 224 12 210Z" fill="#a8d5a2" />
-            <path d="M20 206 Q6 220 16 240 Q32 222 20 206Z" fill="#a8d5a2" />
-            <path d="M8 95 Q-2 108 10 120 Q20 106 8 95Z" fill="#a8d5a2" />
-          </svg>
-        </div>
-        <div className="relative z-10 flex flex-col items-center gap-2 pb-6 px-4">
-          <p className="text-[8px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.5)" }}>Our Homeschool Year</p>
-          <p className="text-xl font-bold text-white tracking-wide">2025–2026</p>
-          <div className="flex gap-2">
-            {["Joey", "Emma"].map((name) => (
-              <span key={name} className="text-[10px] text-white px-2.5 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }}>{name}</span>
-            ))}
-          </div>
-        </div>
-      </div>
-      <p className="text-sm text-gray-500">14 memories bookmarked this year</p>
+    <div className="select-none w-full flex justify-center">
+      <img
+        src="/yearbook-screenshot.png"
+        alt="Rooted family yearbook"
+        className="rounded-xl shadow-2xl w-full max-w-sm"
+      />
     </div>
   );
 }
