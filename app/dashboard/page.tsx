@@ -968,6 +968,13 @@ export default function TodayPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Re-fetch when children are edited in Settings
+  useEffect(() => {
+    const handler = () => { loadData(); };
+    window.addEventListener("rooted:children-updated", handler);
+    return () => window.removeEventListener("rooted:children-updated", handler);
+  }, [loadData]);
+
 
   async function refreshTodayStory() {
     if (!effectiveUserId) return;

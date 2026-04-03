@@ -295,6 +295,13 @@ export default function PlanPage() {
   useEffect(() => { loadData(); },           [loadData]);
   useEffect(() => { loadAllLessons(); },     [loadAllLessons]);
   useEffect(() => { loadVacationBlocks(); }, [loadVacationBlocks]);
+
+  // Re-fetch when children are edited in Settings
+  useEffect(() => {
+    const handler = () => { loadData(); };
+    window.addEventListener("rooted:children-updated", handler);
+    return () => window.removeEventListener("rooted:children-updated", handler);
+  }, [loadData]);
   useEffect(() => { if (viewMode === "month") loadMonthData(); }, [viewMode, loadMonthData]);
 
   // ── Week navigation ───────────────────────────────────────────────────────

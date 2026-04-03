@@ -212,6 +212,13 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   }, [partnerCtx.effectiveUserId, partnerCtx.isPartner]);
   useEffect(() => { if (!checking) loadFabKids(); }, [checking, loadFabKids]);
 
+  // Re-fetch FAB kids when children are added/edited/removed in Settings
+  useEffect(() => {
+    const handler = () => loadFabKids();
+    window.addEventListener("rooted:children-updated", handler);
+    return () => window.removeEventListener("rooted:children-updated", handler);
+  }, [loadFabKids]);
+
   function openFabPicker() { fabFileRef.current?.click(); }
 
   // Listen for cross-page FAB open requests (e.g. from memories grid camera icon)
