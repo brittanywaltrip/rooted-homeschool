@@ -72,7 +72,6 @@ function TodayMockup() {
 function YearbookMockup() {
   return (
     <div className="flex flex-col items-center gap-3 select-none">
-      {/* Single portrait book cover */}
       <div
         className="relative rounded-xl overflow-hidden shadow-2xl flex flex-col justify-end"
         style={{
@@ -81,40 +80,25 @@ function YearbookMockup() {
           height: 270,
         }}
       >
-        {/* Subtle leaf texture */}
         <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.1 }}>
           <svg viewBox="0 0 180 270" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
             <path d="M150 15 Q168 28 158 50 Q142 35 150 15Z" fill="#a8d5a2" />
             <path d="M162 12 Q178 22 170 46 Q152 30 162 12Z" fill="#a8d5a2" />
-            <line x1="158" y1="32" x2="150" y2="58" stroke="#a8d5a2" strokeWidth="1" />
             <path d="M12 210 Q2 228 18 242 Q28 224 12 210Z" fill="#a8d5a2" />
             <path d="M20 206 Q6 220 16 240 Q32 222 20 206Z" fill="#a8d5a2" />
-            <line x1="16" y1="223" x2="32" y2="204" stroke="#a8d5a2" strokeWidth="1" />
             <path d="M8 95 Q-2 108 10 120 Q20 106 8 95Z" fill="#a8d5a2" />
           </svg>
         </div>
-
-        {/* Bottom content */}
         <div className="relative z-10 flex flex-col items-center gap-2 pb-6 px-4">
-          <p className="text-[8px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.5)" }}>
-            Our Homeschool Year
-          </p>
+          <p className="text-[8px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.5)" }}>Our Homeschool Year</p>
           <p className="text-xl font-bold text-white tracking-wide">2025–2026</p>
           <div className="flex gap-2">
             {["Joey", "Emma"].map((name) => (
-              <span
-                key={name}
-                className="text-[10px] text-white px-2.5 py-0.5 rounded-full"
-                style={{ background: "rgba(255,255,255,0.2)" }}
-              >
-                {name}
-              </span>
+              <span key={name} className="text-[10px] text-white px-2.5 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }}>{name}</span>
             ))}
           </div>
         </div>
       </div>
-
-      {/* Caption below */}
       <p className="text-sm text-gray-500">14 memories bookmarked this year</p>
     </div>
   );
