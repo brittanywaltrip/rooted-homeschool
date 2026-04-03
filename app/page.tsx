@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import HashRedirect from "./components/HashRedirect";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
 // ─── App mockup components ──────────────────────────────────────────────────
 
-{/* MOCKUP: swap with real screenshot when available */}
+/* MOCKUP: swap with real screenshot when available */
 function MemoriesMockup() {
   const tiles = [
     { bg: "linear-gradient(135deg, #c8e8d0, #a8d4b8)", text: "Rainbow butterfly 🎨", date: "Mar 21", color: "#1a3d1e" },
@@ -36,7 +35,7 @@ function MemoriesMockup() {
   );
 }
 
-{/* MOCKUP: swap with real screenshot when available */}
+/* MOCKUP: swap with real screenshot when available */
 function TodayMockup() {
   return (
     <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none">
@@ -73,7 +72,7 @@ function TodayMockup() {
 function YearbookMockup() {
   return (
     <div className="flex justify-center select-none">
-      <Image
+      <img
         src="/images/yearbook-screenshot.png"
         alt="Rooted family yearbook"
         width={200}
@@ -86,7 +85,7 @@ function YearbookMockup() {
 
 
 
-{/* MOCKUP: swap with real screenshot when available */}
+/* MOCKUP: swap with real screenshot when available */
 function PrintablesMockup() {
   return (
     <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none p-4 flex items-center justify-center">
