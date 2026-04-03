@@ -494,6 +494,7 @@ export default function TodayPage() {
   const captureFileRef = useRef<HTMLInputElement>(null);
   const captureTypeRef = useRef<"photo" | "drawing">("photo");
   const loadDataBusy = useRef(false);
+  const savingMemory = useRef(false);
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
   const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
@@ -971,7 +972,7 @@ export default function TodayPage() {
   // Refresh today's story when user returns to tab (e.g. after camera app)
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && !savingMemory.current) {
         loadData();
       }
     };
@@ -2320,6 +2321,8 @@ export default function TodayPage() {
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (!file) return;
+              setShowCaptureMenu(false);
+              savingMemory.current = true;
               try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) { console.error("[Photo capture] No user session"); return; }
@@ -2345,6 +2348,7 @@ export default function TodayPage() {
                 await loadData();
                 checkAndAwardBadges(user.id);
               } finally {
+                savingMemory.current = false;
                 if (e.target) e.target.value = "";
               }
             }}
@@ -2412,7 +2416,7 @@ export default function TodayPage() {
             </div>
             <div className="px-4 pb-6 space-y-1">
               <button
-                onClick={() => { setShowCaptureMenu(false); captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
+                onClick={() => { setShowCaptureMenu(false); captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); }}
                 className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
               >
                 <span className="text-2xl">📸</span>
