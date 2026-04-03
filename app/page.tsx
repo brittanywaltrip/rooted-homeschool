@@ -75,7 +75,7 @@ function YearbookMockup() {
       <img
         src="/yearbook-screenshot.png"
         alt="Rooted family yearbook"
-        className="rounded-xl shadow-2xl w-full max-w-sm"
+        className="rounded-xl shadow-2xl w-full max-w-xs"
       />
     </div>
   );
