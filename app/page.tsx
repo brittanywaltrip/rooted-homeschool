@@ -792,10 +792,10 @@ export default function Home() {
             className="text-xl sm:text-2xl text-[#2d2926] leading-relaxed italic mb-8"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            I built Rooted for families like mine. I hope it makes you feel less alone in this beautiful, hard, joyful thing you&apos;re doing every day.
+            I built the app I always wanted — one that reminds you that the ordinary days are the ones worth remembering.
           </p>
           <p className="text-sm font-semibold text-[#5c7f63]">
-            — Brittany W., homeschool mom of 2
+            — Brittany, homeschool mom &amp; founder
           </p>
         </div>
       </section>
