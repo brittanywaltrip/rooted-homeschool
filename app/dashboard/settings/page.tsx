@@ -657,17 +657,22 @@ export default function SettingsPage() {
   }
 
   async function saveEdit(id: string) {
-    if (!editName.trim()) return;
+    const trimmed = editName.trim();
+    if (!trimmed) return;
     setSavingEdit(true);
 
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from("children")
-      .update({ name: editName.trim(), color: editColor })
-      .eq("id", id);
+      .update({ name: trimmed, color: editColor })
+      .eq("id", id)
+      .select("id, name, color, sort_order, archived, graduated_at, birthday")
+      .single();
 
-    if (!error) {
+    if (error) {
+      console.error("[Settings] Child update failed:", error.message);
+    } else if (updated) {
       setChildren((prev) =>
-        prev.map((c) => c.id === id ? { ...c, name: editName.trim(), color: editColor } : c)
+        prev.map((c) => c.id === updated.id ? { ...c, ...updated } : c)
       );
       setEditingId(null);
       window.dispatchEvent(new CustomEvent("rooted:children-updated"));
