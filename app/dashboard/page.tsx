@@ -2333,7 +2333,7 @@ export default function TodayPage() {
                 const memType = captureTypeRef.current;
                 const now = new Date().toISOString();
                 const { data: ins, error: insErr } = await supabase.from("memories").insert({
-                  user_id: user.id, type: memType, title: null,
+                  user_id: user.id, type: memType, title: '',
                   photo_url: urlData.publicUrl, child_id: null,
                   date: today, include_in_book: false,
                   created_at: now, updated_at: now,
