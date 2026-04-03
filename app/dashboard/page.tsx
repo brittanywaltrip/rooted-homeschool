@@ -493,6 +493,7 @@ export default function TodayPage() {
   const [ftSaving, setFtSaving] = useState(false);
   const captureFileRef = useRef<HTMLInputElement>(null);
   const captureTypeRef = useRef<"photo" | "drawing">("photo");
+  const loadDataBusy = useRef(false);
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
   const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
@@ -534,6 +535,8 @@ export default function TodayPage() {
 
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
+    if (loadDataBusy.current) return;
+    loadDataBusy.current = true;
     try {
 
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
@@ -879,6 +882,7 @@ export default function TodayPage() {
       setLoadError(true);
     } finally {
       setLoading(false);
+      loadDataBusy.current = false;
     }
   }, [today, effectiveUserId]);
 
@@ -958,7 +962,6 @@ export default function TodayPage() {
   // Poll for new memories (e.g. FAB photo saved from layout)
   useEffect(() => {
     const interval = setInterval(() => {
-      refreshTodayStory();
       loadData();
     }, 15000);
     return () => clearInterval(interval);
@@ -969,7 +972,6 @@ export default function TodayPage() {
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        refreshTodayStory();
         loadData();
       }
     };
@@ -1532,7 +1534,6 @@ export default function TodayPage() {
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
-    await refreshTodayStory();
     await loadData();
     checkAndAwardBadges(user.id);
   }
@@ -1563,7 +1564,6 @@ export default function TodayPage() {
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null);
-    await refreshTodayStory();
     await loadData();
     checkAndAwardBadges(user.id);
   }
@@ -1592,7 +1592,6 @@ export default function TodayPage() {
     }).eq("id", editSheet.id);
     setEditSaving(false); setEditSheet(null);
     showCaptureToast("✏️ Updated 🌿", null);
-    await refreshTodayStory();
     await loadData();
   }
 
@@ -1602,7 +1601,6 @@ export default function TodayPage() {
     await supabase.from("memories").delete().eq("id", editSheet.id);
     setEditDeleting(false); setEditSheet(null);
     showCaptureToast("🗑️ Deleted", null);
-    await refreshTodayStory();
     await loadData();
   }
 
@@ -2344,7 +2342,6 @@ export default function TodayPage() {
                 showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
                 captureTypeRef.current = "photo"; // reset
                 setTotalMemories(prev => prev + 1);
-                await refreshTodayStory();
                 await loadData();
                 checkAndAwardBadges(user.id);
               } finally {
@@ -2552,7 +2549,6 @@ export default function TodayPage() {
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild(""); setFtMinutes("");
-                  await refreshTodayStory();
                   await loadData();
                 }}
                 className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
@@ -3217,7 +3213,6 @@ export default function TodayPage() {
                     setWinChild("");
                     setWinMinutes("");
                     setShowWinSheet(false);
-                    await refreshTodayStory();
                     await loadData();
                   } catch (err) {
                     console.error("Win save error:", err);
