@@ -108,7 +108,7 @@ insert into public.resources (category, title, description, url, grade_level, ba
 
 ('field_trips', 'San Diego Zoo Virtual Safari',
  'Live animal cams, educational videos, and virtual field trips for giraffes, pandas, and more.',
- 'https://zoo.sandiegozoo.org/virtual-field-trips',
+ 'https://zoo.sandiegozoo.org',
  'K–2', '', 4, '{}'),
 
 ('field_trips', 'Monterey Bay Aquarium Live Cams',
