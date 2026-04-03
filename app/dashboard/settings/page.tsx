@@ -157,6 +157,7 @@ export default function SettingsPage() {
   const [editName,     setEditName]     = useState("");
   const [editColor,    setEditColor]    = useState("");
   const [savingEdit,   setSavingEdit]   = useState(false);
+  const [editError,    setEditError]    = useState("");
 
   // Delete confirm
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
@@ -647,6 +648,7 @@ export default function SettingsPage() {
     setEditingId(child.id);
     setEditName(child.name);
     setEditColor(child.color ?? COLORS[0].value);
+    setEditError("");
     setDeleteId(null);
   }
 
@@ -654,6 +656,7 @@ export default function SettingsPage() {
     setEditingId(null);
     setEditName("");
     setEditColor("");
+    setEditError("");
   }
 
   async function saveEdit(id: string) {
@@ -661,6 +664,7 @@ export default function SettingsPage() {
     if (!updatedName) return;
     const updatedColor = editColor;
     setSavingEdit(true);
+    setEditError("");
 
     try {
       const { error } = await supabase
@@ -670,6 +674,7 @@ export default function SettingsPage() {
 
       if (error) {
         console.error("[Settings] Child update failed:", error.message);
+        setEditError(error.message.includes("unique") ? "That name is already taken." : "Save failed — try again.");
         return;
       }
 
@@ -1103,6 +1108,9 @@ export default function SettingsPage() {
                         className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
                       />
                     </div>
+                    {editError && (
+                      <p className="text-xs text-red-600 font-medium">{editError}</p>
+                    )}
                     <div className="flex gap-2 pt-1">
                       <button
                         onClick={cancelEdit}
