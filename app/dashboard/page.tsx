@@ -494,7 +494,6 @@ export default function TodayPage() {
   const captureFileRef = useRef<HTMLInputElement>(null);
   const captureTypeRef = useRef<"photo" | "drawing">("photo");
   const loadDataBusy = useRef(false);
-  const savingMemory = useRef(false);
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
   const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
@@ -969,17 +968,6 @@ export default function TodayPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Refresh today's story when user returns to tab (e.g. after camera app)
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible" && !savingMemory.current) {
-        loadData();
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadData]);
 
   async function refreshTodayStory() {
     if (!effectiveUserId) return;
@@ -2322,7 +2310,6 @@ export default function TodayPage() {
               const file = e.target.files?.[0];
               if (!file) return;
               setShowCaptureMenu(false);
-              savingMemory.current = true;
               try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) { console.error("[Photo capture] No user session"); return; }
@@ -2348,7 +2335,6 @@ export default function TodayPage() {
                 await loadData();
                 checkAndAwardBadges(user.id);
               } finally {
-                savingMemory.current = false;
                 if (e.target) e.target.value = "";
               }
             }}
