@@ -106,11 +106,6 @@ insert into public.resources (category, title, description, url, grade_level, ba
  'https://www.nasa.gov/learning-resources/virtual-tours',
  '6–8', '', 3, '{}'),
 
-('field_trips', 'San Diego Zoo Virtual Safari',
- 'Live animal cams, educational videos, and virtual field trips for giraffes, pandas, and more.',
- 'https://zoo.sandiegozoo.org',
- 'K–2', '', 4, '{}'),
-
 ('field_trips', 'Monterey Bay Aquarium Live Cams',
  'Watch sharks, jellyfish, sea otters, and kelp forests live 24/7. Lesson plans available on their educator site.',
  'https://www.montereybayaquarium.org/animals/live-cams',
