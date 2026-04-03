@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import HashRedirect from "./components/HashRedirect";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
@@ -71,43 +72,14 @@ function TodayMockup() {
 
 function YearbookMockup() {
   return (
-    <div className="flex flex-col items-center gap-3 select-none">
-      <div
-        className="relative rounded-xl overflow-hidden shadow-2xl flex flex-col justify-end"
-        style={{
-          background: "linear-gradient(160deg, #3d6b2a 0%, #2D5016 60%, #1e3a0f 100%)",
-          width: 200,
-          height: 300,
-        }}
-      >
-        {/* Leaf texture */}
-        <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.12 }}>
-          <svg viewBox="0 0 200 300" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-            <path d="M155 10 Q172 24 162 46 Q146 30 155 10Z" fill="#c8e6c0" />
-            <path d="M168 8 Q184 20 174 44 Q156 28 168 8Z" fill="#c8e6c0" />
-            <path d="M10 220 Q0 238 16 252 Q26 234 10 220Z" fill="#c8e6c0" />
-            <path d="M18 216 Q4 230 14 250 Q30 232 18 216Z" fill="#c8e6c0" />
-            <path d="M5 105 Q-5 118 7 130 Q17 116 5 105Z" fill="#c8e6c0" />
-            <path d="M185 160 Q198 148 190 132 Q178 146 185 160Z" fill="#c8e6c0" />
-          </svg>
-        </div>
-
-        {/* Bottom content */}
-        <div className="relative z-10 flex flex-col items-center gap-2 pb-8 px-4">
-          <p className="text-[8px] tracking-widest uppercase text-center" style={{ color: "rgba(255,255,255,0.5)", letterSpacing: "0.18em" }}>
-            Our Homeschool Year
-          </p>
-          <p className="text-xl font-bold text-white tracking-wide">2025–2026</p>
-          <div className="flex gap-2">
-            {["Zoe", "Emma"].map((name) => (
-              <span key={name} className="text-[10px] text-white px-2.5 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }}>
-                {name}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-      <p className="text-sm text-gray-500">Your year, beautifully preserved.</p>
+    <div className="flex justify-center select-none">
+      <Image
+        src="/images/yearbook-screenshot.png"
+        alt="Rooted family yearbook"
+        width={200}
+        height={300}
+        className="rounded-lg shadow-xl"
+      />
     </div>
   );
 }
