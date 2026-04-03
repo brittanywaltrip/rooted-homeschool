@@ -636,6 +636,7 @@ export default function SettingsPage() {
       setChildren((prev) => [...prev, data]);
       setNewName("");
       setNewColor(COLORS[0].value);
+      window.dispatchEvent(new CustomEvent("rooted:children-updated"));
     }
     setAddingChild(false);
   }
@@ -669,6 +670,7 @@ export default function SettingsPage() {
         prev.map((c) => c.id === id ? { ...c, name: editName.trim(), color: editColor } : c)
       );
       setEditingId(null);
+      window.dispatchEvent(new CustomEvent("rooted:children-updated"));
     }
     setSavingEdit(false);
   }
@@ -690,6 +692,7 @@ export default function SettingsPage() {
 
     if (!error) {
       setChildren((prev) => prev.filter((c) => c.id !== id));
+      window.dispatchEvent(new CustomEvent("rooted:children-updated"));
     }
     setDeletingId(null);
     setDeleteId(null);

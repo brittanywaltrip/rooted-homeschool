@@ -385,9 +385,12 @@ export default function MemoriesPage() {
     document.addEventListener('visibilitychange', onVisible);
     const onMemorySaved = () => load();
     window.addEventListener('rooted:memory-saved', onMemorySaved);
+    const onChildrenUpdated = () => load();
+    window.addEventListener('rooted:children-updated', onChildrenUpdated);
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('rooted:memory-saved', onMemorySaved);
+      window.removeEventListener('rooted:children-updated', onChildrenUpdated);
     };
   }, [load]);
 
