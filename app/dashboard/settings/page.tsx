@@ -663,10 +663,29 @@ export default function SettingsPage() {
     const updatedName = editName.trim();
     if (!updatedName) return;
     const updatedColor = editColor;
+
+    // No-op: name and color unchanged
+    const current = children.find((c) => c.id === id);
+    if (current && current.name === updatedName && current.color === updatedColor) {
+      setEditingId(null);
+      return;
+    }
+
     setSavingEdit(true);
     setEditError("");
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setEditError("Not logged in."); return; }
+
+      // Clean up any duplicate rows with the target name (from a partially-failed previous save)
+      await supabase
+        .from("children")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("name", updatedName)
+        .neq("id", id);
+
       const { error } = await supabase
         .from("children")
         .update({ name: updatedName, color: updatedColor })
