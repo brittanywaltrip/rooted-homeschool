@@ -657,27 +657,30 @@ export default function SettingsPage() {
   }
 
   async function saveEdit(id: string) {
-    const trimmed = editName.trim();
-    if (!trimmed) return;
+    const updatedName = editName.trim();
+    if (!updatedName) return;
+    const updatedColor = editColor;
     setSavingEdit(true);
 
-    const { data: updated, error } = await supabase
-      .from("children")
-      .update({ name: trimmed, color: editColor })
-      .eq("id", id)
-      .select("id, name, color, sort_order, archived, graduated_at, birthday")
-      .single();
+    try {
+      const { error } = await supabase
+        .from("children")
+        .update({ name: updatedName, color: updatedColor })
+        .eq("id", id);
 
-    if (error) {
-      console.error("[Settings] Child update failed:", error.message);
-    } else if (updated) {
+      if (error) {
+        console.error("[Settings] Child update failed:", error.message);
+        return;
+      }
+
       setChildren((prev) =>
-        prev.map((c) => c.id === updated.id ? { ...c, ...updated } : c)
+        prev.map((c) => c.id === id ? { ...c, name: updatedName, color: updatedColor } : c)
       );
       setEditingId(null);
       window.dispatchEvent(new CustomEvent("rooted:children-updated"));
+    } finally {
+      setSavingEdit(false);
     }
-    setSavingEdit(false);
   }
 
   // ── Delete child (soft-archive) ───────────────────────────────────────────
