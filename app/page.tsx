@@ -771,6 +771,48 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── 7b. SHARE WITH FAMILY ────────────────────────────────────────── */}
+      <section className="bg-[#fefcf9] border-y border-[#e8e2d9]">
+        <div className="max-w-3xl mx-auto px-6 sm:px-8 py-20">
+          <div className="text-center mb-10">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
+              Share with family
+            </p>
+            <h2
+              className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              The people who love your kids will love this too.
+            </h2>
+            <p className="text-[#7a6f65] leading-relaxed text-base max-w-2xl mx-auto">
+              Share a private link with grandparents, aunts, uncles — anyone you choose. They can see memories as you add them, react, and leave messages for the kids. No app download. No account needed.
+            </p>
+          </div>
+          <ul className="space-y-4 max-w-xl mx-auto mb-10">
+            {[
+              { emoji: "🔗", title: "One private link", desc: "You control who sees it and can revoke access anytime." },
+              { emoji: "💬", title: "Reactions & comments", desc: "Family can leave messages the kids will love reading." },
+              { emoji: "🔔", title: "You get notified", desc: "See when family reacts or comments on a memory." },
+            ].map((item) => (
+              <li key={item.title} className="flex gap-4 items-start">
+                <div className="w-9 h-9 rounded-xl bg-[#e8f0e9] flex items-center justify-center text-lg shrink-0 mt-0.5">
+                  {item.emoji}
+                </div>
+                <div>
+                  <p className="font-semibold text-[#2d2926] text-sm mb-0.5">{item.title}</p>
+                  <p className="text-xs text-[#7a6f65] leading-relaxed">{item.desc}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="text-center">
+            <Link href="/signup" className="inline-flex items-center gap-2 border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm">
+              Start sharing with family →
+            </Link>
+          </div>
+        </div>
+      </section>
+
       {/* ── 8. PRICING ─────────────────────────────────────────────────────── */}
       <section className="px-6 sm:px-8 py-20 max-w-4xl mx-auto">
         <div className="text-center mb-12">
