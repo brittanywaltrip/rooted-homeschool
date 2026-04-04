@@ -11,8 +11,8 @@ import { supabase } from "@/lib/supabase";
 function MemoriesMockup() {
   return (
     <div className="flex flex-col items-center select-none">
-      <img src="/images/memories-header.jpg" alt="Rooted memories page" style={{ width: '100%', maxWidth: '320px', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)', marginBottom: '12px' }} />
-      <img src="/images/memories-grid.jpg" alt="Rooted memories grid" style={{ width: '100%', maxWidth: '320px', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }} />
+      <img src="/images/memories-header.jpg" alt="Rooted memories page" width={320} height={200} className="w-full rounded-2xl shadow-xl mb-3" style={{ maxWidth: '320px' }} />
+      <img src="/images/memories-grid.jpg" alt="Rooted memories grid" width={320} height={320} className="w-full rounded-2xl shadow-xl" style={{ maxWidth: '320px' }} />
     </div>
   );
 }
