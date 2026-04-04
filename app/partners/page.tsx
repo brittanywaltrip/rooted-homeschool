@@ -73,6 +73,10 @@ export default function PartnersPage() {
       }
 
       setSubmitted(true);
+      setTimeout(() => {
+        const el = document.getElementById('confirmation-message');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
     } catch {
       setError("Network error. Please check your connection and try again.");
       setSubmitting(false);
@@ -426,7 +430,7 @@ export default function PartnersPage() {
 
           {submitted ? (
             /* ── SECTION 7 — Success state ──────────────────────────────── */
-            <div className="text-center py-12">
+            <div id="confirmation-message" className="text-center py-12">
               <div className="text-6xl mb-5">🌱</div>
               <h3
                 className="text-2xl font-bold text-[#2d2926] mb-4"
