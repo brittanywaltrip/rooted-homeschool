@@ -9,28 +9,10 @@ import { supabase } from "@/lib/supabase";
 
 /* MOCKUP: swap with real screenshot when available */
 function MemoriesMockup() {
-  const tiles = [
-    { bg: "linear-gradient(135deg, #c8e8d0, #a8d4b8)", text: "Rainbow butterfly 🎨", date: "Mar 21", color: "#1a3d1e" },
-    { bg: "linear-gradient(135deg, #e8c8a0, #d4a878)", text: "Nature walk with Dad 🌲", date: "Mar 25", color: "#5a3818" },
-    { bg: "linear-gradient(135deg, #fde8a0, #f5c842)", text: "Zoe\u2019s first chapter book! 🏆", date: "Mar 28", color: "#4a3200" },
-    { bg: "linear-gradient(135deg, #d8c0f0, #c0a0e0)", text: "Butterfly lifecycle \u2014 backyard science! 🦋", date: "Mar 14", color: "#3d1f5c" },
-    { bg: "linear-gradient(135deg, #b8d8c8, #98c8b0)", text: "Baking fractions 🧁", date: "Mar 16", color: "#1a3d1e" },
-    { bg: "linear-gradient(135deg, #c8e8d0, #a8d4b8)", text: "Library trip 📚", date: "Mar 19", color: "#1a3d1e" },
-  ];
   return (
-    <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none">
-      <div className="bg-[#2d5a3d] px-4 py-2.5">
-        <p className="text-[8px] text-white/60 uppercase tracking-widest">Your family story</p>
-        <p className="text-xs font-semibold text-white">Memories 📸</p>
-      </div>
-      <div className="grid grid-cols-3 gap-[2px] p-[2px]">
-        {tiles.map((t, i) => (
-          <div key={i} className="relative aspect-square overflow-hidden" style={{ background: t.bg }}>
-            {t.text && <p className="absolute inset-0 flex items-center justify-center text-center text-[8px] font-semibold px-1.5 leading-tight" style={{ color: t.color }}>{t.text}</p>}
-            <span className="absolute bottom-1 left-1 text-[7px] text-white/70">{t.date}</span>
-          </div>
-        ))}
-      </div>
+    <div className="flex flex-col items-center select-none">
+      <img src="/images/memories-header.jpg" alt="Rooted memories page" style={{ width: '100%', maxWidth: '320px', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)', marginBottom: '12px' }} />
+      <img src="/images/memories-grid.jpg" alt="Rooted memories grid" style={{ width: '100%', maxWidth: '320px', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }} />
     </div>
   );
 }
