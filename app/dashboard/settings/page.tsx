@@ -1968,6 +1968,9 @@ export default function SettingsPage() {
           >
             Share with a friend
           </button>
+          <p className="text-xs text-[#b5aca4] mt-3">
+            Share what you love. Earn while you do it. <Link href="/partners" className="text-[#5c7f63] hover:underline">Become a Rooted Partner</Link>
+          </p>
         </div>
       </div>
 
