@@ -2048,54 +2048,95 @@ export default function TodayPage() {
       {totalMemories > 0 && lastMemory && todayStory.length === 0 && (
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">LAST CAPTURED</p>
-          <button
-            type="button"
-            className="relative w-full overflow-hidden text-left"
-            style={{ height: 160, borderRadius: 16 }}
-            onClick={async () => {
-              if (!lastMemory) return;
-              if (lastMemory.photo_url) {
-                setLightboxMemory({ id: lastMemory.id, title: lastMemory.title ?? "Memory", photo_url: lastMemory.photo_url, date: lastMemory.date, type: lastMemory.type ?? "photo" });
-              } else {
-                const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", lastMemory.id).single();
-                if (data) openEditSheet(data.id, data.title ?? "", data.caption ?? "", data.child_id ?? "", data.type);
-              }
-            }}
-          >
-            {/* Background */}
-            {lastMemory.photo_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={lastMemory.photo_url} alt="" className="absolute inset-0 w-full h-full object-cover object-top" />
-            ) : (
-              <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #4a8c28, #0a2206)" }} />
-            )}
-
-            {/* Gradient overlay from bottom */}
-            <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 60%)" }} />
-
-            {/* Type pill (top-left) */}
-            <div className="absolute top-2.5 left-2.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-              <span style={{ fontSize: 10, color: "#fff" }}>
-                {({ photo: "📸 Photo", book: "📖 Book", win: "⭐ Win", quote: "⭐ Win", drawing: "🎨 Drawing", field_trip: "🗺️ Trip", project: "🗺️ Trip", activity: "🗺️ Trip" } as Record<string, string>)[lastMemory.type] ?? "🌿 Memory"}
+          {/* Text-primary types (win, quote, book) — type icon leads, photo is thumbnail */}
+          {["win", "quote", "book"].includes(lastMemory.type) ? (
+            <button
+              type="button"
+              className="w-full overflow-hidden text-left flex items-center gap-3"
+              style={{ height: 80, borderRadius: 16, background: "linear-gradient(135deg, #4a8c28, #0a2206)", padding: "0 16px" }}
+              onClick={async () => {
+                if (!lastMemory) return;
+                if (lastMemory.photo_url) {
+                  setLightboxMemory({ id: lastMemory.id, title: lastMemory.title ?? "Memory", photo_url: lastMemory.photo_url, date: lastMemory.date, type: lastMemory.type ?? "photo" });
+                } else {
+                  const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", lastMemory.id).single();
+                  if (data) openEditSheet(data.id, data.title ?? "", data.caption ?? "", data.child_id ?? "", data.type);
+                }
+              }}
+            >
+              {/* Type icon */}
+              <span style={{ fontSize: 28, lineHeight: 1 }}>
+                {({ win: "⭐", quote: "⭐", book: "📖" } as Record<string, string>)[lastMemory.type] ?? "🌿"}
               </span>
-            </div>
+              {/* Text content */}
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>
+                  {({ win: "Win", quote: "Win", book: "Book" } as Record<string, string>)[lastMemory.type] ?? "Memory"}
+                  {" · "}{safeParseDateStr(lastMemory.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric" }) ?? "Unknown date"}
+                  {lastMemory.child_id && children.find(c => c.id === lastMemory.child_id) ? ` · ${children.find(c => c.id === lastMemory.child_id)!.name}` : ""}
+                </p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: "#fff" }} className="truncate">
+                  {lastMemory.title ?? lastMemory.type.charAt(0).toUpperCase() + lastMemory.type.slice(1).replace("_", " ")}
+                </p>
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>tap to view →</p>
+              </div>
+              {/* Optional photo thumbnail */}
+              {lastMemory.photo_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={lastMemory.photo_url} alt="" className="shrink-0 object-cover" style={{ width: 52, height: 52, borderRadius: 10 }} />
+              )}
+            </button>
+          ) : (
+            /* Visual-primary types (photo, drawing, field_trip, etc.) — photo as full background */
+            <button
+              type="button"
+              className="relative w-full overflow-hidden text-left"
+              style={{ height: 160, borderRadius: 16 }}
+              onClick={async () => {
+                if (!lastMemory) return;
+                if (lastMemory.photo_url) {
+                  setLightboxMemory({ id: lastMemory.id, title: lastMemory.title ?? "Memory", photo_url: lastMemory.photo_url, date: lastMemory.date, type: lastMemory.type ?? "photo" });
+                } else {
+                  const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", lastMemory.id).single();
+                  if (data) openEditSheet(data.id, data.title ?? "", data.caption ?? "", data.child_id ?? "", data.type);
+                }
+              }}
+            >
+              {/* Background */}
+              {lastMemory.photo_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={lastMemory.photo_url} alt="" className="absolute inset-0 w-full h-full object-cover object-top" />
+              ) : (
+                <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #4a8c28, #0a2206)" }} />
+              )}
 
-            {/* Tap pill (top-right) */}
-            <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-              <span style={{ fontSize: 10, color: "#fff" }}>tap to view →</span>
-            </div>
+              {/* Gradient overlay from bottom */}
+              <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 60%)" }} />
 
-            {/* Bottom overlay text */}
-            <div className="absolute bottom-0 left-0 right-0 px-3.5 pb-3">
-              <p style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>
-                {safeParseDateStr(lastMemory.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric" }) ?? "Unknown date"}
-                {lastMemory.child_id && children.find(c => c.id === lastMemory.child_id) ? ` · ${children.find(c => c.id === lastMemory.child_id)!.name}` : ""}
-              </p>
-              <p style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
-                {lastMemory.title ?? (lastMemory.type === "photo" ? "Photo memory" : lastMemory.type.charAt(0).toUpperCase() + lastMemory.type.slice(1).replace("_", " "))}
-              </p>
-            </div>
-          </button>
+              {/* Type pill (top-left) */}
+              <div className="absolute top-2.5 left-2.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+                <span style={{ fontSize: 10, color: "#fff" }}>
+                  {({ photo: "📸 Photo", drawing: "🎨 Drawing", field_trip: "🗺️ Trip", project: "🗺️ Trip", activity: "🗺️ Trip" } as Record<string, string>)[lastMemory.type] ?? "🌿 Memory"}
+                </span>
+              </div>
+
+              {/* Tap pill (top-right) */}
+              <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+                <span style={{ fontSize: 10, color: "#fff" }}>tap to view →</span>
+              </div>
+
+              {/* Bottom overlay text */}
+              <div className="absolute bottom-0 left-0 right-0 px-3.5 pb-3">
+                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>
+                  {safeParseDateStr(lastMemory.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric" }) ?? "Unknown date"}
+                  {lastMemory.child_id && children.find(c => c.id === lastMemory.child_id) ? ` · ${children.find(c => c.id === lastMemory.child_id)!.name}` : ""}
+                </p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
+                  {lastMemory.title ?? (lastMemory.type === "photo" ? "Photo memory" : lastMemory.type.charAt(0).toUpperCase() + lastMemory.type.slice(1).replace("_", " "))}
+                </p>
+              </div>
+            </button>
+          )}
         </div>
       )}
 
