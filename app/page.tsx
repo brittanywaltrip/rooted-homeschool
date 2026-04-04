@@ -7,35 +7,17 @@ import { supabase } from "@/lib/supabase";
 
 // ─── App mockup components ──────────────────────────────────────────────────
 
-{/* MOCKUP: swap with real screenshot when available */}
+/* MOCKUP: swap with real screenshot when available */
 function MemoriesMockup() {
-  const tiles = [
-    { bg: "linear-gradient(135deg, #c8e8d0, #a8d4b8)", text: "Rainbow butterfly 🎨", date: "Mar 21", color: "#1a3d1e" },
-    { bg: "linear-gradient(135deg, #e8c8a0, #d4a878)", text: "Nature walk with Dad 🌲", date: "Mar 25", color: "#5a3818" },
-    { bg: "linear-gradient(135deg, #fde8a0, #f5c842)", text: "Zoe\u2019s first chapter book! 🏆", date: "Mar 28", color: "#4a3200" },
-    { bg: "linear-gradient(135deg, #d8c0f0, #c0a0e0)", text: "Butterfly lifecycle \u2014 backyard science! 🦋", date: "Mar 14", color: "#3d1f5c" },
-    { bg: "linear-gradient(135deg, #b8d8c8, #98c8b0)", text: "Baking fractions 🧁", date: "Mar 16", color: "#1a3d1e" },
-    { bg: "linear-gradient(135deg, #c8e8d0, #a8d4b8)", text: "Library trip 📚", date: "Mar 19", color: "#1a3d1e" },
-  ];
   return (
-    <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none">
-      <div className="bg-[#2d5a3d] px-4 py-2.5">
-        <p className="text-[8px] text-white/60 uppercase tracking-widest">Your family story</p>
-        <p className="text-xs font-semibold text-white">Memories 📸</p>
-      </div>
-      <div className="grid grid-cols-3 gap-[2px] p-[2px]">
-        {tiles.map((t, i) => (
-          <div key={i} className="relative aspect-square overflow-hidden" style={{ background: t.bg }}>
-            {t.text && <p className="absolute inset-0 flex items-center justify-center text-center text-[8px] font-semibold px-1.5 leading-tight" style={{ color: t.color }}>{t.text}</p>}
-            <span className="absolute bottom-1 left-1 text-[7px] text-white/70">{t.date}</span>
-          </div>
-        ))}
-      </div>
+    <div className="flex flex-col items-center select-none">
+      <img src="/images/memories-header.jpg" alt="Rooted memories page" width={320} height={200} className="w-full rounded-2xl shadow-xl mb-3" style={{ maxWidth: '320px' }} />
+      <img src="/images/memories-grid.jpg" alt="Rooted memories grid" width={320} height={320} className="w-full rounded-2xl shadow-xl" style={{ maxWidth: '320px' }} />
     </div>
   );
 }
 
-{/* MOCKUP: swap with real screenshot when available */}
+/* MOCKUP: swap with real screenshot when available */
 function TodayMockup() {
   return (
     <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none">
@@ -71,42 +53,21 @@ function TodayMockup() {
 
 function YearbookMockup() {
   return (
-    <div className="flex flex-col items-center gap-3 select-none">
-      <div
-        className="relative rounded-xl overflow-hidden shadow-2xl flex flex-col justify-end"
-        style={{
-          background: "linear-gradient(160deg, #3a6b28 0%, #2D5016 60%, #1e3a0f 100%)",
-          width: 180,
-          height: 270,
-        }}
-      >
-        <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.1 }}>
-          <svg viewBox="0 0 180 270" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-            <path d="M150 15 Q168 28 158 50 Q142 35 150 15Z" fill="#a8d5a2" />
-            <path d="M162 12 Q178 22 170 46 Q152 30 162 12Z" fill="#a8d5a2" />
-            <path d="M12 210 Q2 228 18 242 Q28 224 12 210Z" fill="#a8d5a2" />
-            <path d="M20 206 Q6 220 16 240 Q32 222 20 206Z" fill="#a8d5a2" />
-            <path d="M8 95 Q-2 108 10 120 Q20 106 8 95Z" fill="#a8d5a2" />
-          </svg>
-        </div>
-        <div className="relative z-10 flex flex-col items-center gap-2 pb-6 px-4">
-          <p className="text-[8px] tracking-widest uppercase" style={{ color: "rgba(255,255,255,0.5)" }}>Our Homeschool Year</p>
-          <p className="text-xl font-bold text-white tracking-wide">2025–2026</p>
-          <div className="flex gap-2">
-            {["Joey", "Emma"].map((name) => (
-              <span key={name} className="text-[10px] text-white px-2.5 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }}>{name}</span>
-            ))}
-          </div>
-        </div>
-      </div>
-      <p className="text-sm text-gray-500">14 memories bookmarked this year</p>
+    <div className="flex justify-center select-none">
+      <img
+        src="/images/yearbook-screenshot.png"
+        alt="Rooted family yearbook"
+        width={200}
+        height={300}
+        className="rounded-lg shadow-xl"
+      />
     </div>
   );
 }
 
 
 
-{/* MOCKUP: swap with real screenshot when available */}
+/* MOCKUP: swap with real screenshot when available */
 function PrintablesMockup() {
   return (
     <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none p-4 flex items-center justify-center">
@@ -495,8 +456,8 @@ export default function Home() {
             },
             {
               mockup: <YearbookMockup />,
-              title: "A Book Worth Printing",
-              desc: "Every memory, every win, every book \u2014 automatically organized into a beautiful family yearbook. Ready when you are.",
+              title: "Your Year, Beautifully Preserved",
+              desc: "Every memory, win, photo, and book your family captured \u2014 automatically organized into a beautiful digital keepsake.",
             },
             {
               mockup: <PrintablesMockup />,
@@ -792,31 +753,47 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 7. FOUNDER QUOTE ───────────────────────────────────────────────── */}
+      {/* ── 7b. SHARE WITH FAMILY ────────────────────────────────────────── */}
       <section className="bg-[#fefcf9] border-y border-[#e8e2d9]">
-        <div className="max-w-2xl mx-auto px-6 sm:px-8 py-20 text-center">
-          <div
-            className="w-12 h-12 rounded-2xl bg-[#5c7f63] flex items-center justify-center text-2xl mx-auto mb-8 shadow-sm"
-            aria-hidden="true"
-          >
-            🌿
+        <div className="max-w-3xl mx-auto px-6 sm:px-8 py-20">
+          <div className="text-center mb-10">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
+              Share with family
+            </p>
+            <h2
+              className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              The people who love your kids will love this too.
+            </h2>
+            <p className="text-[#7a6f65] leading-relaxed text-base max-w-2xl mx-auto">
+              Share a private link with grandparents, aunts, uncles — anyone you choose. They can see memories as you add them, react, and leave messages for the kids. No app download. No account needed.
+            </p>
           </div>
-          <div
-            className="text-[3.5rem] leading-none select-none text-[#d4ead6] mb-2"
-            style={{ fontFamily: "var(--font-display)", lineHeight: 0.85 }}
-            aria-hidden="true"
-          >
-            &ldquo;
+          <div className="flex justify-center mb-10">
+            <img
+              src="/images/share-with-family.png"
+              alt="Family view of Rooted memories"
+              style={{ maxWidth: '280px', borderRadius: '20px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}
+            />
           </div>
-          <p
-            className="text-xl sm:text-2xl text-[#2d2926] leading-relaxed italic mb-8"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            I built Rooted for families like mine. I hope it makes you feel less alone in this beautiful, hard, joyful thing you&apos;re doing every day.
-          </p>
-          <p className="text-sm font-semibold text-[#5c7f63]">
-            — Brittany W., homeschool mom of 2
-          </p>
+          <ul className="space-y-4 max-w-xl mx-auto">
+            {[
+              { emoji: "🔗", title: "One private link", desc: "You control who sees it and can revoke access anytime." },
+              { emoji: "💬", title: "Reactions & comments", desc: "Family can leave messages the kids will love reading." },
+              { emoji: "🔔", title: "You get notified", desc: "See when family reacts or comments on a memory." },
+            ].map((item) => (
+              <li key={item.title} className="flex gap-4 items-start">
+                <div className="w-9 h-9 rounded-xl bg-[#e8f0e9] flex items-center justify-center text-lg shrink-0 mt-0.5">
+                  {item.emoji}
+                </div>
+                <div>
+                  <p className="font-semibold text-[#2d2926] text-sm mb-0.5">{item.title}</p>
+                  <p className="text-xs text-[#7a6f65] leading-relaxed">{item.desc}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 
@@ -858,9 +835,9 @@ export default function Home() {
                 "Unlimited children",
                 "Daily lesson tracking",
                 "Garden & growth tree",
-                "50 photos",
-                "Memories — last 30 days",
-                "1 AI Year in Review / year",
+                "50 photo memories",
+                "Memory timeline — last 30 days",
+                "1 Year in Review summary / year",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -900,13 +877,14 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
-                "Unlimited photos",
-                "Full memory history — all time",
-                "Unlimited AI Year in Review",
-                "Printable progress reports",
-                "Finish Line curriculum pacing",
-                "AI Family Update",
-                "Family Yearbook — full year, shareable book",
+                "Unlimited photo memories",
+                "Complete memory timeline — every moment, forever",
+                "Unlimited Year in Review summaries",
+                "Printable progress reports — see exactly how much they've learned",
+                "Curriculum pacing guide — stay on track all year without the stress",
+                "Monthly family update — a beautiful summary of your month, ready to share",
+                "Full family yearbook — every memory beautifully organized into a book",
+                "Share with family — send grandparents a private link to follow along in real time",
                 "Priority support",
                 "Lifetime founding price 🎁",
               ].map((f) => (
@@ -946,13 +924,14 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
-                "Unlimited photos",
-                "Full memory history — all time",
-                "Unlimited AI Year in Review",
-                "Printable progress reports",
-                "Finish Line curriculum pacing",
-                "AI Family Update",
-                "Family Yearbook — full year, shareable book",
+                "Unlimited photo memories",
+                "Complete memory timeline — every moment, forever",
+                "Unlimited Year in Review summaries",
+                "Printable progress reports — see exactly how much they've learned",
+                "Curriculum pacing guide — stay on track all year without the stress",
+                "Monthly family update — a beautiful summary of your month, ready to share",
+                "Full family yearbook — every memory beautifully organized into a book",
+                "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -984,13 +963,14 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
-                "Unlimited photos",
-                "Full memory history — all time",
-                "Unlimited AI Year in Review",
-                "Printable progress reports",
-                "Finish Line curriculum pacing",
-                "AI Family Update",
-                "Family Yearbook — full year, shareable book",
+                "Unlimited photo memories",
+                "Complete memory timeline — every moment, forever",
+                "Unlimited Year in Review summaries",
+                "Printable progress reports — see exactly how much they've learned",
+                "Curriculum pacing guide — stay on track all year without the stress",
+                "Monthly family update — a beautiful summary of your month, ready to share",
+                "Full family yearbook — every memory beautifully organized into a book",
+                "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -1023,14 +1003,14 @@ export default function Home() {
                 { feature: "Children",               free: "Unlimited", founding: "Unlimited",  standard: "Unlimited" },
                 { feature: "Lesson tracking",        free: "✓",     founding: "✓",          standard: "✓"         },
                 { feature: "Garden & growth tree",   free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Photo memories & book log", free: "50 photos · 30 days", founding: "✓ Unlimited", standard: "✓ Unlimited" },
-                { feature: "Full memory history",    free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "AI Year in Review",      free: "1 / year", founding: "✓ Unlimited", standard: "✓ Unlimited" },
-                { feature: "Memories log",           free: "30 days", founding: "✓ All time",  standard: "✓ All time" },
-                { feature: "Progress reports",     free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Finish Line pacing",     free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "AI Family Update",       free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Family Yearbook",        free: "30 days", founding: "✓ Full year", standard: "✓ Full year" },
+                { feature: "Photo memories",         free: "50",    founding: "✓ Unlimited", standard: "✓ Unlimited" },
+                { feature: "Memory timeline",        free: "30 days", founding: "✓ All time", standard: "✓ All time" },
+                { feature: "Year in Review",         free: "1 / year", founding: "✓ Unlimited", standard: "✓ Unlimited" },
+                { feature: "Progress reports",       free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Curriculum pacing guide", free: "—",    founding: "✓",          standard: "✓"         },
+                { feature: "Monthly family update",  free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Family yearbook",        free: "30 days", founding: "✓ Full year", standard: "✓ Full year" },
+                { feature: "Family sharing",         free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
                 { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },
               ].map((row, i) => (
