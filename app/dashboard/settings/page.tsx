@@ -772,19 +772,25 @@ export default function SettingsPage() {
 
   async function handleManageSubscription() {
     setPortalLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setPortalLoading(false); return; }
-    const res = await fetch('/api/stripe/portal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: user.id }),
-    });
-    const data = await res.json();
-    if (data.error === 'no_customer') {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setPortalLoading(false); return; }
+      const res = await fetch('/api/stripe/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const data = await res.json();
+      if (data.error === 'no_customer' || !data.url) {
+        showCopiedToast("Unable to load subscription management. Please contact hello@rootedhomeschoolapp.com");
+        setPortalLoading(false);
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      showCopiedToast("Unable to load subscription management. Please contact hello@rootedhomeschoolapp.com");
       setPortalLoading(false);
-      return;
     }
-    window.location.href = data.url;
   }
 
   // ── New school year ───────────────────────────────────────────────────────
