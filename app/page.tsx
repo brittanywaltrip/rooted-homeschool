@@ -835,9 +835,9 @@ export default function Home() {
                 "Unlimited children",
                 "Daily lesson tracking",
                 "Garden & growth tree",
-                "50 photos",
-                "Memories — last 30 days",
-                "1 AI Year in Review / year",
+                "50 photo memories",
+                "Memory timeline — last 30 days",
+                "1 Year in Review summary / year",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -877,13 +877,14 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
-                "Unlimited photos",
-                "Full memory history — all time",
-                "Unlimited AI Year in Review",
-                "Printable progress reports",
-                "Finish Line curriculum pacing",
-                "AI Family Update",
-                "Family Yearbook — full year, shareable book",
+                "Unlimited photo memories",
+                "Complete memory timeline — every moment, forever",
+                "Unlimited Year in Review summaries",
+                "Printable progress reports — see exactly how much they've learned",
+                "Curriculum pacing guide — stay on track all year without the stress",
+                "Monthly family update — a beautiful summary of your month, ready to share",
+                "Full family yearbook — every memory beautifully organized into a book",
+                "Share with family — send grandparents a private link to follow along in real time",
                 "Priority support",
                 "Lifetime founding price 🎁",
               ].map((f) => (
@@ -923,13 +924,14 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
-                "Unlimited photos",
-                "Full memory history — all time",
-                "Unlimited AI Year in Review",
-                "Printable progress reports",
-                "Finish Line curriculum pacing",
-                "AI Family Update",
-                "Family Yearbook — full year, shareable book",
+                "Unlimited photo memories",
+                "Complete memory timeline — every moment, forever",
+                "Unlimited Year in Review summaries",
+                "Printable progress reports — see exactly how much they've learned",
+                "Curriculum pacing guide — stay on track all year without the stress",
+                "Monthly family update — a beautiful summary of your month, ready to share",
+                "Full family yearbook — every memory beautifully organized into a book",
+                "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -961,13 +963,14 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
-                "Unlimited photos",
-                "Full memory history — all time",
-                "Unlimited AI Year in Review",
-                "Printable progress reports",
-                "Finish Line curriculum pacing",
-                "AI Family Update",
-                "Family Yearbook — full year, shareable book",
+                "Unlimited photo memories",
+                "Complete memory timeline — every moment, forever",
+                "Unlimited Year in Review summaries",
+                "Printable progress reports — see exactly how much they've learned",
+                "Curriculum pacing guide — stay on track all year without the stress",
+                "Monthly family update — a beautiful summary of your month, ready to share",
+                "Full family yearbook — every memory beautifully organized into a book",
+                "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -1000,14 +1003,14 @@ export default function Home() {
                 { feature: "Children",               free: "Unlimited", founding: "Unlimited",  standard: "Unlimited" },
                 { feature: "Lesson tracking",        free: "✓",     founding: "✓",          standard: "✓"         },
                 { feature: "Garden & growth tree",   free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Photo memories & book log", free: "50 photos · 30 days", founding: "✓ Unlimited", standard: "✓ Unlimited" },
-                { feature: "Full memory history",    free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "AI Year in Review",      free: "1 / year", founding: "✓ Unlimited", standard: "✓ Unlimited" },
-                { feature: "Memories log",           free: "30 days", founding: "✓ All time",  standard: "✓ All time" },
-                { feature: "Progress reports",     free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Finish Line pacing",     free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "AI Family Update",       free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Family Yearbook",        free: "30 days", founding: "✓ Full year", standard: "✓ Full year" },
+                { feature: "Photo memories",         free: "50",    founding: "✓ Unlimited", standard: "✓ Unlimited" },
+                { feature: "Memory timeline",        free: "30 days", founding: "✓ All time", standard: "✓ All time" },
+                { feature: "Year in Review",         free: "1 / year", founding: "✓ Unlimited", standard: "✓ Unlimited" },
+                { feature: "Progress reports",       free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Curriculum pacing guide", free: "—",    founding: "✓",          standard: "✓"         },
+                { feature: "Monthly family update",  free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Family yearbook",        free: "30 days", founding: "✓ Full year", standard: "✓ Full year" },
+                { feature: "Family sharing",         free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
                 { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },
               ].map((row, i) => (
