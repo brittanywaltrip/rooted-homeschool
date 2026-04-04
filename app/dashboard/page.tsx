@@ -463,6 +463,7 @@ export default function TodayPage() {
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
   const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
+  // memoryMoment removed — replaced by onThisDayMemory and lastMemory
   const [lightboxMemory, setLightboxMemory] = useState<{ id: string; title: string; photo_url: string | null; date: string; type: string } | null>(null);
   const [streak,                 setStreak]                 = useState(0);
   const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
@@ -473,6 +474,7 @@ export default function TodayPage() {
   const [totalMemories, setTotalMemories] = useState(0);
   const [achievementBanner, setAchievementBanner] = useState<{ label: string; childName?: string; isEducator: boolean; extra: number } | null>(null);
   const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
+  const [lastMemory, setLastMemory] = useState<{ id: string; type: string; title: string | null; date: string; child_id: string | null; photo_url: string | null } | null>(null);
   const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null; photo_url: string | null } | null>(null);
   const [onThisDayTier, setOnThisDayTier] = useState<1 | 2 | 3>(3);
   const [showWinSheet, setShowWinSheet] = useState(false);
@@ -798,6 +800,17 @@ export default function TodayPage() {
     });
     (monthMemories ?? []).forEach((m: { date: string }) => { if (m.date) activeDates.add(m.date); });
     setActiveDaysThisMonth(activeDates.size);
+
+    // ── Last captured memory (single record, no cross-mixing) ──────────
+    const { data: lastMemData } = await supabase
+      .from("memories")
+      .select("id, type, title, date, child_id, photo_url")
+      .eq("user_id", effectiveUserId)
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setLastMemory(lastMemData as typeof lastMemory);
 
     // ── On This Day — 3-tier system ─────────────────────────────────────
     const otdNow = new Date();
@@ -2029,6 +2042,62 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* ═══════════════════════════════════════════════════════════
+          LAST CAPTURED HERO — most recent memory photo card
+         ═══════════════════════════════════════════════════════════ */}
+      {totalMemories > 0 && lastMemory && todayStory.length === 0 && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">LAST CAPTURED</p>
+          <button
+            type="button"
+            className="relative w-full overflow-hidden text-left"
+            style={{ height: 160, borderRadius: 16 }}
+            onClick={async () => {
+              if (!lastMemory) return;
+              if (lastMemory.photo_url) {
+                setLightboxMemory({ id: lastMemory.id, title: lastMemory.title ?? "Memory", photo_url: lastMemory.photo_url, date: lastMemory.date, type: lastMemory.type ?? "photo" });
+              } else {
+                const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", lastMemory.id).single();
+                if (data) openEditSheet(data.id, data.title ?? "", data.caption ?? "", data.child_id ?? "", data.type);
+              }
+            }}
+          >
+            {/* Background */}
+            {lastMemory.photo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={lastMemory.photo_url} alt="" className="absolute inset-0 w-full h-full object-cover object-top" />
+            ) : (
+              <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #4a8c28, #0a2206)" }} />
+            )}
+
+            {/* Gradient overlay from bottom */}
+            <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 60%)" }} />
+
+            {/* Type pill (top-left) */}
+            <div className="absolute top-2.5 left-2.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+              <span style={{ fontSize: 10, color: "#fff" }}>
+                {({ photo: "📸 Photo", book: "📖 Book", win: "⭐ Win", quote: "⭐ Win", drawing: "🎨 Drawing", field_trip: "🗺️ Trip", project: "🗺️ Trip", activity: "🗺️ Trip" } as Record<string, string>)[lastMemory.type] ?? "🌿 Memory"}
+              </span>
+            </div>
+
+            {/* Tap pill (top-right) */}
+            <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
+              <span style={{ fontSize: 10, color: "#fff" }}>tap to view →</span>
+            </div>
+
+            {/* Bottom overlay text */}
+            <div className="absolute bottom-0 left-0 right-0 px-3.5 pb-3">
+              <p style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>
+                {safeParseDateStr(lastMemory.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric" }) ?? "Unknown date"}
+                {lastMemory.child_id && children.find(c => c.id === lastMemory.child_id) ? ` · ${children.find(c => c.id === lastMemory.child_id)!.name}` : ""}
+              </p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
+                {lastMemory.title ?? (lastMemory.type === "photo" ? "Photo memory" : lastMemory.type.charAt(0).toUpperCase() + lastMemory.type.slice(1).replace("_", " "))}
+              </p>
+            </div>
+          </button>
+        </div>
+      )}
 
 
       {/* ═══════════════════════════════════════════════════════════
