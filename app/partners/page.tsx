@@ -73,6 +73,7 @@ export default function PartnersPage() {
       }
 
       setSubmitted(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {
       setError("Network error. Please check your connection and try again.");
       setSubmitting(false);
