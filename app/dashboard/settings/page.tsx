@@ -205,8 +205,12 @@ export default function SettingsPage() {
   const [affiliateData, setAffiliateData] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number } | null>(null);
   const [affiliateStats, setAffiliateStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
   const [copiedToast, setCopiedToast] = useState<string | false>(false);
+  const [refreshingAffiliate, setRefreshingAffiliate] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [allAffiliates, setAllAffiliates] = useState<AffiliateRow[]>([]);
+  const [showAffiliatePreview, setShowAffiliatePreview] = useState(false);
+  const [previewAffiliate, setPreviewAffiliate] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number; name: string } | null>(null);
+  const [previewStats, setPreviewStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
 
   // School year transition
   const [showYearModal,    setShowYearModal]    = useState(false);
@@ -408,6 +412,40 @@ export default function SettingsPage() {
   function showCopiedToast(msg = "Copied!") {
     setCopiedToast(msg);
     setTimeout(() => setCopiedToast(false), 2000);
+  }
+
+  async function refreshAffiliateStats() {
+    setRefreshingAffiliate(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setRefreshingAffiliate(false); return; }
+    const { data: affData } = await supabase
+      .from("affiliates")
+      .select("code, stripe_coupon_id, is_active, created_at, clicks")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (affData) {
+      setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
+      try {
+        const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${affData.stripe_coupon_id}&code=${encodeURIComponent(affData.code)}`);
+        const stats = await r.json();
+        setAffiliateStats(stats);
+      } catch {}
+    }
+    setRefreshingAffiliate(false);
+  }
+
+  async function openAffiliatePreview() {
+    // Find Amber Cody's data from allAffiliates
+    const amber = allAffiliates.find(a => a.name.toLowerCase().includes("amber"));
+    if (!amber) { setShowAffiliatePreview(false); return; }
+    setPreviewAffiliate({ ...amber });
+    setPreviewStats(null);
+    setShowAffiliatePreview(true);
+    try {
+      const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${amber.stripe_coupon_id}&code=${encodeURIComponent(amber.code)}`);
+      const stats = await r.json();
+      setPreviewStats(stats);
+    } catch {}
   }
 
   useEffect(() => {
@@ -1715,9 +1753,86 @@ export default function SettingsPage() {
           <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
             Rooted Partners
           </h2>
-          <p className="text-sm text-[#7a6f65]">
-            {allAffiliates.length} partner{allAffiliates.length !== 1 ? "s" : ""}
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-[#7a6f65]">
+              {allAffiliates.length} partner{allAffiliates.length !== 1 ? "s" : ""}
+            </p>
+            <button
+              onClick={openAffiliatePreview}
+              className="text-sm text-[#6366f1] hover:text-[#4338ca] font-medium transition-colors"
+            >
+              Preview affiliate view →
+            </button>
+          </div>
+
+          {/* Affiliate preview modal */}
+          {showAffiliatePreview && previewAffiliate && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowAffiliatePreview(false)}>
+              <div className="bg-[#faf8f4] rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5 space-y-4" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
+                    🤝 Rooted Partner — {previewAffiliate.name}&apos;s view
+                  </h3>
+                  <button onClick={() => setShowAffiliatePreview(false)} className="text-[#7a6f65] hover:text-[#2d2926] text-lg">✕</button>
+                </div>
+                <div className="bg-[#eef0ff] border border-[#c7d2fe] rounded-2xl p-5 space-y-4">
+                  {/* Code */}
+                  <div>
+                    <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Your Code</p>
+                    <div className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full">
+                      <span className="text-lg font-bold text-[#4338ca] tracking-widest font-mono flex-1">{previewAffiliate.code}</span>
+                    </div>
+                  </div>
+                  {/* Referral link */}
+                  <div>
+                    <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Your Referral Link</p>
+                    <div className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full">
+                      <span className="text-sm text-[#4338ca] flex-1 truncate">rootedhomeschoolapp.com/upgrade?ref={previewAffiliate.code}</span>
+                    </div>
+                  </div>
+                  {/* Stats */}
+                  <div className="grid grid-cols-4 divide-x divide-[#c7d2fe] bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
+                    <div className="px-3 py-4 text-center">
+                      <p className="text-2xl font-bold text-[#2d2926]">{previewAffiliate.clicks ?? 0}</p>
+                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Link clicks</p>
+                    </div>
+                    <div className="px-3 py-4 text-center">
+                      <p className="text-2xl font-bold text-[#2d2926]">{previewStats?.totalRedemptions ?? '—'}</p>
+                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Families reached</p>
+                    </div>
+                    <div className="px-3 py-4 text-center">
+                      <p className="text-2xl font-bold text-[#3d5c42]">{previewStats?.payingCount ?? '—'}</p>
+                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
+                    </div>
+                    <div className="px-3 py-4 text-center">
+                      <p className="text-2xl font-bold text-[#2d2926]">${previewStats?.revenueDriven ?? '—'}</p>
+                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Revenue driven</p>
+                    </div>
+                  </div>
+                  {/* QR Code */}
+                  <div>
+                    <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your QR Code</p>
+                    <div className="flex justify-center">
+                      <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/upgrade?ref=${previewAffiliate.code}`)}`}
+                          alt="Referral QR code"
+                          width={160}
+                          height={160}
+                          className="rounded-lg"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-[#6366f1] text-center mt-2">Screenshot to share anywhere</p>
+                  </div>
+                  {/* Partner since */}
+                  <p className="text-xs text-[#6366f1] text-center">
+                    Partner since {new Date(previewAffiliate.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {allAffiliates.length === 0 && (
             <p className="text-sm text-[#7a6f65]">No partners yet.</p>
@@ -1829,9 +1944,18 @@ export default function SettingsPage() {
       {/* ── Rooted Partner ───────────────────────────────────────────── */}
       {affiliateData?.is_active && (
         <section className="mt-8">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65] mb-3">
-            🤝 Rooted Partner
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
+              🤝 Rooted Partner
+            </h2>
+            <button
+              onClick={refreshAffiliateStats}
+              disabled={refreshingAffiliate}
+              className="text-xs text-[#6366f1] hover:text-[#4338ca] transition-colors disabled:opacity-50"
+            >
+              {refreshingAffiliate ? "Refreshing..." : "🔄 Refresh"}
+            </button>
+          </div>
           <div className="bg-[#eef0ff] border border-[#c7d2fe] rounded-2xl p-5 space-y-4">
 
             {/* Code */}
