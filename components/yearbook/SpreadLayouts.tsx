@@ -112,61 +112,156 @@ function GridLayout({ spread }: { spread: YearbookSpread }) {
   );
 }
 
-// ─── Milestone: win/quote without photo ──────────────────────────────────────
+// ─── Milestone: win/quote without photo (upgraded) ───────────────────────────
 
 function MilestoneLayout({ spread }: { spread: YearbookSpread }) {
   const m = spread.memories[0];
   if (!m) return null;
   const isQuote = m.type === "quote";
   return (
-    <Shell>
-      <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-        <span className="text-[40px] mb-3">{isQuote ? "💬" : "⭐"}</span>
-        {isQuote && <span className="text-[36px] font-serif text-[#c4b0e0] leading-none">&ldquo;</span>}
-        <p
-          className={`${isQuote ? "italic" : ""} text-[13px] text-[#2d2926] leading-relaxed max-w-[260px] line-clamp-6`}
-          style={{ fontFamily: "Georgia, serif" }}
-        >
-          {m.title}
-        </p>
-        {isQuote && <span className="text-[36px] font-serif text-[#c4b0e0] leading-none">&rdquo;</span>}
-        {m.child_name && (
-          <p className="text-[10px] text-[#9a8f85] mt-3">— {m.child_name}</p>
-        )}
-        <p className="text-[8px] text-[#b5aca4] mt-1">{safeDateStr(m.created_at)}</p>
+    <Shell bg="#FAF6EC">
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-5 relative">
+        {/* Botanical watermarks */}
+        <span className="absolute top-3 right-2 text-[50px] opacity-[0.04] select-none pointer-events-none" style={{ transform: "rotate(-15deg)" }}>🌿</span>
+        <span className="absolute bottom-4 left-2 text-[36px] opacity-[0.03] select-none pointer-events-none" style={{ transform: "rotate(20deg)" }}>🍃</span>
+
+        <div className="relative z-10 flex flex-col items-center">
+          {/* Accent icon */}
+          <span className="text-[16px] mb-1">{isQuote ? "💬" : "⭐"}</span>
+
+          {/* Large decorative quote mark */}
+          <span className="text-[56px] leading-none text-[#3d5c42] opacity-80" style={{ fontFamily: "Georgia, serif" }}>
+            &ldquo;
+          </span>
+
+          {/* Win/quote title */}
+          <p
+            className={`${isQuote ? "italic" : ""} text-[18px] text-[#2d2926] leading-relaxed max-w-[240px] line-clamp-6 -mt-3`}
+            style={{ fontFamily: "Georgia, serif" }}
+          >
+            {m.title}
+          </p>
+
+          {/* Botanical divider */}
+          <div className="flex items-center gap-2 my-3">
+            <div className="w-8 h-px bg-[#c4b89a]" />
+            <span className="text-[10px] opacity-30">🌱</span>
+            <div className="w-8 h-px bg-[#c4b89a]" />
+          </div>
+
+          {/* Attribution */}
+          {m.child_name && (
+            <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-[#9a8f85]">
+              {m.child_name}
+            </p>
+          )}
+          <p className="text-[8px] text-[#b5aca4] mt-0.5">{safeDateStr(m.created_at)}</p>
+        </div>
       </div>
     </Shell>
   );
 }
 
-// ─── Milestone with photo: photo left, text right ────────────────────────────
+// ─── Milestone right page — "A moment worth remembering" ─────────────────────
+
+function MilestoneRightPage({ spread }: { spread: YearbookSpread }) {
+  const m = spread.memories[0];
+  const also = spread.metadata?.alsoThisMonth ?? [];
+  return (
+    <Shell>
+      <div className="flex-1 flex flex-col justify-center px-4">
+        {/* Header */}
+        <p className="text-[8px] font-semibold uppercase tracking-[0.15em] text-[#8cba8e] mb-3">
+          A moment worth remembering
+        </p>
+        <div className="h-px bg-[#ddd5c0] mb-4" style={{ height: 0.5 }} />
+
+        {/* Child name large */}
+        {m?.child_name && (
+          <p className="text-[20px] text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+            {m.child_name}
+          </p>
+        )}
+        <p className="text-[9px] text-[#9a8f85] mb-4">{safeDateStr(m?.created_at)}</p>
+
+        {/* Also this month */}
+        {also.length > 0 && (
+          <div className="mt-auto">
+            <p className="text-[8px] font-semibold uppercase tracking-[0.1em] text-[#9a8f85] mb-2">
+              Also this month
+            </p>
+            <div className="space-y-1.5">
+              {also.slice(0, 4).map((a) => (
+                <div key={a.id} className="flex items-start gap-1.5">
+                  <span className="text-[8px] text-[#8cba8e] mt-0.5">•</span>
+                  <div>
+                    <p className="text-[9px] text-[#2d2926] line-clamp-1" style={{ fontFamily: "Georgia, serif" }}>
+                      {a.title}
+                    </p>
+                    <p className="text-[7px] text-[#b5aca4]">{shortDate(a.created_at)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {also.length === 0 && (
+          <div className="mt-auto">
+            <div className="w-9 h-px bg-[#ddd5c0]" />
+          </div>
+        )}
+      </div>
+    </Shell>
+  );
+}
+
+// ─── Milestone with photo (upgraded) ─────────────────────────────────────────
 
 function MilestoneWithPhotoLayout({ spread }: { spread: YearbookSpread }) {
   const m = spread.memories[0];
   if (!m) return null;
-  const isQuote = m.type === "quote";
   return (
-    <div className="w-full h-full flex overflow-hidden" style={{ background: "#FAFAF7" }}>
-      {/* Photo half */}
-      <div className="w-1/2 h-full bg-[#f5f0e8]">
-        {m.photo_url && <Photo src={m.photo_url} className="w-full h-full" />}
-      </div>
-      {/* Text half */}
-      <div className="w-1/2 h-full flex flex-col items-center justify-center px-5 text-center">
-        <span className="text-[28px] mb-2">{isQuote ? "💬" : "⭐"}</span>
-        <div className="bg-[#f0ede5] rounded-xl p-4 border-l-2 border-[#8cba8e] max-w-[220px]">
-          {isQuote && <span className="text-[24px] font-serif text-[#c4b0e0] leading-none">&ldquo;</span>}
-          <p
-            className={`${isQuote ? "italic" : ""} text-[11px] text-[#2d2926] leading-relaxed line-clamp-5`}
-            style={{ fontFamily: "Georgia, serif" }}
-          >
+    <Shell>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Photo — top 60% */}
+        {m.photo_url && (
+          <div className="rounded-lg overflow-hidden bg-[#f5f0e8] shrink-0" style={{ height: "60%", boxShadow: "0 2px 12px rgba(0,0,0,0.08)" }}>
+            <Photo src={m.photo_url} className="w-full h-full" />
+          </div>
+        )}
+        {/* Win title + date below photo */}
+        <div className="mt-3 px-1">
+          <p className="text-[12px] text-[#2d2926] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
             {m.title}
           </p>
+          <p className="text-[8px] text-[#9a8f85] mt-1">{safeDateStr(m.created_at)}</p>
         </div>
-        {m.child_name && (
-          <p className="text-[9px] text-[#9a8f85] mt-2">— {m.child_name}</p>
-        )}
-        <p className="text-[8px] text-[#b5aca4] mt-1">{safeDateStr(m.created_at)}</p>
+      </div>
+    </Shell>
+  );
+}
+
+// ─── Month Divider ───────────────────────────────────────────────────────────
+
+function MonthDividerLeftPage({ spread }: { spread: YearbookSpread }) {
+  const md = spread.metadata!;
+  return (
+    <div className="w-full h-full overflow-hidden relative" style={{ background: "#FAFAF7" }}>
+      {/* Botanical watermarks */}
+      <span className="absolute top-6 right-4 text-[80px] opacity-[0.04] select-none pointer-events-none" style={{ transform: "rotate(-20deg)" }}>🌿</span>
+      <span className="absolute bottom-8 left-3 text-[60px] opacity-[0.03] select-none pointer-events-none" style={{ transform: "rotate(15deg)" }}>🍃</span>
+      <span className="absolute top-1/3 left-1/4 text-[40px] opacity-[0.025] select-none pointer-events-none">🌱</span>
+
+      <div className="h-full flex flex-col items-center justify-center text-center px-8 relative z-10">
+        <div className="w-12 h-px bg-[#8cba8e]/40 mb-5" />
+        <p className="text-[36px] font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+          {md.monthName}
+        </p>
+        <p className="text-[10px] text-[#9a8f85] mt-2 tracking-[0.15em] uppercase">
+          {md.monthYear}
+        </p>
+        <div className="w-12 h-px bg-[#8cba8e]/40 mt-5" />
       </div>
     </div>
   );
@@ -281,6 +376,86 @@ function YearInNumbersRightPage({ spread }: { spread: YearbookSpread }) {
   );
 }
 
+// ─── Child Stats ─────────────────────────────────────────────────────────────
+
+function ChildStatsLeftPage({ spread }: { spread: YearbookSpread }) {
+  const md = spread.metadata!;
+  const stats = [
+    { value: md.lessonsCount ?? 0, label: "Lessons completed", emoji: "📝" },
+    { value: md.memoriesCount ?? 0, label: "Memories captured", emoji: "📸" },
+    { value: md.booksCount ?? 0, label: "Books read", emoji: "📖" },
+    { value: md.winsCount ?? 0, label: "Wins celebrated", emoji: "⭐" },
+  ];
+  return (
+    <Shell>
+      <div className="shrink-0 mb-3">
+        <h2 className="text-[14px] font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+          {md.childName}&apos;s year at a glance
+        </h2>
+        <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+      </div>
+      <div className="grid grid-cols-2 gap-3 flex-1 min-h-0">
+        {stats.map((s) => (
+          <div key={s.label} className="bg-[#eeeade] rounded-lg p-3 flex flex-col items-center justify-center text-center">
+            <span className="text-[14px] mb-1">{s.emoji}</span>
+            <p className="text-[28px] font-bold text-[#3d5c42] leading-none" style={{ fontFamily: "Georgia, serif" }}>
+              {s.value}
+            </p>
+            <p className="text-[8px] text-[#9a8f85] mt-1">{s.label}</p>
+          </div>
+        ))}
+      </div>
+    </Shell>
+  );
+}
+
+function ChildStatsRightPage({ spread }: { spread: YearbookSpread }) {
+  const md = spread.metadata!;
+  const activeMonths = md.activeMonths ?? [];
+  const allMonths = md.allMonths ?? [];
+  const activeCount = activeMonths.length;
+
+  return (
+    <Shell>
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        <p className="text-[8px] font-semibold uppercase tracking-[0.15em] text-[#8cba8e] mb-4">
+          Active across {activeCount} month{activeCount !== 1 ? "s" : ""} this year
+        </p>
+
+        {/* Vertical timeline */}
+        <div className="flex flex-col items-center gap-0">
+          {allMonths.map((mo, i) => {
+            const isActive = activeMonths.includes(mo);
+            return (
+              <div key={i} className="flex items-center gap-3">
+                {/* Dot + line */}
+                <div className="flex flex-col items-center">
+                  <div
+                    className={`w-3 h-3 rounded-full border-2 ${
+                      isActive
+                        ? "bg-[#3d5c42] border-[#3d5c42]"
+                        : "bg-transparent border-[#d4cfc8]"
+                    }`}
+                  />
+                  {i < allMonths.length - 1 && (
+                    <div className="w-px h-3 bg-[#e8e2d9]" />
+                  )}
+                </div>
+                {/* Month label */}
+                <p className={`text-[9px] ${isActive ? "text-[#2d2926] font-medium" : "text-[#c4b89a]"}`}>
+                  {mo}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="w-9 h-px bg-[#ddd5c0] mt-4" />
+      </div>
+    </Shell>
+  );
+}
+
 // ─── Mixed: fallback layout ──────────────────────────────────────────────────
 
 function MixedLayout({ spread }: { spread: YearbookSpread }) {
@@ -321,6 +496,10 @@ export function SpreadLeftPage({ spread }: { spread: YearbookSpread }) {
       return <BooksLeftPage spread={spread} />;
     case "year_in_numbers":
       return <YearInNumbersLeftPage spread={spread} />;
+    case "month_divider":
+      return <MonthDividerLeftPage spread={spread} />;
+    case "child_stats":
+      return <ChildStatsLeftPage spread={spread} />;
     case "mixed":
       return <MixedLayout spread={spread} />;
     default:
@@ -334,8 +513,56 @@ export function SpreadRightPage({ spread }: { spread: YearbookSpread }) {
       return <BooksRightPage spread={spread} />;
     case "year_in_numbers":
       return <YearInNumbersRightPage spread={spread} />;
+    case "milestone":
+    case "milestone_with_photo":
+      return <MilestoneRightPage spread={spread} />;
+    case "child_stats":
+      return <ChildStatsRightPage spread={spread} />;
+    case "month_divider": {
+      // Right page of month divider renders the first memory of the month
+      // using the appropriate layout
+      const m = spread.memories[0];
+      if (!m) {
+        return (
+          <Shell>
+            <div className="flex-1 flex items-center justify-center">
+              <div className="w-9 h-px bg-[#ddd5c0]" />
+            </div>
+          </Shell>
+        );
+      }
+      // Render as a mini hero
+      if (m.photo_url) {
+        return (
+          <Shell>
+            <div className="w-full rounded-md overflow-hidden bg-[#f5f0e8] flex-1 min-h-0">
+              <Photo src={m.photo_url} className="w-full h-full" />
+            </div>
+            {m.title && (
+              <p className="text-[9px] italic text-[#5a5048] mt-2 text-center line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
+                {m.title}
+              </p>
+            )}
+            <p className="text-[8px] text-[#9a8f85] text-center mt-0.5">{shortDate(m.created_at)}</p>
+          </Shell>
+        );
+      }
+      // Non-photo memory on right
+      return (
+        <Shell>
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-5">
+            <span className="text-[24px] mb-2">{m.type === "win" ? "⭐" : m.type === "quote" ? "💬" : "📝"}</span>
+            <p className="text-[11px] text-[#2d2926] leading-relaxed line-clamp-4" style={{ fontFamily: "Georgia, serif" }}>
+              {m.title}
+            </p>
+            {m.child_name && <p className="text-[8px] text-[#9a8f85] mt-2">— {m.child_name}</p>}
+            <p className="text-[8px] text-[#b5aca4] mt-0.5">{shortDate(m.created_at)}</p>
+          </div>
+        </Shell>
+      );
+    }
     default:
-      // Single-page layouts get a minimal right page with date context
+      // Generic right page with date context
       return (
         <Shell>
           <div className="flex-1 flex flex-col items-center justify-center text-center px-6">

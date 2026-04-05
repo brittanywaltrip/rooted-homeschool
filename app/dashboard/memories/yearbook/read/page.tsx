@@ -10,6 +10,7 @@ import {
   buildYearbookSpreads,
   buildYearInNumbersSpread,
   buildBooksSpread,
+  buildChildStatsSpread,
   type YearbookMemory,
   type YearbookSpread as LayoutSpread,
 } from "@/lib/yearbook-layout-engine";
@@ -158,6 +159,7 @@ function getPageHeaders(spreadId: string, spreadLabel: string): [string, string]
   if (spreadId.startsWith("child-")) {
     const name = spreadLabel.replace(/'s chapter$/i, "").toUpperCase();
     if (spreadId.includes("-books")) return [`${name}\u2019S BOOKS`, `${name}\u2019S BOOKS`];
+    if (spreadId.includes("-stats")) return [`${name}\u2019S YEAR`, `${name}\u2019S YEAR`];
     if (spreadId.includes("-spread-")) return [`${name}\u2019S CHAPTER`, `${name}\u2019S CHAPTER`];
     return [`${name}\u2019S CHAPTER`, "IN THEIR OWN WORDS"];
   }
@@ -717,7 +719,26 @@ export default function YearbookReadPage() {
       });
     }
 
-    // 3c. BOOKS SPREAD for this child
+    // 3c. CHILD STATS SPREAD
+    const childStatsMemories: YearbookMemory[] = childMems.map((m) => ({
+      id: m.id,
+      type: (m.type as YearbookMemory["type"]) ?? "photo",
+      title: m.title,
+      photo_url: m.photo_url,
+      created_at: m.date,
+      child_name: child.name,
+    }));
+    if (childStatsMemories.length > 0) {
+      const statsSpread = buildChildStatsSpread(childStatsMemories, child.name);
+      spreads.push({
+        id: `child-${child.id}-stats`,
+        label: `${child.name}'s chapter`,
+        leftContent: <SpreadLeftPage spread={statsSpread} />,
+        rightContent: <SpreadRightPage spread={statsSpread} />,
+      });
+    }
+
+    // 3d. BOOKS SPREAD for this child
     const childBooks = childMems.filter((m) => m.type === "book");
     if (ybSettings.show_books_section && childBooks.length > 0) {
       const booksSpread = buildBooksSpread(
