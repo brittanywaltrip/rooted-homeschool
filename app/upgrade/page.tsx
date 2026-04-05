@@ -24,6 +24,18 @@ function UpgradePageInner() {
   const refCode = refParam
     || (typeof window !== 'undefined' ? localStorage.getItem('rooted_ref') : null)
     || (typeof document !== 'undefined' ? document.cookie.match(/rooted_ref=([^;]+)/)?.[1] : null)
+  const [refAffiliateName, setRefAffiliateName] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!refCode) return
+    supabase
+      .from('affiliates')
+      .select('name')
+      .eq('code', refCode)
+      .eq('is_active', true)
+      .maybeSingle()
+      .then(({ data }) => { if (data?.name) setRefAffiliateName(data.name) })
+  }, [refCode])
 
   useEffect(() => {
     async function loadUserProfile() {
@@ -136,6 +148,13 @@ function UpgradePageInner() {
         <p className="text-sm text-[#9a8f85] text-center mb-10">
           Join 276+ homeschool families already using Rooted 🌿
         </p>
+
+        {/* Referral discount banner */}
+        {refCode && refAffiliateName && (
+          <div className="mb-6 bg-green-50 border border-green-200 text-green-800 text-sm rounded-xl px-4 py-3 max-w-lg mx-auto text-center">
+            🎁 15% off applied — referred by {refAffiliateName}. Use code <span className="font-bold font-mono tracking-wider">{refCode}</span> at checkout.
+          </div>
+        )}
 
         {/* Error banner */}
         {error && (
