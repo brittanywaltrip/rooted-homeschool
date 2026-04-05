@@ -6,6 +6,14 @@ import { useSwipeable } from "react-swipeable";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
+import {
+  buildYearbookSpreads,
+  buildYearInNumbersSpread,
+  buildBooksSpread,
+  type YearbookMemory,
+  type YearbookSpread as LayoutSpread,
+} from "@/lib/yearbook-layout-engine";
+import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
 
 function safeParseDateStr(d: string | null | undefined): Date | null {
   if (!d) return null;
@@ -146,8 +154,11 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
 function getPageHeaders(spreadId: string, spreadLabel: string): [string, string] {
   if (spreadId === "cover") return ["ROOTED YEARBOOK", "TABLE OF CONTENTS"];
   if (spreadId === "letter") return ["A LETTER FROM HOME", "A LETTER FROM HOME"];
+  if (spreadId === "year-in-numbers") return ["OUR YEAR IN NUMBERS", "OUR YEAR IN NUMBERS"];
   if (spreadId.startsWith("child-")) {
     const name = spreadLabel.replace(/'s chapter$/i, "").toUpperCase();
+    if (spreadId.includes("-books")) return [`${name}\u2019S BOOKS`, `${name}\u2019S BOOKS`];
+    if (spreadId.includes("-spread-")) return [`${name}\u2019S CHAPTER`, `${name}\u2019S CHAPTER`];
     return [`${name}\u2019S CHAPTER`, "IN THEIR OWN WORDS"];
   }
   if (spreadId === "family") return ["TOGETHER", "TOGETHER"];
@@ -510,6 +521,23 @@ export default function YearbookReadPage() {
     ),
   });
 
+  // 2.5. YEAR IN NUMBERS SPREAD
+  const allYearbookMemories: YearbookMemory[] = memories.map((m) => ({
+    id: m.id,
+    type: (m.type as YearbookMemory["type"]) ?? "photo",
+    title: m.title,
+    photo_url: m.photo_url,
+    created_at: m.date,
+    child_name: children.find((c) => c.id === m.child_id)?.name ?? null,
+  }));
+  const yearInNumbersSpread = buildYearInNumbersSpread(allYearbookMemories, familyName, yearLabel);
+  spreads.push({
+    id: "year-in-numbers",
+    label: "Year in numbers",
+    leftContent: <SpreadLeftPage spread={yearInNumbersSpread} />,
+    rightContent: <SpreadRightPage spread={yearInNumbersSpread} />,
+  });
+
   // 3. PER-CHILD SPREADS
   children.forEach((child, ci) => {
     const childMems = memories.filter((m) => m.child_id === child.id);
@@ -629,6 +657,53 @@ export default function YearbookReadPage() {
         </PageShell>
       ),
     });
+
+    // 3b. SMART PHOTO LAYOUT SPREADS for this child
+    const childLayoutMemories: YearbookMemory[] = childMems
+      .filter((m) => m.type !== "book") // books get their own section
+      .map((m) => ({
+        id: m.id,
+        type: (m.type as YearbookMemory["type"]) ?? "photo",
+        title: m.title,
+        photo_url: m.photo_url,
+        created_at: m.date,
+        child_name: child.name,
+      }));
+
+    if (childLayoutMemories.length > 4) {
+      // Only add layout spreads if the child has more than what the main chapter shows
+      const layoutSpreads = buildYearbookSpreads(childLayoutMemories);
+      layoutSpreads.forEach((ls, lsi) => {
+        spreads.push({
+          id: `child-${child.id}-spread-${lsi}`,
+          label: `${child.name}'s chapter`,
+          leftContent: <SpreadLeftPage spread={ls} />,
+          rightContent: <SpreadRightPage spread={ls} />,
+        });
+      });
+    }
+
+    // 3c. BOOKS SPREAD for this child
+    const childBooks = childMems.filter((m) => m.type === "book");
+    if (childBooks.length > 0) {
+      const booksSpread = buildBooksSpread(
+        childBooks.map((m) => ({
+          id: m.id,
+          type: "book" as const,
+          title: m.title,
+          photo_url: m.photo_url,
+          created_at: m.date,
+          child_name: child.name,
+        })),
+        child.name,
+      );
+      spreads.push({
+        id: `child-${child.id}-books`,
+        label: `${child.name}'s chapter`,
+        leftContent: <SpreadLeftPage spread={booksSpread} />,
+        rightContent: <SpreadRightPage spread={booksSpread} />,
+      });
+    }
   });
 
   // 4. FAMILY MEMORIES SPREAD
@@ -781,11 +856,15 @@ export default function YearbookReadPage() {
     const base = "/dashboard/memories/yearbook/edit";
     if (spreadId === "letter") return [`${base}#letter`, `${base}#favorites`];
     if (spreadId.startsWith("child-")) {
-      const childId = spreadId.replace("child-", "");
+      // Extract actual child ID (format: child-<id>, child-<id>-spread-N, child-<id>-books)
+      const childId = spreadId.replace("child-", "").replace(/-spread-\d+$/, "").replace(/-books$/, "");
+      if (spreadId.includes("-books") || spreadId.includes("-spread-")) {
+        return [`${base}#${childId}-photos`, null];
+      }
       return [`${base}#${childId}-photos`, `${base}#${childId}-interview`];
     }
     if (spreadId === "family") return [`${base}#family`, null];
-    // cover, village, back → no edit pencil
+    // cover, year-in-numbers, village, back → no edit pencil
     return [null, null];
   }
 
