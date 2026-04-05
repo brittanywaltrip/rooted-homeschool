@@ -1787,7 +1787,7 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Your Referral Link</p>
                     <div className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full">
-                      <span className="text-sm text-[#4338ca] flex-1 truncate">rootedhomeschoolapp.com/upgrade?ref={previewAffiliate.code}</span>
+                      <span className="text-sm text-[#4338ca] flex-1 truncate">rootedhomeschoolapp.com?ref={previewAffiliate.code}</span>
                     </div>
                   </div>
                   {/* Stats */}
@@ -1815,7 +1815,7 @@ export default function SettingsPage() {
                     <div className="flex justify-center">
                       <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
                         <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/upgrade?ref=${previewAffiliate.code}`)}`}
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com?ref=${previewAffiliate.code}`)}`}
                           alt="Referral QR code"
                           width={160}
                           height={160}
@@ -1868,7 +1868,7 @@ export default function SettingsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <button
-                          onClick={() => { navigator.clipboard.writeText(`https://rootedhomeschoolapp.com/upgrade?ref=${aff.code}`); showCopiedToast("Link copied!"); }}
+                          onClick={() => { navigator.clipboard.writeText(`https://rootedhomeschoolapp.com?ref=${aff.code}`); showCopiedToast("Link copied!"); }}
                           className="text-xs text-[#4338ca] hover:underline cursor-pointer truncate max-w-[200px] block"
                         >
                           ...?ref={aff.code}
@@ -1980,13 +1980,13 @@ export default function SettingsPage() {
               <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Your Referral Link</p>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(`https://rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`);
+                  navigator.clipboard.writeText(`https://rootedhomeschoolapp.com?ref=${affiliateData.code}`);
                   showCopiedToast("Link copied!");
                 }}
                 className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full text-left hover:bg-[#f5f5ff] transition-colors"
               >
                 <span className="text-sm text-[#4338ca] flex-1 truncate">
-                  rootedhomeschoolapp.com/upgrade?ref={affiliateData.code}
+                  rootedhomeschoolapp.com?ref={affiliateData.code}
                 </span>
                 <span className="text-xs text-[#6366f1] shrink-0">Tap to copy</span>
               </button>
@@ -2018,7 +2018,7 @@ export default function SettingsPage() {
               <div className="flex justify-center">
                 <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com?ref=${affiliateData.code}`)}`}
                     alt="Referral QR code"
                     width={160}
                     height={160}
@@ -2035,7 +2035,7 @@ export default function SettingsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={async () => {
-                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`);
+                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com?ref=${affiliateData.code}`)}`);
                     const { cardHtml } = await res.json();
                     const blob = new Blob([cardHtml], { type: 'text/html' });
                     const a = document.createElement('a');
@@ -2050,7 +2050,7 @@ export default function SettingsPage() {
                 </button>
                 <button
                   onClick={async () => {
-                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`);
+                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com?ref=${affiliateData.code}`)}`);
                     const { shareHtml } = await res.json();
                     const blob = new Blob([shareHtml], { type: 'text/html' });
                     const a = document.createElement('a');
