@@ -1,6 +1,7 @@
 "use client";
 
-import type { YearbookSpread, YearbookMemory } from "@/lib/yearbook-layout-engine";
+import { memo } from "react";
+import type { YearbookSpread } from "@/lib/yearbook-layout-engine";
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -480,7 +481,7 @@ function MixedLayout({ spread }: { spread: YearbookSpread }) {
 
 // ─── Main Renderer ───────────────────────────────────────────────────────────
 
-export function SpreadLeftPage({ spread }: { spread: YearbookSpread }) {
+export const SpreadLeftPage = memo(function SpreadLeftPage({ spread }: { spread: YearbookSpread }) {
   switch (spread.layoutType) {
     case "hero":
       return <HeroLayout spread={spread} />;
@@ -507,9 +508,9 @@ export function SpreadLeftPage({ spread }: { spread: YearbookSpread }) {
     default:
       return <MixedLayout spread={spread} />;
   }
-}
+});
 
-export function SpreadRightPage({ spread }: { spread: YearbookSpread }) {
+export const SpreadRightPage = memo(function SpreadRightPage({ spread }: { spread: YearbookSpread }) {
   switch (spread.layoutType) {
     case "books":
       return <BooksRightPage spread={spread} />;
@@ -580,4 +581,4 @@ export function SpreadRightPage({ spread }: { spread: YearbookSpread }) {
         </Shell>
       );
   }
-}
+});

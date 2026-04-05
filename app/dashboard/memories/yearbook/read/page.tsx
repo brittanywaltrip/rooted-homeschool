@@ -1,18 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, ReactNode } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSwipeable } from "react-swipeable";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import {
-  buildYearbookSpreads,
   buildYearInNumbersSpread,
   buildBooksSpread,
   buildFavoriteThingsSpread,
   type YearbookMemory,
-  type YearbookSpread as LayoutSpread,
 } from "@/lib/yearbook-layout-engine";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
 
@@ -319,7 +317,9 @@ export default function YearbookReadPage() {
     return () => window.removeEventListener("keydown", handleKey);
   }, []);
 
-  // ── Build spreads ───────────────────────────────────────────────────────────
+  // ── Build spreads (memoized to avoid recomputing on every page turn) ────────
+
+  const { spreads, pages, familyName } = useMemo(() => {
 
   const familyName = profile.display_name ?? "Our Family";
   const coverTitle = /^the\s/i.test(familyName) ? familyName : `The ${familyName}`;
@@ -584,7 +584,6 @@ export default function YearbookReadPage() {
     const childWins = childMems.filter((m) => m.type === "win");
     const latestQuote = childQuotes[childQuotes.length - 1];
     const latestWin = childWins[childWins.length - 1];
-    const pageBase = (childPageMap[child.id] ?? 5);
 
     spreads.push({
       id: `child-${child.id}`,
@@ -696,32 +695,7 @@ export default function YearbookReadPage() {
       ),
     });
 
-    // 3b. SMART PHOTO LAYOUT SPREADS for this child
-    const childLayoutMemories: YearbookMemory[] = childMems
-      .filter((m) => m.type !== "book") // books get their own section
-      .map((m) => ({
-        id: m.id,
-        type: (m.type as YearbookMemory["type"]) ?? "photo",
-        title: m.title,
-        photo_url: m.photo_url,
-        created_at: m.date,
-        child_name: child.name,
-      }));
-
-    if (childLayoutMemories.length > 4) {
-      // Only add layout spreads if the child has more than what the main chapter shows
-      const layoutSpreads = buildYearbookSpreads(childLayoutMemories);
-      layoutSpreads.forEach((ls, lsi) => {
-        spreads.push({
-          id: `child-${child.id}-spread-${lsi}`,
-          label: `${child.name}'s chapter`,
-          leftContent: <SpreadLeftPage spread={ls} />,
-          rightContent: <SpreadRightPage spread={ls} />,
-        });
-      });
-    }
-
-    // 3c. FAVORITE THINGS SPREAD
+    // 3b. FAVORITE THINGS SPREAD
     if (ybSettings.show_favorite_things) {
       const favMemories: YearbookMemory[] = childMems.map((m) => ({
         id: m.id,
@@ -961,6 +935,10 @@ export default function YearbookReadPage() {
       { content: s.rightContent, header: rh, spreadId: s.id, editHref: re },
     ];
   });
+
+  return { spreads, pages, familyName };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memories, children, contentMap, profile, yearbookKey, ybSettings]);
 
   const maxPage = pages.length - 1;
   maxPageRef.current = maxPage;
