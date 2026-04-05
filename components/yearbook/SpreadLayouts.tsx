@@ -376,81 +376,83 @@ function YearInNumbersRightPage({ spread }: { spread: YearbookSpread }) {
   );
 }
 
-// ─── Child Stats ─────────────────────────────────────────────────────────────
+// ─── Favorite Things ─────────────────────────────────────────────────────────
 
-function ChildStatsLeftPage({ spread }: { spread: YearbookSpread }) {
+const FAVORITE_PROMPTS = [
+  { key: "fav_loved", prompt: "This year I loved..." },
+  { key: "fav_book", prompt: "My favorite book was..." },
+  { key: "fav_surprised", prompt: "Something I learned that surprised me..." },
+  { key: "fav_next_year", prompt: "Next year I want to..." },
+];
+
+function FavoriteThingsLeftPage({ spread }: { spread: YearbookSpread }) {
   const md = spread.metadata!;
-  const stats = [
-    { value: md.lessonsCount ?? 0, label: "Lessons completed", emoji: "📝" },
-    { value: md.memoriesCount ?? 0, label: "Memories captured", emoji: "📸" },
-    { value: md.booksCount ?? 0, label: "Books read", emoji: "📖" },
-    { value: md.winsCount ?? 0, label: "Wins celebrated", emoji: "⭐" },
-  ];
+  const answers = md.favoriteAnswers ?? {};
   return (
-    <Shell>
-      <div className="shrink-0 mb-3">
-        <h2 className="text-[14px] font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
-          {md.childName}&apos;s year at a glance
-        </h2>
-        <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
-      </div>
-      <div className="grid grid-cols-2 gap-3 flex-1 min-h-0">
-        {stats.map((s) => (
-          <div key={s.label} className="bg-[#eeeade] rounded-lg p-3 flex flex-col items-center justify-center text-center">
-            <span className="text-[14px] mb-1">{s.emoji}</span>
-            <p className="text-[28px] font-bold text-[#3d5c42] leading-none" style={{ fontFamily: "Georgia, serif" }}>
-              {s.value}
-            </p>
-            <p className="text-[8px] text-[#9a8f85] mt-1">{s.label}</p>
-          </div>
-        ))}
-      </div>
-    </Shell>
-  );
-}
-
-function ChildStatsRightPage({ spread }: { spread: YearbookSpread }) {
-  const md = spread.metadata!;
-  const activeMonths = md.activeMonths ?? [];
-  const allMonths = md.allMonths ?? [];
-  const activeCount = activeMonths.length;
-
-  return (
-    <Shell>
-      <div className="flex-1 flex flex-col items-center justify-center px-6">
-        <p className="text-[8px] font-semibold uppercase tracking-[0.15em] text-[#8cba8e] mb-4">
-          Active across {activeCount} month{activeCount !== 1 ? "s" : ""} this year
+    <Shell bg="#FAF6EC">
+      <div className="flex-1 flex flex-col px-1">
+        {/* Header */}
+        <p className="text-[8px] font-semibold uppercase tracking-[0.18em] text-[#8cba8e] mb-4">
+          {md.childName}&apos;s favorite things
         </p>
 
-        {/* Vertical timeline */}
-        <div className="flex flex-col items-center gap-0">
-          {allMonths.map((mo, i) => {
-            const isActive = activeMonths.includes(mo);
+        {/* Prompts */}
+        <div className="flex-1 flex flex-col justify-between">
+          {FAVORITE_PROMPTS.map((p) => {
+            const answer = answers[p.key]?.trim();
             return (
-              <div key={i} className="flex items-center gap-3">
-                {/* Dot + line */}
-                <div className="flex flex-col items-center">
-                  <div
-                    className={`w-3 h-3 rounded-full border-2 ${
-                      isActive
-                        ? "bg-[#3d5c42] border-[#3d5c42]"
-                        : "bg-transparent border-[#d4cfc8]"
-                    }`}
-                  />
-                  {i < allMonths.length - 1 && (
-                    <div className="w-px h-3 bg-[#e8e2d9]" />
-                  )}
-                </div>
-                {/* Month label */}
-                <p className={`text-[9px] ${isActive ? "text-[#2d2926] font-medium" : "text-[#c4b89a]"}`}>
-                  {mo}
+              <div key={p.key} className="mb-5">
+                <p className="italic text-[11px] text-[#9a8f85] mb-2" style={{ fontFamily: "Georgia, serif" }}>
+                  {p.prompt}
                 </p>
+                {answer ? (
+                  <p className="text-[12px] text-[#2d2926] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+                    {answer}
+                  </p>
+                ) : (
+                  <div className="h-px bg-[#d4cfc8] mt-4" />
+                )}
               </div>
             );
           })}
         </div>
 
-        <div className="w-9 h-px bg-[#ddd5c0] mt-4" />
+        {/* Botanical divider at bottom */}
+        <div className="flex items-center justify-center gap-2 mt-2 shrink-0">
+          <div className="w-8 h-px bg-[#c4b89a]" />
+          <span className="text-[10px] opacity-30">🍃</span>
+          <div className="w-8 h-px bg-[#c4b89a]" />
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+function FavoriteThingsRightPage({ spread }: { spread: YearbookSpread }) {
+  const md = spread.metadata!;
+  const photoUrl = md.latestPhotoUrl;
+
+  if (photoUrl) {
+    return (
+      <div className="w-full h-full overflow-hidden bg-[#f5f0e8]">
+        <Photo src={photoUrl} className="w-full h-full" />
+      </div>
+    );
+  }
+
+  // No photo — elegant fallback
+  return (
+    <Shell bg="#FAF6EC">
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+        <p className="text-[24px] text-[#2d2926] mb-2" style={{ fontFamily: "Georgia, serif" }}>
+          {md.childName}
+        </p>
+        <div className="w-9 h-px bg-[#ddd5c0] my-3" />
+        <p className="text-[9px] text-[#9a8f85] tracking-[0.1em] uppercase">
+          {spread.memories[0]?.created_at
+            ? new Date(spread.memories[0].created_at.slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { year: "numeric" })
+            : ""}
+        </p>
       </div>
     </Shell>
   );
@@ -498,8 +500,8 @@ export function SpreadLeftPage({ spread }: { spread: YearbookSpread }) {
       return <YearInNumbersLeftPage spread={spread} />;
     case "month_divider":
       return <MonthDividerLeftPage spread={spread} />;
-    case "child_stats":
-      return <ChildStatsLeftPage spread={spread} />;
+    case "favorite_things":
+      return <FavoriteThingsLeftPage spread={spread} />;
     case "mixed":
       return <MixedLayout spread={spread} />;
     default:
@@ -516,8 +518,8 @@ export function SpreadRightPage({ spread }: { spread: YearbookSpread }) {
     case "milestone":
     case "milestone_with_photo":
       return <MilestoneRightPage spread={spread} />;
-    case "child_stats":
-      return <ChildStatsRightPage spread={spread} />;
+    case "favorite_things":
+      return <FavoriteThingsRightPage spread={spread} />;
     case "month_divider": {
       // Right page of month divider renders the first memory of the month
       // using the appropriate layout

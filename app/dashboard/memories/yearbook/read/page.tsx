@@ -10,7 +10,7 @@ import {
   buildYearbookSpreads,
   buildYearInNumbersSpread,
   buildBooksSpread,
-  buildChildStatsSpread,
+  buildFavoriteThingsSpread,
   type YearbookMemory,
   type YearbookSpread as LayoutSpread,
 } from "@/lib/yearbook-layout-engine";
@@ -159,7 +159,7 @@ function getPageHeaders(spreadId: string, spreadLabel: string): [string, string]
   if (spreadId.startsWith("child-")) {
     const name = spreadLabel.replace(/'s chapter$/i, "").toUpperCase();
     if (spreadId.includes("-books")) return [`${name}\u2019S BOOKS`, `${name}\u2019S BOOKS`];
-    if (spreadId.includes("-stats")) return [`${name}\u2019S YEAR`, `${name}\u2019S YEAR`];
+    if (spreadId.includes("-favorites")) return [`${name}\u2019S FAVORITES`, `${name}\u2019S FAVORITES`];
     if (spreadId.includes("-spread-")) return [`${name}\u2019S CHAPTER`, `${name}\u2019S CHAPTER`];
     return [`${name}\u2019S CHAPTER`, "IN THEIR OWN WORDS"];
   }
@@ -207,6 +207,7 @@ export default function YearbookReadPage() {
     show_letter: boolean;
     show_year_in_numbers: boolean;
     show_child_chapters: boolean;
+    show_favorite_things: boolean;
     show_books_section: boolean;
     show_family_chapter: boolean;
     show_village: boolean;
@@ -215,6 +216,7 @@ export default function YearbookReadPage() {
     show_letter: true,
     show_year_in_numbers: true,
     show_child_chapters: true,
+    show_favorite_things: true,
     show_books_section: true,
     show_family_chapter: true,
     show_village: true,
@@ -719,22 +721,28 @@ export default function YearbookReadPage() {
       });
     }
 
-    // 3c. CHILD STATS SPREAD
-    const childStatsMemories: YearbookMemory[] = childMems.map((m) => ({
-      id: m.id,
-      type: (m.type as YearbookMemory["type"]) ?? "photo",
-      title: m.title,
-      photo_url: m.photo_url,
-      created_at: m.date,
-      child_name: child.name,
-    }));
-    if (childStatsMemories.length > 0) {
-      const statsSpread = buildChildStatsSpread(childStatsMemories, child.name);
+    // 3c. FAVORITE THINGS SPREAD
+    if (ybSettings.show_favorite_things) {
+      const favMemories: YearbookMemory[] = childMems.map((m) => ({
+        id: m.id,
+        type: (m.type as YearbookMemory["type"]) ?? "photo",
+        title: m.title,
+        photo_url: m.photo_url,
+        created_at: m.date,
+        child_name: child.name,
+      }));
+      const favAnswers: Record<string, string> = {
+        fav_loved: contentMap[ck("child_favorite", child.id, "fav_loved")] ?? "",
+        fav_book: contentMap[ck("child_favorite", child.id, "fav_book")] ?? "",
+        fav_surprised: contentMap[ck("child_favorite", child.id, "fav_surprised")] ?? "",
+        fav_next_year: contentMap[ck("child_favorite", child.id, "fav_next_year")] ?? "",
+      };
+      const favSpread = buildFavoriteThingsSpread(favMemories, child.name, favAnswers);
       spreads.push({
-        id: `child-${child.id}-stats`,
+        id: `child-${child.id}-favorites`,
         label: `${child.name}'s chapter`,
-        leftContent: <SpreadLeftPage spread={statsSpread} />,
-        rightContent: <SpreadRightPage spread={statsSpread} />,
+        leftContent: <SpreadLeftPage spread={favSpread} />,
+        rightContent: <SpreadRightPage spread={favSpread} />,
       });
     }
 
@@ -1198,6 +1206,7 @@ export default function YearbookReadPage() {
                 { key: "show_letter" as const, emoji: "📝", label: "Letter from home" },
                 { key: "show_year_in_numbers" as const, emoji: "📊", label: "Year in Numbers" },
                 { key: "show_child_chapters" as const, emoji: "👧", label: "Child chapters" },
+                { key: "show_favorite_things" as const, emoji: "💛", label: "Favorite things pages" },
                 { key: "show_books_section" as const, emoji: "📚", label: "Books sections" },
                 { key: "show_family_chapter" as const, emoji: "👨‍👩‍👧", label: "Our family chapter" },
                 { key: "show_village" as const, emoji: "👵", label: "From the village" },

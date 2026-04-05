@@ -30,7 +30,7 @@ export type SpreadLayoutType =
   | "books"
   | "year_in_numbers"
   | "month_divider"
-  | "child_stats"
+  | "favorite_things"
   | "mixed";
 
 export interface YearbookSpread {
@@ -51,13 +51,9 @@ export interface YearbookSpread {
     monthYear?: string;
     // Milestone — other wins/quotes from the same month
     alsoThisMonth?: YearbookMemory[];
-    // Child stats
-    memoriesCount?: number;
-    winsCount?: number;
-    booksCount?: number;
-    lessonsCount?: number;
-    activeMonths?: string[]; // month labels where child has activity
-    allMonths?: string[];    // all months in the school year
+    // Favorite things
+    favoriteAnswers?: Record<string, string>;
+    latestPhotoUrl?: string | null;
   };
 }
 
@@ -275,46 +271,24 @@ export function buildBooksSpread(
   };
 }
 
-// ─── Child stats spread builder ──────────────────────────────────────────────
+// ─── Favorite things spread builder ──────────────────────────────────────────
 
-export function buildChildStatsSpread(
+export function buildFavoriteThingsSpread(
   childMemories: YearbookMemory[],
   childName: string,
-  lessonsCount?: number,
+  favoriteAnswers: Record<string, string>,
 ): YearbookSpread {
-  // Determine which months the child was active
-  const activeMonthKeys = new Set(childMemories.map((m) => monthKey(m.created_at)));
-  const activeMonthLabels = Array.from(activeMonthKeys).sort().map((mk) => {
-    const dt = new Date(mk + "-15T12:00:00");
-    return dt.toLocaleDateString("en-US", { month: "short" });
-  });
-
-  // Build full school year month list (Aug–Jul)
-  const allMonths: string[] = [];
-  if (childMemories.length > 0) {
-    const dates = childMemories.map((m) => new Date(m.created_at.slice(0, 10) + "T12:00:00"));
-    const minDate = new Date(Math.min(...dates.map((d) => d.getTime())));
-    const startMonth = minDate.getMonth() >= 7 ? 7 : 7; // always start from Aug
-    const startYear = minDate.getMonth() >= 7 ? minDate.getFullYear() : minDate.getFullYear() - 1;
-    for (let i = 0; i < 12; i++) {
-      const mo = (startMonth + i) % 12;
-      const yr = startYear + (startMonth + i >= 12 ? 1 : 0);
-      const dt = new Date(yr, mo, 15);
-      allMonths.push(dt.toLocaleDateString("en-US", { month: "short" }));
-    }
-  }
+  // Find the most recent photo for the right page
+  const photosWithUrl = childMemories.filter((m) => m.photo_url);
+  const latestPhoto = photosWithUrl.length > 0 ? photosWithUrl[photosWithUrl.length - 1] : null;
 
   return {
-    layoutType: "child_stats",
-    memories: childMemories,
+    layoutType: "favorite_things",
+    memories: latestPhoto ? [latestPhoto] : [],
     metadata: {
       childName,
-      memoriesCount: childMemories.length,
-      winsCount: childMemories.filter((m) => m.type === "win").length,
-      booksCount: childMemories.filter((m) => m.type === "book").length,
-      lessonsCount: lessonsCount ?? childMemories.length,
-      activeMonths: activeMonthLabels,
-      allMonths,
+      favoriteAnswers,
+      latestPhotoUrl: latestPhoto?.photo_url ?? null,
     },
   };
 }
