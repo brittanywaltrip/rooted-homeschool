@@ -2109,6 +2109,7 @@ export default function SettingsPage() {
         <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-3 px-1">Help & More</p>
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
           {[
+            { label: "📖 How it works", href: "/dashboard/how-it-works",    sub: "Learn how to use Rooted" },
             { label: "What's new",      href: "/dashboard/more/whats-new", sub: "Latest updates" },
             { label: "FAQ",             href: "/faq",                       sub: "Common questions" },
             { label: "Contact us",      href: "/contact",                   sub: "hello@rootedhomeschoolapp.com" },
