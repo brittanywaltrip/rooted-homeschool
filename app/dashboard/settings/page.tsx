@@ -1942,7 +1942,7 @@ export default function SettingsPage() {
       </div>
 
       {/* ── Rooted Partner ───────────────────────────────────────────── */}
-      {affiliateData?.is_active && (
+      {activeTab === "account" && affiliateData?.is_active && (
         <section className="mt-8">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
