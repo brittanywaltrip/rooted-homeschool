@@ -162,6 +162,7 @@ function getPageHeaders(spreadId: string, spreadLabel: string): [string, string]
     return [`${name}\u2019S CHAPTER`, "IN THEIR OWN WORDS"];
   }
   if (spreadId === "family") return ["TOGETHER", "TOGETHER"];
+  if (spreadId === "family-books") return ["OUR BOOKS", "OUR BOOKS"];
   if (spreadId === "village") return ["FROM THE VILLAGE", "FROM THE VILLAGE"];
   if (spreadId === "back") return ["ROOTED HOMESCHOOL", "ROOTED HOMESCHOOL"];
   return ["", ""];
@@ -199,6 +200,26 @@ export default function YearbookReadPage() {
   const [currentPage, setCurrentPage] = useState(0);
   const [direction, setDirection] = useState(1);
 
+  // Yearbook section settings
+  type YearbookSettings = {
+    show_letter: boolean;
+    show_year_in_numbers: boolean;
+    show_child_chapters: boolean;
+    show_books_section: boolean;
+    show_family_chapter: boolean;
+    show_village: boolean;
+  };
+  const DEFAULT_YB_SETTINGS: YearbookSettings = {
+    show_letter: true,
+    show_year_in_numbers: true,
+    show_child_chapters: true,
+    show_books_section: true,
+    show_family_chapter: true,
+    show_village: true,
+  };
+  const [ybSettings, setYbSettings] = useState<YearbookSettings>(DEFAULT_YB_SETTINGS);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+
   // ── Content key helper ──────────────────────────────────────────────────────
 
   function ck(contentType: string, childId?: string | null, questionKey?: string | null) {
@@ -212,7 +233,7 @@ export default function YearbookReadPage() {
     (async () => {
       const { data: prof } = await supabase
         .from("profiles")
-        .select("display_name, yearbook_opened_at, yearbook_closed_at, family_photo_url")
+        .select("display_name, yearbook_opened_at, yearbook_closed_at, family_photo_url, yearbook_settings")
         .eq("id", effectiveUserId)
         .single();
 
@@ -225,6 +246,9 @@ export default function YearbookReadPage() {
       }
 
       setProfile(prof ?? {});
+      if ((prof as Record<string, unknown>)?.yearbook_settings) {
+        setYbSettings({ ...DEFAULT_YB_SETTINGS, ...(prof as Record<string, unknown>).yearbook_settings as Partial<YearbookSettings> });
+      }
       const m = new Date(openedAt).getUTCMonth();
       const y = new Date(openedAt).getUTCFullYear();
       const startYear = m >= 7 ? y : y - 1;
@@ -262,6 +286,16 @@ export default function YearbookReadPage() {
       setLoading(false);
     })();
   }, [effectiveUserId]);
+
+  // ── Yearbook settings toggle ─────────────────────────────────────────────────
+
+  async function toggleYbSetting(key: keyof YearbookSettings) {
+    const next = { ...ybSettings, [key]: !ybSettings[key] };
+    setYbSettings(next);
+    setCurrentPage(0); // reset to cover when toggling sections
+    if (!effectiveUserId) return;
+    await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
+  }
 
   // ── Keyboard navigation ─────────────────────────────────────────────────────
 
@@ -409,7 +443,7 @@ export default function YearbookReadPage() {
   });
 
   // 2. LETTER FROM HOME SPREAD
-  spreads.push({
+  if (ybSettings.show_letter) spreads.push({
     id: "letter",
     label: "Letter from home",
     leftContent: (
@@ -531,7 +565,7 @@ export default function YearbookReadPage() {
     child_name: children.find((c) => c.id === m.child_id)?.name ?? null,
   }));
   const yearInNumbersSpread = buildYearInNumbersSpread(allYearbookMemories, familyName, yearLabel);
-  spreads.push({
+  if (ybSettings.show_year_in_numbers) spreads.push({
     id: "year-in-numbers",
     label: "Year in numbers",
     leftContent: <SpreadLeftPage spread={yearInNumbersSpread} />,
@@ -539,7 +573,7 @@ export default function YearbookReadPage() {
   });
 
   // 3. PER-CHILD SPREADS
-  children.forEach((child, ci) => {
+  if (ybSettings.show_child_chapters) children.forEach((child, ci) => {
     const childMems = memories.filter((m) => m.child_id === child.id);
     const childPhotos = childMems.filter((m) => m.photo_url);
     const childQuotes = childMems.filter((m) => m.type === "quote");
@@ -685,7 +719,7 @@ export default function YearbookReadPage() {
 
     // 3c. BOOKS SPREAD for this child
     const childBooks = childMems.filter((m) => m.type === "book");
-    if (childBooks.length > 0) {
+    if (ybSettings.show_books_section && childBooks.length > 0) {
       const booksSpread = buildBooksSpread(
         childBooks.map((m) => ({
           id: m.id,
@@ -710,7 +744,7 @@ export default function YearbookReadPage() {
   const famPhotos = familyMemories.filter((m) => m.photo_url);
   const famWins = familyMemories.filter((m) => m.type === "win" || m.type === "field_trip");
 
-  spreads.push({
+  if (ybSettings.show_family_chapter) spreads.push({
     id: "family",
     label: "Our family",
     leftContent: (
@@ -776,8 +810,30 @@ export default function YearbookReadPage() {
     ),
   });
 
+  // 4b. FAMILY BOOKS SPREAD (books without a child_id)
+  const familyBooks = familyMemories.filter((m) => m.type === "book");
+  if (ybSettings.show_books_section && ybSettings.show_family_chapter && familyBooks.length > 0) {
+    const famBooksSpread = buildBooksSpread(
+      familyBooks.map((m) => ({
+        id: m.id,
+        type: "book" as const,
+        title: m.title,
+        photo_url: m.photo_url,
+        created_at: m.date,
+        child_name: null,
+      })),
+      familyName,
+    );
+    spreads.push({
+      id: "family-books",
+      label: "Our family",
+      leftContent: <SpreadLeftPage spread={famBooksSpread} />,
+      rightContent: <SpreadRightPage spread={famBooksSpread} />,
+    });
+  }
+
   // 5. FROM THE VILLAGE SPREAD
-  spreads.push({
+  if (ybSettings.show_village) spreads.push({
     id: "village",
     label: "From the village",
     leftContent: (
@@ -957,10 +1013,13 @@ export default function YearbookReadPage() {
         style={{ top: 64, height: "calc(100dvh - 64px)", overflow: "hidden", background: "#1a1a1a" }}
       >
         {/* Back button bar */}
-        <div className="shrink-0 h-11 flex items-center px-4" style={{ background: "rgba(26,26,26,0.95)" }}>
+        <div className="shrink-0 h-11 flex items-center justify-between px-4" style={{ background: "rgba(26,26,26,0.95)" }}>
           <Link href="/dashboard/memories/yearbook" className="text-[12px] text-[#9a8f85] hover:text-white transition-colors">
             ← Yearbook
           </Link>
+          <button onClick={() => setShowSettingsPanel(true)} className="text-[16px] opacity-60 hover:opacity-100 transition-opacity" aria-label="Yearbook settings">
+            ⚙️
+          </button>
         </div>
 
         {/* Book page area */}
@@ -1037,11 +1096,16 @@ export default function YearbookReadPage() {
         className="hidden md:flex fixed inset-0 flex-col items-center justify-center"
         style={{ background: "#2d2926", height: "100dvh", overflow: "hidden" }}
       >
-        {/* Back button */}
+        {/* Back button + settings */}
         <div className="absolute top-4 left-6 z-30">
           <Link href="/dashboard/memories/yearbook" className="text-sm text-[#9a8f85] hover:text-white transition-colors">
             ← Yearbook
           </Link>
+        </div>
+        <div className="absolute top-4 right-6 z-30">
+          <button onClick={() => setShowSettingsPanel(true)} className="text-[18px] opacity-50 hover:opacity-100 transition-opacity" aria-label="Yearbook settings">
+            ⚙️
+          </button>
         </div>
 
         <div className="flex items-center gap-4">
@@ -1092,6 +1156,57 @@ export default function YearbookReadPage() {
           </p>
         </div>
       </div>
+
+      {/* ── Settings bottom sheet ─────────────────────────── */}
+      {showSettingsPanel && (
+        <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center" onClick={() => setShowSettingsPanel(false)}>
+          <div className="absolute inset-0 bg-black/50" />
+          <div
+            className="relative w-full max-w-md bg-[#FAFAF7] rounded-t-2xl md:rounded-2xl p-5 pb-8 md:pb-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-[14px] font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
+                Customize your yearbook
+              </h3>
+              <button onClick={() => setShowSettingsPanel(false)} className="text-[#9a8f85] hover:text-[#2d2926] text-lg">✕</button>
+            </div>
+            <p className="text-[11px] text-[#9a8f85]">Toggle sections on or off. Changes save automatically.</p>
+            <div className="space-y-1">
+              {([
+                { key: "show_letter" as const, emoji: "📝", label: "Letter from home" },
+                { key: "show_year_in_numbers" as const, emoji: "📊", label: "Year in Numbers" },
+                { key: "show_child_chapters" as const, emoji: "👧", label: "Child chapters" },
+                { key: "show_books_section" as const, emoji: "📚", label: "Books sections" },
+                { key: "show_family_chapter" as const, emoji: "👨‍👩‍👧", label: "Our family chapter" },
+                { key: "show_village" as const, emoji: "👵", label: "From the village" },
+              ]).map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => toggleYbSetting(item.key)}
+                  className="w-full flex items-center justify-between px-3 py-3 rounded-xl hover:bg-[#f0ede8] transition-colors"
+                >
+                  <span className="text-[13px] text-[#2d2926] flex items-center gap-2.5">
+                    <span className="text-[16px]">{item.emoji}</span>
+                    {item.label}
+                  </span>
+                  <div
+                    className={`w-10 h-6 rounded-full relative transition-colors ${
+                      ybSettings[item.key] ? "bg-[#5c7f63]" : "bg-[#d4cfc8]"
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                        ybSettings[item.key] ? "translate-x-[18px]" : "translate-x-0.5"
+                      }`}
+                    />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
