@@ -196,6 +196,9 @@ export default function AdminPage() {
   const [weeklySent, setWeeklySent] = useState(false);
   const [weeklyResult, setWeeklyResult] = useState<string | null>(null);
 
+  // PostHog behavior stats
+  const [phStats, setPhStats] = useState<Record<string, number> | null>(null);
+
   const fetchData = async (accessToken: string) => {
     setRefreshing(true);
     const res = await fetch("/api/admin/summary", {
@@ -364,6 +367,14 @@ export default function AdminPage() {
       setPayoutsError(true);
     }
     setPayoutsLoading(false);
+
+    // PostHog behavior stats
+    try {
+      const phRes = await fetch('/api/admin/posthog-stats', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (phRes.ok) setPhStats(await phRes.json());
+    } catch {}
 
     setRefreshing(false);
   };
@@ -559,6 +570,35 @@ export default function AdminPage() {
             <StatCard label="Memories Created"     value={data.memoriesCreated} />
             <StatCard label="Co-teachers Invited"  value={data.coTeachers} />
           </div>
+        </section>
+
+        {/* Section 3a — Behavior (PostHog) */}
+        <section>
+          <SectionHeader emoji="📊" title="Behavior (Last 7 Days)" />
+          {phStats ? (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
+                <StatCard label="Memories Captured" value={phStats.memory_captured ?? 0} />
+                <StatCard label="Lessons Completed" value={phStats.lesson_completed ?? 0} />
+                <StatCard label="Yearbook Opens"    value={phStats.yearbook_opened ?? 0} />
+                <StatCard label="Upgrade Views"     value={phStats.upgrade_page_viewed ?? 0} />
+                <StatCard label="Upgrade Clicks"    value={phStats.upgrade_clicked ?? 0} />
+              </div>
+              {(phStats.upgrade_page_viewed ?? 0) > 0 && (
+                <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-3 mb-3">
+                  <p className="text-sm text-[#2d2926]">
+                    <strong>{phStats.upgrade_page_viewed}</strong> viewed upgrade → <strong>{phStats.upgrade_clicked ?? 0}</strong> clicked
+                    <span className="text-[#7a6f65] ml-1">
+                      ({Math.round(((phStats.upgrade_clicked ?? 0) / phStats.upgrade_page_viewed) * 100)}%)
+                    </span>
+                  </p>
+                </div>
+              )}
+              <p className="text-[10px] text-[#7a6f65] mt-1">Powered by PostHog</p>
+            </>
+          ) : (
+            <p className="text-sm text-[#7a6f65]">Collecting data...</p>
+          )}
         </section>
 
         {/* Section 3b — Memory Stats */}
