@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
 
 export async function POST(
   req: NextRequest,
@@ -67,14 +67,14 @@ export async function POST(
 
   if (momUser?.email) {
     const memoryUrl = `https://www.rootedhomeschoolapp.com/dashboard/memories?highlight=${memory_id}`;
-    const resendClient = new Resend(process.env.RESEND_API_KEY);
-    await resendClient.emails.send({
-      from: "Rooted <hello@rootedhomeschoolapp.com>",
-      to: momUser.email,
-      subject: `${commenter_name} commented on "${memoryLabel}" 💬`,
-      html: `<p><strong>${commenter_name}</strong> commented on <strong>"${memoryLabel}"</strong>:<br/><em>"${body.trim().slice(0, 100)}"</em></p><a href="${memoryUrl}" style="background:#4a7c59;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">See the memory →</a>`,
-      text: `${commenter_name} commented on "${memoryLabel}": "${body.trim().slice(0, 100)}" — View at ${memoryUrl}`,
-    });
+    const momFirstName = momUser.user_metadata?.first_name || momUser.user_metadata?.full_name?.split(' ')[0] || 'there';
+    await sendResendTemplate(momUser.email, TEMPLATES.commentNotification, {
+      firstName: momFirstName,
+      commenterName: commenter_name,
+      memoryTitle: memoryLabel,
+      commentText: body.trim().slice(0, 100),
+      memoryUrl,
+    }, "Rooted <hello@rootedhomeschoolapp.com>");
   }
 
   return NextResponse.json({ ok: true, comment });

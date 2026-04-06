@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
 
 export async function POST(
   req: NextRequest,
@@ -77,14 +77,14 @@ export async function POST(
 
   if (momUser?.email) {
     const memoryUrl = `https://www.rootedhomeschoolapp.com/dashboard/memories?highlight=${memory_id}`;
-    const resendClient = new Resend(process.env.RESEND_API_KEY);
-    await resendClient.emails.send({
-      from: "Rooted <hello@rootedhomeschoolapp.com>",
-      to: momUser.email,
-      subject: `${reactor_name} reacted ${emoji} to "${memoryLabel}"`,
-      html: `<p>Hi! <strong>${reactor_name}</strong> reacted ${emoji} to <strong>"${memoryLabel}"</strong> in Rooted.</p><a href="${memoryUrl}" style="background:#4a7c59;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:12px;">See the memory →</a>`,
-      text: `${reactor_name} reacted ${emoji} to "${memoryLabel}". View it at ${memoryUrl}`,
-    });
+    const momFirstName = momUser.user_metadata?.first_name || momUser.user_metadata?.full_name?.split(' ')[0] || 'there';
+    await sendResendTemplate(momUser.email, TEMPLATES.reactionNotification, {
+      firstName: momFirstName,
+      reactorName: reactor_name,
+      reactionEmoji: emoji,
+      memoryTitle: memoryLabel,
+      memoryUrl,
+    }, "Rooted <hello@rootedhomeschoolapp.com>");
   }
 
   // Return updated counts

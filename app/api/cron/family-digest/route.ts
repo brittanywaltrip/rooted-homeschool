@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { Resend } from "resend";
+import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +9,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const resend = new Resend(process.env.RESEND_API_KEY);
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   let sent = 0;
 
@@ -87,16 +86,30 @@ export async function GET(req: NextRequest) {
       if (!inv.email) continue;
 
       const viewUrl = `https://www.rootedhomeschoolapp.com/family/${inv.token}`;
-      const unsubUrl = `https://www.rootedhomeschoolapp.com/family/${inv.token}/unsubscribe`;
+
+      // Build photo grid HTML for template variable
+      const photoGridHtml = photoMems.length > 0
+        ? photoMems.slice(0, 4).map((p: { photo_url: string | null }) =>
+          `<img src="${p.photo_url}" alt="" style="width:48%;height:140px;object-fit:cover;border-radius:8px;display:inline-block;margin:2px;" />`
+        ).join("")
+        : "";
+
+      const highlightsHtml = wins.length > 0
+        ? `<p style="font-weight:600;margin:16px 0 8px;">Highlights:</p>` +
+          wins.map((w: string) => `<p style="color:#7a6f65;margin:0 0 4px;">• ${w}</p>`).join("")
+        : "";
 
       try {
-        await resend.emails.send({
-          from: "Rooted <hello@rootedhomeschoolapp.com>",
-          to: inv.email,
-          subject: `Here's what ${familyName} was up to this week 🌿`,
-          html: digestEmailHtml(inv.viewer_name ?? "Friend", familyName, viewUrl, unsubUrl, photoMems, wins, newMems.length),
-        });
-        sent++;
+        const result = await sendResendTemplate(inv.email, TEMPLATES.familyDigest, {
+          recipientName: inv.viewer_name ?? "Friend",
+          familyName,
+          memoryCount: String(newMems.length),
+          photoGrid: photoGridHtml,
+          highlights: highlightsHtml,
+          familyUrl: viewUrl,
+        }, "Rooted <hello@rootedhomeschoolapp.com>");
+        if (result.ok) sent++;
+        else console.error(`Digest email error for ${inv.email}:`, result.error);
       } catch (err) {
         console.error(`Digest email error for ${inv.email}:`, err);
       }
@@ -106,66 +119,3 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ sent });
 }
 
-function digestEmailHtml(
-  viewerName: string,
-  familyName: string,
-  viewUrl: string,
-  unsubUrl: string,
-  photos: { id: string; photo_url: string | null }[],
-  wins: string[],
-  totalNew: number,
-): string {
-  // 2x2 photo grid
-  const photoGrid = photos.length > 0
-    ? `<table cellpadding="0" cellspacing="0" style="margin:16px 0;width:100%;">
-        <tr>
-          ${photos.slice(0, 2).map((p: { id: string; photo_url: string | null }) => `
-            <td style="width:50%;padding:2px;">
-              <a href="${viewUrl}">
-                <img src="${p.photo_url}" alt="" style="width:100%;height:140px;object-fit:cover;border-radius:8px;display:block;" />
-              </a>
-            </td>
-          `).join("")}
-        </tr>
-        ${photos.length > 2 ? `<tr>
-          ${photos.slice(2, 4).map((p: { id: string; photo_url: string | null }) => `
-            <td style="width:50%;padding:2px;">
-              <a href="${viewUrl}">
-                <img src="${p.photo_url}" alt="" style="width:100%;height:140px;object-fit:cover;border-radius:8px;display:block;" />
-              </a>
-            </td>
-          `).join("")}
-          ${photos.length === 3 ? '<td style="width:50%;padding:2px;"></td>' : ""}
-        </tr>` : ""}
-      </table>`
-    : "";
-
-  const winsList = wins.length > 0
-    ? `<div style="margin:16px 0;">
-        <p style="font-size:13px;font-weight:600;color:#2d2926;margin:0 0 8px;">Highlights:</p>
-        ${wins.map((w: string) => `<p style="font-size:13px;color:#7a6f65;margin:0 0 4px;">• ${w}</p>`).join("")}
-      </div>`
-    : "";
-
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#faf9f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f7;padding:32px 16px;">
-<tr><td align="center">
-<table width="100%" style="max-width:520px;background:#ffffff;border-radius:16px;padding:36px 32px;border:1px solid #ebe7e1;">
-<tr><td>
-<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">Hi ${viewerName}!</p>
-<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">${familyName} added ${totalNew} new ${totalNew === 1 ? "memory" : "memories"} this week. Here's a peek:</p>
-${photoGrid}
-${winsList}
-<table cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr><td style="background:#2d5a3d;border-radius:10px;padding:14px 32px;">
-<a href="${viewUrl}" style="color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;display:inline-block;">See all memories &rarr;</a>
-</td></tr></table>
-<p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">🌿 Rooted</p>
-</td></tr></table>
-<p style="font-size:11px;color:#b5aca4;margin-top:16px;text-align:center;">
-<a href="${unsubUrl}" style="color:#b5aca4;text-decoration:underline;">Unsubscribe</a>
-</p>
-</td></tr></table>
-</body></html>`;
-}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
 
 export async function POST(req: NextRequest) {
   try {
@@ -99,15 +99,12 @@ export async function POST(req: NextRequest) {
     const viewUrl = `https://www.rootedhomeschoolapp.com/family/${token}`;
     const unsubUrl = `https://www.rootedhomeschoolapp.com/family/${token}/unsubscribe`;
 
-    // Send HTML invite email
-    const resendClient = new Resend(process.env.RESEND_API_KEY);
-    await resendClient.emails.send({
-      from: "Rooted <hello@rootedhomeschoolapp.com>",
-      to: cleanEmail,
-      subject: `${familyName} is sharing their homeschool journey with you 🌿`,
-      html: inviteEmailHtml(cleanName, familyName, viewUrl, unsubUrl),
-      text: inviteEmailText(cleanName, familyName, viewUrl),
-    });
+    // Send invite email via template
+    await sendResendTemplate(cleanEmail, TEMPLATES.familyInvite, {
+      recipientName: cleanName,
+      familyName,
+      familyUrl: viewUrl,
+    }, "Rooted <hello@rootedhomeschoolapp.com>");
 
     return NextResponse.json({ ok: true, token });
   } catch (err) {
@@ -166,15 +163,11 @@ export async function PATCH(req: NextRequest) {
       if (invite) {
         const familyName = profile?.display_name ?? profile?.first_name ?? "A Rooted family";
         const viewUrl = `https://www.rootedhomeschoolapp.com/family/${invite.token}`;
-        const unsubUrl = `https://www.rootedhomeschoolapp.com/family/${invite.token}/unsubscribe`;
-        const resendClient = new Resend(process.env.RESEND_API_KEY);
-        await resendClient.emails.send({
-          from: "Rooted <hello@rootedhomeschoolapp.com>",
-          to: email.trim().toLowerCase(),
-          subject: `${familyName} is sharing their homeschool journey with you 🌿`,
-          html: inviteEmailHtml(invite.viewer_name ?? "Friend", familyName, viewUrl, unsubUrl),
-          text: inviteEmailText(invite.viewer_name ?? "Friend", familyName, viewUrl),
-        });
+        await sendResendTemplate(email.trim().toLowerCase(), TEMPLATES.familyInvite, {
+          recipientName: invite.viewer_name ?? "Friend",
+          familyName,
+          familyUrl: viewUrl,
+        }, "Rooted <hello@rootedhomeschoolapp.com>");
       }
     }
 
@@ -235,15 +228,11 @@ export async function PUT(req: NextRequest) {
 
         const familyName = profile?.display_name ?? profile?.first_name ?? "A Rooted family";
         const viewUrl = `https://www.rootedhomeschoolapp.com/family/${invite.token}`;
-        const unsubUrl = `https://www.rootedhomeschoolapp.com/family/${invite.token}/unsubscribe`;
-        const resendClient = new Resend(process.env.RESEND_API_KEY);
-        await resendClient.emails.send({
-          from: "Rooted <hello@rootedhomeschoolapp.com>",
-          to: invite.email,
-          subject: `${familyName} is sharing their homeschool journey with you 🌿`,
-          html: inviteEmailHtml(invite.viewer_name ?? "Friend", familyName, viewUrl, unsubUrl),
-          text: inviteEmailText(invite.viewer_name ?? "Friend", familyName, viewUrl),
-        });
+        await sendResendTemplate(invite.email, TEMPLATES.familyInvite, {
+          recipientName: invite.viewer_name ?? "Friend",
+          familyName,
+          familyUrl: viewUrl,
+        }, "Rooted <hello@rootedhomeschoolapp.com>");
       }
     }
 
@@ -254,41 +243,3 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// ─── Email templates ─────────────────────────────────────────────────────────
-
-function inviteEmailHtml(viewerName: string, familyName: string, viewUrl: string, unsubUrl: string): string {
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#faf9f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f7;padding:32px 16px;">
-<tr><td align="center">
-<table width="100%" style="max-width:520px;background:#ffffff;border-radius:16px;padding:36px 32px;border:1px solid #ebe7e1;">
-<tr><td>
-<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">Hi ${viewerName}!</p>
-<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">${familyName} wanted you to follow along with their homeschool journey. You'll see photos, the books the kids are reading, their wins, field trips, and the everyday moments that make up their year.</p>
-<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">It's free — no account needed. Just click below. 🌿</p>
-<table cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr><td style="background:#2d5a3d;border-radius:10px;padding:14px 32px;">
-<a href="${viewUrl}" style="color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;display:inline-block;">See their memories &rarr;</a>
-</td></tr></table>
-<p style="font-size:13px;line-height:1.5;color:#7a6f65;margin:0 0 4px;">You can leave reactions and comments to let them know you're cheering them on.</p>
-<p style="font-size:14px;line-height:1.5;color:#2d2926;margin:24px 0 0;font-weight:600;">&mdash; Brittany</p>
-<p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">Founder, Rooted 🌿</p>
-</td></tr></table>
-<p style="font-size:11px;color:#b5aca4;margin-top:16px;text-align:center;">
-<a href="${unsubUrl}" style="color:#b5aca4;text-decoration:underline;">Unsubscribe from weekly updates</a>
-</p>
-</td></tr></table>
-</body></html>`;
-}
-
-function inviteEmailText(viewerName: string, familyName: string, viewUrl: string): string {
-  return `Hi ${viewerName}!
-
-${familyName} wanted you to follow along with their homeschool journey. You'll see photos, the books the kids are reading, their wins, field trips, and the everyday moments that make up their year.
-
-It's free — no account needed. Just click below.
-
-See their memories → ${viewUrl}
-
-— Brittany / Founder, Rooted 🌿`;
-}
