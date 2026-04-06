@@ -1,3 +1,4 @@
+// PostHog analytics — initialized client-side only
 import posthog from 'posthog-js'
 
 let initialized = false
