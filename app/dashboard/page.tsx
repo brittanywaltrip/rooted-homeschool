@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { compressImage } from "@/lib/compress-image";
+import { posthog } from "@/lib/posthog";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -864,6 +865,15 @@ export default function TodayPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // PostHog identify
+  useEffect(() => {
+    if (!effectiveUserId || loading) return;
+    posthog.identify(effectiveUserId, {
+      plan: isPro ? 'pro' : 'free',
+      is_pro: isPro,
+    });
+  }, [effectiveUserId, loading, isPro]);
+
   // Check for new achievement awards
   useEffect(() => {
     if (!effectiveUserId || loading) return;
@@ -996,6 +1006,7 @@ export default function TodayPage() {
     }
 
     if (!current) {
+      posthog.capture('lesson_completed');
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 1600);
       triggerGardenAnimation(lesson?.child_id ?? undefined);
@@ -1505,7 +1516,7 @@ export default function TodayPage() {
     console.log("[Rooted] Saved:", "book", inserted);
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
     setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
-    showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null);
+    showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book");
     await loadData();
     checkAndAwardBadges(user.id);
   }
@@ -1535,16 +1546,17 @@ export default function TodayPage() {
     console.log("[Rooted] Saved:", "drawing", inserted);
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
-    showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null);
+    showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing");
     await loadData();
     checkAndAwardBadges(user.id);
   }
 
   // ── Capture toast + edit sheet helpers ────────────────────────────────────
 
-  function showCaptureToast(message: string, memoryId: string | null) {
+  function showCaptureToast(message: string, memoryId: string | null, memoryType?: string) {
     setCaptureToast({ message, memoryId });
     setTimeout(() => setCaptureToast(null), 4000);
+    if (memoryId) posthog.capture('memory_captured', { type: memoryType ?? 'unknown' });
   }
 
   function openEditSheet(id: string, title: string, caption: string, childId: string, type: string) {
@@ -2277,7 +2289,7 @@ export default function TodayPage() {
                 if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); showCaptureToast("Save failed — try again", null); return; }
                 console.log("[Rooted] Saved:", memType, ins);
                 const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
-                showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null);
+                showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null, memType);
                 captureTypeRef.current = "photo"; // reset
                 setTotalMemories(prev => prev + 1);
                 await loadData();
@@ -2482,7 +2494,7 @@ export default function TodayPage() {
                     if (ftErr) { console.error("[Rooted] Field trip save failed:", ftErr.message); setFtSaving(false); showCaptureToast("Save failed — try again", null); return; }
                     console.log("[Rooted] Saved:", ftType, ins);
                     const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
-                    showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null);
+                    showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null, ftType);
                     checkAndAwardBadges(user.id);
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
@@ -3144,7 +3156,7 @@ export default function TodayPage() {
                     console.log("[Rooted] Saved:", winType, ins);
                     setTotalMemories(prev => prev + 1);
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
-                    showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null);
+                    showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null, winType);
                     checkAndAwardBadges(user.id);
                     setSavingWin(false);
                     setWinText("");

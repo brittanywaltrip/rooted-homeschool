@@ -13,6 +13,7 @@ import {
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
+import { posthog } from "@/lib/posthog";
 
 function safeParseDateStr(d: string | null | undefined): Date | null {
   if (!d) return null;
@@ -286,6 +287,7 @@ export default function YearbookReadPage() {
       }
       setContentMap(cMap);
       setLoading(false);
+      posthog.capture('yearbook_opened');
     })();
   }, [effectiveUserId]);
 
