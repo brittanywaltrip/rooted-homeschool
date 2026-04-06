@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { Resend } from 'resend'
-import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 
 // ALTER TABLE profiles ADD COLUMN IF NOT EXISTS re_engagement_sent boolean DEFAULT false;
 
@@ -13,43 +11,19 @@ const supabase = createClient(
 )
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
+const TEMPLATE_ID = '7a45dbe1-8208-42cb-b7c0-7497926b71d3'
 
-function emailHtml(firstName: string): string {
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;padding:0;background:#faf9f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#faf9f7;padding:32px 16px;">
-<tr><td align="center">
-<table width="100%" style="max-width:520px;background:#ffffff;border-radius:16px;padding:36px 32px;border:1px solid #ebe7e1;">
-<tr><td>
-<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">Hey ${firstName},</p>
-<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">I noticed you signed up for Rooted a few days ago but haven&rsquo;t had a chance to try it yet. Life gets busy &mdash; I totally get it.</p>
-<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">I built Rooted for moms like me who want to hold onto the homeschool years without it feeling like another chore. You don&rsquo;t need a curriculum set up to start. Just open the app and tap &ldquo;Capture a photo&rdquo; &mdash; one tap and your first memory is saved forever.</p>
-<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">That&rsquo;s it. That&rsquo;s all it takes to start.</p>
-<table cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr><td style="background:#5c7f63;border-radius:10px;padding:13px 28px;">
-<a href="https://rootedhomeschoolapp.com/dashboard" style="color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;display:inline-block;">Open Rooted &rarr;</a>
-</td></tr></table>
-<p style="font-size:14px;line-height:1.5;color:#2d2926;margin:24px 0 0;font-weight:600;">&mdash; Brittany</p>
-<p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">Founder, Rooted</p>
-${emailFooterHtml()}
-</td></tr></table>
-</td></tr></table>
-</body></html>`
-}
-
-function emailText(firstName: string): string {
-  return `Hey ${firstName},
-
-I noticed you signed up for Rooted a few days ago but haven't had a chance to try it yet. Life gets busy — I totally get it.
-
-I built Rooted for moms like me who want to hold onto the homeschool years without it feeling like another chore. You don't need a curriculum set up to start. Just open the app and tap "Capture a photo" — one tap and your first memory is saved forever.
-
-That's it. That's all it takes to start.
-
-Open Rooted → https://rootedhomeschoolapp.com/dashboard
-
-— Brittany
-Founder, Rooted${emailFooterText()}`
+function resolveFirstName(
+  profileName: string | null,
+  displayName: string | null,
+  authUser: { user_metadata?: Record<string, string> } | null | undefined,
+): string {
+  return profileName
+    || displayName
+    || authUser?.user_metadata?.first_name
+    || authUser?.user_metadata?.full_name?.split(' ')[0]
+    || authUser?.user_metadata?.name?.split(' ')[0]
+    || 'there'
 }
 
 export async function GET(req: NextRequest) {
@@ -57,7 +31,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const resend = new Resend(process.env.RESEND_API_KEY)
   let sent = 0
   let skipped = 0
   let errors = 0
@@ -101,18 +74,28 @@ export async function GET(req: NextRequest) {
     const email = authData.user?.email
     if (!email) { skipped++; continue }
 
-    const firstName = user.first_name || user.display_name || authData.user?.user_metadata?.first_name || authData.user?.user_metadata?.full_name?.split(' ')[0] || authData.user?.user_metadata?.name?.split(' ')[0] || 'there'
+    const firstName = resolveFirstName(user.first_name, user.display_name, authData.user)
 
-    const result = await resend.emails.send({
-      from: FROM,
-      to: email,
-      subject: `Hey ${firstName} — did Rooted get lost in the shuffle? 🌿`,
-      text: emailText(firstName),
-      html: emailHtml(firstName),
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: FROM,
+        to: email,
+        template_id: TEMPLATE_ID,
+        template_variables: {
+          firstName,
+          dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
+        },
+      }),
     })
 
-    if (result.error) {
-      console.error(`re-engagement error for ${email}:`, result.error)
+    if (!res.ok) {
+      const err = await res.json()
+      console.error(`re-engagement error for ${email}:`, err)
       errors++
     } else {
       await supabase
