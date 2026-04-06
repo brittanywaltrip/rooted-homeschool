@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
       : "soon";
 
     try {
-      const giftUrl = `https://www.rootedhomeschoolapp.com/upgrade?gift=${inv.token}`;
+      const giftUrl = `https://www.rootedhomeschoolapp.com/family/${inv.token}`;
       const result = await sendResendTemplate(inv.email, TEMPLATES.trialWarning, {
         recipientName: inv.viewer_name ?? "Friend",
         familyName,

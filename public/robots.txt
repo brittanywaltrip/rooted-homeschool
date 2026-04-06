@@ -1,2 +1,6 @@
 User-agent: *
+Allow: /
+Disallow: /dashboard/
 Disallow: /family/
+Disallow: /onboarding/
+Sitemap: https://rootedhomeschoolapp.com/sitemap.xml

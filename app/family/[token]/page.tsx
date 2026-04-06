@@ -600,6 +600,21 @@ export default function FamilyViewPage() {
         </div>
       </div>
 
+      {/* ─── Gift nudge (always visible) ─────────────────────────────── */}
+      <div className="mx-4 mt-8 bg-[#fefcf9] border border-[#e8e2d9] border-l-[3px] border-l-[#8cba8e] rounded-2xl px-5 py-4">
+        <p className="text-[13px] font-medium text-[#2d2926] mb-1">Love following along? 🎁</p>
+        <p className="text-[12px] text-[#7a6f65] leading-relaxed mb-3">
+          You can gift {familyName} a full year of Rooted so they never stop capturing these moments.
+        </p>
+        <button
+          onClick={handleGift}
+          disabled={giftLoading}
+          className="text-xs font-medium text-white bg-[#3d6b47] hover:bg-[#2d5a3d] px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {giftLoading ? "Loading..." : "Gift them a year →"}
+        </button>
+      </div>
+
       {/* ─── Subtle Rooted footer ──────────────────────────────────────── */}
       <div className="text-center pt-8 pb-4">
         <a href="https://www.rootedhomeschoolapp.com" className="text-[10px] text-[#b5aca4] hover:text-[#7a6f65]">

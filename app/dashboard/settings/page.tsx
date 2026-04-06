@@ -2104,6 +2104,20 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* ── Gift Rooted ──────────────────────────────────────────────── */}
+      <div className="mt-6">
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+          <p className="text-sm font-medium text-[#2d2926]">🎁 Give Rooted as a gift</p>
+          <p className="text-xs text-[#7a6f65] mt-0.5 mb-3">Know a homeschool family who would love this? Gift them a year.</p>
+          <Link
+            href="/gift"
+            className="text-xs font-medium text-[#5c7f63] hover:text-[#3d5c42] transition-colors"
+          >
+            Go to gift page →
+          </Link>
+        </div>
+      </div>
+
       {/* ── Help & More ──────────────────────────────────────────────── */}
       <div className="mt-6 mb-8">
         <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-3 px-1">Help & More</p>
