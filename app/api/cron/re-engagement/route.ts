@@ -101,7 +101,7 @@ export async function GET(req: NextRequest) {
     const email = authData.user?.email
     if (!email) { skipped++; continue }
 
-    const firstName = user.first_name || user.display_name || 'there'
+    const firstName = user.first_name || user.display_name || authData.user?.user_metadata?.first_name || authData.user?.user_metadata?.full_name?.split(' ')[0] || authData.user?.user_metadata?.name?.split(' ')[0] || 'there'
 
     const result = await resend.emails.send({
       from: FROM,
