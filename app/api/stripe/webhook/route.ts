@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
+import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-02-25.clover',
@@ -52,285 +53,6 @@ async function sendEmail(to: string, subject: string, text: string, from = 'Root
   if (result.error) console.error('Resend sendEmail error:', result.error)
 }
 
-function foundingWelcomeHtml(firstName: string): string {
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to Rooted</title>
-</head>
-<body style="margin:0;padding:0;background-color:#f8f7f4;font-family:'Georgia',serif;">
-
-  <!-- Wrapper -->
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f7f4;padding:40px 20px;">
-    <tr>
-      <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
-
-          <!-- Header -->
-          <tr>
-            <td align="center" style="padding:0 0 32px 0;">
-              <div style="background-color:#3d5c42;border-radius:16px;padding:24px 32px;text-align:center;">
-                <div style="font-size:36px;margin-bottom:8px;">🌱</div>
-                <div style="color:#ffffff;font-size:24px;font-weight:bold;letter-spacing:-0.5px;">Rooted</div>
-                <div style="color:#a8c5ad;font-size:14px;margin-top:4px;">Founding Family Member</div>
-              </div>
-            </td>
-          </tr>
-
-          <!-- Main card -->
-          <tr>
-            <td style="background-color:#fefcf9;border-radius:16px;padding:40px;border:1px solid #e8e2d9;">
-
-              <!-- Greeting -->
-              <p style="margin:0 0 8px 0;font-size:13px;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;">A personal note</p>
-              <h1 style="margin:0 0 24px 0;font-size:28px;color:#2d2926;line-height:1.3;">
-                Welcome to the Rooted family, ${firstName}. 🌿
-              </h1>
-
-              <p style="margin:0 0 16px 0;font-size:16px;color:#3d3530;line-height:1.7;">
-                I'm Brittany — homeschool mom of 2 and the person who built Rooted from scratch because I was tired of feeling disorganized and constantly wondering if we were doing enough.
-              </p>
-
-              <p style="margin:0 0 16px 0;font-size:16px;color:#3d3530;line-height:1.7;">
-                You just became one of our <strong style="color:#3d5c42;">Founding Members</strong> — one of the very first families to believe in what we're building here. That genuinely means everything to me.
-              </p>
-
-              <p style="margin:0 0 32px 0;font-size:16px;color:#3d3530;line-height:1.7;">
-                Your $39/yr rate is <strong style="color:#3d5c42;">locked in forever</strong>. No matter how much Rooted grows, your price never increases. That's my promise to you for being here at the beginning. 🎁
-              </p>
-
-              <!-- What you get -->
-              <div style="background-color:#f0f7f0;border-radius:12px;padding:24px;margin-bottom:32px;border:1px solid #c8dfc9;">
-                <p style="margin:0 0 16px 0;font-size:13px;color:#5c7f63;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">✨ As a Founding Member you get</p>
-                <table width="100%" cellpadding="0" cellspacing="0">
-                  <tr>
-                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">🌱 &nbsp;Unlimited photos &amp; full memory history</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">📅 &nbsp;Finish Line curriculum pacing</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">✨ &nbsp;AI Family Update — share with grandparents</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">🎓 &nbsp;AI Graduation Letter</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">⭐ &nbsp;Exclusive Founding Member badge in your Garden</td>
-                  </tr>
-                  <tr>
-                    <td style="padding:6px 0;font-size:15px;color:#2d2926;">🔒 &nbsp;Your $39/yr price locked in forever</td>
-                  </tr>
-                </table>
-              </div>
-
-              <!-- Get started steps -->
-              <p style="margin:0 0 16px 0;font-size:16px;font-weight:bold;color:#2d2926;">Here's where to start 👇</p>
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
-                <tr>
-                  <td style="padding:10px 0;border-bottom:1px solid #e8e2d9;">
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">1️⃣</td>
-                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Set up your curriculum</strong><br>Go to Plan → add your curriculum for each child. Rooted will auto-schedule lessons across your school week.</td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:10px 0;border-bottom:1px solid #e8e2d9;">
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">2️⃣</td>
-                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Check off your first lesson</strong><br>Open Today and tap the circle next to a lesson. Watch your Garden grow its first leaf. 🍃</td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:10px 0;">
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">3️⃣</td>
-                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Log a memory</strong><br>Tap + Log something to save a field trip, book, or moment. These are the things you'll want to look back on.</td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- CTA button -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
-                <tr>
-                  <td align="center">
-                    <a href="https://www.rootedhomeschoolapp.com/dashboard"
-                       style="display:inline-block;background-color:#3d5c42;color:#ffffff;font-size:16px;font-weight:bold;padding:16px 40px;border-radius:12px;text-decoration:none;letter-spacing:0.3px;">
-                      Open Rooted →
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Personal close -->
-              <div style="border-top:1px solid #e8e2d9;padding-top:24px;">
-                <p style="margin:0 0 12px 0;font-size:15px;color:#3d3530;line-height:1.7;">
-                  I'd genuinely love to hear how it goes for your family. Hit reply on this email anytime — I read every one.
-                </p>
-                <p style="margin:0;font-size:15px;color:#3d3530;line-height:1.7;">
-                  From our family to yours — welcome home. 🌿
-                </p>
-                <p style="margin:16px 0 0 0;font-size:15px;color:#5c7f63;font-weight:bold;">
-                  — Brittany, founder &amp; homeschool mom
-                </p>
-              </div>
-
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td align="center" style="padding:24px 0 0 0;">
-              <p style="margin:0;font-size:13px;color:#7a6f65;">Rooted · rootedhomeschoolapp.com</p>
-              <p style="margin:4px 0 0 0;font-size:13px;color:#7a6f65;">Questions? Reply to this email or reach us at hello@rootedhomeschoolapp.com</p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-
-</body>
-</html>`
-}
-
-function standardWelcomeHtml(firstName: string): string {
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to Rooted</title>
-</head>
-<body style="margin:0;padding:0;background-color:#f8f7f4;font-family:'Georgia',serif;">
-
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f7f4;padding:40px 20px;">
-    <tr>
-      <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
-
-          <!-- Header -->
-          <tr>
-            <td align="center" style="padding:0 0 32px 0;">
-              <div style="background-color:#3d5c42;border-radius:16px;padding:24px 32px;text-align:center;">
-                <div style="font-size:36px;margin-bottom:8px;">🌱</div>
-                <div style="color:#ffffff;font-size:24px;font-weight:bold;letter-spacing:-0.5px;">Rooted</div>
-                <div style="color:#a8c5ad;font-size:14px;margin-top:4px;">You're in!</div>
-              </div>
-            </td>
-          </tr>
-
-          <!-- Main card -->
-          <tr>
-            <td style="background-color:#fefcf9;border-radius:16px;padding:40px;border:1px solid #e8e2d9;">
-
-              <p style="margin:0 0 8px 0;font-size:13px;color:#7a6f65;text-transform:uppercase;letter-spacing:1px;">Welcome aboard</p>
-              <h1 style="margin:0 0 24px 0;font-size:28px;color:#2d2926;line-height:1.3;">
-                Hey ${firstName}, welcome to Rooted! 🌿
-              </h1>
-
-              <p style="margin:0 0 16px 0;font-size:16px;color:#3d3530;line-height:1.7;">
-                I'm Brittany — homeschool mom of 2 and the creator of Rooted. I built this because I needed something simpler, warmer, and more encouraging than a spreadsheet.
-              </p>
-
-              <p style="margin:0 0 16px 0;font-size:16px;color:#3d3530;line-height:1.7;">
-                You just signed up for <strong style="color:#3d5c42;">Rooted Standard ($59/yr)</strong> — and I'm so glad you're here.
-              </p>
-
-              <p style="margin:0 0 32px 0;font-size:16px;color:#3d3530;line-height:1.7;">
-                Everything is set up and ready to go. Here's how to make the most of your first week:
-              </p>
-
-              <!-- Get started steps -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
-                <tr>
-                  <td style="padding:10px 0;border-bottom:1px solid #e8e2d9;">
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">1️⃣</td>
-                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Set up your curriculum</strong><br>Go to Plan → add your curriculum for each child. Rooted will auto-schedule lessons across your school week.</td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:10px 0;border-bottom:1px solid #e8e2d9;">
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">2️⃣</td>
-                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Check off your first lesson</strong><br>Open Today and tap the circle next to a lesson. Watch your Garden grow its first leaf. 🍃</td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:10px 0;">
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td width="36" style="font-size:20px;vertical-align:top;padding-top:2px;">3️⃣</td>
-                        <td style="font-size:15px;color:#3d3530;line-height:1.6;"><strong>Log a memory</strong><br>Tap + Log something to save a field trip, book, or moment. These are the things you'll want to look back on.</td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- CTA button -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
-                <tr>
-                  <td align="center">
-                    <a href="https://www.rootedhomeschoolapp.com/dashboard"
-                       style="display:inline-block;background-color:#3d5c42;color:#ffffff;font-size:16px;font-weight:bold;padding:16px 40px;border-radius:12px;text-decoration:none;letter-spacing:0.3px;">
-                      Go to your dashboard →
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Personal close -->
-              <div style="border-top:1px solid #e8e2d9;padding-top:24px;">
-                <p style="margin:0 0 12px 0;font-size:15px;color:#3d3530;line-height:1.7;">
-                  Hit reply anytime — I personally read every email.
-                </p>
-                <p style="margin:0;font-size:15px;color:#3d3530;line-height:1.7;">
-                  Welcome to the family. 🌿
-                </p>
-                <p style="margin:16px 0 0 0;font-size:15px;color:#5c7f63;font-weight:bold;">
-                  — Brittany, founder &amp; homeschool mom
-                </p>
-              </div>
-
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td align="center" style="padding:24px 0 0 0;">
-              <p style="margin:0;font-size:13px;color:#7a6f65;">Rooted · rootedhomeschoolapp.com</p>
-              <p style="margin:4px 0 0 0;font-size:13px;color:#7a6f65;">Questions? Reply to this email or reach us at hello@rootedhomeschoolapp.com</p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-
-</body>
-</html>`
-}
 
 // Helper: find user by email and activate their account
 async function activateByEmail(email: string, plan: string, stripeCustomerId: string, sessionId: string): Promise<{ userId: string; firstName: string; wasAlreadyActive: boolean } | null> {
@@ -475,11 +197,10 @@ export async function POST(req: NextRequest) {
         const momEmail = (await supabase.auth.admin.getUserById(recipientUserId)).data.user?.email
         if (momEmail) {
           const momName = recipientProfile?.first_name ?? 'friend'
-          await sendEmail(
-            momEmail,
-            'Someone just gifted you a year of Rooted 🎁',
-            `Hi ${momName}!\n\n${gifterName} wanted to make sure you never stop capturing these memories. Your Rooted account is active for another year. 🌿\n\nWith love,\n— Brittany / Founder, Rooted 🌿`,
-            'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
+          await sendResendTemplate(momEmail, TEMPLATES.giftReceived, {
+            firstName: momName,
+            dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
+          }, 'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
           ).catch(err => console.error('[webhook] gift mom email error:', err))
         }
 
@@ -487,11 +208,10 @@ export async function POST(req: NextRequest) {
         if (customerEmail) {
           const { data: momProfile } = await supabase.from('profiles').select('display_name').eq('id', recipientUserId).maybeSingle()
           const familyNameForEmail = momProfile?.display_name ?? 'The family'
-          await sendEmail(
-            customerEmail,
-            'Your gift is on its way 🌿',
-            `Hi ${gifterName}!\n\n${familyNameForEmail} will be notified that you gifted them a year of Rooted. You can keep following along at the same link.\n\nThank you for making their year. 🌿\n\n— Brittany / Founder, Rooted 🌿`,
-            'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
+          await sendResendTemplate(customerEmail, TEMPLATES.giftSent, {
+            firstName: gifterName,
+            familyName: familyNameForEmail,
+          }, 'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
           ).catch(err => console.error('[webhook] gift buyer email error:', err))
         }
 
@@ -577,22 +297,12 @@ export async function POST(req: NextRequest) {
       // Welcome email — only on first activation, not retries
       if (!wasAlreadyActive) {
         const isFounding = plan === 'founding_family'
-        const subjectLine = isFounding
-          ? `Welcome to the Rooted family, ${firstName}! 🌱`
-          : `Welcome to Rooted, ${firstName}! 🌱`
-        if (isFounding) {
-          await sendEmail(customerEmail, subjectLine,
-            `Hi ${firstName}, welcome to Rooted! You're a Founding Member — your $39/yr is locked forever. Go to your dashboard: rootedhomeschoolapp.com/dashboard — Brittany`,
-            'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
-            foundingWelcomeHtml(firstName)
-          ).catch((err) => console.error('[webhook] welcome email FAILED for:', customerEmail, err))
-        } else {
-          await sendEmail(customerEmail, subjectLine,
-            `Hi ${firstName},\n\nThank you for subscribing to Rooted Standard ($59/yr) — welcome to the family! 🌱\n\nGo to your dashboard: rootedhomeschoolapp.com/dashboard\n\nHit reply anytime — I personally read every email.\n\nWelcome home. 🌿\n\n— Brittany Waltrip\nFounder, Rooted\nhello@rootedhomeschoolapp.com`,
-            'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
-            standardWelcomeHtml(firstName)
-          ).catch((err) => console.error('[webhook] welcome email FAILED for:', customerEmail, err))
-        }
+        const templateId = isFounding ? TEMPLATES.welcomeFounding : TEMPLATES.welcomeStandard
+        await sendResendTemplate(customerEmail, templateId, {
+          firstName,
+          dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
+        }, 'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
+        ).catch((err) => console.error('[webhook] welcome email FAILED for:', customerEmail, err))
         console.log('[webhook] welcome email sent to', customerEmail)
       } else {
         console.log('[webhook] skipped welcome email for', customerEmail, '— already active (retry)')

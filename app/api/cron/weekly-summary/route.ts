@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 
 export const dynamic = 'force-dynamic'
@@ -202,14 +203,13 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
     const summaryLine = buildSummary(lessons, mems)
 
     try {
-      await resend.emails.send({
-        from: FROM,
-        to: email,
-        subject: 'Your week with Rooted 🌿',
-        text: `${name ? `Hi ${name}` : 'Hi'}, ${summaryLine} You captured ${mems.length} memories this week. Keep going!\n\n— Brittany\nFounder, Rooted${emailFooterText()}`,
-        html: emailHtml(name, summaryLine, mems.length),
+      const result = await sendResendTemplate(email, TEMPLATES.weeklySummary, {
+        firstName: name || 'there',
+        weeklySummary: `${summaryLine} You captured ${mems.length} ${mems.length === 1 ? 'memory' : 'memories'} this week.`,
+        memoriesUrl: 'https://www.rootedhomeschoolapp.com/dashboard/memories',
       })
-      sent++
+      if (result.ok) sent++
+      else console.error(`[weekly-summary] Failed to send to ${email}:`, result.error)
     } catch (e) {
       console.error(`[weekly-summary] Failed to send to ${email}:`, e)
     }

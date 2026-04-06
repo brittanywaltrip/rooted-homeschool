@@ -1,0 +1,57 @@
+// Shared helper for sending Resend template emails
+
+const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
+
+export async function sendResendTemplate(
+  to: string,
+  templateId: string,
+  variables: Record<string, string>,
+  from?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: from ?? FROM,
+      to,
+      template_id: templateId,
+      template_variables: variables,
+    }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: 'Unknown error' }))
+    return { ok: false, error: err.message ?? JSON.stringify(err) }
+  }
+  return { ok: true }
+}
+
+// All Resend template IDs
+export const TEMPLATES = {
+  // Welcome
+  welcomeFounding: 'bb1f8cd9-e823-4061-a128-63341d5e86ff',
+  welcomeStandard: 'd326289b-fd9a-4778-9d5a-6fdefc020488',
+  // Re-engagement (created in previous commit)
+  reengagement1: '96a2c4b0-9e98-4dde-955f-74cc5e8ea592',
+  reengagement2: '87d773a6-a9e1-40ba-8778-e3b9ef10e71f',
+  reengagement3: '0be24fe8-2656-4245-9122-a4a71465e8ea',
+  reengagement4: '7a45dbe1-8208-42cb-b7c0-7497926b71d3',
+  // Winback
+  winback: '6dda89d6-5c3b-4da3-ba2e-3b1c1c2512ce',
+  // Weekly summary
+  weeklySummary: 'c3fff265-4d07-4062-b78a-d16626af9c7f',
+  // Family
+  familyDigest: '1d5d5a36-453f-4f39-b62c-3cdaf59ed7f8',
+  trialWarning: '5bf4459b-40bc-4767-92e8-07cb452f2deb',
+  familyInvite: '8972ae72-582d-42bf-951c-92d24a6568cc',
+  commentNotification: '83c2da26-e476-4de4-9f3c-d79811ff7d9e',
+  reactionNotification: 'f3c6c94e-1fae-4afd-bd33-c2f5ead9d2b0',
+  // Partner/Affiliate
+  affiliateWelcome: '5d4ca0c9-5d93-4002-813d-dd8387310395',
+  partnerApplication: '3f6f4123-3875-405f-8bac-0cc873ee06d5',
+  // Gifts
+  giftReceived: '90e75658-0bc3-4f92-87dc-b18c98207d33',
+  giftSent: 'b1b443ce-d51d-415d-bcbe-7a2f63b86323',
+} as const

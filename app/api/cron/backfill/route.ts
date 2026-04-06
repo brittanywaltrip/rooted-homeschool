@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { Resend } from 'resend'
-import { emailFooterText } from '@/lib/email-footer'
+import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,19 +9,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const FROM = 'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
-
-const SIGNATURE = `— Brittany Waltrip
-Founder, Rooted
-hello@rootedhomeschoolapp.com
-rootedhomeschoolapp.com${emailFooterText()}`
-
 export async function GET(req: NextRequest) {
   if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const resend = new Resend(process.env.RESEND_API_KEY)
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
 
   // All users who signed up more than 24 hours ago
@@ -56,15 +47,16 @@ export async function GET(req: NextRequest) {
     const email = authData.user?.email
     if (!email) { skipped++; continue }
 
-    const firstName = user.first_name ?? 'there'
-    const result = await resend.emails.send({
-      from: FROM,
-      to: email,
-      subject: 'We saved your spot at Rooted \uD83C\uDF31',
-      text: `Hi ${firstName},\n\nYou created your Rooted account a little while back — life gets busy, totally understand!\n\nYour account is still all set up and ready whenever you are. Setting up your first subject only takes a few minutes and unlocks everything: your weekly plan, lesson tracking, and your family's learning garden.\n\nJump back in here:\nhttps://rootedhomeschoolapp.com/dashboard/plan\n\n${SIGNATURE}`,
+    const firstName = user.first_name
+      || authData.user?.user_metadata?.first_name
+      || authData.user?.user_metadata?.full_name?.split(' ')[0]
+      || 'there'
+    const result = await sendResendTemplate(email, TEMPLATES.winback, {
+      firstName,
+      dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
     })
 
-    if (result.error) {
+    if (!result.ok) {
       console.error(`backfill error for ${email}:`, result.error)
       errorList.push(email)
     } else {
