@@ -379,7 +379,7 @@ export default function Home() {
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
               { number: "300+",    label: "Families Growing with Rooted", icon: "🌱" },
-              { number: "6",       label: "Features, Everything in One Place", icon: "🎨" },
+              { number: "7",       label: "Features, Everything in One Place", icon: "🎨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
               { number: "No Canva", label: "Beautiful Printables",  icon: "🖨️" },
             ].map(({ number, label, icon }) => (
@@ -1030,6 +1030,9 @@ export default function Home() {
 
         <p className="text-xs text-[#b5aca4] mt-6 text-center">
           Try it free. No credit card needed to get started.
+        </p>
+        <p className="text-[11px] text-[#c8bfb5] mt-3 text-center">
+          🔒 SSL Secured  ·  🚫 No ads, ever  ·  🧡 Your memories are never sold or shared
         </p>
       </section>
 
