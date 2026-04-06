@@ -11,7 +11,7 @@ const supabase = createClient(
 )
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
-const TEMPLATE_ID = '7a45dbe1-8208-42cb-b7c0-7497926b71d3'
+const TEMPLATE_ID = '5d26f9fd-92fb-47fd-af36-ad33d0632dda'
 
 function resolveFirstName(
   profileName: string | null,
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
   const { data: users, error: queryError } = await supabase
     .from('profiles')
-    .select('id, first_name, display_name')
+    .select('id, first_name, display_name, email_unsubscribed')
     .eq('onboarded', true)
     .or('re_engagement_sent.eq.false,re_engagement_sent.is.null')
     .lt('created_at', threeDaysAgo)
@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
   }
 
   for (const user of users ?? []) {
+    if (user.email_unsubscribed) { skipped++; continue }
     // Check 0 memories
     const { data: memoryData } = await supabase
       .from('memories')
@@ -89,6 +90,7 @@ export async function GET(req: NextRequest) {
         template_variables: {
           firstName,
           dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
+          email,
         },
       }),
     })

@@ -31,15 +31,16 @@ export async function sendResendTemplate(
 // All Resend template IDs
 export const TEMPLATES = {
   // Welcome
+  welcomeFree: '39cf0f8b-4316-4afb-a46f-a3d28a6241ef',
   welcomeFounding: 'bb1f8cd9-e823-4061-a128-63341d5e86ff',
   welcomeStandard: 'd326289b-fd9a-4778-9d5a-6fdefc020488',
-  // Re-engagement (created in previous commit)
-  reengagement1: '96a2c4b0-9e98-4dde-955f-74cc5e8ea592',
-  reengagement2: '87d773a6-a9e1-40ba-8778-e3b9ef10e71f',
-  reengagement3: '0be24fe8-2656-4245-9122-a4a71465e8ea',
-  reengagement4: '7a45dbe1-8208-42cb-b7c0-7497926b71d3',
-  // Winback
-  winback: '6dda89d6-5c3b-4da3-ba2e-3b1c1c2512ce',
+  // Re-engagement (with unsubscribe links)
+  reengagement1: '6bcd32eb-1b86-4a96-8457-384554013b3f',
+  reengagement2: 'c5f091f4-3381-47d1-b286-93349803f41b',
+  reengagement3: '3f2c5bb5-e7f9-4c07-bad3-25b59219dd26',
+  reengagement4: '5d26f9fd-92fb-47fd-af36-ad33d0632dda',
+  // Winback (with unsubscribe link)
+  winback: '1bcd1b2e-3c08-40fd-bed1-05c01c2bf8f9',
   // Weekly summary
   weeklySummary: 'c3fff265-4d07-4062-b78a-d16626af9c7f',
   // Family
