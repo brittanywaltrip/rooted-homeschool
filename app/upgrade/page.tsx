@@ -296,6 +296,22 @@ function UpgradePageInner() {
           </p>
         </div>
 
+        {/* Gift section */}
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 mb-8 max-w-lg mx-auto text-center">
+          <p className="text-sm font-medium text-[#2d2926] mb-1">Want someone to gift this for you? 🎁</p>
+          <p className="text-xs text-[#7a6f65] mb-3">Share this link with a grandparent or family member:</p>
+          <div className="flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-xl px-3 py-2">
+            <span className="flex-1 text-xs text-[#2d2926] truncate font-mono">rootedhomeschoolapp.com/gift</span>
+            <button
+              type="button"
+              onClick={() => { navigator.clipboard.writeText('https://rootedhomeschoolapp.com/gift'); }}
+              className="shrink-0 text-xs font-medium text-[#5c7f63] hover:text-[#3d5c42] transition-colors px-2 py-1"
+            >
+              Copy link
+            </button>
+          </div>
+        </div>
+
         {/* Footer */}
         <p className="text-center text-xs text-[#b5aca4] leading-relaxed">
           Secure checkout via Stripe · Cancel anytime ·{' '}
