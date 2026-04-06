@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Lora } from "next/font/google";
 import "./globals.css";
 import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
+import PostHogInit from "./components/PostHogInit";
 import { Analytics } from '@vercel/analytics/react';
 import Script from 'next/script';
 
@@ -77,6 +78,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${lora.variable} antialiased`}
       >
         <ServiceWorkerRegistrar />
+        <PostHogInit />
         {children}
         <Analytics />
       </body>

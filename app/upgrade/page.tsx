@@ -3,6 +3,7 @@ import { Suspense, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import { posthog } from '@/lib/posthog'
 
 export default function UpgradePage() {
   return (
@@ -25,6 +26,8 @@ function UpgradePageInner() {
     || (typeof window !== 'undefined' ? localStorage.getItem('rooted_ref') : null)
     || (typeof document !== 'undefined' ? document.cookie.match(/rooted_ref=([^;]+)/)?.[1] : null)
   const [refAffiliateName, setRefAffiliateName] = useState<string | null>(null)
+
+  useEffect(() => { posthog.capture('upgrade_page_viewed') }, [])
 
   useEffect(() => {
     if (!refCode) return
@@ -88,6 +91,7 @@ function UpgradePageInner() {
   }, [])
 
   async function handleClick(plan: 'founding') {
+    posthog.capture('upgrade_clicked', { plan })
     setError(null)
     setLoadingPlan(plan)
 
