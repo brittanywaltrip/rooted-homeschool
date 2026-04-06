@@ -11,9 +11,9 @@ const supabase = createClient(
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
 
 const TEMPLATE_IDS = {
-  reengagement_1: '96a2c4b0-9e98-4dde-955f-74cc5e8ea592',
-  reengagement_2: '87d773a6-a9e1-40ba-8778-e3b9ef10e71f',
-  reengagement_3: '0be24fe8-2656-4245-9122-a4a71465e8ea',
+  reengagement_1: '6bcd32eb-1b86-4a96-8457-384554013b3f',
+  reengagement_2: 'c5f091f4-3381-47d1-b286-93349803f41b',
+  reengagement_3: '3f2c5bb5-e7f9-4c07-bad3-25b59219dd26',
 }
 
 async function hasSubjects(userId: string): Promise<boolean> {
@@ -87,11 +87,12 @@ export async function GET(req: NextRequest) {
 
   const { data: e1Users } = await supabase
     .from('profiles')
-    .select('id, first_name, created_at')
+    .select('id, first_name, created_at, email_unsubscribed')
     .gte('created_at', e1WindowStart.toISOString())
     .lte('created_at', e1WindowEnd.toISOString())
 
   for (const user of e1Users ?? []) {
+    if (user.email_unsubscribed) { skipped++; continue }
     const emailType = 'reengagement_1'
     if (await alreadySent(user.id, emailType)) { skipped++; continue }
     if (await hasSubjects(user.id)) { skipped++; continue }
@@ -104,6 +105,7 @@ export async function GET(req: NextRequest) {
     const result = await sendTemplate(email, TEMPLATE_IDS.reengagement_1, {
       firstName,
       dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
+      email,
     })
 
     if (!result.ok) {
@@ -121,11 +123,12 @@ export async function GET(req: NextRequest) {
 
   const { data: e2Users } = await supabase
     .from('profiles')
-    .select('id, first_name, created_at')
+    .select('id, first_name, created_at, email_unsubscribed')
     .gte('created_at', e2WindowStart.toISOString())
     .lte('created_at', e2WindowEnd.toISOString())
 
   for (const user of e2Users ?? []) {
+    if (user.email_unsubscribed) { skipped++; continue }
     const emailType = 'reengagement_2'
     if (await alreadySent(user.id, emailType)) { skipped++; continue }
     if (await hasLessons(user.id)) { skipped++; continue }
@@ -138,6 +141,7 @@ export async function GET(req: NextRequest) {
     const result = await sendTemplate(email, TEMPLATE_IDS.reengagement_2, {
       firstName,
       planUrl: 'https://rootedhomeschoolapp.com/dashboard/plan',
+      email,
     })
 
     if (!result.ok) {
@@ -155,11 +159,12 @@ export async function GET(req: NextRequest) {
 
   const { data: e3Users } = await supabase
     .from('profiles')
-    .select('id, first_name, created_at')
+    .select('id, first_name, created_at, email_unsubscribed')
     .gte('created_at', e3WindowStart.toISOString())
     .lte('created_at', e3WindowEnd.toISOString())
 
   for (const user of e3Users ?? []) {
+    if (user.email_unsubscribed) { skipped++; continue }
     const emailType = 'reengagement_3'
     if (await alreadySent(user.id, emailType)) { skipped++; continue }
     if (await hasLessons(user.id)) { skipped++; continue }
@@ -172,6 +177,7 @@ export async function GET(req: NextRequest) {
     const result = await sendTemplate(email, TEMPLATE_IDS.reengagement_3, {
       firstName,
       dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
+      email,
     })
 
     if (!result.ok) {

@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   // All users who signed up more than 24 hours ago
   const { data: allUsers } = await supabase
     .from('profiles')
-    .select('id, first_name, created_at')
+    .select('id, first_name, created_at, email_unsubscribed')
     .lt('created_at', cutoff.toISOString())
 
   let sent = 0
@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
   const errorList: string[] = []
 
   for (const user of allUsers ?? []) {
+    if (user.email_unsubscribed) { skipped++; continue }
     // Skip if already received any reengagement email
     const { data: anyEmailData } = await supabase
       .from('email_log')
@@ -54,6 +55,7 @@ export async function GET(req: NextRequest) {
     const result = await sendResendTemplate(email, TEMPLATES.winback, {
       firstName,
       dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
+      email,
     })
 
     if (!result.ok) {
