@@ -8,7 +8,7 @@ export function initPostHog() {
   if (initialized) return
 
   const key = process.env.NEXT_PUBLIC_POSTHOG_KEY
-  const host = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
+  const host = '/ingest'
 
   if (!key || key.trim() === '') {
     console.warn('[PostHog] NEXT_PUBLIC_POSTHOG_KEY is not set — skipping init')
@@ -18,6 +18,7 @@ export function initPostHog() {
   try {
     posthog.init(key, {
       api_host: host,
+      ui_host: 'https://us.posthog.com',
       person_profiles: 'identified_only',
       capture_pageview: false, // manual capture for Next.js SPA routing
       capture_pageleave: true,
