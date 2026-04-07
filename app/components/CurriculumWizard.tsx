@@ -166,6 +166,10 @@ export default function CurriculumWizard({
   const [genCount, setGenCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  // Delete confirmation state
+  const [deleteConfirm, setDeleteConfirm] = useState<"future" | "full" | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   // ── Derived ───────────────────────────────────────────────────────────────
   const childObj         = children.find((c) => c.id === childId);
   const effectiveSub     = subject === "Other" ? customSubject.trim() : subject;
@@ -480,6 +484,89 @@ export default function CurriculumWizard({
     onSaved();
   }
 
+  // ── DELETE: future lessons only ─────────────────────────────────────────
+  async function deleteFutureLessons() {
+    if (!editData) return;
+    setDeleting(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setDeleting(false); return; }
+
+    // Find incomplete lessons by goal_id or title pattern
+    let ids: string[] = [];
+    if (editData.goalId) {
+      const { data } = await supabase
+        .from("lessons")
+        .select("id")
+        .eq("curriculum_goal_id", editData.goalId)
+        .eq("completed", false);
+      ids = (data ?? []).map((l: { id: string }) => l.id);
+    }
+    if (ids.length === 0) {
+      let q = supabase
+        .from("lessons")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("completed", false)
+        .ilike("title", `${editData.curricName} — Lesson%`);
+      if (editData.childId) q = q.eq("child_id", editData.childId);
+      const { data } = await q;
+      ids = (data ?? []).map((l: { id: string }) => l.id);
+    }
+
+    for (let i = 0; i < ids.length; i += 100) {
+      await supabase.from("lessons").delete().in("id", ids.slice(i, i + 100));
+    }
+
+    setDeleting(false);
+    setDeleteConfirm(null);
+    showToast?.("Future lessons deleted");
+    onSaved();
+    onClose();
+  }
+
+  // ── DELETE: entire curriculum ──────────────────────────────────────────
+  async function deleteEntireCurriculum() {
+    if (!editData) return;
+    setDeleting(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setDeleting(false); return; }
+
+    // Find ALL lessons (completed + incomplete) by goal_id or title pattern
+    let ids: string[] = [];
+    if (editData.goalId) {
+      const { data } = await supabase
+        .from("lessons")
+        .select("id")
+        .eq("curriculum_goal_id", editData.goalId);
+      ids = (data ?? []).map((l: { id: string }) => l.id);
+    }
+    if (ids.length === 0) {
+      let q = supabase
+        .from("lessons")
+        .select("id")
+        .eq("user_id", user.id)
+        .ilike("title", `${editData.curricName} — Lesson%`);
+      if (editData.childId) q = q.eq("child_id", editData.childId);
+      const { data } = await q;
+      ids = (data ?? []).map((l: { id: string }) => l.id);
+    }
+
+    for (let i = 0; i < ids.length; i += 100) {
+      await supabase.from("lessons").delete().in("id", ids.slice(i, i + 100));
+    }
+
+    // Delete the curriculum goal itself
+    if (editData.goalId) {
+      await supabase.from("curriculum_goals").delete().eq("id", editData.goalId);
+    }
+
+    setDeleting(false);
+    setDeleteConfirm(null);
+    showToast?.("Curriculum deleted");
+    onSaved();
+    onClose();
+  }
+
   function resetForAnotherCurriculum() {
     const savedChildId = childId;
     // Track what was just saved for the "Added so far" pills
@@ -676,6 +763,87 @@ export default function CurriculumWizard({
                 className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
                 Next →
               </button>
+            </div>
+
+            {/* ── Delete options (edit mode only) ──────────────── */}
+            {mode === "edit" && (
+              <>
+                <div className="border-t border-[#e8e2d9] mt-2 pt-4 space-y-2">
+                  <button
+                    onClick={() => setDeleteConfirm("future")}
+                    className="w-full py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                  >
+                    Delete future lessons only
+                  </button>
+                  <button
+                    onClick={() => setDeleteConfirm("full")}
+                    className="w-full py-2.5 rounded-xl border border-red-200 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    Delete this curriculum entirely
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── Delete confirmation modal ────────────────────── */}
+        {deleteConfirm && (
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
+              {deleteConfirm === "future" ? (
+                <>
+                  <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
+                    Delete future lessons?
+                  </h2>
+                  <p className="text-sm text-[#7a6f65] leading-relaxed">
+                    This will delete all unfinished future lessons for <strong>{editData?.curricName}</strong>.
+                    Your completed lessons and progress will be kept. This can&apos;t be undone.
+                  </p>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => setDeleteConfirm(null)}
+                      disabled={deleting}
+                      className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={deleteFutureLessons}
+                      disabled={deleting}
+                      className="flex-[2] py-2.5 rounded-xl bg-[#7a6f65] hover:bg-[#5c5248] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                    >
+                      {deleting ? "Deleting…" : "Yes, delete future lessons"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
+                    Delete this curriculum?
+                  </h2>
+                  <p className="text-sm text-[#7a6f65] leading-relaxed">
+                    This will permanently delete <strong>{editData?.curricName}</strong> and <strong>all</strong> its
+                    lessons — including completed ones. Your progress data will also be removed. This can&apos;t be undone.
+                  </p>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => setDeleteConfirm(null)}
+                      disabled={deleting}
+                      className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={deleteEntireCurriculum}
+                      disabled={deleting}
+                      className="flex-[2] py-2.5 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                    >
+                      {deleting ? "Deleting…" : "Yes, delete everything"}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

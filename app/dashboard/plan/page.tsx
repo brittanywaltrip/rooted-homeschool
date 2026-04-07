@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
+import Toast from "@/components/Toast";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -200,6 +201,7 @@ export default function PlanPage() {
   }, [searchParams, router]);
   const [editWizardData,    setEditWizardData]    = useState<CurriculumWizardEditData | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
+  const [planToastMsg, setPlanToastMsg] = useState<string | null>(null);
 
   // ── Plan tip banner ───────────────────────────────────────────────────────
   const [onboarded,    setOnboarded]    = useState(false);
@@ -1743,6 +1745,7 @@ export default function PlanPage() {
           editData={editWizardData}
           onClose={() => setEditWizardData(null)}
           onSaved={() => { loadData(); loadAllLessons(); }}
+          showToast={(msg) => setPlanToastMsg(msg)}
         />
       )}
 
@@ -1889,6 +1892,11 @@ export default function PlanPage() {
           </>
         );
       })()}
+
+      {/* ── Delete toast ──────────────────────────────────────── */}
+      {planToastMsg && (
+        <Toast message={planToastMsg} onDone={() => setPlanToastMsg(null)} />
+      )}
 
       {/* ── Reschedule undo toast (Plan page) ──────────────── */}
       {planRescheduleUndo && (
