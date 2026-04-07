@@ -50,8 +50,8 @@ export async function POST(req: NextRequest) {
     sendResendTemplate(user.email, TEMPLATES.welcomeFree, {
       firstName,
       dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
-    }).then(() => {
-      supabase.from('email_log').insert({ user_id: user.id, email_type: 'welcome_free' }).catch(() => {})
+    }).then(async () => {
+      try { await supabase.from('email_log').insert({ user_id: user.id, email_type: 'welcome_free' }) } catch {}
     }).catch((err) => console.error('[onboarding] welcome email failed:', err))
   }
 
