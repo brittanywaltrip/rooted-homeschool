@@ -210,7 +210,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
       })
       if (result.ok) {
         sent++
-        await supabase.from('email_log').insert({ user_id: userId, email_type: 'weekly_summary' }).catch(() => {})
+        try { await supabase.from('email_log').insert({ user_id: userId, email_type: 'weekly_summary' }) } catch {}
       } else {
         console.error(`[weekly-summary] Failed to send to ${email}:`, result.error)
       }

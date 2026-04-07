@@ -311,7 +311,7 @@ export async function POST(req: NextRequest) {
         // Log to email_log for audit trail + dedup
         if (activatedUserId) {
           const emailType = isFounding ? 'welcome_founding' : 'welcome_standard'
-          await supabase.from('email_log').insert({ user_id: activatedUserId, email_type: emailType }).catch(() => {})
+          try { await supabase.from('email_log').insert({ user_id: activatedUserId, email_type: emailType }) } catch {}
         }
       } else {
         console.log('[webhook] skipped welcome email for', customerEmail, '— already active (retry)')
