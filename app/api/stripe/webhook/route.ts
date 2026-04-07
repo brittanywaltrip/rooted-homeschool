@@ -238,6 +238,7 @@ export async function POST(req: NextRequest) {
     }
 
     let activated = false
+    let activatedUserId: string | null = null
     let firstName = 'friend'
     let wasAlreadyActive = false
 
@@ -262,6 +263,7 @@ export async function POST(req: NextRequest) {
       } else {
         console.log('[webhook] metadata userId update succeeded for:', metaUserId)
         activated = true
+        activatedUserId = metaUserId
         firstName = existing?.first_name ?? 'friend'
       }
     }
@@ -271,6 +273,7 @@ export async function POST(req: NextRequest) {
       const result = await activateByEmail(customerEmail, plan, stripeCustomerId, session.id)
       if (result) {
         activated = true
+        activatedUserId = result.userId
         firstName = result.firstName
         wasAlreadyActive = result.wasAlreadyActive
       }
@@ -304,6 +307,12 @@ export async function POST(req: NextRequest) {
         }, 'Brittany at Rooted <hello@rootedhomeschoolapp.com>'
         ).catch((err) => console.error('[webhook] welcome email FAILED for:', customerEmail, err))
         console.log('[webhook] welcome email sent to', customerEmail)
+
+        // Log to email_log for audit trail + dedup
+        if (activatedUserId) {
+          const emailType = isFounding ? 'welcome_founding' : 'welcome_standard'
+          await supabase.from('email_log').insert({ user_id: activatedUserId, email_type: emailType }).catch(() => {})
+        }
       } else {
         console.log('[webhook] skipped welcome email for', customerEmail, '— already active (retry)')
       }
