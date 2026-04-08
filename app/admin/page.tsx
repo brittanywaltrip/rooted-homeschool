@@ -577,6 +577,11 @@ export default function AdminPage() {
           <SectionHeader emoji="📊" title="Behavior (Last 7 Days)" />
           {phStats ? (
             <>
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <StatCard label="Active Today"      value={phStats.activeToday ?? 0} />
+                <StatCard label="Active This Week"  value={phStats.activeWeek ?? 0} />
+                <StatCard label="Active This Month" value={phStats.activeMonth ?? 0} />
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
                 <StatCard label="Memories Captured" value={phStats.memory_captured ?? 0} />
                 <StatCard label="Lessons Completed" value={phStats.lesson_completed ?? 0} />
