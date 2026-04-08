@@ -68,7 +68,38 @@ export async function GET(req: NextRequest) {
       if (event in counts) counts[event] = total
     }
 
-    return NextResponse.json(counts)
+    // Active user counts
+    const activeRes = await fetch(`https://us.posthog.com/api/projects/${projectId}/query`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: {
+          kind: 'HogQLQuery',
+          query: `SELECT
+            countIf(DISTINCT person_id, timestamp >= today()) as active_today,
+            countIf(DISTINCT person_id, timestamp >= today() - interval 7 day) as active_week,
+            countIf(DISTINCT person_id, timestamp >= today() - interval 30 day) as active_month
+          FROM events
+          WHERE event = '$pageview'`,
+        },
+      }),
+    })
+
+    let activeToday = 0, activeWeek = 0, activeMonth = 0
+    if (activeRes.ok) {
+      const activeData = await activeRes.json()
+      const row = activeData.results?.[0]
+      if (row) {
+        activeToday = row[0] ?? 0
+        activeWeek = row[1] ?? 0
+        activeMonth = row[2] ?? 0
+      }
+    }
+
+    return NextResponse.json({ ...counts, activeToday, activeWeek, activeMonth })
   } catch (err) {
     console.error('[posthog-stats] fetch error:', err)
     return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 })
