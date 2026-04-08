@@ -33,28 +33,50 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const res = await fetch(`https://us.posthog.com/api/projects/${projectId}/query`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query: {
-          kind: 'HogQLQuery',
-          query: `select event, count() as total from events where timestamp > now() - interval 7 day and event in ('memory_captured', 'lesson_completed', 'yearbook_opened', 'upgrade_page_viewed', 'upgrade_clicked') group by event`,
-        },
-      }),
-    })
+    const queryUrl = `https://us.posthog.com/api/projects/${projectId}/query`
+    const headers = {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    }
 
-    if (!res.ok) {
-      const err = await res.text()
-      console.error('[posthog-stats] API error:', res.status, err)
+    // Run event counts + active user queries in parallel
+    const [eventsRes, activeRes] = await Promise.all([
+      fetch(queryUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          query: {
+            kind: 'HogQLQuery',
+            query: `select event, count() as total from events where timestamp > now() - interval 7 day and event in ('memory_captured', 'lesson_completed', 'yearbook_opened', 'upgrade_page_viewed', 'upgrade_clicked') group by event`,
+          },
+        }),
+      }),
+      fetch(queryUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          query: {
+            kind: 'HogQLQuery',
+            query: `select
+              countIf(DISTINCT person_id, timestamp >= toStartOfDay(now())) as active_today,
+              countIf(DISTINCT person_id, timestamp >= now() - interval 7 day) as active_week,
+              countIf(DISTINCT person_id, timestamp >= now() - interval 30 day) as active_month
+            from events
+            where event = '$pageview'
+              and timestamp >= now() - interval 30 day`,
+          },
+        }),
+      }),
+    ])
+
+    if (!eventsRes.ok) {
+      const err = await eventsRes.text()
+      console.error('[posthog-stats] API error:', eventsRes.status, err)
       return NextResponse.json({ error: 'PostHog API error' }, { status: 502 })
     }
 
-    const data = await res.json()
-    const rows: [string, number][] = data.results ?? []
+    const eventsData = await eventsRes.json()
+    const rows: [string, number][] = eventsData.results ?? []
 
     const counts: Record<string, number> = {
       memory_captured: 0,
@@ -68,34 +90,15 @@ export async function GET(req: NextRequest) {
       if (event in counts) counts[event] = total
     }
 
-    // Active user counts
-    const activeRes = await fetch(`https://us.posthog.com/api/projects/${projectId}/query`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query: {
-          kind: 'HogQLQuery',
-          query: `SELECT
-            countIf(DISTINCT person_id, timestamp >= today()) as active_today,
-            countIf(DISTINCT person_id, timestamp >= today() - interval 7 day) as active_week,
-            countIf(DISTINCT person_id, timestamp >= today() - interval 30 day) as active_month
-          FROM events
-          WHERE event = '$pageview'`,
-        },
-      }),
-    })
-
+    // Parse active user counts
     let activeToday = 0, activeWeek = 0, activeMonth = 0
     if (activeRes.ok) {
       const activeData = await activeRes.json()
-      const row = activeData.results?.[0]
-      if (row) {
-        activeToday = row[0] ?? 0
-        activeWeek = row[1] ?? 0
-        activeMonth = row[2] ?? 0
+      const activeRow = activeData.results?.[0]
+      if (activeRow) {
+        activeToday = activeRow[0] ?? 0
+        activeWeek = activeRow[1] ?? 0
+        activeMonth = activeRow[2] ?? 0
       }
     }
 
