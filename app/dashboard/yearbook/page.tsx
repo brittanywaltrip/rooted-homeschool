@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Camera, ChevronRight, Check, BookOpen, Users, User, Lock } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -55,8 +55,9 @@ export default function YearbookPage() {
   const [profileStart, setProfileStart] = useState<string | null>(null);
   const [profileEnd, setProfileEnd] = useState<string | null>(null);
   const [planType, setPlanType] = useState<string | null>(null);
+  const [planLoaded, setPlanLoaded] = useState(false);
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
-  const isFreeUser = !planType || planType === "free" || previewFree;
+  const isFreeUser = planLoaded && (!planType || planType === "free") || previewFree;
 
   // Form state
   const [yearTitle, setYearTitle] = useState("");
@@ -99,6 +100,7 @@ export default function YearbookPage() {
     const syStart = p?.school_year_start ?? null;
     const syEnd = p?.school_year_end ?? null;
     setPlanType(p?.plan_type ?? null);
+    setPlanLoaded(true);
 
     setProfileStart(syStart);
     setProfileEnd(syEnd);
@@ -152,8 +154,10 @@ export default function YearbookPage() {
 
   // ── Free user gate ──────────────────────────────────────────────────────────
 
+  const gateTracked = useRef(false);
   useEffect(() => {
-    if (!loading && isFreeUser) {
+    if (!loading && isFreeUser && !gateTracked.current) {
+      gateTracked.current = true;
       posthog.capture('upgrade_page_viewed', { source: 'yearbook_gate' });
     }
   }, [loading, isFreeUser]);
