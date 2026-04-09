@@ -188,7 +188,7 @@ function UpgradePageInner() {
               <p className="text-sm text-[#7a6f65]">Get started</p>
             </div>
             <ul className="space-y-2 mb-6 flex-1">
-              {['Unlimited children', 'Basic lesson tracking', 'Family garden', 'Memories search', 'Curated resources'].map(f => (
+              {['All memory types (photos, books, wins, drawings, field trips)', 'Up to 50 memories visible', 'Daily lesson tracking', 'Family garden & badges', 'Curated resources', 'Yearbook preview', '1 progress summary per year (view only)'].map(f => (
                 <li key={f} className="flex items-center gap-2 text-sm text-[#7a6f65]">
                   <span className="text-[#c8bfb5] shrink-0">✓</span>{f}
                 </li>
@@ -236,11 +236,12 @@ function UpgradePageInner() {
 
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                'Unlimited children',
-                'Photos, books, wins, drawings, field trips',
-                'Memories search',
-                'Family yearbook',
-                'AI-written family updates',
+                'Everything in Free, plus:',
+                'Unlimited memories — complete timeline forever',
+                'Full family yearbook — unlock, read & download',
+                'Share with family (grandparent portal)',
+                'Downloadable progress reports',
+                'AI-written monthly family updates',
                 'Priority support from Brittany',
                 'Founding price locked forever 🎁',
               ].map((label) => (

@@ -2221,8 +2221,9 @@ export default function TodayPage() {
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
 
-        {/* Yearbook nudge — once per week for paid users with bookmarks */}
-        {(isPro || isPartner) && yearbookCount > 0 && (() => {
+        {/* Yearbook nudge — once per week, links to yearbook for paid, upgrade for free */}
+        {yearbookCount > 0 && (() => {
+          const isFreeUser = !planType || planType === "free" || previewFree;
           const lastShown = typeof window !== "undefined" ? localStorage.getItem("yearbook_nudge_shown") : null;
           const now = new Date();
           const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
@@ -2232,7 +2233,12 @@ export default function TodayPage() {
             <button
               onClick={() => {
                 localStorage.setItem("yearbook_nudge_shown", weekKey);
-                router.push("/dashboard/memories/yearbook");
+                if (isFreeUser) {
+                  posthog.capture('upgrade_clicked', { source: 'today_story_yearbook' });
+                  router.push("/upgrade");
+                } else {
+                  router.push("/dashboard/memories/yearbook");
+                }
               }}
               className="w-full bg-[#faf6f0] border border-[#c0dd97] rounded-xl p-3 flex items-center gap-3 cursor-pointer mb-3 text-left hover:bg-[#f5f0e8] transition-colors"
             >
@@ -2241,7 +2247,9 @@ export default function TodayPage() {
                 <p className="text-[12px] text-[#5c7f63] font-medium">
                   Your yearbook has {yearbookCount} memor{yearbookCount === 1 ? "y" : "ies"} so far this year
                 </p>
-                <p className="text-[11px] text-[#9a8f85]">Tap to open your family yearbook →</p>
+                <p className="text-[11px] text-[#9a8f85]">
+                  {isFreeUser ? "Upgrade to unlock your family yearbook →" : "Tap to open your family yearbook →"}
+                </p>
               </div>
             </button>
           );

@@ -832,12 +832,13 @@ export default function Home() {
             <p className="text-xs text-[#b5aca4] mb-6">No credit card needed</p>
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
-                "Unlimited children",
+                "All memory types (photos, books, wins, drawings, field trips)",
+                "Up to 50 memories visible",
                 "Daily lesson tracking",
-                "Garden & growth tree",
-                "50 photo memories",
-                "Memory timeline — last 30 days",
-                "1 Year in Review summary / year",
+                "Family garden & badges",
+                "Curated resources",
+                "Yearbook preview",
+                "1 progress summary per year (view only)",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -1009,8 +1010,8 @@ export default function Home() {
                 { feature: "Progress reports",       free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Curriculum pacing guide", free: "—",    founding: "✓",          standard: "✓"         },
                 { feature: "Monthly family update",  free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Family yearbook",        free: "30 days", founding: "✓ Full year", standard: "✓ Full year" },
-                { feature: "Family sharing",         free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Family yearbook",        free: "Preview only", founding: "✓ Full year", standard: "✓ Full year" },
+                { feature: "Share with family",      free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
                 { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },
               ].map((row, i) => (
