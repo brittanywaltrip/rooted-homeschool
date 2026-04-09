@@ -118,6 +118,15 @@ export default function YearbookPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ── Free user gate tracking (must be before any conditional returns) ──────
+  const gateTracked = useRef(false);
+  useEffect(() => {
+    if (!loading && isFreeUser && !gateTracked.current) {
+      gateTracked.current = true;
+      posthog.capture('upgrade_page_viewed', { source: 'yearbook_gate' });
+    }
+  }, [loading, isFreeUser]);
+
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const photoMemories = memories;
@@ -153,14 +162,6 @@ export default function YearbookPage() {
   }
 
   // ── Free user gate ──────────────────────────────────────────────────────────
-
-  const gateTracked = useRef(false);
-  useEffect(() => {
-    if (!loading && isFreeUser && !gateTracked.current) {
-      gateTracked.current = true;
-      posthog.capture('upgrade_page_viewed', { source: 'yearbook_gate' });
-    }
-  }, [loading, isFreeUser]);
 
   if (!loading && isFreeUser) {
     return (
