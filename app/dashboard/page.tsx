@@ -2218,6 +2218,7 @@ export default function TodayPage() {
           </p>
           <Link
             href="/upgrade"
+            onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_teaser' })}
             className="inline-block mt-3 px-4 py-2 bg-white text-[#2d5a3d] text-xs font-medium rounded-full hover:bg-white/90 transition-colors"
           >
             Unlock my yearbook →
