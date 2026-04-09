@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
@@ -378,6 +378,8 @@ type FamilyNotification = {
 export default function TodayPage() {
   const today = localDateStr(new Date());
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const previewFree = searchParams.get('previewFree') === 'true';
   const { isPartner, effectiveUserId } = usePartner();
 
   // Family activity notifications
@@ -2206,7 +2208,7 @@ export default function TodayPage() {
       {/* ═══════════════════════════════════════════════════════════
           YEARBOOK TEASER — free users with at least 1 memory
          ═══════════════════════════════════════════════════════════ */}
-      {(!planType || planType === "free") && (
+      {(!planType || planType === "free" || previewFree) && (
         <div className="bg-[#2d5a3d] rounded-2xl px-5 py-4 text-white">
           <p className="text-sm font-medium flex items-center gap-2">
             🔒 Your family yearbook is taking shape 🌿
