@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Camera, ChevronRight, Check, BookOpen, Users, User } from "lucide-react";
+import { Camera, ChevronRight, Check, BookOpen, Users, User, Lock } from "lucide-react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
+import { posthog } from "@/lib/posthog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +54,9 @@ export default function YearbookPage() {
   // Profile
   const [profileStart, setProfileStart] = useState<string | null>(null);
   const [profileEnd, setProfileEnd] = useState<string | null>(null);
+  const [planType, setPlanType] = useState<string | null>(null);
+  const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
+  const isFreeUser = !planType || planType === "free" || previewFree;
 
   // Form state
   const [yearTitle, setYearTitle] = useState("");
@@ -73,7 +78,7 @@ export default function YearbookPage() {
     const [{ data: profile }, { data: kids }, { data: events }] = await Promise.all([
       supabase
         .from("profiles")
-        .select("school_year_start, school_year_end")
+        .select("school_year_start, school_year_end, plan_type")
         .eq("id", effectiveUserId)
         .maybeSingle(),
       supabase
@@ -90,9 +95,10 @@ export default function YearbookPage() {
         .order("created_at", { ascending: false }),
     ]);
 
-    const p = profile as { school_year_start?: string; school_year_end?: string } | null;
+    const p = profile as { school_year_start?: string; school_year_end?: string; plan_type?: string } | null;
     const syStart = p?.school_year_start ?? null;
     const syEnd = p?.school_year_end ?? null;
+    setPlanType(p?.plan_type ?? null);
 
     setProfileStart(syStart);
     setProfileEnd(syEnd);
@@ -139,6 +145,51 @@ export default function YearbookPage() {
         <PageHero overline="Yearbook" title="Your Yearbook" />
         <div className="flex items-center justify-center py-20">
           <span className="text-4xl animate-pulse">📖</span>
+        </div>
+      </>
+    );
+  }
+
+  // ── Free user gate ──────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!loading && isFreeUser) {
+      posthog.capture('upgrade_page_viewed', { source: 'yearbook_gate' });
+    }
+  }, [loading, isFreeUser]);
+
+  if (!loading && isFreeUser) {
+    return (
+      <>
+        <PageHero overline="Yearbook" title="Your Yearbook" />
+        <div className="px-5 pt-6 pb-10 max-w-md mx-auto">
+          <div className="bg-[#2d5a3d] rounded-2xl px-6 py-10 text-white text-center">
+            <Lock className="w-10 h-10 mx-auto mb-4 opacity-80" />
+            <h2 className="text-xl font-bold mb-2" style={{ fontFamily: "var(--font-display)" }}>
+              Your family yearbook is building 🌿
+            </h2>
+            <p className="text-white/80 text-sm mb-2">
+              {memories.length} memor{memories.length === 1 ? "y" : "ies"} captured this year
+            </p>
+            <p className="text-white/70 text-sm mb-6">
+              Upgrade to Founding Family to unlock your full yearbook
+            </p>
+            <Link
+              href="/upgrade"
+              onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_gate' })}
+              className="inline-block bg-white text-[#2d5a3d] font-bold text-sm px-6 py-3 rounded-full hover:bg-white/90 transition-colors"
+            >
+              Unlock my yearbook — $39/yr →
+            </Link>
+            <div className="mt-4">
+              <Link
+                href="/upgrade"
+                className="text-white/60 text-xs hover:text-white/80 underline"
+              >
+                Learn more about Founding Family pricing
+              </Link>
+            </div>
+          </div>
         </div>
       </>
     );

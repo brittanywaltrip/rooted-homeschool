@@ -9,6 +9,7 @@ import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
 import Toast from "@/components/Toast";
+import { posthog } from "@/lib/posthog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -190,6 +191,9 @@ export default function PlanPage() {
   const [showCreateWizard,  setShowCreateWizard]  = useState(false);
   const [downloadingReport, setDownloadingReport] = useState(false);
   const [reportChildId, setReportChildId] = useState<string>("all");
+  const [planType, setPlanType] = useState<string | null>(null);
+  const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
+  const isFreeUser = !planType || planType === "free" || previewFree;
 
   useEffect(() => { document.title = "Plan · Rooted"; }, []);
 
@@ -241,7 +245,7 @@ export default function PlanPage() {
     we.setDate(we.getDate() + 6);
     const s = toDateStr(ws), e = toDateStr(we);
     const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }, { data: bySched }, { data: byDate }] = await Promise.all([
-      supabase.from("profiles").select("onboarded, school_days").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes").eq("user_id", effectiveUserId).order("created_at"),
@@ -252,6 +256,7 @@ export default function PlanPage() {
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
     setProfileSchoolDays((profile as { school_days?: string[] } | null)?.school_days ?? []);
+    setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
     setChildren(kids ?? []);
     setSubjects((subs as Subject[]) ?? []);
     setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
@@ -1504,13 +1509,31 @@ export default function PlanPage() {
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
-              <button
-                onClick={downloadReport}
-                disabled={downloadingReport}
-                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors shrink-0 ml-auto"
-              >
-                {downloadingReport ? "Generating…" : "Download Report"}
-              </button>
+              {isFreeUser ? (
+                <div className="ml-auto text-right">
+                  <button
+                    disabled
+                    className="flex items-center gap-1.5 text-xs font-semibold bg-[#b5aca4] text-white px-4 py-2 rounded-lg cursor-not-allowed opacity-60"
+                  >
+                    Download Report
+                  </button>
+                  <Link
+                    href="/upgrade"
+                    onClick={() => posthog.capture('upgrade_clicked', { source: 'progress_report' })}
+                    className="text-[10px] text-[#5c7f63] hover:underline mt-1 inline-block"
+                  >
+                    Upgrade to Founding Family to download →
+                  </Link>
+                </div>
+              ) : (
+                <button
+                  onClick={downloadReport}
+                  disabled={downloadingReport}
+                  className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors shrink-0 ml-auto"
+                >
+                  {downloadingReport ? "Generating…" : "Download Report"}
+                </button>
+              )}
             </div>
           </div>
         </div>
