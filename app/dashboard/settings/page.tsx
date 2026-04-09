@@ -195,6 +195,10 @@ export default function SettingsPage() {
   const [resetSent,       setResetSent]       = useState(false);
   const [resetError,      setResetError]      = useState("");
 
+  // Export data
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+
   // Close account
   const [showDeleteModal,  setShowDeleteModal]  = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -565,6 +569,39 @@ export default function SettingsPage() {
     }
   }
 
+  // ── Export data ────────────────────────────────────────────────────────────
+
+  async function exportData() {
+    setExporting(true);
+    setExportError("");
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) { setExporting(false); setExportError("Not authenticated."); return; }
+    try {
+      const res = await fetch("/api/account/export", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setExportError(body.error ?? "Export failed. Please try again.");
+        setExporting(false);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `rooted-memories-${new Date().toISOString().split("T")[0]}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError("Export failed. Please try again.");
+    }
+    setExporting(false);
+  }
+
   // ── Close account ─────────────────────────────────────────────────────────
 
   async function closeAccount() {
@@ -584,7 +621,7 @@ export default function SettingsPage() {
       return;
     }
     await supabase.auth.signOut();
-    window.location.href = "/signup?deleted=1";
+    window.location.href = "/";
   }
 
   // ── Family photo ──────────────────────────────────────────────────────────
@@ -1627,7 +1664,7 @@ export default function SettingsPage() {
         </div>
       </section>}
 
-      {/* ── Account / Danger zone ────────────────────────────── */}
+      {/* ── Account ────────────────────────────────────────── */}
       {activeTab === "account" && <section className="space-y-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-[#2d2926]">Account</h2>
@@ -1656,17 +1693,43 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* Close account */}
+        {/* Export My Data */}
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 space-y-3">
           <div>
-            <p className="text-sm font-medium text-[#2d2926]">Close My Account</p>
-            <p className="text-xs text-[#7a6f65] mt-0.5">Permanently deletes your account and all family data.</p>
+            <p className="text-sm font-medium text-[#2d2926]">Export My Data</p>
+            <p className="text-xs text-[#7a6f65] mt-0.5 leading-relaxed">
+              Download everything you&apos;ve added to Rooted — your memories, photos, children&apos;s info, and curriculum — as a ZIP file. Your memories are yours, always.
+            </p>
+          </div>
+          <button
+            onClick={exportData}
+            disabled={exporting}
+            className="px-4 py-2 rounded-xl border border-[#2d5a3d] text-[#2d5a3d] text-sm font-medium hover:bg-[#f2f9f3] disabled:opacity-50 transition-colors"
+          >
+            {exporting ? "Preparing your export…" : "Export My Data 📦"}
+          </button>
+          {exportError && <p className="text-xs text-red-600">{exportError}</p>}
+        </div>
+      </section>}
+
+      {/* ── Danger zone ──────────────────────────────────────── */}
+      {activeTab === "account" && <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="h-px flex-1 bg-[#e8e2d9]" />
+        </div>
+
+        <div className="bg-[#fdf8f8] border border-[#e8e2d9] rounded-2xl p-4 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-[#2d2926]">Delete My Account</p>
+            <p className="text-xs text-[#7a6f65] mt-0.5 leading-relaxed">
+              Deleting your account is permanent and cannot be undone. All your memories, photos, children&apos;s info, curriculum, and yearbook data will be permanently deleted. We recommend exporting your data first.
+            </p>
           </div>
           <button
             onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(""); setDeleteError(""); }}
-            className="px-4 py-2 rounded-xl border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-colors"
+            className="px-4 py-2 rounded-xl text-rose-400 text-xs font-medium hover:text-rose-500 transition-colors"
           >
-            Close My Account
+            Delete My Account
           </button>
         </div>
 
@@ -1676,7 +1739,7 @@ export default function SettingsPage() {
         </p>
       </section>}
 
-      {/* ── Close Account Modal ──────────────────────────────── */}
+      {/* ── Delete Account Modal ─────────────────────────────── */}
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
@@ -1684,7 +1747,7 @@ export default function SettingsPage() {
               <div className="text-3xl mb-2">⚠️</div>
               <h3 className="text-base font-bold text-[#2d2926]">Are you sure?</h3>
               <p className="text-sm text-[#7a6f65] leading-relaxed">
-                This permanently deletes your account and all your family&apos;s data — lessons, memories, garden, everything. <strong>This cannot be undone.</strong>
+                This will permanently delete everything in your Rooted account — memories, photos, children, curriculum, and yearbook. <strong>This cannot be undone.</strong>
               </p>
             </div>
             <div className="space-y-1.5">
@@ -1710,7 +1773,7 @@ export default function SettingsPage() {
                 disabled={deleteConfirmText !== "DELETE" || deletingAccount}
                 className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-40 transition-colors"
               >
-                {deletingAccount ? "Deleting…" : "Yes, Delete Everything"}
+                {deletingAccount ? "Deleting…" : "Yes, delete everything"}
               </button>
             </div>
           </div>
