@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
@@ -378,8 +378,7 @@ type FamilyNotification = {
 export default function TodayPage() {
   const today = localDateStr(new Date());
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const previewFree = searchParams.get('previewFree') === 'true';
+  const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const { isPartner, effectiveUserId } = usePartner();
 
   // Family activity notifications
@@ -553,7 +552,8 @@ export default function TodayPage() {
     const pt = (profileData as { plan_type?: string } | null)?.plan_type ?? null;
     setPlanType(pt);
     const isFreeUser = !pt || pt === "free";
-    console.log('[YearbookTeaser] plan_type:', pt, 'showing teaser:', isFreeUser);
+    const showTeaser = isFreeUser || previewFree;
+    console.log('[YearbookTeaser] plan_type:', pt, 'showing teaser:', showTeaser, 'previewFree:', previewFree);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
     // Check if today is a school day

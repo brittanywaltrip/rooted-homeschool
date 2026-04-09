@@ -110,7 +110,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 export default function MemoriesPage() {
   const searchParams = useSearchParams();
-  const previewFree = searchParams.get('previewFree') === 'true';
+  const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const { isPartner, effectiveUserId } = usePartner();
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [reflections, setReflections] = useState<Reflection[]>([]);
