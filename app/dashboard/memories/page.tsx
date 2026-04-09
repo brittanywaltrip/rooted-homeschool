@@ -11,6 +11,7 @@ import PageHero from "@/app/components/PageHero";
 import UpgradePrompt from "@/components/UpgradePrompt";
 import MilestonePrompt from "@/components/MilestonePrompt";
 import { compressImage } from "@/lib/compress-image";
+import { posthog } from "@/lib/posthog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -898,7 +899,7 @@ export default function MemoriesPage() {
         <div className="bg-[#e8f0e8] border border-[#c8d8c8] rounded-2xl px-4 py-3">
           <p className="text-sm text-[#2d5a3d]">
             You have <strong>{memories.length}</strong> memories captured 🌱{" "}
-            <Link href="/upgrade" className="underline font-medium text-[#2d5a3d] hover:text-[#3d5c42]">
+            <Link href="/upgrade" onClick={() => posthog.capture('upgrade_clicked', { source: 'memory_banner' })} className="underline font-medium text-[#2d5a3d] hover:text-[#3d5c42]">
               Upgrade to unlock your full yearbook and archive →
             </Link>
           </p>
