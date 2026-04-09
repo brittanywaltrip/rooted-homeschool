@@ -893,7 +893,7 @@ export default function MemoriesPage() {
       )}
 
       {/* Memory counter awareness banner */}
-      {(!planType || planType === "free") && !loading && memories.length > 0 && (
+      {(!planType || planType === "free") && !loading && (
         <div className="bg-[#e8f0e8] border border-[#c8d8c8] rounded-2xl px-4 py-3">
           <p className="text-sm text-[#2d5a3d]">
             You have <strong>{memories.length}</strong> memories captured 🌱{" "}

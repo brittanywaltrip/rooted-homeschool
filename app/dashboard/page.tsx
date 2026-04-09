@@ -548,7 +548,10 @@ export default function TodayPage() {
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
-    setPlanType((profileData as { plan_type?: string } | null)?.plan_type ?? null);
+    const pt = (profileData as { plan_type?: string } | null)?.plan_type ?? null;
+    setPlanType(pt);
+    const isFreeUser = !pt || pt === "free";
+    console.log('[YearbookTeaser] plan_type:', pt, 'showing teaser:', isFreeUser);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
     // Check if today is a school day
@@ -2203,7 +2206,7 @@ export default function TodayPage() {
       {/* ═══════════════════════════════════════════════════════════
           YEARBOOK TEASER — free users with at least 1 memory
          ═══════════════════════════════════════════════════════════ */}
-      {(!planType || planType === "free") && totalMemories > 0 && (
+      {(!planType || planType === "free") && (
         <div className="bg-[#2d5a3d] rounded-2xl px-5 py-4 text-white">
           <p className="text-sm font-medium flex items-center gap-2">
             🔒 Your family yearbook is taking shape 🌿
