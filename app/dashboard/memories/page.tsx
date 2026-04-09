@@ -110,6 +110,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 export default function MemoriesPage() {
   const searchParams = useSearchParams();
+  const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const { isPartner, effectiveUserId } = usePartner();
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [reflections, setReflections] = useState<Reflection[]>([]);
@@ -117,6 +118,7 @@ export default function MemoriesPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [isPro, setIsPro] = useState<boolean | null>(null);
+  const [planType, setPlanType] = useState<string | null>(null);
   // Filter: "all" | "family" | "favorites" | child id
   const [filter, setFilter] = useState("all");
   const [showMoreFilters, setShowMoreFilters] = useState(false);
@@ -256,11 +258,12 @@ export default function MemoriesPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("is_pro")
+      .select("is_pro, plan_type")
       .eq("id", effectiveUserId)
       .single();
     const userIsPro = (profile as { is_pro?: boolean } | null)?.is_pro ?? false;
     setIsPro(userIsPro);
+    setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
 
     const thirtyDaysAgoDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const dateFloor = userIsPro ? "2020-01-01" : `${thirtyDaysAgoDate.getFullYear()}-${String(thirtyDaysAgoDate.getMonth() + 1).padStart(2, "0")}-${String(thirtyDaysAgoDate.getDate()).padStart(2, "0")}`;
@@ -887,6 +890,18 @@ export default function MemoriesPage() {
               ×
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Memory counter awareness banner */}
+      {(!planType || planType === "free" || previewFree) && !loading && (
+        <div className="bg-[#e8f0e8] border border-[#c8d8c8] rounded-2xl px-4 py-3">
+          <p className="text-sm text-[#2d5a3d]">
+            You have <strong>{memories.length}</strong> memories captured 🌱{" "}
+            <Link href="/upgrade" className="underline font-medium text-[#2d5a3d] hover:text-[#3d5c42]">
+              Upgrade to unlock your full yearbook and archive →
+            </Link>
+          </p>
         </div>
       )}
 
