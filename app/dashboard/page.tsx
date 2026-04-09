@@ -418,6 +418,7 @@ export default function TodayPage() {
 
   const [nudgeDismissed,   setNudgeDismissed]   = useState(false);
   const [isPro,            setIsPro]            = useState(false);
+  const [planType,         setPlanType]         = useState<string | null>(null);
   const [yearbookCount,    setYearbookCount]    = useState(0);
   const [upgradeDismissed, setUpgradeDismissed] = useState(false);
   useEffect(() => {
@@ -541,12 +542,13 @@ export default function TodayPage() {
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
-      supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
+      supabase.from("profiles").select("is_pro, plan_type").eq("id", effectiveUserId).single(),
     ]);
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setPlanType((profileData as { plan_type?: string } | null)?.plan_type ?? null);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
     // Check if today is a school day
@@ -2197,6 +2199,26 @@ export default function TodayPage() {
           </Link>
         )}
       </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          YEARBOOK TEASER — free users with at least 1 memory
+         ═══════════════════════════════════════════════════════════ */}
+      {(!planType || planType === "free") && totalMemories > 0 && (
+        <div className="bg-[#2d5a3d] rounded-2xl px-5 py-4 text-white">
+          <p className="text-sm font-medium flex items-center gap-2">
+            🔒 Your family yearbook is taking shape 🌿
+          </p>
+          <p className="text-xs text-white/75 mt-1">
+            Upgrade to Founding Family to unlock your yearbook before April 30
+          </p>
+          <Link
+            href="/upgrade"
+            className="inline-block mt-3 px-4 py-2 bg-white text-[#2d5a3d] text-xs font-medium rounded-full hover:bg-white/90 transition-colors"
+          >
+            Unlock my yearbook →
+          </Link>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           ON THIS DAY — purple card, show only for Tier 1 or 2 matches (1+ year)
