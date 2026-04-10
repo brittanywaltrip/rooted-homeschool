@@ -234,7 +234,7 @@ export default function Home() {
         <nav className="max-w-6xl mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex items-center shrink-0">
-            <img src="/rooted-logo.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
+            <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '40px', width: 'auto' }} />
           </Link>
 
           {/* Right side */}
