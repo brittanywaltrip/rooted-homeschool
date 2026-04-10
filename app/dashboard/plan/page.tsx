@@ -191,6 +191,9 @@ export default function PlanPage() {
   const [showCreateWizard,  setShowCreateWizard]  = useState(false);
   const [downloadingReport, setDownloadingReport] = useState(false);
   const [reportChildId, setReportChildId] = useState<string>("all");
+  const [reportRange, setReportRange] = useState<string>("full");
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
   const [planType, setPlanType] = useState<string | null>(null);
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const isFreeUser = !planType || planType === "free" || previewFree;
@@ -732,13 +735,54 @@ export default function PlanPage() {
         supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", effectiveUserId),
       ]);
 
-      const lessons = (lr || []) as unknown as LR[];
-      const memories = (mr || []) as unknown as MR[];
+      let allLessons = (lr || []) as unknown as LR[];
+      let allMemories = (mr || []) as unknown as MR[];
       const gdm: Record<string, number> = {};
       for (const g of ((gr || []) as unknown as GR[])) gdm[g.id] = g.default_minutes ?? 30;
 
       function lm(l: LR): { m: number; e: boolean } { if (l.minutes_spent != null) return { m: l.minutes_spent, e: false }; if (l.curriculum_goal_id && gdm[l.curriculum_goal_id]) return { m: gdm[l.curriculum_goal_id], e: true }; return { m: 30, e: true }; }
       function ld(l: LR) { return l.scheduled_date || l.date || ""; }
+
+      // ── Date range filtering ──────────────────────────────────
+      const now2 = new Date();
+      const schoolYearStart = now2.getMonth() >= 7 ? now2.getFullYear() : now2.getFullYear() - 1;
+      let rangeStart = "";
+      let rangeEnd = "";
+      let dateRangeLabel = "";
+
+      if (reportRange === "q1") {
+        rangeStart = `${schoolYearStart}-09-01`;
+        rangeEnd = `${schoolYearStart}-11-30`;
+        dateRangeLabel = `Q1 Report: September \u2013 November ${schoolYearStart}`;
+      } else if (reportRange === "q2") {
+        rangeStart = `${schoolYearStart}-12-01`;
+        rangeEnd = `${schoolYearStart + 1}-02-28`;
+        dateRangeLabel = `Q2 Report: December ${schoolYearStart} \u2013 February ${schoolYearStart + 1}`;
+      } else if (reportRange === "q3") {
+        rangeStart = `${schoolYearStart + 1}-03-01`;
+        rangeEnd = `${schoolYearStart + 1}-05-31`;
+        dateRangeLabel = `Q3 Report: March \u2013 May ${schoolYearStart + 1}`;
+      } else if (reportRange === "q4") {
+        rangeStart = `${schoolYearStart + 1}-06-01`;
+        rangeEnd = `${schoolYearStart + 1}-08-31`;
+        dateRangeLabel = `Q4 Report: June \u2013 August ${schoolYearStart + 1}`;
+      } else if (reportRange === "custom" && reportStartDate && reportEndDate) {
+        rangeStart = reportStartDate;
+        rangeEnd = reportEndDate;
+        const fmt = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        dateRangeLabel = `${fmt(rangeStart)} \u2013 ${fmt(rangeEnd)}`;
+      }
+
+      if (rangeStart && rangeEnd) {
+        allLessons = allLessons.filter(l => {
+          const d = l.scheduled_date || l.date || "";
+          return d >= rangeStart && d <= rangeEnd;
+        });
+        allMemories = allMemories.filter(m => m.date >= rangeStart && m.date <= rangeEnd);
+      }
+
+      const lessons = allLessons;
+      const memories = allMemories;
 
       const done = lessons.filter(l => l.completed);
       const tLM = done.reduce((s, l) => s + lm(l).m, 0);
@@ -801,7 +845,7 @@ export default function PlanPage() {
       console.log("[Report v5] Data ready:", JSON.stringify({ reportTitle, yr, children: childReport.length, lessons: scopedDone.length, memories: scopedMemories.length, dailyLogDays: dailyLog.length }));
       const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
       generateProgressReport(doc, {
-        familyName: reportTitle, schoolYear: yr, dateGenerated: dateGen, showWatermark: true,
+        familyName: reportTitle, schoolYear: dateRangeLabel || yr, dateGenerated: dateGen, showWatermark: true,
         summary: { totalHours: fmtMins(scopedTLM + scopedMM), schoolDays: scopedSDays, lessons: scopedDone.length, books: scopedBooks.length, trips: scopedTrips.length, memories: scopedMemories.length },
         children: childReport,
         dailyLog,
@@ -1498,8 +1542,8 @@ export default function PlanPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 mt-3">
-              <label className="text-[11px] text-[#7a6f65] shrink-0">Download report for:</label>
+            <div className="flex flex-wrap items-center gap-2 mt-3">
+              <label className="text-[11px] text-[#7a6f65] shrink-0">For:</label>
               <select
                 value={reportChildId}
                 onChange={(e) => setReportChildId(e.target.value)}
@@ -1510,6 +1554,18 @@ export default function PlanPage() {
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
+              <div className="flex items-center gap-1 flex-wrap">
+                {(["full", "q1", "q2", "q3", "q4", "custom"] as const).map(r => (
+                  <button key={r} onClick={() => setReportRange(r)}
+                    className={`text-[11px] px-2 py-1 rounded-lg transition-colors ${
+                      reportRange === r
+                        ? "bg-[#5c7f63] text-white font-semibold"
+                        : "bg-[#f0ede8] text-[#7a6f65] hover:bg-[#e8e2d9]"
+                    }`}>
+                    {r === "full" ? "Full Year" : r === "custom" ? "Custom" : r.toUpperCase()}
+                  </button>
+                ))}
+              </div>
               {isFreeUser ? (
                 <div className="ml-auto text-right">
                   <button
@@ -1536,6 +1592,26 @@ export default function PlanPage() {
                 </button>
               )}
             </div>
+            {reportRange === "custom" && (
+              <div className="flex items-center gap-2 mt-2">
+                <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)}
+                  className="text-xs border border-[#e8e2d9] rounded-lg px-2.5 py-1.5 bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]" />
+                <span className="text-[11px] text-[#b5aca4]">to</span>
+                <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)}
+                  className="text-xs border border-[#e8e2d9] rounded-lg px-2.5 py-1.5 bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]" />
+              </div>
+            )}
+            {reportRange !== "full" && reportRange !== "custom" && (() => {
+              const now3 = new Date();
+              const sy = now3.getMonth() >= 7 ? now3.getFullYear() : now3.getFullYear() - 1;
+              const labels: Record<string, string> = {
+                q1: `Sep 1 \u2013 Nov 30, ${sy}`,
+                q2: `Dec 1, ${sy} \u2013 Feb 28, ${sy + 1}`,
+                q3: `Mar 1 \u2013 May 31, ${sy + 1}`,
+                q4: `Jun 1 \u2013 Aug 31, ${sy + 1}`,
+              };
+              return <p className="text-[10px] text-[#5c7f63] mt-1">{labels[reportRange]}</p>;
+            })()}
           </div>
         </div>
       )}
