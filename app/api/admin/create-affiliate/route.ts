@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     await sendResendTemplate(email, TEMPLATES.affiliateWelcome, {
       firstName: name,
       affiliateCode: code.toUpperCase(),
-      referralUrl: `https://rootedhomeschoolapp.com?ref=${code.toUpperCase()}`,
+      referralUrl: `https://rootedhomeschoolapp.com/upgrade?ref=${code.toUpperCase()}`,
     })
   } catch (emailErr) {
     console.error('[create-affiliate] Welcome email failed:', emailErr)

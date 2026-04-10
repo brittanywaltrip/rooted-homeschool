@@ -26,6 +26,16 @@ async function hasLessons(userId: string): Promise<boolean> {
   return (data?.length ?? 0) > 0
 }
 
+async function hasCurriculum(userId: string): Promise<boolean> {
+  const { data } = await supabase.from('curriculum_goals').select('id').eq('user_id', userId)
+  return (data?.length ?? 0) > 0
+}
+
+async function hasMemories(userId: string): Promise<boolean> {
+  const { data } = await supabase.from('memories').select('id').eq('user_id', userId)
+  return (data?.length ?? 0) > 0
+}
+
 async function alreadySent(userId: string, emailType: string): Promise<boolean> {
   const { data } = await supabase.from('email_log').select('id').eq('user_id', userId).eq('email_type', emailType)
   return (data?.length ?? 0) > 0
@@ -81,9 +91,9 @@ export async function GET(req: NextRequest) {
   let skipped = 0
   let errors = 0
 
-  // ── Email 1: 20–28 hours after signup, no subjects ────────────────────────
-  const e1WindowStart = new Date(now.getTime() - 28 * 60 * 60 * 1000)
-  const e1WindowEnd   = new Date(now.getTime() - 20 * 60 * 60 * 1000)
+  // ── Email 1: 2–3 days after signup, no curriculum or lessons ───────────────
+  const e1WindowStart = new Date(now.getTime() - 72 * 60 * 60 * 1000)
+  const e1WindowEnd   = new Date(now.getTime() - 48 * 60 * 60 * 1000)
 
   const { data: e1Users } = await supabase
     .from('profiles')
@@ -95,7 +105,7 @@ export async function GET(req: NextRequest) {
     if (user.email_unsubscribed) { skipped++; continue }
     const emailType = 'reengagement_1'
     if (await alreadySent(user.id, emailType)) { skipped++; continue }
-    if (await hasSubjects(user.id)) { skipped++; continue }
+    if (await hasCurriculum(user.id) || await hasLessons(user.id)) { skipped++; continue }
 
     const { data: authData } = await supabase.auth.admin.getUserById(user.id)
     const email = authData.user?.email
@@ -189,5 +199,45 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ sent, skipped, errors })
+  // ── Backfill: users who signed up after March 26 and are completely inactive
+  const backfillCutoff = '2026-03-26T00:00:00.000Z'
+  // Only backfill users who signed up more than 48 hours ago (would have been
+  // eligible for email 1 but were missed due to the old narrow window)
+  const backfillEnd = new Date(now.getTime() - 48 * 60 * 60 * 1000)
+
+  const { data: backfillUsers } = await supabase
+    .from('profiles')
+    .select('id, first_name, created_at, email_unsubscribed')
+    .gte('created_at', backfillCutoff)
+    .lte('created_at', backfillEnd.toISOString())
+
+  let backfilled = 0
+
+  for (const user of backfillUsers ?? []) {
+    if (user.email_unsubscribed) { skipped++; continue }
+    if (await alreadySent(user.id, 'reengagement_1')) { skipped++; continue }
+    if (await hasLessons(user.id) || await hasMemories(user.id)) { skipped++; continue }
+
+    const { data: authData } = await supabase.auth.admin.getUserById(user.id)
+    const email = authData.user?.email
+    if (!email) { skipped++; continue }
+
+    const firstName = resolveFirstName(user.first_name, authData.user)
+    const result = await sendTemplate(email, TEMPLATE_IDS.reengagement_1, {
+      firstName,
+      dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
+      email,
+    })
+
+    if (!result.ok) {
+      console.error(`reengagement_1 backfill error for ${email}:`, result.error)
+      errors++
+    } else {
+      await logEmail(user.id, 'reengagement_1')
+      backfilled++
+      sent++
+    }
+  }
+
+  return NextResponse.json({ sent, skipped, errors, backfilled })
 }
