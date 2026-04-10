@@ -21,14 +21,13 @@ const navItems = [
   { label: "Resources",   href: "/dashboard/resources",   icon: Search   },
 ];
 
-/* NAV ORDER — Today → Plan → Garden → Memories → Printables → Resources → More */
+/* NAV ORDER — Today → Plan → Garden → Memories → Printables → More */
 const mobileBottomNav = [
   { label: "Today",       href: "/dashboard",              icon: Sun      },
   { label: "Plan",        href: "/dashboard/plan",         icon: Calendar },
   { label: "Garden",      href: "/dashboard/garden",       icon: Leaf     },
   { label: "Memories",    href: "/dashboard/memories",     icon: Camera   },
   { label: "Printables",  href: "/dashboard/printables",   icon: Printer  },
-  { label: "Resources",   href: "/dashboard/resources",    icon: Search   },
   { label: "More",        href: "/dashboard/settings",     icon: Menu     },
 ];
 
