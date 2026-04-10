@@ -233,21 +233,8 @@ export default function Home() {
       >
         <nav className="max-w-6xl mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 group shrink-0">
-            <div className="w-8 h-8 rounded-xl bg-[#5c7f63] group-hover:bg-[#3d5c42] flex items-center justify-center text-base shadow-sm transition-colors">
-              🌿
-            </div>
-            <div className="leading-none">
-              <span
-                className="text-sm font-bold text-[#2d2926] block"
-                style={{ fontFamily: "var(--font-display)" }}
-              >
-                Rooted
-              </span>
-              <span className="text-[10px] text-[#7a6f65] block tracking-wide leading-tight">
-                Homeschool
-              </span>
-            </div>
+          <Link href="/" className="flex items-center shrink-0">
+            <img src="/rooted-logo.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
           </Link>
 
           {/* Right side */}
