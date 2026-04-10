@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera, GraduationCap, ExternalLink, Sprout } from "lucide-react";
+import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera, GraduationCap, ExternalLink, Sprout, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useProfile } from "@/lib/profile-context";
 
@@ -910,6 +910,16 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-xl px-5 py-7 space-y-6">
+      {/* Quick access — Resources (mobile shortcut) */}
+      <Link
+        href="/dashboard/resources"
+        className="flex items-center gap-3 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3 hover:border-[#5c7f63] hover:bg-[#f8fcf8] transition-colors group md:hidden"
+      >
+        <Search size={16} className="text-[#7a6f65] group-hover:text-[#5c7f63] shrink-0" />
+        <span className="text-sm font-medium text-[#2d2926]">Resources</span>
+        <span className="text-[#b5aca4] group-hover:text-[#5c7f63] text-lg ml-auto">&rarr;</span>
+      </Link>
+
       {/* Header */}
       <div>
         <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">
