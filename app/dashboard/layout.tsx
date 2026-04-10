@@ -356,7 +356,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           onClick={() => setMenuOpen(false)}
           className="flex items-center gap-2.5"
         >
-          <img src="/rooted-logo.png" alt="Rooted" style={{ height: '32px', width: 'auto' }} />
+          <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
         </Link>
         <Link
           href="/dashboard/settings"
@@ -443,7 +443,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           <UpgradeBanner />
         {/* Mobile top bar — brand + avatar */}
           <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9] sticky top-0 z-30">
-            <img src="/rooted-logo.png" alt="Rooted" style={{ height: '28px', width: 'auto' }} />
+            <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '32px', width: 'auto' }} />
             <Link
               href="/dashboard/settings"
               className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
