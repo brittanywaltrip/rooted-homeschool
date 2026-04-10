@@ -226,28 +226,37 @@ export default function Home() {
 
       {/* ── 1. NAVBAR ──────────────────────────────────────────────────────── */}
       <header
-        className={`sticky top-0 z-50 backdrop-blur-md border-b border-[#e8e2d9] transition-all duration-300 ${
-          scrolled ? "shadow-md shadow-black/[0.06]" : "shadow-none"
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+          scrolled
+            ? "bg-[#f8f7f4]/95 backdrop-blur-md border-b border-[#e8e2d9] shadow-md shadow-black/[0.06]"
+            : "bg-transparent"
         }`}
-        style={{ backgroundColor: "rgba(248, 247, 244, 0.94)" }}
       >
         <nav className="max-w-6xl mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex items-center shrink-0">
-            <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '40px', width: 'auto' }} />
+            <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} className={scrolled ? "" : "brightness-0 invert"} />
           </Link>
 
           {/* Right side */}
           <div className="flex items-center gap-2">
             <Link
               href="/login"
-              className="hidden sm:inline-flex text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-3 py-2 rounded-lg hover:bg-[#f0ede8]"
+              className={`hidden sm:inline-flex text-sm font-medium px-3 py-2 rounded-lg transition-colors ${
+                scrolled
+                  ? "text-[#7a6f65] hover:text-[#2d2926] hover:bg-[#f0ede8]"
+                  : "text-white/80 hover:text-white"
+              }`}
             >
               Log In
             </Link>
             <Link
               href="/signup"
-              className="inline-flex items-center gap-1.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] text-white px-5 py-2.5 rounded-xl transition-colors shadow-sm"
+              className={`inline-flex items-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-full transition-colors ${
+                scrolled
+                  ? "bg-[#5c7f63] hover:bg-[#3d5c42] text-white"
+                  : "bg-white text-[#2d5a3d] hover:bg-white/90"
+              }`}
             >
               Start Free
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
@@ -258,74 +267,24 @@ export default function Home() {
         </nav>
       </header>
 
-      {/* ── 2. HERO ────────────────────────────────────────────────────────── */}
-      <section className="relative flex flex-col items-center justify-center text-center px-6 py-28 min-h-[92vh] overflow-hidden" style={{ background: "linear-gradient(175deg, #0d2818 0%, #1a4a28 20%, #3d7a4a 45%, #4a8a55 65%, #2d5c35 85%, #1a3a22 100%)" }}>
+      {/* ── 2. HERO (video background) ─────────────────────────────────────── */}
+      <section className="relative flex flex-col items-center justify-center text-center px-6 pt-32 pb-28 min-h-screen overflow-hidden">
 
-        {/* Animated forest background elements */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
-          {/* Stars/fireflies */}
-          {[
-            { top: "15%", left: "8%", size: 2.5, delay: "0s" },
-            { top: "25%", left: "18%", size: 1.5, delay: "0.5s" },
-            { top: "10%", left: "35%", size: 2, delay: "1s" },
-            { top: "20%", left: "55%", size: 1.5, delay: "0.3s" },
-            { top: "12%", left: "72%", size: 2.5, delay: "0.8s" },
-            { top: "30%", left: "88%", size: 1.5, delay: "0.2s" },
-            { top: "8%", left: "92%", size: 2, delay: "1.2s" },
-          ].map((s, i) => (
-            <div key={i} className="absolute rounded-full bg-white" style={{ top: s.top, left: s.left, width: s.size, height: s.size, opacity: 0.25, animation: `pulse ${2 + i * 0.3}s ease-in-out infinite`, animationDelay: s.delay }} />
-          ))}
+        {/* Video background */}
+        <video
+          autoPlay muted loop playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+          onLoadedData={(e) => { (e.target as HTMLVideoElement).currentTime = 8; }}
+          poster=""
+        >
+          <source src="/hero-video.mp4" type="video/mp4" />
+        </video>
 
-          {/* Left large pine tree */}
-          <svg className="absolute bottom-0 left-[-2%] h-[90%] w-auto opacity-40" viewBox="0 0 160 500" fill="none">
-            <rect x="72" y="400" width="16" height="100" fill="#3d2010"/>
-            <polygon points="80,20 20,180 140,180" fill="#1a4a20"/>
-            <polygon points="80,80 15,240 145,240" fill="#1e5a25"/>
-            <polygon points="80,150 10,300 150,300" fill="#245e2a"/>
-            <polygon points="80,220 5,360 155,360" fill="#2a6830"/>
-            <polygon points="80,300 0,420 160,420" fill="#306838"/>
-          </svg>
-
-          {/* Right large pine tree */}
-          <svg className="absolute bottom-0 right-[-2%] h-[80%] w-auto opacity-35" viewBox="0 0 140 500" fill="none">
-            <rect x="62" y="400" width="16" height="100" fill="#3d2010"/>
-            <polygon points="70,30 18,170 122,170" fill="#0d2818"/>
-            <polygon points="70,90 12,230 128,230" fill="#162a1e"/>
-            <polygon points="70,160 8,285 132,285" fill="#1e3828"/>
-            <polygon points="70,230 4,340 136,340" fill="#243e2e"/>
-            <polygon points="70,305 0,400 140,400" fill="#2a4835"/>
-          </svg>
-
-          {/* Left mid pine */}
-          <svg className="absolute bottom-0 left-[12%] h-[60%] w-auto opacity-30" viewBox="0 0 100 400" fill="none">
-            <rect x="45" y="320" width="10" height="80" fill="#3d2010"/>
-            <polygon points="50,30 10,150 90,150" fill="#1a4a20"/>
-            <polygon points="50,90 5,200 95,200" fill="#1e5225"/>
-            <polygon points="50,155 0,265 100,265" fill="#245228"/>
-            <polygon points="50,225 0,330 100,330" fill="#2a5c2e"/>
-          </svg>
-
-          {/* Right mid pine */}
-          <svg className="absolute bottom-0 right-[14%] h-[55%] w-auto opacity-25" viewBox="0 0 100 400" fill="none">
-            <rect x="45" y="320" width="10" height="80" fill="#3d2010"/>
-            <polygon points="50,40 12,155 88,155" fill="#122038"/>
-            <polygon points="50,100 8,210 92,210" fill="#162840"/>
-            <polygon points="50,165 4,270 96,270" fill="#1a3048"/>
-            <polygon points="50,235 0,335 100,335" fill="#1e3850"/>
-          </svg>
-
-          {/* Moonlight glow */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] opacity-25 rounded-full" style={{ background: "radial-gradient(ellipse at center, rgba(180,220,160,0.5) 0%, transparent 70%)" }}/>
-
-          {/* Ground fog/mist */}
-          <div className="absolute bottom-0 left-0 right-0 h-32" style={{ background: "linear-gradient(to top, rgba(45,100,50,0.4) 0%, transparent 100%)" }}/>
-
-          {/* Forest floor */}
-          <div className="absolute bottom-0 left-0 right-0 h-16" style={{ background: "linear-gradient(to top, #0d2010 0%, transparent 100%)" }}/>
-        </div>
+        {/* Dark green overlay */}
+        <div className="absolute inset-0 bg-[#1a2e20]/50" />
 
         {/* Vignette */}
-        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.35) 100%)" }} aria-hidden="true"/>
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.3) 100%)" }} aria-hidden="true"/>
 
         {/* Content */}
         <div className="relative z-10 flex flex-col items-center max-w-3xl">
@@ -334,15 +293,15 @@ export default function Home() {
             <span className="block text-4xl sm:text-5xl lg:text-[5rem] font-bold mt-2" style={{ color: "#86c98a" }}>Rooted helps you hold onto what matters.</span>
           </h1>
 
-          <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/78 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
+          <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/80 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
             Capture every moment. Plan your days with ease. Build a family yearbook you&apos;ll treasure forever.
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
-            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#3d5c42] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35), 0 0 48px rgba(134,201,138,0.12)" }}>
+            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#2d5a3d] hover:bg-white/90 font-bold px-8 py-4 rounded-full transition-all text-base shadow-lg">
               Get Started Free →
             </Link>
-            <Link href="/tour" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base" style={{ border: "1px solid rgba(255,255,255,0.35)", backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.06)" }}>
+            <Link href="/tour" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/10 font-semibold px-8 py-4 rounded-full transition-all text-base border border-white/35" style={{ backdropFilter: "blur(12px)" }}>
               See Inside →
             </Link>
           </div>
@@ -353,10 +312,9 @@ export default function Home() {
         </div>
 
         {/* Scroll indicator */}
-        <div className="scroll-bounce absolute bottom-8 left-1/2 text-white/40" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <path d="M11 4v14M4 12l7 7 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-white/40" aria-hidden="true">
+          <span className="text-[10px] uppercase tracking-widest font-medium">scroll</span>
+          <div className="w-px h-8 bg-white/30 scroll-bounce" />
         </div>
       </section>
 
@@ -465,6 +423,81 @@ export default function Home() {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* ── 4b. PHOTO + TEXT SECTIONS ──────────────────────────────────────── */}
+      <section className="px-6 sm:px-8 py-20 max-w-5xl mx-auto space-y-20">
+        {/* Memories — photo left, text right */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+          <div>
+            <img
+              src="https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&q=80"
+              alt="Family reading together"
+              className="w-full rounded-xl object-cover shadow-lg"
+              style={{ aspectRatio: "4/3" }}
+            />
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Capture every moment</p>
+            <h3 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+              The little things become the <em className="not-italic text-[#5c7f63]">big things.</em>
+            </h3>
+            <p className="text-[#7a6f65] leading-relaxed mb-6">
+              Photos, field trips, funny quotes, books they loved — save it all as it happens. One tap from anywhere in the app. Build a memory book your family will treasure forever.
+            </p>
+            <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold px-6 py-3 rounded-full transition-colors text-sm shadow-sm">
+              Start capturing →
+            </Link>
+          </div>
+        </div>
+
+        {/* Planning — text left, photo right */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+          <div className="order-2 lg:order-1">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Plan with ease</p>
+            <h3 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+              Know exactly what&apos;s next — <em className="not-italic text-[#5c7f63]">without the stress.</em>
+            </h3>
+            <p className="text-[#7a6f65] leading-relaxed mb-6">
+              Schedule lessons, check them off as you go, and track progress across every subject. See today at a glance and watch your family&apos;s learning tree grow leaf by leaf.
+            </p>
+            <Link href="/signup" className="inline-flex items-center gap-2 border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold px-6 py-3 rounded-full transition-colors text-sm">
+              Try it free →
+            </Link>
+          </div>
+          <div className="order-1 lg:order-2">
+            <img
+              src="https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800&q=80"
+              alt="Child studying"
+              className="w-full rounded-xl object-cover shadow-lg"
+              style={{ aspectRatio: "4/3" }}
+            />
+          </div>
+        </div>
+
+        {/* Growth — photo left, text right */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+          <div>
+            <img
+              src="https://images.unsplash.com/photo-1491841651911-c44484e0cf2b?w=800&q=80"
+              alt="Nature and growth"
+              className="w-full rounded-xl object-cover shadow-lg"
+              style={{ aspectRatio: "4/3" }}
+            />
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Watch them grow</p>
+            <h3 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+              See how far they&apos;ve come — <em className="not-italic text-[#5c7f63]">beautifully.</em>
+            </h3>
+            <p className="text-[#7a6f65] leading-relaxed mb-6">
+              Every lesson earns a leaf. Watch each child&apos;s tree bloom through the garden stages. At the end of the year, see everything come together in a family yearbook you&apos;ll keep forever.
+            </p>
+            <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold px-6 py-3 rounded-full transition-colors text-sm shadow-sm">
+              Get started →
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -1107,7 +1140,31 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 10. FOOTER ─────────────────────────────────────────────────────── */}
+      {/* ── 10. BOTTOM CTA ────────────────────────────────────────────────── */}
+      <section className="bg-[#e8f0ea] px-6 sm:px-8 py-20">
+        <div className="max-w-2xl mx-auto text-center">
+          <h2
+            className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-4 italic"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            Ready to get rooted?
+          </h2>
+          <p className="text-[#7a6f65] text-base mb-8">
+            Join 600+ homeschool families. Free to start.
+          </p>
+          <Link
+            href="/signup"
+            className="inline-flex items-center gap-2 bg-[#2d5a3d] hover:bg-[#3d5c42] text-white font-bold px-8 py-4 rounded-full transition-colors text-base shadow-lg"
+          >
+            Start for Free →
+          </Link>
+          <p className="text-xs text-[#7a6f65] mt-6">
+            Founding Family pricing ends April 30 · $39/yr → $59/yr
+          </p>
+        </div>
+      </section>
+
+      {/* ── 11. FOOTER ─────────────────────────────────────────────────────── */}
       <footer className="bg-[#fefcf9] border-t border-[#e8e2d9]">
         <div className="max-w-5xl mx-auto px-6 sm:px-8 py-12">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 items-start">
