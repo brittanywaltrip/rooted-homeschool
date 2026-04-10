@@ -499,6 +499,7 @@ interface IdCardData {
   state: string;
   showWatermark: boolean;
   photoDataUrl?: string | null;
+  back?: { include: boolean; address: string; websiteOrEmail: string; note: string };
 }
 
 function drawPersonPlaceholder(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
@@ -764,6 +765,141 @@ async function drawIdCardArtisan(ctx: CanvasRenderingContext2D, data: IdCardData
   }
 }
 
+// ─── ID Card back drawing ───────────────────────────────────────────────────
+
+function drawIdCardBackGarden(ctx: CanvasRenderingContext2D, data: IdCardData) {
+  const W = 336, H = 192;
+  ctx.fillStyle = "#F7F3E9";
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "#2D5016";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+  ctx.strokeStyle = "#C4962A";
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(5, 5, W - 10, H - 10);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#2D5016";
+  ctx.font = '12px "Cormorant Garamond"';
+  ctx.letterSpacing = "2px";
+  ctx.fillText((data.schoolName || "Family Academy").toUpperCase(), W / 2, 50);
+  ctx.letterSpacing = "0px";
+
+  drawDivider(ctx, W / 2, 62, 120, "#C4962A");
+
+  let y = 82;
+  ctx.fillStyle = "#7a6a5e";
+  ctx.font = '10px "Cormorant Garamond"';
+  if (data.back?.address) { ctx.fillText(data.back.address, W / 2, y); y += 16; }
+  if (data.back?.websiteOrEmail) { ctx.fillText(data.back.websiteOrEmail, W / 2, y); y += 16; }
+  if (data.back?.note) {
+    ctx.font = 'italic 9px "Cormorant Garamond"';
+    ctx.fillStyle = "#b5aca4";
+    ctx.fillText(data.back.note, W / 2, y + 8);
+  }
+
+  if (data.showWatermark) {
+    ctx.fillStyle = "#c8b898";
+    ctx.font = '8px "Cormorant Garamond"';
+    ctx.fillText("Made with Rooted", W / 2, H - 12);
+  }
+}
+
+function drawIdCardBackHeritage(ctx: CanvasRenderingContext2D, data: IdCardData) {
+  const W = 336, H = 192;
+  ctx.fillStyle = "#FFFEF7";
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "#1A3A2A";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+  ctx.strokeStyle = "#B8860B";
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(5, 5, W - 10, H - 10);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#1A3A2A";
+  ctx.font = '12px "Playfair Display"';
+  ctx.letterSpacing = "2px";
+  ctx.fillText((data.schoolName || "Family Academy").toUpperCase(), W / 2, 50);
+  ctx.letterSpacing = "0px";
+
+  drawDivider(ctx, W / 2, 62, 120, "#B8860B");
+
+  let y = 82;
+  ctx.fillStyle = "#5a5a48";
+  ctx.font = '10px "Cormorant Garamond"';
+  if (data.back?.address) { ctx.fillText(data.back.address, W / 2, y); y += 16; }
+  if (data.back?.websiteOrEmail) { ctx.fillText(data.back.websiteOrEmail, W / 2, y); y += 16; }
+  if (data.back?.note) {
+    ctx.font = 'italic 9px "Cormorant Garamond"';
+    ctx.fillStyle = "#b5aca4";
+    ctx.fillText(data.back.note, W / 2, y + 8);
+  }
+
+  if (data.showWatermark) {
+    ctx.fillStyle = "#b8a888";
+    ctx.font = '8px "Cormorant Garamond"';
+    ctx.fillText("Made with Rooted", W / 2, H - 12);
+  }
+}
+
+function drawIdCardBackArtisan(ctx: CanvasRenderingContext2D, data: IdCardData) {
+  const W = 336, H = 192;
+  ctx.fillStyle = "#FAFAF8";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#C4613A";
+  ctx.fillRect(0, 0, 8, H);
+  ctx.fillRect(0, 0, W, 2);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#C4613A";
+  ctx.font = '300 10px "Jost"';
+  ctx.letterSpacing = "3px";
+  ctx.fillText((data.schoolName || "Family Academy").toUpperCase(), W / 2, 50);
+  ctx.letterSpacing = "0px";
+
+  drawDivider(ctx, W / 2, 62, 80, "#e0d8d0");
+
+  let y = 82;
+  ctx.fillStyle = "#7a6a5e";
+  ctx.font = 'italic 10px "Cormorant Garamond"';
+  if (data.back?.address) { ctx.fillText(data.back.address, W / 2, y); y += 16; }
+  if (data.back?.websiteOrEmail) { ctx.fillText(data.back.websiteOrEmail, W / 2, y); y += 16; }
+  if (data.back?.note) {
+    ctx.font = 'italic 9px "Cormorant Garamond"';
+    ctx.fillStyle = "#b5aca4";
+    ctx.fillText(data.back.note, W / 2, y + 8);
+  }
+
+  if (data.showWatermark) {
+    ctx.fillStyle = "#c0b8b0";
+    ctx.font = '300 7px "Jost"';
+    ctx.fillText("Made with Rooted", W / 2, H - 10);
+  }
+}
+
+async function drawIdCardBackToCanvas(style: string, data: IdCardData): Promise<HTMLCanvasElement> {
+  await loadFonts();
+  const SCALE = 3;
+  const canvas = document.createElement("canvas");
+  canvas.width = 336 * SCALE;
+  canvas.height = 192 * SCALE;
+  const ctx = canvas.getContext("2d")!;
+  ctx.scale(SCALE, SCALE);
+
+  switch (style) {
+    case "heritage":
+      drawIdCardBackHeritage(ctx, data);
+      break;
+    case "artisan":
+      drawIdCardBackArtisan(ctx, data);
+      break;
+    default:
+      drawIdCardBackGarden(ctx, data);
+  }
+  return canvas;
+}
+
 async function drawIdCardToCanvas(style: string, data: IdCardData): Promise<HTMLCanvasElement> {
   await loadFonts();
   const SCALE = 3;
@@ -792,31 +928,66 @@ export async function drawIdCardPDF(style: string, data: IdCardData, filename?: 
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ orientation: "landscape", unit: "in", format: [3.5, 2] });
   pdf.addImage(imgData, "PNG", 0, 0, 3.5, 2);
+
+  // Add back as page 2
+  if (data.back?.include) {
+    const backCanvas = await drawIdCardBackToCanvas(style, data);
+    const backImg = backCanvas.toDataURL("image/png", 1.0);
+    pdf.addPage([3.5, 2], "landscape");
+    pdf.addImage(backImg, "PNG", 0, 0, 3.5, 2);
+  }
+
   const safeName = (filename || `${data.name || "id"}-card`).replace(/[^a-z0-9]/gi, "-").toLowerCase();
   pdf.save(`${safeName}.pdf`);
 }
 
 export async function drawIdCardPrintSheetPDF(style: string, data: IdCardData) {
-  const canvas = await drawIdCardToCanvas(style, data);
-  const imgData = canvas.toDataURL("image/png", 1.0);
-  const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
+  const frontCanvas = await drawIdCardToCanvas(style, data);
+  const frontImg = frontCanvas.toDataURL("image/png", 1.0);
 
-  // 2×4 grid on letter page (8.5×11), cards are 3.5×2
-  const marginX = 0.75, marginY = 0.5, gapX = 0, gapY = 0.25;
-  for (let row = 0; row < 4; row++) {
-    for (let col = 0; col < 2; col++) {
-      const x = marginX + col * (3.5 + gapX);
-      const y = marginY + row * (2 + gapY);
-      doc.addImage(imgData, "PNG", x, y, 3.5, 2);
-      // Crop marks
-      doc.setDrawColor(200);
-      doc.setLineWidth(0.005);
-      doc.line(x, y - 0.1, x, y);
-      doc.line(x + 3.5, y - 0.1, x + 3.5, y);
-      doc.line(x, y + 2, x, y + 2.1);
-      doc.line(x + 3.5, y + 2, x + 3.5, y + 2.1);
-    }
+  let backImg = "";
+  if (data.back?.include) {
+    const backCanvas = await drawIdCardBackToCanvas(style, data);
+    backImg = backCanvas.toDataURL("image/png", 1.0);
   }
-  window.open(doc.output("bloburl"), "_blank");
+
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) return;
+
+  const backPage = backImg
+    ? `<div class="page"><img src="${backImg}" alt="ID Card Back" /></div>`
+    : "";
+
+  printWindow.document.write(`<!DOCTYPE html>
+<html><head><title>Print ID Card</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page { size: letter; margin: 0; }
+  body { background: white; }
+  .page {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    page-break-after: always;
+    break-after: page;
+  }
+  .page:last-child { page-break-after: auto; break-after: auto; }
+  .page img {
+    width: 3.375in;
+    height: 2.125in;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+</style>
+</head><body>
+  <div class="page"><img src="${frontImg}" alt="ID Card Front" /></div>
+  ${backPage}
+<script>
+  window.onafterprint = function() { window.close(); };
+  setTimeout(function() { window.print(); }, 300);
+</script>
+</body></html>`);
+  printWindow.document.close();
 }

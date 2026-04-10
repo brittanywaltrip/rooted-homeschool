@@ -240,12 +240,14 @@ async function downloadIdCard(
   fields: CardFields,
   photoUrl: string | null,
   label: string,
+  back?: BackFields,
 ) {
   const { drawIdCardPDF } = await import("@/lib/certificate-canvas");
   await drawIdCardPDF(style, {
     schoolName: fields.schoolName, name: fields.name, title: fields.title,
     schoolYear: fields.schoolYear, state: fields.state, showWatermark: fields.showWatermark,
     photoDataUrl: photoUrl,
+    back: back?.include ? back : undefined,
   }, label);
 }
 
@@ -253,12 +255,14 @@ async function downloadIdPrintSheet(
   style: StyleId,
   fields: CardFields,
   photoUrl: string | null,
+  back?: BackFields,
 ) {
   const { drawIdCardPrintSheetPDF } = await import("@/lib/certificate-canvas");
   await drawIdCardPrintSheetPDF(style, {
     schoolName: fields.schoolName, name: fields.name, title: fields.title,
     schoolYear: fields.schoolYear, state: fields.state, showWatermark: fields.showWatermark,
     photoDataUrl: photoUrl,
+    back: back?.include ? back : undefined,
   });
 }
 
@@ -407,7 +411,7 @@ function IDCardEditor({
   async function handleDownload() {
     if (!photoUrl) return;
     setDownloading(true);
-    try { await downloadIdCard(style, fields, photoUrl, cardLabel); }
+    try { await downloadIdCard(style, fields, photoUrl, cardLabel, back); }
     catch (e) { console.error(e); alert("Download failed. Please try again."); }
     finally { setDownloading(false); }
   }
@@ -415,7 +419,7 @@ function IDCardEditor({
   async function handlePrintSheet() {
     if (!photoUrl) return;
     setDownloadingSheet(true);
-    try { await downloadIdPrintSheet(style, fields, photoUrl); }
+    try { await downloadIdPrintSheet(style, fields, photoUrl, back); }
     catch (e) { console.error(e); alert("Download failed. Please try again."); }
     finally { setDownloadingSheet(false); }
   }
@@ -473,24 +477,13 @@ function IDCardEditor({
           )}
         </div>
         <div className="flex flex-col items-center gap-4">
-          <div className="flex flex-col items-center gap-2 printable-id-front">
-            <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide no-print">Front</p>
-            <div className="shadow-lg rounded overflow-hidden print:shadow-none">
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide">Front</p>
+            <div className="shadow-lg rounded overflow-hidden">
               <CardPreview style={style} fields={fields} photoUrl={photoUrl} scale={1.55} />
             </div>
-            <p className="text-[10px] text-[#b5aca4] no-print">3.5&Prime; &times; 2&Prime;</p>
+            <p className="text-[10px] text-[#b5aca4]">3.5&Prime; &times; 2&Prime;</p>
           </div>
-          {back.include && (
-            <div className="flex flex-col items-center gap-2 printable-id-back">
-              <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide no-print">Back</p>
-              <div className="shadow-lg rounded overflow-hidden print:shadow-none" style={{ width: Math.round(BW * 1.55), height: Math.round(BH * 1.55), backgroundColor: style === "garden" ? "#F7F3E9" : style === "heritage" ? "#FFFEF7" : "#FAFAF8", border: style === "garden" ? "2px solid #2D5016" : style === "heritage" ? "2px solid #1A3A2A" : "none", borderLeft: style === "artisan" ? "6px solid #C4613A" : undefined, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "12px 16px", fontFamily: style === "artisan" ? "'Jost', sans-serif" : "'Playfair Display', Georgia, serif" }}>
-                <p style={{ fontSize: 10, fontWeight: "bold", color: style === "artisan" ? "#C4613A" : style === "heritage" ? "#1A3A2A" : "#2D5016", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>{fields.schoolName}</p>
-                {back.address && <p style={{ fontSize: 9, color: "#7a6f65", marginBottom: 2 }}>{back.address}</p>}
-                {back.websiteOrEmail && <p style={{ fontSize: 9, color: "#7a6f65", marginBottom: 2 }}>{back.websiteOrEmail}</p>}
-                {back.note && <p style={{ fontSize: 8, color: "#b5aca4", fontStyle: "italic", marginTop: 6, textAlign: "center" }}>{back.note}</p>}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -285,17 +285,6 @@ input:-webkit-autofill:focus {
     print-color-adjust: exact !important;
   }
 
-  /* ── Printables: hide all chrome ──────────────────────────── */
-  .no-print,
-  button,
-  input,
-  select,
-  textarea,
-  label,
-  .chips-row {
-    display: none !important;
-  }
-
   /* ── Certificates: one per page ───────────────────────────── */
   .printable-cert {
     break-after: page;
@@ -303,16 +292,5 @@ input:-webkit-autofill:focus {
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
-  }
-
-  /* ── ID cards: front + back each on own page ──────────────── */
-  .printable-id-front,
-  .printable-id-back {
-    display: flex !important;
-    break-after: page;
-    page-break-after: always;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
   }
 }
