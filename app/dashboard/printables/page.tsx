@@ -82,9 +82,9 @@ const GRADES = [
 // ─── Style selector data ─────────────────────────────────────────────────────
 
 const STYLES: { id: StyleId; name: string; emoji: string; desc: string }[] = [
-  { id: "garden",   name: "The Garden",   emoji: "\uD83C\uDF3F", desc: "Warm cream \u00b7 Botanical leaves \u00b7 Gold accents" },
-  { id: "heritage", name: "The Heritage", emoji: "\uD83C\uDFDB\uFE0F", desc: "Formal \u00b7 Triple border \u00b7 Diamond ornaments" },
-  { id: "artisan",  name: "The Artisan",  emoji: "\u2726",       desc: "Minimal \u00b7 Editorial \u00b7 Terracotta accent" },
+  { id: "garden",   name: "The Garden",   emoji: "\uD83C\uDF3F", desc: "Warm cream, botanical leaves, gold accents" },
+  { id: "heritage", name: "The Heritage", emoji: "\uD83C\uDFDB\uFE0F", desc: "Formal, triple border, diamond ornaments" },
+  { id: "artisan",  name: "The Artisan",  emoji: "\u2726",       desc: "Minimal, editorial, terracotta accent" },
 ];
 
 // ─── Card preview (live React component, pixel-scaled) ────────────────────
@@ -153,7 +153,7 @@ function CardPreview({
           </p>
           <div style={{ width: s(showSlot ? 36 : 44), height: 1, backgroundColor: "#C4962A", margin: `0 ${showSlot ? "0" : "auto"} ${s(4)}px` }} />
           <p style={{ fontSize: s(6.5), color: "#7a6f65", margin: 0 }}>
-            {[fields.state, fields.schoolYear].filter(Boolean).join(" \u00b7 ")}
+            {[fields.state, fields.schoolYear].filter(Boolean).join(" | ")}
           </p>
           {fields.showWatermark && (
             <p style={{ fontSize: s(5), color: "#c8b898", margin: `${s(3)}px 0 0` }}>Made with Rooted</p>
@@ -187,7 +187,7 @@ function CardPreview({
           </p>
           <div style={{ width: s(showSlot ? 36 : 44), height: 1, backgroundColor: "#B8860B", margin: `0 ${showSlot ? "0" : "auto"} ${s(4)}px` }} />
           <p style={{ fontSize: s(6.5), color: "#7a6f65", margin: 0 }}>
-            {[fields.state, fields.schoolYear].filter(Boolean).join(" \u00b7 ")}
+            {[fields.state, fields.schoolYear].filter(Boolean).join(" | ")}
           </p>
           {fields.showWatermark && (
             <p style={{ fontSize: s(5), color: "#b8a888", margin: `${s(3)}px 0 0` }}>Made with Rooted</p>
@@ -221,7 +221,7 @@ function CardPreview({
               {fields.title}
             </p>
             <p style={{ fontSize: s(6.5), color: "#b5aca4", margin: 0 }}>
-              {[fields.state, fields.schoolYear].filter(Boolean).join(" \u00b7 ")}
+              {[fields.state, fields.schoolYear].filter(Boolean).join(" | ")}
             </p>
             {fields.showWatermark && (
               <p style={{ fontSize: s(5), color: "#c0b8b0", margin: `${s(3)}px 0 0` }}>Made with Rooted</p>
@@ -379,7 +379,7 @@ function PhotoUpload({ photoUrl, onChange }: {
             </div>
           )}
           <p className="text-[11px] text-[#2d2926] font-medium mt-2 leading-relaxed">Photo required — most programs require a photo ID to be valid.</p>
-          <p className="text-[10px] text-[#b5aca4] mt-0.5">JPG or PNG \u00b7 auto-cropped to portrait</p>
+          <p className="text-[10px] text-[#b5aca4] mt-0.5">JPG or PNG, auto-cropped to portrait</p>
         </div>
       </div>
       <input ref={inputRef} type="file" accept="image/jpeg,image/png" className="hidden"
@@ -473,13 +473,24 @@ function IDCardEditor({
           )}
         </div>
         <div className="flex flex-col items-center gap-4">
-          <div className="flex flex-col items-center gap-2">
-            <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide">Front</p>
-            <div className="shadow-lg rounded overflow-hidden">
+          <div className="flex flex-col items-center gap-2 printable-id-front">
+            <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide no-print">Front</p>
+            <div className="shadow-lg rounded overflow-hidden print:shadow-none">
               <CardPreview style={style} fields={fields} photoUrl={photoUrl} scale={1.55} />
             </div>
-            <p className="text-[10px] text-[#b5aca4]">3.5&Prime; &times; 2&Prime;</p>
+            <p className="text-[10px] text-[#b5aca4] no-print">3.5&Prime; &times; 2&Prime;</p>
           </div>
+          {back.include && (
+            <div className="flex flex-col items-center gap-2 printable-id-back">
+              <p className="text-[10px] font-semibold text-[#b5aca4] uppercase tracking-wide no-print">Back</p>
+              <div className="shadow-lg rounded overflow-hidden print:shadow-none" style={{ width: Math.round(BW * 1.55), height: Math.round(BH * 1.55), backgroundColor: style === "garden" ? "#F7F3E9" : style === "heritage" ? "#FFFEF7" : "#FAFAF8", border: style === "garden" ? "2px solid #2D5016" : style === "heritage" ? "2px solid #1A3A2A" : "none", borderLeft: style === "artisan" ? "6px solid #C4613A" : undefined, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "12px 16px", fontFamily: style === "artisan" ? "'Jost', sans-serif" : "'Playfair Display', Georgia, serif" }}>
+                <p style={{ fontSize: 10, fontWeight: "bold", color: style === "artisan" ? "#C4613A" : style === "heritage" ? "#1A3A2A" : "#2D5016", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>{fields.schoolName}</p>
+                {back.address && <p style={{ fontSize: 9, color: "#7a6f65", marginBottom: 2 }}>{back.address}</p>}
+                {back.websiteOrEmail && <p style={{ fontSize: 9, color: "#7a6f65", marginBottom: 2 }}>{back.websiteOrEmail}</p>}
+                {back.note && <p style={{ fontSize: 8, color: "#b5aca4", fontStyle: "italic", marginTop: 6, textAlign: "center" }}>{back.note}</p>}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -578,7 +589,7 @@ function AnnualReportCard({
       <div className="px-5 py-4 flex flex-wrap items-center gap-4">
         <div className="text-sm text-[#7a6f65]">
           <span className="font-semibold text-[#2d2926]">{childrenList.length}</span>{" "}
-          {childrenList.length === 1 ? "student" : "students"} \u00b7 {schoolYear}
+          {childrenList.length === 1 ? "student" : "students"} | {schoolYear}
         </div>
         <label className="flex items-center gap-2 cursor-pointer select-none ml-auto">
           <input type="checkbox" checked={showWatermark} onChange={e => setShowWatermark(e.target.checked)} className="w-4 h-4 rounded accent-[#5c7f63]" />
@@ -690,7 +701,7 @@ export default function PrintablesPage() {
   const [subjectChild, setSubjectChild] = useState("");
   const [subjectName, setSubjectName] = useState("");
 
-  useEffect(() => { document.title = "Printables \u00b7 Rooted"; }, []);
+  useEffect(() => { document.title = "Printables — Rooted"; }, []);
 
   useEffect(() => {
     async function load() {
