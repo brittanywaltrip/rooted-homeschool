@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Download, ChevronDown, ChevronUp } from "lucide-react";
+import { Download } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { AWARD_META } from "@/lib/certificate-templates";
-import type { EarnedAward, NewAward, AppData } from "@/lib/award-unlocks";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -500,56 +499,44 @@ async function downloadCertificate(type: string, style: StyleId, data: Record<st
 // ─── Award card component ────────────────────────────────────────────────────
 
 function AwardCard({
-  award, style, onDownload, downloading,
+  awardType, childName, style, onDownload, downloading,
 }: {
-  award: EarnedAward;
+  awardType: string;
+  childName?: string;
   style: StyleId;
-  onDownload: () => void;
+  onDownload: (note: string, date: string) => void;
   downloading: boolean;
 }) {
-  const meta = AWARD_META[award.award_type as keyof typeof AWARD_META];
-  if (!meta) return null;
-  const isNew = !award.downloaded_at;
-  const childName = award.certificate_data?.childName;
-
-  return (
-    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-4 flex items-start gap-3 hover:shadow-sm transition-shadow">
-      <span className="text-2xl shrink-0">{meta.emoji}</span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-semibold text-[#2d2926] truncate">{meta.label}</p>
-          {isNew && (
-            <span className="text-[9px] font-bold text-white bg-[#5c7f63] px-1.5 py-0.5 rounded-full shrink-0">New!</span>
-          )}
-        </div>
-        <p className="text-[11px] text-[#b5aca4] mt-0.5">
-          {meta.isEducator ? "For you" : childName || ""}
-        </p>
-      </div>
-      <button onClick={onDownload} disabled={downloading}
-        className="flex items-center gap-1.5 text-[11px] font-semibold text-[#5c7f63] hover:text-[#3d5c42] disabled:opacity-50 shrink-0 mt-0.5">
-        {downloading ? (
-          <span className="inline-block w-3 h-3 border-2 border-[#5c7f63] border-t-transparent rounded-full animate-spin" />
-        ) : (
-          <Download size={12} />
-        )}
-        {downloading ? "Generating\u2026" : "Download"}
-      </button>
-    </div>
-  );
-}
-
-// ─── Locked award card ───────────────────────────────────────────────────────
-
-function LockedAwardCard({ awardType }: { awardType: string }) {
   const meta = AWARD_META[awardType as keyof typeof AWARD_META];
   if (!meta) return null;
+  const [note, setNote] = useState("");
+  const [date, setDate] = useState(todayStr());
+
   return (
-    <div className="bg-[#f5f3ef] border border-[#e8e2d9] rounded-xl p-4 flex items-start gap-3 opacity-60">
-      <span className="text-2xl shrink-0 grayscale">🔒</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-[#7a6f65] truncate">{meta.label}</p>
-        <p className="text-[11px] text-[#b5aca4] mt-0.5">{meta.unlockHint}</p>
+    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-4 space-y-2 hover:shadow-sm transition-shadow">
+      <div className="flex items-start gap-3">
+        <span className="text-2xl shrink-0">{meta.emoji}</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-[#2d2926] truncate">{meta.label}</p>
+          <p className="text-[11px] text-[#b5aca4] mt-0.5">
+            {meta.isEducator ? "For you" : childName || ""}
+          </p>
+        </div>
+        <button onClick={() => onDownload(note, date)} disabled={downloading}
+          className="flex items-center gap-1.5 text-[11px] font-semibold text-[#5c7f63] hover:text-[#3d5c42] disabled:opacity-50 shrink-0 mt-0.5">
+          {downloading ? (
+            <span className="inline-block w-3 h-3 border-2 border-[#5c7f63] border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Download size={12} />
+          )}
+          {downloading ? "Generating\u2026" : "Download"}
+        </button>
+      </div>
+      <div className="flex gap-2 items-center">
+        <input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="Personal note (optional)"
+          className="flex-1 min-w-0 border border-[#e8e2d9] rounded-lg px-2 py-1 text-[11px] text-[#2d2926] bg-[#fefcf9] placeholder:text-[#c4bfb8] focus:outline-none focus:border-[#5c7f63]" />
+        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+          className="w-[120px] shrink-0 border border-[#e8e2d9] rounded-lg px-2 py-1 text-[11px] text-[#2d2926] bg-[#fefcf9] focus:outline-none focus:border-[#5c7f63]" />
       </div>
     </div>
   );
@@ -567,9 +554,7 @@ export default function PrintablesPage() {
   const [parentFields, setParentFields] = useState<CardFields | null>(null);
   const [childFields, setChildFields] = useState<Record<string, CardFields>>({});
   // Award states
-  const [earnedAwards, setEarnedAwards] = useState<EarnedAward[]>([]);
   const [downloadingAward, setDownloadingAward] = useState<string | null>(null);
-  const [showLocked, setShowLocked] = useState(false);
 
   // Custom certificate
   const [customName, setCustomName] = useState("");
@@ -656,36 +641,7 @@ export default function PrintablesPage() {
       for (const kid of kidsArr) cardMap[kid.id] = makeChildDefaults(kid.name, fName, st);
       setChildFields(cardMap);
 
-      // Load earned awards
-      const { data: awards } = await supabase
-        .from("earned_awards").select("*").eq("user_id", uid).order("earned_at", { ascending: false });
-      setEarnedAwards((awards || []) as EarnedAward[]);
-
-      // Check for new awards
-      try {
-        const { checkAndGrantAwards } = await import("@/lib/award-unlocks");
-        const allDates = new Set<string>();
-        for (const l of (completedLessons || []) as { date?: string }[]) { if (l.date) allDates.add(l.date); }
-
-        const { data: memoriesData } = await supabase
-          .from("memories").select("id, type, child_id, title, date").eq("user_id", uid);
-
-        const appData: AppData = {
-          children: kidsArr.map(k => ({ id: k.id, name: k.name })),
-          completedLessons: (completedLessons || []) as { child_id: string; date: string; scheduled_date?: string }[],
-          memories: (memoriesData || []) as { id: string; type: string; child_id: string | null; title: string | null; date: string }[],
-          totalSchoolDays: allDates.size,
-          profile: { display_name: fName, created_at: session.user.created_at },
-          academyName: fName ? `${fName} Academy` : "Family Academy",
-        };
-
-        const newAwards = await checkAndGrantAwards(uid, appData);
-        if (newAwards.length > 0) {
-          const { data: refreshed } = await supabase
-            .from("earned_awards").select("*").eq("user_id", uid).order("earned_at", { ascending: false });
-          setEarnedAwards((refreshed || []) as EarnedAward[]);
-        }
-      } catch (e) { console.error("[Awards check]", e); }
+      // (Awards are shown from full catalog, no earned_awards check needed)
     }
     load();
   }, [partnerCtx.effectiveUserId]);
@@ -702,12 +658,22 @@ export default function PrintablesPage() {
     }
   }
 
-  async function handleAwardDownload(award: EarnedAward) {
-    setDownloadingAward(award.id);
+  async function handleCatalogDownload(awardType: string, recipientName: string, isEducator: boolean, note: string, date: string) {
+    const key = `${awardType}-${recipientName}`;
+    setDownloadingAward(key);
     try {
-      await downloadCertificate(award.award_type, activeStyle, award.certificate_data || {});
-      await supabase.from("earned_awards").update({ downloaded_at: new Date().toISOString() }).eq("id", award.id);
-      setEarnedAwards(prev => prev.map(a => a.id === award.id ? { ...a, downloaded_at: new Date().toISOString() } : a));
+      const data: Record<string, string> = {
+        academyName: schoolName,
+        schoolYear: currentYearRange(),
+        date,
+      };
+      if (isEducator) {
+        data.educatorName = familyName || "Educator";
+      } else {
+        data.childName = recipientName;
+      }
+      if (note) data.note = note;
+      await downloadCertificate(awardType, activeStyle, data);
     } catch (e) { console.error(e); showError(e); }
     finally { setDownloadingAward(null); }
   }
@@ -766,25 +732,10 @@ export default function PrintablesPage() {
     schoolYear: currentYearRange(), state: stateCode || "NV", showWatermark: false,
   };
 
-  // Split awards
-  const childAwards = earnedAwards.filter(a => {
-    const meta = AWARD_META[a.award_type as keyof typeof AWARD_META];
-    return meta && !meta.isEducator;
-  });
-  const educatorAwards = earnedAwards.filter(a => {
-    const meta = AWARD_META[a.award_type as keyof typeof AWARD_META];
-    return meta && meta.isEducator;
-  });
-
-  // Locked awards
-  const allAwardTypes = Object.keys(AWARD_META).filter(t => t !== "custom");
-  const earnedTypes = new Set(earnedAwards.map(a => `${a.award_type}-${a.child_id || "null"}`));
-  const lockedTypes = allAwardTypes.filter(t => {
-    const meta = AWARD_META[t as keyof typeof AWARD_META];
-    if (!meta) return false;
-    if (meta.isEducator) return !earnedAwards.some(a => a.award_type === t);
-    return !earnedAwards.some(a => a.award_type === t);
-  });
+  // Build full catalog — child awards × all children, educator awards once
+  const allTypes = Object.keys(AWARD_META).filter(t => t !== "custom" && t !== "graduation" && t !== "subject_mastery");
+  const childAwardTypes = allTypes.filter(t => !AWARD_META[t as keyof typeof AWARD_META]?.isEducator);
+  const educatorAwardTypes = allTypes.filter(t => AWARD_META[t as keyof typeof AWARD_META]?.isEducator);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-10">
@@ -827,16 +778,18 @@ export default function PrintablesPage() {
       </section>
 
       {/* ── Your Certificates (child awards) ─────────────────────── */}
-      {childAwards.length > 0 && (
+      {children.length > 0 && (
         <section>
           <h2 className="text-base font-bold text-[#2d2926] mb-0.5">🎓 Your Certificates</h2>
-          <p className="text-xs text-[#b5aca4] mb-4">These were earned. Download and print any time.</p>
+          <p className="text-xs text-[#b5aca4] mb-4">Download and print any time. Gift them when the moment is right.</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {childAwards.map(a => (
-              <AwardCard key={a.id} award={a} style={activeStyle}
-                onDownload={() => handleAwardDownload(a)}
-                downloading={downloadingAward === a.id} />
-            ))}
+            {children.flatMap(child =>
+              childAwardTypes.map(t => (
+                <AwardCard key={`${t}-${child.id}`} awardType={t} childName={child.name} style={activeStyle}
+                  onDownload={(note, date) => handleCatalogDownload(t, child.name, false, note, date)}
+                  downloading={downloadingAward === `${t}-${child.name}`} />
+              ))
+            )}
           </div>
         </section>
       )}
@@ -845,17 +798,13 @@ export default function PrintablesPage() {
       <section>
         <h2 className="text-base font-bold text-[#2d2926] mb-0.5">💛 For the Educator</h2>
         <p className="text-xs text-[#b5aca4] mb-4">You&apos;re doing the hardest part.</p>
-        {educatorAwards.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {educatorAwards.map(a => (
-              <AwardCard key={a.id} award={a} style={activeStyle}
-                onDownload={() => handleAwardDownload(a)}
-                downloading={downloadingAward === a.id} />
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-[#b5aca4] italic">Keep going — your first certificates will appear here soon.</p>
-        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {educatorAwardTypes.map(t => (
+            <AwardCard key={t} awardType={t} style={activeStyle}
+              onDownload={(note, date) => handleCatalogDownload(t, familyName || "Educator", true, note, date)}
+              downloading={downloadingAward === `${t}-${familyName || "Educator"}`} />
+          ))}
+        </div>
       </section>
 
       {/* ── Graduation & Subject (manual) ─────────────────────────── */}
@@ -913,21 +862,6 @@ export default function PrintablesPage() {
         </div>
       </section>
 
-      {/* ── Coming Up (locked) ─────────────────────────────────────── */}
-      {lockedTypes.length > 0 && (
-        <section>
-          <button onClick={() => setShowLocked(!showLocked)}
-            className="flex items-center gap-2 text-base font-bold text-[#2d2926] mb-2 hover:text-[#5c7f63] transition-colors">
-            🔒 Coming Up
-            {showLocked ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
-          {showLocked && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {lockedTypes.map(t => <LockedAwardCard key={t} awardType={t} />)}
-            </div>
-          )}
-        </section>
-      )}
 
       {/* ── ID Cards ─────────────────────────────────────────────────── */}
       <section className="space-y-5">
