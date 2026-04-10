@@ -299,7 +299,7 @@ export default function Home() {
         <div className="relative z-10 flex flex-col items-center max-w-3xl">
           <h1 className="anim-fade-in-up delay-150 leading-[1.08] mb-6 text-white" style={{ fontFamily: "var(--font-display)", textShadow: "0 2px 32px rgba(0,0,0,0.4)", letterSpacing: "-0.02em" }}>
             <span className="block text-3xl sm:text-4xl lg:text-5xl font-bold text-white/80">The homeschool years go fast.</span>
-            <span className="block text-4xl sm:text-5xl lg:text-[5rem] font-bold mt-2" style={{ color: "#86c98a" }}>Rooted helps you hold onto what matters.</span>
+            <span className="block text-4xl sm:text-5xl lg:text-[5rem] font-bold mt-2 text-white">Rooted helps you hold onto what matters.</span>
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/80 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
@@ -316,7 +316,7 @@ export default function Home() {
           </div>
 
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
-            <span>🌿</span> Trusted by 300+ homeschool families
+            <span>🌿</span> Trusted by 600+ homeschool families
           </p>
         </div>
 
@@ -332,7 +332,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
-              { number: "300+",    label: "Families Growing with Rooted", icon: "🌱" },
+              { number: "600+",    label: "Families Growing with Rooted", icon: "🌱" },
               { number: "7",       label: "Features, Everything in One Place", icon: "🎨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
               { number: "No Canva", label: "Beautiful Printables",  icon: "🖨️" },
