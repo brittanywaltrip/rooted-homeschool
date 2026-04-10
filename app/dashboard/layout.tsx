@@ -119,8 +119,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         .eq("id", session.user.id)
         .maybeSingle();
 
-      // Gate: send new (non-onboarded) users through the wizard
-      if ((profile as { onboarded?: boolean } | null)?.onboarded === false) {
+      // Gate: send new (no profile yet) or non-onboarded users through the wizard
+      if (!profile || (profile as { onboarded?: boolean } | null)?.onboarded === false) {
         router.replace("/onboarding");
         return;
       }
