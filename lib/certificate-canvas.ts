@@ -613,7 +613,7 @@ async function drawIdCardGarden(ctx: CanvasRenderingContext2D, data: IdCardData)
   // State + role
   ctx.fillStyle = "#7a6a5e";
   ctx.font = '11px "Cormorant Garamond"';
-  ctx.fillText([data.state, data.schoolYear].filter(Boolean).join(" \u00b7 "), tx, 110);
+  ctx.fillText([data.state, data.schoolYear].filter(Boolean).join(" | "), tx, 110);
 
   // Year
   ctx.fillStyle = "#9a8868";
@@ -692,7 +692,7 @@ async function drawIdCardHeritage(ctx: CanvasRenderingContext2D, data: IdCardDat
 
   ctx.fillStyle = "#5a5a48";
   ctx.font = '11px "Cormorant Garamond"';
-  ctx.fillText([data.state, data.schoolYear].filter(Boolean).join(" \u00b7 "), tx, 114);
+  ctx.fillText([data.state, data.schoolYear].filter(Boolean).join(" | "), tx, 114);
 
   // Footer
   if (data.showWatermark) {
@@ -753,7 +753,7 @@ async function drawIdCardArtisan(ctx: CanvasRenderingContext2D, data: IdCardData
   // State + year
   ctx.fillStyle = "#7a6a5e";
   ctx.font = 'italic 10px "Cormorant Garamond"';
-  ctx.fillText([data.state, data.schoolYear].filter(Boolean).join(" \u00b7 "), tx, 110);
+  ctx.fillText([data.state, data.schoolYear].filter(Boolean).join(" | "), tx, 110);
 
   // Footer
   if (data.showWatermark) {
