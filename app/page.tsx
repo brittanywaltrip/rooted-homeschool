@@ -282,12 +282,11 @@ export default function Home() {
         {/* Video background */}
         <video
           ref={videoRef}
+          src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/media/hero.mp4"
           autoPlay muted loop playsInline
           className="absolute inset-0 w-full h-full object-cover"
           style={{ background: "#1a2e20" }}
-        >
-          <source src="https://videos.pexels.com/video-files/31734368/31734368-hd_1920_1080_25fps.mp4" type="video/mp4" />
-        </video>
+        />
 
         {/* Dark green overlay */}
         <div className="absolute inset-0 bg-[#1a2e20]/50" />
