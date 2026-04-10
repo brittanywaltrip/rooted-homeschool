@@ -31,13 +31,10 @@ function UpgradePageInner() {
 
   useEffect(() => {
     if (!refCode) return
-    supabase
-      .from('affiliates')
-      .select('name')
-      .eq('code', refCode)
-      .eq('is_active', true)
-      .maybeSingle()
-      .then(({ data }) => { if (data?.name) setRefAffiliateName(data.name) })
+    fetch(`/api/affiliate/lookup?code=${encodeURIComponent(refCode)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.name) setRefAffiliateName(data.name) })
+      .catch(() => {})
   }, [refCode])
 
   useEffect(() => {
@@ -221,9 +218,22 @@ function UpgradePageInner() {
                 )}
               </div>
               <div className="flex items-baseline gap-1 my-3">
-                <span className="text-3xl font-bold text-[#2d2926]">$39</span>
-                <span className="text-sm text-[#5c7f63] font-semibold">/yr · locked forever</span>
+                {refCode && refAffiliateName ? (
+                  <>
+                    <span className="text-xl text-[#b5aca4] line-through font-bold">$39</span>
+                    <span className="text-3xl font-bold text-[#2d5a3d]">$33.15</span>
+                    <span className="text-sm text-[#5c7f63] font-semibold">/yr · locked forever</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-3xl font-bold text-[#2d2926]">$39</span>
+                    <span className="text-sm text-[#5c7f63] font-semibold">/yr · locked forever</span>
+                  </>
+                )}
               </div>
+              {refCode && refAffiliateName && (
+                <p className="text-xs text-[#5c7f63] font-medium -mt-1 mb-1">with {refAffiliateName}&apos;s referral</p>
+              )}
               <p className="text-sm text-[#3d5c42] leading-relaxed">
                 For the first 200 families who believe in where this is going
               </p>
@@ -271,7 +281,9 @@ function UpgradePageInner() {
                     Processing...
                   </>
                 ) : (
-                  'Become a Founding Member → $39/yr'
+                  refCode && refAffiliateName
+                    ? 'Become a Founding Member → $33.15/yr'
+                    : 'Become a Founding Member → $39/yr'
                 )}
               </button>
             )}
