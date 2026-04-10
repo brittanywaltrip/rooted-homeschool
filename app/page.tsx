@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import HashRedirect from "./components/HashRedirect";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
 // ─── App mockup components ──────────────────────────────────────────────────
@@ -155,11 +155,20 @@ function WaitlistForm() {
 
 export default function Home() {
   const [scrolled, setScrolled] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = 8;
+      video.play().catch(() => {});
+    }
   }, []);
 
   return (
@@ -272,10 +281,10 @@ export default function Home() {
 
         {/* Video background */}
         <video
+          ref={videoRef}
           autoPlay muted loop playsInline
           className="absolute inset-0 w-full h-full object-cover"
-          onLoadedData={(e) => { (e.target as HTMLVideoElement).currentTime = 8; }}
-          poster=""
+          style={{ background: "#1a2e20" }}
         >
           <source src="https://videos.pexels.com/video-files/31734368/31734368-hd_1920_1080_25fps.mp4" type="video/mp4" />
         </video>
