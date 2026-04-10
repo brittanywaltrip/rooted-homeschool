@@ -277,7 +277,7 @@ export default function Home() {
           onLoadedData={(e) => { (e.target as HTMLVideoElement).currentTime = 8; }}
           poster=""
         >
-          <source src="/hero-video.mp4" type="video/mp4" />
+          <source src="https://videos.pexels.com/video-files/31734368/31734368-hd_1920_1080_25fps.mp4" type="video/mp4" />
         </video>
 
         {/* Dark green overlay */}
