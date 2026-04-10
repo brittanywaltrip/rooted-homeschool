@@ -31,13 +31,10 @@ function UpgradePageInner() {
 
   useEffect(() => {
     if (!refCode) return
-    supabase
-      .from('affiliates')
-      .select('name')
-      .eq('code', refCode)
-      .eq('is_active', true)
-      .maybeSingle()
-      .then(({ data }) => { if (data?.name) setRefAffiliateName(data.name) })
+    fetch(`/api/affiliate/lookup?code=${encodeURIComponent(refCode)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.name) setRefAffiliateName(data.name) })
+      .catch(() => {})
   }, [refCode])
 
   useEffect(() => {
