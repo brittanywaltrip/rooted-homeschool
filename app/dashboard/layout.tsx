@@ -356,7 +356,13 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           onClick={() => setMenuOpen(false)}
           className="flex items-center gap-2.5"
         >
-          <img src="/rooted-logo.png" alt="Rooted" style={{ height: '32px', width: 'auto' }} />
+          <div className="w-7 h-7 rounded-lg bg-[#5c7f63] flex items-center justify-center text-sm">
+            🌿
+          </div>
+          <div>
+            <span className="text-sm font-bold text-[#2d2926] block leading-none">Rooted</span>
+            <span className="text-[10px] text-[#7a6f65] leading-none">{displayName || "Homeschool"}</span>
+          </div>
         </Link>
         <Link
           href="/dashboard/settings"
@@ -443,7 +449,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           <UpgradeBanner />
         {/* Mobile top bar — brand + avatar */}
           <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9] sticky top-0 z-30">
-            <img src="/rooted-logo.png" alt="Rooted" style={{ height: '28px', width: 'auto' }} />
+            <div className="flex items-center gap-2">
+              <span className="text-base">🌿</span>
+              <span className="text-sm font-bold text-[#2d2926]">Rooted</span>
+            </div>
             <Link
               href="/dashboard/settings"
               className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
