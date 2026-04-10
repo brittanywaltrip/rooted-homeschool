@@ -439,14 +439,25 @@ export default function SettingsPage() {
   }
 
   async function openAffiliatePreview() {
-    // Find Amber Cody's data from allAffiliates
-    const amber = allAffiliates.find(a => a.name.toLowerCase().includes("amber"));
-    if (!amber) { setShowAffiliatePreview(false); return; }
-    setPreviewAffiliate({ ...amber });
+    const first = allAffiliates[0];
+    if (!first) { setShowAffiliatePreview(false); return; }
+    setPreviewAffiliate({ ...first });
     setPreviewStats(null);
     setShowAffiliatePreview(true);
     try {
-      const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${amber.stripe_coupon_id}&code=${encodeURIComponent(amber.code)}`);
+      const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${first.stripe_coupon_id}&code=${encodeURIComponent(first.code)}`);
+      const stats = await r.json();
+      setPreviewStats(stats);
+    } catch {}
+  }
+
+  async function selectPreviewAffiliate(affId: string) {
+    const aff = allAffiliates.find(a => a.id === affId);
+    if (!aff) return;
+    setPreviewAffiliate({ ...aff });
+    setPreviewStats(null);
+    try {
+      const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${aff.stripe_coupon_id}&code=${encodeURIComponent(aff.code)}`);
       const stats = await r.json();
       setPreviewStats(stats);
     } catch {}
@@ -1838,6 +1849,17 @@ export default function SettingsPage() {
                   </h3>
                   <button onClick={() => setShowAffiliatePreview(false)} className="text-[#7a6f65] hover:text-[#2d2926] text-lg">✕</button>
                 </div>
+                {allAffiliates.length > 1 && (
+                  <select
+                    value={allAffiliates.find(a => a.code === previewAffiliate.code)?.id ?? ""}
+                    onChange={(e) => selectPreviewAffiliate(e.target.value)}
+                    className="w-full border border-[#e8e2d9] rounded-xl px-3 py-2 text-sm bg-white text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#c7d2fe]"
+                  >
+                    {allAffiliates.map((aff) => (
+                      <option key={aff.id} value={aff.id}>{aff.name} — {aff.code}</option>
+                    ))}
+                  </select>
+                )}
                 <div className="bg-[#eef0ff] border border-[#c7d2fe] rounded-2xl p-5 space-y-4">
                   {/* Code */}
                   <div>
@@ -1850,7 +1872,7 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Your Referral Link</p>
                     <div className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full">
-                      <span className="text-sm text-[#4338ca] flex-1 truncate">rootedhomeschoolapp.com?ref={previewAffiliate.code}</span>
+                      <span className="text-sm text-[#4338ca] flex-1 truncate">rootedhomeschoolapp.com/upgrade?ref={previewAffiliate.code}</span>
                     </div>
                   </div>
                   {/* Stats */}
@@ -1878,7 +1900,7 @@ export default function SettingsPage() {
                     <div className="flex justify-center">
                       <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
                         <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com?ref=${previewAffiliate.code}`)}`}
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/upgrade?ref=${previewAffiliate.code}`)}`}
                           alt="Referral QR code"
                           width={160}
                           height={160}
@@ -1931,10 +1953,10 @@ export default function SettingsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <button
-                          onClick={() => { navigator.clipboard.writeText(`https://rootedhomeschoolapp.com?ref=${aff.code}`); showCopiedToast("Link copied!"); }}
+                          onClick={() => { navigator.clipboard.writeText(`https://rootedhomeschoolapp.com/upgrade?ref=${aff.code}`); showCopiedToast("Link copied!"); }}
                           className="text-xs text-[#4338ca] hover:underline cursor-pointer truncate max-w-[200px] block"
                         >
-                          ...?ref={aff.code}
+                          .../upgrade?ref={aff.code}
                         </button>
                       </td>
                       <td className="px-4 py-3 text-right text-[#2d2926] font-medium">{aff.clicks ?? 0}</td>
@@ -2043,13 +2065,13 @@ export default function SettingsPage() {
               <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Your Referral Link</p>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(`https://rootedhomeschoolapp.com?ref=${affiliateData.code}`);
+                  navigator.clipboard.writeText(`https://rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`);
                   showCopiedToast("Link copied!");
                 }}
                 className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full text-left hover:bg-[#f5f5ff] transition-colors"
               >
                 <span className="text-sm text-[#4338ca] flex-1 truncate">
-                  rootedhomeschoolapp.com?ref={affiliateData.code}
+                  rootedhomeschoolapp.com/upgrade?ref={affiliateData.code}
                 </span>
                 <span className="text-xs text-[#6366f1] shrink-0">Tap to copy</span>
               </button>
@@ -2081,7 +2103,7 @@ export default function SettingsPage() {
               <div className="flex justify-center">
                 <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com?ref=${affiliateData.code}`)}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`}
                     alt="Referral QR code"
                     width={160}
                     height={160}
@@ -2098,7 +2120,7 @@ export default function SettingsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={async () => {
-                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com?ref=${affiliateData.code}`)}`);
+                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`);
                     const { cardHtml } = await res.json();
                     const blob = new Blob([cardHtml], { type: 'text/html' });
                     const a = document.createElement('a');
@@ -2113,7 +2135,7 @@ export default function SettingsPage() {
                 </button>
                 <button
                   onClick={async () => {
-                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com?ref=${affiliateData.code}`)}`);
+                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/upgrade?ref=${affiliateData.code}`)}`);
                     const { shareHtml } = await res.json();
                     const blob = new Blob([shareHtml], { type: 'text/html' });
                     const a = document.createElement('a');
