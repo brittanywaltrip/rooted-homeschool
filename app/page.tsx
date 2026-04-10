@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import HashRedirect from "./components/HashRedirect";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 
 // ─── App mockup components ──────────────────────────────────────────────────
@@ -155,20 +155,11 @@ function WaitlistForm() {
 
 export default function Home() {
   const [scrolled, setScrolled] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (video) {
-      video.currentTime = 8;
-      video.play().catch(() => {});
-    }
   }, []);
 
   return (
@@ -279,13 +270,10 @@ export default function Home() {
       {/* ── 2. HERO (video background) ─────────────────────────────────────── */}
       <section className="relative flex flex-col items-center justify-center text-center px-6 pt-32 pb-28 min-h-screen overflow-hidden">
 
-        {/* Video background */}
-        <video
-          ref={videoRef}
-          src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/media/hero.mp4"
-          autoPlay muted loop playsInline
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{ background: "#1a2e20" }}
+        {/* Animated photo background */}
+        <div
+          className="absolute inset-0 bg-cover bg-center hero-zoom"
+          style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1448375240586-882707db888b?w=1600&q=90)' }}
         />
 
         {/* Dark green overlay */}

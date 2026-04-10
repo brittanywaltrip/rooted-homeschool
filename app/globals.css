@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+@keyframes heroZoom {
+  from { transform: scale(1); }
+  to { transform: scale(1.08); }
+}
+.hero-zoom {
+  animation: heroZoom 20s ease-in-out infinite alternate;
+}
+
 :root {
   --background: #f8f7f4;
   --foreground: #2d2926;
