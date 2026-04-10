@@ -174,6 +174,16 @@ export function resolveCertContent(
   type: string,
   data: Record<string, string>
 ): CertContent {
+  const content = resolveCertContentInner(type, data);
+  // Merge personal note from data if not already set by the specific type
+  if (data.note && !content.note) content.note = data.note;
+  return content;
+}
+
+function resolveCertContentInner(
+  type: string,
+  data: Record<string, string>
+): CertContent {
   switch (type) {
     case "graduation":
       return {
