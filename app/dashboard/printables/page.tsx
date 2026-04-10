@@ -490,112 +490,6 @@ function IDCardEditor({
   );
 }
 
-// ─── Progress Report ────────────────────────────────────────────────────────
-
-function AnnualReportCard({
-  childrenList, schoolName, schoolYear, showWatermark, setShowWatermark,
-}: {
-  childrenList: ChildData[]; schoolName: string; schoolYear: string;
-  showWatermark: boolean; setShowWatermark: (v: boolean) => void;
-}) {
-  const [downloading, setDownloading] = useState(false);
-
-  async function handleDownload() {
-    setDownloading(true);
-    try {
-      const { jsPDF } = await import("jspdf");
-      const { generateProgressReport, fmtMins: fmt } = await import("@/lib/pdf");
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { setDownloading(false); return; }
-      const uid = session.user.id;
-
-      type LR = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null };
-      type MR = { child_id: string | null; type: string; title: string | null; date: string; duration_minutes: number | null };
-      type GR = { id: string; default_minutes: number };
-      type BR = { payload: { badge_name?: string; child_id?: string } };
-
-      const [{ data: lr }, { data: mr }, { data: gr }, { data: br }] = await Promise.all([
-        supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name)").eq("user_id", uid),
-        supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", uid),
-        supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", uid),
-        supabase.from("app_events").select("payload").eq("user_id", uid).eq("type", "badge_earned"),
-      ]);
-
-      const lessons = (lr || []) as unknown as LR[];
-      const memories = (mr || []) as unknown as MR[];
-      const badges = (br || []) as unknown as BR[];
-      const gdm: Record<string, number> = {};
-      for (const g of ((gr || []) as unknown as GR[])) gdm[g.id] = g.default_minutes ?? 30;
-
-      function lm(l: LR): { m: number; e: boolean } { if (l.minutes_spent != null) return { m: l.minutes_spent, e: false }; if (l.curriculum_goal_id && gdm[l.curriculum_goal_id]) return { m: gdm[l.curriculum_goal_id], e: true }; return { m: 30, e: true }; }
-      function ld(l: LR) { return l.scheduled_date || l.date || ""; }
-
-      const done = lessons.filter(l => l.completed);
-      const tLM = done.reduce((s, l) => s + lm(l).m, 0);
-      const mM = memories.filter(m => m.duration_minutes).reduce((s, m) => s + (m.duration_minutes || 0), 0);
-      const dateGen = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-
-      const childReport = childrenList.map(c => {
-        const cl = done.filter(l => l.child_id === c.id);
-        const cm = cl.reduce((s, l) => s + lm(l).m, 0);
-        const cd = new Set(cl.map(l => ld(l)).filter(Boolean)).size;
-        const sa: Record<string, { n: number; m: number; e: boolean }> = {};
-        for (const l of cl) { const nm = l.subjects?.name || "General"; if (!sa[nm]) sa[nm] = { n: 0, m: 0, e: false }; sa[nm].n++; const r = lm(l); sa[nm].m += r.m; if (r.e) sa[nm].e = true; }
-        return {
-          name: c.name, totalHours: fmt(cm), totalLessons: cl.length, schoolDays: cd,
-          subjects: Object.entries(sa).map(([n, d]) => ({ name: n, count: d.n, hours: fmt(d.m), estimated: d.e })).sort((a, b) => b.count - a.count),
-          books: memories.filter(m => m.type === "book" && m.child_id === c.id).map(m => m.title || "Untitled"),
-          fieldTrips: memories.filter(m => ["field_trip","project","activity"].includes(m.type) && m.child_id === c.id).map(m => ({ title: m.title || "Untitled", duration: m.duration_minutes })),
-          wins: memories.filter(m => ["win","quote"].includes(m.type) && m.child_id === c.id).map(m => m.title || "Untitled"),
-          badges: badges.filter(b => b.payload?.child_id === c.id).map(b => b.payload?.badge_name || "Badge"),
-        };
-      });
-
-      const logMap: Record<string, { subject: string; description: string; minutes: number; type: string; estimated: boolean }[]> = {};
-      for (const l of done) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ subject: l.subjects?.name || "General", description: l.title || "Lesson", minutes: r.m, type: "Lesson", estimated: r.e }); }
-      for (const m of memories) { if (!m.duration_minutes || !["field_trip","project","activity","win"].includes(m.type)) continue; if (!logMap[m.date]) logMap[m.date] = []; logMap[m.date].push({ subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: "Activity", estimated: false }); }
-
-      const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
-      generateProgressReport(doc, {
-        familyName: schoolName, schoolYear, dateGenerated: dateGen, showWatermark,
-        summary: { totalHours: fmt(tLM + mM), schoolDays: new Set(done.map(l => ld(l)).filter(Boolean)).size, lessons: done.length, books: memories.filter(m => m.type === "book").length, trips: memories.filter(m => ["field_trip","project","activity"].includes(m.type)).length, memories: memories.length },
-        children: childReport,
-        dailyLog: Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({ dateLabel: new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), entries })),
-      });
-      doc.save(`${(schoolName || "family-academy").replace(/[^a-z0-9]/gi, "-").toLowerCase()}-progress-report.pdf`);
-    } catch (e) { console.error(e); alert("Download failed. Please try again."); }
-    finally { setDownloading(false); }
-  }
-
-  return (
-    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
-      <div className="px-5 py-3 border-b border-[#f0ede8] flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-bold text-[#2d2926]">📊 Progress Report</h3>
-          <p className="text-[11px] text-[#b5aca4] mt-0.5">Full-year record with lessons, hours, books, activities, and daily log for state compliance</p>
-        </div>
-        <button onClick={handleDownload} disabled={downloading || childrenList.length === 0}
-          className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-3 py-1.5 rounded-lg transition-colors shrink-0">
-          <Download size={12} /> {downloading ? "Generating\u2026" : "Download Report"}
-        </button>
-      </div>
-      <div className="px-5 py-4 flex flex-wrap items-center gap-4">
-        <div className="text-sm text-[#7a6f65]">
-          <span className="font-semibold text-[#2d2926]">{childrenList.length}</span>{" "}
-          {childrenList.length === 1 ? "student" : "students"} | {schoolYear}
-        </div>
-        <label className="flex items-center gap-2 cursor-pointer select-none ml-auto">
-          <input type="checkbox" checked={showWatermark} onChange={e => setShowWatermark(e.target.checked)} className="w-4 h-4 rounded accent-[#5c7f63]" />
-          <span className="text-xs text-[#7a6f65]">Include &ldquo;Made with Rooted&rdquo; watermark</span>
-        </label>
-      </div>
-      {childrenList.length === 0 && (
-        <p className="px-5 pb-4 text-sm text-[#b5aca4] italic">Add children in Settings to generate a report card.</p>
-      )}
-    </div>
-  );
-}
-
 // ─── Certificate download via Canvas 2D + jsPDF ─────────────────────────────
 
 async function downloadCertificate(type: string, style: StyleId, data: Record<string, string>, filename?: string) {
@@ -672,8 +566,6 @@ export default function PrintablesPage() {
   const [children, setChildren] = useState<ChildData[]>([]);
   const [parentFields, setParentFields] = useState<CardFields | null>(null);
   const [childFields, setChildFields] = useState<Record<string, CardFields>>({});
-  const [reportWatermark, setReportWatermark] = useState(true);
-
   // Award states
   const [earnedAwards, setEarnedAwards] = useState<EarnedAward[]>([]);
   const [downloadingAward, setDownloadingAward] = useState<string | null>(null);
@@ -1067,14 +959,6 @@ export default function PrintablesPage() {
         {parentFields && children.length === 0 && (
           <p className="text-sm text-[#b5aca4] italic px-1">Add children in Settings to generate their student ID cards.</p>
         )}
-      </section>
-
-      {/* ── Progress Report ──────────────────────────────────────── */}
-      <section>
-        <h2 className="text-base font-bold text-[#2d2926] mb-0.5">📊 Progress Report</h2>
-        <p className="text-xs text-[#b5aca4] mb-4">Download a full record of lessons, hours, and progress.</p>
-        <AnnualReportCard childrenList={children} schoolName={schoolName}
-          schoolYear={currentYearRange()} showWatermark={reportWatermark} setShowWatermark={setReportWatermark} />
       </section>
 
       {/* Error toast */}
