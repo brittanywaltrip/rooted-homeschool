@@ -8,6 +8,7 @@ export async function GET(request: Request) {
 
   if (code) {
     const cookieStore = await cookies()
+    const supabaseResponse = NextResponse.next()
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
           setAll(cookiesToSet) {
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, options)
+              supabaseResponse.cookies.set(name, value, options)
             })
           },
         },
@@ -28,7 +30,6 @@ export async function GET(request: Request) {
 
     try {
       await supabase.auth.exchangeCodeForSession(code)
-
       const { data: { user } } = await supabase.auth.getUser()
 
       if (user) {
@@ -38,11 +39,14 @@ export async function GET(request: Request) {
           .eq('id', user.id)
           .single()
 
-        if (!profile) {
-          return NextResponse.redirect(new URL('/onboarding', requestUrl.origin))
-        }
+        const redirectPath = !profile ? '/onboarding' : '/dashboard'
+        const redirectResponse = NextResponse.redirect(new URL(redirectPath, requestUrl.origin))
 
-        return NextResponse.redirect(new URL('/dashboard', requestUrl.origin))
+        supabaseResponse.cookies.getAll().forEach(cookie => {
+          redirectResponse.cookies.set(cookie.name, cookie.value)
+        })
+
+        return redirectResponse
       }
     } catch (error) {
       console.error('Auth callback error:', error)
