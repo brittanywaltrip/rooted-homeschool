@@ -5,14 +5,6 @@ import { emailFooterHtml, emailFooterText } from "@/lib/email-footer";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
-const FOUNDING_MEMBERS: { name: string; email?: string }[] = [
-  { name: "Amanda Deardorff" },
-  { name: "Amber Hudson Slaughter", email: "amannda86@yahoo.com" },
-  { name: "Donna Ward",             email: "dward67@yahoo.com" },
-  { name: "Lacie Hawkins",          email: "lacey.medio@gmail.com" },
-  { name: "Joan Waltrip",            email: "jpirtlaw@gmail.com" },
-];
-
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -29,48 +21,45 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Look up founding members by their known email addresses
-  const { data: authList } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
-  const allUsers = authList?.users ?? [];
-  const emailToUser = new Map(allUsers.map((u) => [u.email?.toLowerCase(), u]));
+  // Query all founding family members from the database
+  const { data: founders, error: queryErr } = await supabaseAdmin
+    .from("profiles")
+    .select("id, first_name, last_name, email_unsubscribed")
+    .eq("plan_type", "founding_family");
 
-  const matched: { id: string; name: string; email: string }[] = [];
-  const notFound: string[] = [];
+  if (queryErr || !founders?.length) {
+    return NextResponse.json({ error: "No founding family profiles found" }, { status: 404 });
+  }
 
-  for (const member of FOUNDING_MEMBERS) {
-    if (member.email) {
-      // Direct email lookup
-      const authUser = emailToUser.get(member.email.toLowerCase());
-      if (authUser?.email) {
-        matched.push({ id: authUser.id, name: member.name, email: authUser.email });
-      } else {
-        notFound.push(`${member.name} (${member.email} not found in auth)`);
-      }
-    } else {
-      // Fallback: name-based profile search (for Amanda Deardorff)
-      const [firstName, ...rest] = member.name.split(" ");
-      const lastName = rest.join(" ");
-      const { data: profiles } = await supabaseAdmin
-        .from("profiles")
-        .select("id")
-        .ilike("first_name", `%${firstName}%`)
-        .ilike("last_name", `%${lastName}%`);
-      const profile = profiles?.[0];
-      if (profile) {
-        const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(profile.id);
-        if (authUser?.user?.email) {
-          matched.push({ id: profile.id, name: member.name, email: authUser.user.email });
-        } else {
-          notFound.push(`${member.name} (no email in auth)`);
-        }
-      } else {
-        notFound.push(member.name);
-      }
+  // Resolve email from auth.users for each founder
+  const matched: { id: string; firstName: string; email: string }[] = [];
+  const skipped: string[] = [];
+
+  for (const prof of founders) {
+    if (prof.email_unsubscribed) {
+      skipped.push(`${prof.first_name ?? "?"} ${prof.last_name ?? ""} (unsubscribed)`);
+      continue;
     }
+
+    const { data: authData } = await supabaseAdmin.auth.admin.getUserById(prof.id);
+    const email = authData?.user?.email;
+    if (!email) {
+      skipped.push(`${prof.first_name ?? "?"} ${prof.last_name ?? ""} (no email in auth)`);
+      continue;
+    }
+
+    // Skip admin accounts
+    if (ADMIN_EMAILS.includes(email.toLowerCase())) {
+      skipped.push(`${email} (admin)`);
+      continue;
+    }
+
+    const firstName = prof.first_name || authData.user?.user_metadata?.first_name || "there";
+    matched.push({ id: prof.id, firstName, email });
   }
 
   if (matched.length === 0) {
-    return NextResponse.json({ error: "No matching profiles found", notFound }, { status: 404 });
+    return NextResponse.json({ error: "No eligible founders found", skipped }, { status: 404 });
   }
 
   const resend = new Resend(process.env.RESEND_API_KEY);
@@ -78,18 +67,10 @@ export async function POST(req: Request) {
   const errors: string[] = [];
 
   for (const member of matched) {
-    // Pull name from profiles so it stays in sync with the database
-    const { data: prof } = await supabaseAdmin
-      .from("profiles")
-      .select("first_name, last_name")
-      .eq("id", member.id)
-      .maybeSingle();
-    const firstName = prof?.first_name || member.name.split(" ")[0];
-
     const html = `
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#faf9f7;padding:32px 16px">
   <div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #ebe7e1;border-radius:16px;padding:36px 32px">
-    <p style="color:#2d2926;font-size:15px;line-height:1.7;margin:0 0 16px">Hi ${firstName},</p>
+    <p style="color:#2d2926;font-size:15px;line-height:1.7;margin:0 0 16px">Hi ${member.firstName},</p>
     <p style="color:#2d2926;font-size:15px;line-height:1.7;margin:0 0 16px">
       I wanted to reach out personally because you were one of our very first Founding Families at Rooted,
       and that means the world to me.
@@ -115,7 +96,7 @@ export async function POST(req: Request) {
   </div>
 </div>`;
 
-    const text = `Hi ${firstName},
+    const text = `Hi ${member.firstName},
 
 I wanted to reach out personally because you were one of our very first Founding Families at Rooted, and that means the world to me.
 
@@ -139,11 +120,11 @@ Founder, Rooted${emailFooterText()}`;
     });
 
     if (result.error) {
-      errors.push(`${member.name}: ${result.error.message}`);
+      errors.push(`${member.email}: ${result.error.message}`);
     } else {
       sent++;
     }
   }
 
-  return NextResponse.json({ sent, total: matched.length, notFound, errors });
+  return NextResponse.json({ sent, total: matched.length, skipped, errors });
 }
