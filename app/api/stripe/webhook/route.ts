@@ -283,6 +283,23 @@ export async function POST(req: NextRequest) {
       console.error('[webhook] CRITICAL: could not activate account — metaUserId:', metaUserId, 'email:', customerEmail, 'sessionId:', session.id)
     }
 
+    // ── Referral tracking ───────────────────────────────────────────────────
+    const referralCode = (session.metadata?.referral ?? '').toUpperCase()
+    if (referralCode && activatedUserId) {
+      // Tag the profile with the affiliate code
+      await supabase.from('profiles').update({ referred_by: referralCode }).eq('id', activatedUserId)
+
+      // Insert referral ledger row
+      await supabase.from('referrals').insert({
+        affiliate_code: referralCode,
+        user_id: activatedUserId,
+        stripe_session_id: session.id,
+        converted: true,
+      })
+
+      console.log('[webhook] referral tracked — code:', referralCode, 'userId:', activatedUserId)
+    }
+
     // Send emails — but only welcome email on FIRST activation (idempotency)
     if (customerEmail && activated) {
       const { data: prof } = await supabase.from('profiles').select('display_name').eq('stripe_customer_id', stripeCustomerId).maybeSingle()

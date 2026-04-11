@@ -520,7 +520,7 @@ export default function AdminPage() {
       <div className="max-w-4xl mx-auto px-5 py-8 space-y-10">
 
         {/* Quick Links */}
-        <div>
+        <div className="space-y-3">
           <Link
             href="/admin/resources"
             className="flex items-center gap-4 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 hover:bg-[#f0f7f1] transition-colors"
@@ -529,6 +529,17 @@ export default function AdminPage() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-[#2d2926]">Manage Resources</p>
               <p className="text-xs text-[#7a6f65]">Edit, add, or hide resource links shown to users</p>
+            </div>
+            <span className="text-[#5c7f63] text-lg font-semibold leading-none">→</span>
+          </Link>
+          <Link
+            href="/admin/partners"
+            className="flex items-center gap-4 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 hover:bg-[#f0f7f1] transition-colors"
+          >
+            <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0 text-lg">🤝</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#2d2926]">Partners</p>
+              <p className="text-xs text-[#7a6f65]">Affiliate roster, referral tracking, and commission payouts</p>
             </div>
             <span className="text-[#5c7f63] text-lg font-semibold leading-none">→</span>
           </Link>
