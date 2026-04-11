@@ -54,88 +54,21 @@ export default function AdminPartnersPage() {
         return;
       }
       setAuthed(true);
-      await loadData();
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) await loadData(session.access_token);
       setLoading(false);
     })();
   }, [router]);
 
-  async function loadData() {
-    // Fetch affiliates
-    const { data: affRows } = await supabase
-      .from("affiliates")
-      .select("*")
-      .order("created_at", { ascending: true });
-
-    // Fetch all profiles with referred_by set
-    const { data: referredProfiles } = await supabase
-      .from("profiles")
-      .select("id, referred_by, plan_type, first_name, last_name, display_name")
-      .not("referred_by", "is", null);
-
-    // Fetch referrals ledger
-    const { data: refRows } = await supabase
-      .from("referrals")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(100);
-
-    // Fetch profiles for referral user_ids so we can resolve names
-    const refUserIds = (refRows ?? []).map((r) => r.user_id).filter(Boolean);
-    let refUserProfiles: { id: string; first_name: string | null; last_name: string | null; display_name: string | null; plan_type: string | null }[] = [];
-    if (refUserIds.length > 0) {
-      const { data: rup } = await supabase
-        .from("profiles")
-        .select("id, first_name, last_name, display_name, plan_type")
-        .in("id", refUserIds);
-      refUserProfiles = rup ?? [];
-    }
-
-    // Build affiliate stats
-    const enriched: Affiliate[] = (affRows ?? []).map((a) => {
-      const referred = (referredProfiles ?? []).filter(
-        (p) => p.referred_by?.toUpperCase() === a.code?.toUpperCase()
-      );
-      const paying = referred.filter((p) => p.plan_type !== "free");
-      const rate = a.commission_rate ?? 20;
-      const commissionOwed = paying.length * 39 * (rate / 100);
-
-      return {
-        ...a,
-        signups_referred: referred.length,
-        paying_customers: paying.length,
-        commission_owed: commissionOwed,
-      } as Affiliate;
+  async function loadData(token: string) {
+    const res = await fetch("/api/admin/partners", {
+      headers: { Authorization: `Bearer ${token}` },
     });
-
-    setAffiliates(enriched);
-
-    // Build referrals feed — join with all fetched profiles (not just referred ones)
-    const allProfileMap = new Map(
-      [...(referredProfiles ?? []), ...refUserProfiles].map((p) => [
-        p.id,
-        {
-          name: p.first_name
-            ? `${p.first_name} ${p.last_name ?? ""}`.trim()
-            : p.display_name ?? "Unknown",
-          plan: p.plan_type ?? "free",
-        },
-      ])
-    );
-
-    const feed: Referral[] = (refRows ?? []).map((r) => {
-      const prof = allProfileMap.get(r.user_id);
-      return {
-        id: r.id,
-        affiliate_code: r.affiliate_code,
-        stripe_session_id: r.stripe_session_id,
-        converted: r.converted,
-        created_at: r.created_at,
-        user_name: prof?.name ?? "Unknown",
-        user_plan: prof?.plan ?? "free",
-      };
-    });
-
-    setReferrals(feed);
+    if (!res.ok) return;
+    const json = await res.json();
+    setAffiliates(json.affiliates ?? []);
+    setReferrals(json.referrals ?? []);
   }
 
   async function toggleActive(id: string, currentlyActive: boolean) {
@@ -211,8 +144,8 @@ export default function AdminPartnersPage() {
                       <td className="px-4 py-3 text-xs text-[#7a6f65] max-w-[160px] truncate">
                         rootedhomeschoolapp.com/upgrade?ref={a.code}
                       </td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.contact_email ?? "—"}</td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.paypal_email ?? "—"}</td>
+                      <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.contact_email ?? "\u2014"}</td>
+                      <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.paypal_email ?? "\u2014"}</td>
                       <td className="px-4 py-3 font-mono text-xs text-[#7a6f65]">{a.stripe_coupon_id}</td>
                       <td className="px-4 py-3 text-xs text-[#7a6f65]">{rate}%</td>
                       <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.clicks}</td>
@@ -242,7 +175,7 @@ export default function AdminPartnersPage() {
                             Email
                           </a>
                         ) : (
-                          <span className="text-xs text-[#b5aca4]">—</span>
+                          <span className="text-xs text-[#b5aca4]">{"\u2014"}</span>
                         )}
                       </td>
                     </tr>
