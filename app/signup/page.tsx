@@ -85,7 +85,7 @@ export default function SignupPage() {
       {/* ── Left panel — desktop only ─────────────────────────────────────── */}
       <div className="hidden lg:flex lg:w-1/2 bg-[#3d5c42] flex-col justify-center px-14 py-16">
         <Link href="/" className="flex items-center mb-12">
-          <img src="/rooted-logo-nav.png" alt="Rooted" className="h-8 w-auto brightness-0 invert" />
+          <img src="/rooted-logo-nav.png" alt="Rooted" className="h-12 w-auto brightness-0 invert" />
         </Link>
 
         <h2 className="text-3xl font-bold text-white leading-snug mb-8" style={{ fontFamily: "'Cormorant Garamond', Georgia, serif" }}>
@@ -113,7 +113,7 @@ export default function SignupPage() {
         {/* Mobile brand header */}
         <div className="lg:hidden w-full bg-[#3d5c42] px-6 py-8 text-center">
           <Link href="/" className="inline-flex items-center justify-center mb-2">
-            <img src="/rooted-logo-nav.png" alt="Rooted" className="h-8 w-auto brightness-0 invert" />
+            <img src="/rooted-logo-nav.png" alt="Rooted" className="h-12 w-auto brightness-0 invert" />
           </Link>
           <p className="text-white/70 text-sm mt-1">Every lesson. Every memory. Every milestone.</p>
         </div>
