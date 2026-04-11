@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const supabaseResponse = NextResponse.next()
 
     const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
@@ -38,6 +38,11 @@ export async function GET(request: Request) {
           .select('id')
           .eq('id', user.id)
           .single()
+
+        if (!profile) {
+          // Create a minimal profile row so onboarding can update it
+          await supabase.from('profiles').upsert({ id: user.id }, { onConflict: 'id' })
+        }
 
         const redirectPath = !profile ? '/onboarding' : '/dashboard'
         const redirectResponse = NextResponse.redirect(new URL(redirectPath, requestUrl.origin))

@@ -210,6 +210,7 @@ export default function SettingsPage() {
   const [affiliateStats, setAffiliateStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
   const [copiedToast, setCopiedToast] = useState<string | false>(false);
   const [refreshingAffiliate, setRefreshingAffiliate] = useState(false);
+  const [affiliatePayments, setAffiliatePayments] = useState<{ id: string; amount: number; month: string; paid_at: string }[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [allAffiliates, setAllAffiliates] = useState<AffiliateRow[]>([]);
   const [showAffiliatePreview, setShowAffiliatePreview] = useState(false);
@@ -288,7 +289,16 @@ export default function SettingsPage() {
       .select("code, stripe_coupon_id, is_active, created_at, clicks")
       .eq("user_id", user.id)
       .maybeSingle();
-    if (affData) setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
+    if (affData) {
+      setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
+      // Load commission payments for this affiliate
+      const { data: pmts } = await supabase
+        .from("commission_payments")
+        .select("id, amount, month, paid_at")
+        .eq("affiliate_code", (affData as { code: string }).code)
+        .order("paid_at", { ascending: false });
+      setAffiliatePayments(pmts ?? []);
+    }
 
     // Admin: load all affiliates
     const admin = ADMIN_EMAILS.includes(user.email ?? "");
@@ -2106,6 +2116,54 @@ export default function SettingsPage() {
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Revenue driven</p>
               </div>
             </div>
+
+            {/* Earnings */}
+            {(() => {
+              const allTimePaid = affiliatePayments.reduce((s, p) => s + Number(p.amount), 0);
+              const thisMonthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+              const thisMonthPaid = affiliatePayments
+                .filter((p) => p.month === thisMonthLabel)
+                .reduce((s, p) => s + Number(p.amount), 0);
+              return (
+                <div>
+                  <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your Earnings</p>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
+                      <p className="text-2xl font-bold text-[#3d5c42]">${thisMonthPaid.toFixed(2)}</p>
+                      <p className="text-[10px] text-[#7a6f65] mt-0.5">This month</p>
+                    </div>
+                    <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
+                      <p className="text-2xl font-bold text-[#2d2926]">${allTimePaid.toFixed(2)}</p>
+                      <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time earnings</p>
+                    </div>
+                  </div>
+                  {affiliatePayments.length > 0 && (
+                    <div className="bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-[#c7d2fe]">
+                            <th className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Month</th>
+                            <th className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Amount</th>
+                            <th className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Paid on</th>
+                            <th className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {affiliatePayments.map((p) => (
+                            <tr key={p.id} className="border-b border-[#eee] last:border-0">
+                              <td className="px-3 py-2 text-xs text-[#2d2926]">{p.month}</td>
+                              <td className="px-3 py-2 text-xs font-medium text-[#2d2926]">${Number(p.amount).toFixed(2)}</td>
+                              <td className="px-3 py-2 text-xs text-[#7a6f65]">{new Date(p.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
+                              <td className="px-3 py-2"><span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#2d5a3d]">Paid</span></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* QR Code */}
             <div>

@@ -19,6 +19,13 @@ export default function PartnersPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
+  const [hasRootedAccount, setHasRootedAccount] = useState(false);
+  const [rootedAccountEmail, setRootedAccountEmail] = useState("");
+  const [paypalEmail, setPaypalEmail] = useState("");
+  const [socialHandle, setSocialHandle] = useState("");
+  const [audienceSize, setAudienceSize] = useState("");
+  const [whyRooted, setWhyRooted] = useState("");
+  // Legacy fields kept for backward compat with old form logic
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [platformLinks, setPlatformLinks] = useState<Record<string, string>>({});
   const [platformSizes, setPlatformSizes] = useState<Record<string, string>>({});
@@ -26,22 +33,14 @@ export default function PartnersPage() {
   const [whatToShare, setWhatToShare] = useState("");
   const [usedRooted, setUsedRooted] = useState("");
   const [postFrequency, setPostFrequency] = useState("");
-  const [paypalEmail, setPaypalEmail] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
 
-    if (selectedPlatforms.length === 0) {
-      setError("Please select at least one platform.");
-      setSubmitting(false);
-      return;
-    }
-
-    const hasAtLeastOneLink = selectedPlatforms.some(p => platformLinks[p]?.trim());
-    if (!hasAtLeastOneLink) {
-      setError("Please provide at least one profile link.");
+    if (!socialHandle.trim()) {
+      setError("Please provide your Instagram or social handle.");
       setSubmitting(false);
       return;
     }
@@ -54,14 +53,20 @@ export default function PartnersPage() {
           firstName,
           lastName,
           email,
+          hasRootedAccount,
+          rootedAccountEmail: hasRootedAccount ? rootedAccountEmail : null,
+          paypalEmail,
+          socialHandle,
+          audienceSize,
+          whyRooted: whyRooted || story,
+          // Legacy fields
           platforms: selectedPlatforms,
           platformLinks,
           platformSizes,
-          story,
+          story: story || whyRooted,
           whatToShare,
           usedRooted,
           postFrequency,
-          paypalEmail,
         }),
       });
 
@@ -489,10 +494,106 @@ export default function PartnersPage() {
                 />
               </div>
 
+              {/* Rooted account toggle */}
+              <div>
+                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
+                  Do you already have a Rooted account?
+                </label>
+                <div className="flex gap-3">
+                  {[true, false].map((val) => (
+                    <button
+                      key={String(val)}
+                      type="button"
+                      onClick={() => setHasRootedAccount(val)}
+                      className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-colors ${
+                        hasRootedAccount === val
+                          ? "border-[#3d5c42] bg-[#f0f7f0] text-[#2d2926]"
+                          : "border-[#e8e2d9] bg-white text-[#7a6f65]"
+                      }`}
+                    >
+                      {val ? "Yes" : "Not yet"}
+                    </button>
+                  ))}
+                </div>
+                {hasRootedAccount && (
+                  <input
+                    type="email"
+                    value={rootedAccountEmail}
+                    onChange={(e) => setRootedAccountEmail(e.target.value)}
+                    placeholder="What email did you sign up with?"
+                    className="w-full mt-3 px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                  />
+                )}
+              </div>
+
+              {/* PayPal email */}
+              <div>
+                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
+                  PayPal email *
+                </label>
+                <p className="text-xs text-[#7a6f65] mb-2">Required for commission payments.</p>
+                <input
+                  type="email"
+                  required
+                  value={paypalEmail}
+                  onChange={(e) => setPaypalEmail(e.target.value)}
+                  placeholder="your@paypal.com"
+                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                />
+              </div>
+
+              {/* Social handle */}
+              <div>
+                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
+                  Instagram or social handle *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={socialHandle}
+                  onChange={(e) => setSocialHandle(e.target.value)}
+                  placeholder="@yourhandle"
+                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                />
+              </div>
+
+              {/* Audience size */}
+              <div>
+                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
+                  Approximate audience size *
+                </label>
+                <select
+                  required
+                  value={audienceSize}
+                  onChange={(e) => setAudienceSize(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                >
+                  <option value="">Select a range</option>
+                  {AUDIENCE_RANGES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Why Rooted */}
+              <div>
+                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
+                  Why do you want to partner with Rooted? *
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  value={whyRooted}
+                  onChange={(e) => setWhyRooted(e.target.value)}
+                  placeholder="Tell us about your family, what you homeschool, and why Rooted resonates with you..."
+                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent resize-none"
+                />
+              </div>
+
               {/* Platform checkboxes */}
               <div>
                 <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
-                  Your platforms <span className="text-[#3d5c42]">*</span>
+                  Your platforms <span className="text-[#7a6f65]">(optional)</span>
                 </label>
                 <p className="text-xs text-[#7a6f65] mb-3">Select all that apply</p>
                 <div className="grid grid-cols-2 gap-2 mb-4">
@@ -685,24 +786,6 @@ export default function PartnersPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
-                  PayPal email
-                  <span className="text-[#7a6f65] font-normal normal-case tracking-normal ml-1">
-                    (for monthly commission payouts — optional for now)
-                  </span>
-                </label>
-                <input
-                  type="email"
-                  value={paypalEmail}
-                  onChange={(e) => setPaypalEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
-                />
-                <p className="text-xs text-[#7a6f65] mt-2">
-                  Commissions are paid on the 1st of each month for the previous month&apos;s verified conversions.
-                </p>
-              </div>
 
               {error && (
                 <p className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">

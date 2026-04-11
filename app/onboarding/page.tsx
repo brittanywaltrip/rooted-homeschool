@@ -1194,9 +1194,16 @@ export default function OnboardingPage() {
     // Update profile
     const profilePatch: Record<string, unknown> = {
       onboarded: true,
+      onboarded_at: new Date().toISOString(),
       school_days: schoolDayNames,
     };
     if (familyDisplayName.trim()) profilePatch.display_name = familyDisplayName.trim();
+
+    // Attribute free signups to affiliate if ref code exists
+    try {
+      const refCode = localStorage.getItem("rooted_ref");
+      if (refCode) profilePatch.referred_by = refCode.toUpperCase();
+    } catch { /* SSR guard */ }
 
     await fetch("/api/profile/update", {
       method: "POST",
