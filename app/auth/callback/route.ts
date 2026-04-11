@@ -39,6 +39,8 @@ export async function GET(request: Request) {
           .single()
 
         if (!profile) {
+          // Create a minimal profile row so onboarding can update it
+          await supabase.from('profiles').upsert({ id: user.id }, { onConflict: 'id' })
           return NextResponse.redirect(new URL('/onboarding', requestUrl.origin))
         }
 
