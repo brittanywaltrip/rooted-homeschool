@@ -84,9 +84,8 @@ export default function SignupPage() {
     <div className="min-h-screen flex flex-col lg:flex-row">
       {/* ── Left panel — desktop only ─────────────────────────────────────── */}
       <div className="hidden lg:flex lg:w-1/2 bg-[#3d5c42] flex-col justify-center px-14 py-16">
-        <Link href="/" className="flex items-center gap-3 mb-12">
-          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-xl">🌿</div>
-          <span className="text-xl font-bold text-white">Rooted</span>
+        <Link href="/" className="flex items-center mb-12">
+          <img src="/rooted-logo-white.png" alt="Rooted" className="h-8 w-auto" />
         </Link>
 
         <h2 className="text-3xl font-bold font-serif text-white leading-snug mb-8">
@@ -113,9 +112,8 @@ export default function SignupPage() {
       <div className="flex-1 flex flex-col">
         {/* Mobile brand header */}
         <div className="lg:hidden w-full bg-[#3d5c42] px-6 py-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2 justify-center mb-2">
-            <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-lg">🌿</div>
-            <span className="text-xl font-bold text-white">Rooted</span>
+          <Link href="/" className="inline-flex items-center justify-center mb-2">
+            <img src="/rooted-logo-white.png" alt="Rooted" className="h-8 w-auto" />
           </Link>
           <p className="text-white/70 text-sm mt-1">Every lesson. Every memory. Every milestone.</p>
         </div>
