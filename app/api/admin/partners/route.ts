@@ -105,7 +105,24 @@ export async function GET(req: Request) {
     };
   });
 
-  return NextResponse.json({ affiliates, referrals });
+  // Fetch commission payments
+  const { data: payments } = await supabaseAdmin
+    .from("commission_payments")
+    .select("*")
+    .order("paid_at", { ascending: false });
+
+  // Calculate total paid per affiliate
+  const paidMap = new Map<string, number>();
+  for (const p of payments ?? []) {
+    paidMap.set(p.affiliate_code, (paidMap.get(p.affiliate_code) ?? 0) + Number(p.amount));
+  }
+
+  // Attach total_paid to each affiliate
+  for (const a of affiliates) {
+    (a as Record<string, unknown>).total_paid = paidMap.get(a.code) ?? 0;
+  }
+
+  return NextResponse.json({ affiliates, referrals, payments: payments ?? [] });
 }
 
 export async function PATCH(req: Request) {
