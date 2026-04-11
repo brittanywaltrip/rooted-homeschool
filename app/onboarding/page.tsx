@@ -304,11 +304,17 @@ function StepOpening({ onNext }: { onNext: () => void }) {
 
 function StepFamilyAndKids({
   familyName, onFamilyNameChange,
+  parentFirstName, onParentFirstNameChange,
+  parentLastName, onParentLastNameChange,
   children, onChildChange, onAddChild, onRemoveChild,
   onNext,
 }: {
   familyName: string;
   onFamilyNameChange: (v: string) => void;
+  parentFirstName: string;
+  onParentFirstNameChange: (v: string) => void;
+  parentLastName: string;
+  onParentLastNameChange: (v: string) => void;
   children: ChildDraft[];
   onChildChange: (uid: number, patch: Partial<ChildDraft>) => void;
   onAddChild: () => void;
@@ -316,12 +322,17 @@ function StepFamilyAndKids({
   onNext: () => void;
 }) {
   const [showError, setShowError] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const hasValid = children.some((c) => c.name.trim().length > 0);
 
   function handleNext() {
-    if (!hasValid) { setShowError(true); return; }
+    setShowError(true);
+    setTouched({ firstName: true, lastName: true });
+    if (!parentFirstName.trim() || !parentLastName.trim() || !hasValid) return;
     onNext();
   }
+
+  const IC = "w-full px-4 py-3 rounded-xl border bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63]/15 transition";
 
   return (
     <div className="min-h-screen bg-[#faf8f4] flex flex-col items-center justify-center px-5 py-12">
@@ -333,6 +344,36 @@ function StepFamilyAndKids({
           sub="We'll use this to personalize your experience."
         />
 
+        {/* Parent first + last name */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-2">Your first name *</label>
+            <input
+              type="text"
+              value={parentFirstName}
+              onChange={(e) => { onParentFirstNameChange(e.target.value); setTouched((t) => ({ ...t, firstName: true })); }}
+              placeholder="Jane"
+              className={`${IC} ${touched.firstName && !parentFirstName.trim() ? "border-red-300" : "border-[#e8e2d9]"} focus:border-[#5c7f63]`}
+            />
+            {touched.firstName && !parentFirstName.trim() && (
+              <p className="text-xs text-red-500 mt-1">First name is required</p>
+            )}
+          </div>
+          <div>
+            <label className="text-xs font-medium text-[#7a6f65] block mb-2">Your last name *</label>
+            <input
+              type="text"
+              value={parentLastName}
+              onChange={(e) => { onParentLastNameChange(e.target.value); setTouched((t) => ({ ...t, lastName: true })); }}
+              placeholder="Smith"
+              className={`${IC} ${touched.lastName && !parentLastName.trim() ? "border-red-300" : "border-[#e8e2d9]"} focus:border-[#5c7f63]`}
+            />
+            {touched.lastName && !parentLastName.trim() && (
+              <p className="text-xs text-red-500 mt-1">Last name is required</p>
+            )}
+          </div>
+        </div>
+
         {/* Family name */}
         <div className="mb-6">
           <label className="text-xs font-medium text-[#7a6f65] block mb-2">Family name (optional)</label>
@@ -341,7 +382,7 @@ function StepFamilyAndKids({
             value={familyName}
             onChange={(e) => onFamilyNameChange(e.target.value)}
             placeholder="e.g. The Smith Family"
-            className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+            className={`${IC} border-[#e8e2d9] focus:border-[#5c7f63]`}
           />
         </div>
 
@@ -1025,6 +1066,7 @@ export default function OnboardingPage() {
 
   // Auth-sourced
   const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
 
   // Step 1 state
   const [familyDisplayName, setFamilyDisplayName] = useState("");
@@ -1062,6 +1104,7 @@ export default function OnboardingPage() {
       const rawLn = user.user_metadata?.last_name ?? "";
       const ln = rawLn ? rawLn.charAt(0).toUpperCase() + rawLn.slice(1).toLowerCase() : "";
       setFirstName(fn);
+      setLastName(ln);
       setFamilyDisplayName(profile?.display_name ?? (ln ? `The ${ln} Family` : ""));
       setUserId(user.id);
       setReady(true);
@@ -1198,6 +1241,8 @@ export default function OnboardingPage() {
       school_days: schoolDayNames,
     };
     if (familyDisplayName.trim()) profilePatch.display_name = familyDisplayName.trim();
+    if (firstName.trim()) profilePatch.first_name = firstName.trim();
+    if (lastName.trim()) profilePatch.last_name = lastName.trim();
 
     // Attribute free signups to affiliate if ref code exists
     try {
@@ -1213,7 +1258,7 @@ export default function OnboardingPage() {
 
     router.push("/dashboard");
     setSaving(false);
-  }, [children, userId, childSchedules, selectedSubjects, familyDisplayName, schoolDays, router]);
+  }, [children, userId, childSchedules, selectedSubjects, familyDisplayName, firstName, lastName, schoolDays, router]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1231,6 +1276,10 @@ export default function OnboardingPage() {
     <StepFamilyAndKids
       familyName={familyDisplayName}
       onFamilyNameChange={setFamilyDisplayName}
+      parentFirstName={firstName}
+      onParentFirstNameChange={setFirstName}
+      parentLastName={lastName}
+      onParentLastNameChange={setLastName}
       children={children}
       onChildChange={updateChild}
       onAddChild={() => setChildren((p) => [...p, mkChild(p.length)])}
