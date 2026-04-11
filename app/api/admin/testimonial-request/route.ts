@@ -10,7 +10,7 @@ const FOUNDING_MEMBERS: { name: string; email?: string }[] = [
   { name: "Amber Hudson Slaughter", email: "amannda86@yahoo.com" },
   { name: "Donna Ward",             email: "dward67@yahoo.com" },
   { name: "Lacie Hawkins",          email: "lacey.medio@gmail.com" },
-  { name: "Joselyn Minchey",        email: "jpirtlaw@gmail.com" },
+  { name: "Joan Waltrip",            email: "jpirtlaw@gmail.com" },
 ];
 
 const supabaseAdmin = createClient(
@@ -78,7 +78,13 @@ export async function POST(req: Request) {
   const errors: string[] = [];
 
   for (const member of matched) {
-    const firstName = member.name.split(" ")[0];
+    // Pull name from profiles so it stays in sync with the database
+    const { data: prof } = await supabaseAdmin
+      .from("profiles")
+      .select("first_name, last_name")
+      .eq("id", member.id)
+      .maybeSingle();
+    const firstName = prof?.first_name || member.name.split(" ")[0];
 
     const html = `
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#faf9f7;padding:32px 16px">
