@@ -853,7 +853,7 @@ export default function Home() {
                 "Daily lesson tracking",
                 "Family garden & badges",
                 "Curated resources",
-                "Yearbook preview",
+                "Yearbook preview (first 25 memories)",
                 "1 progress summary per year (view only)",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
@@ -1026,7 +1026,7 @@ export default function Home() {
                 { feature: "Progress reports",       free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Curriculum pacing guide", free: "—",    founding: "✓",          standard: "✓"         },
                 { feature: "Monthly family update",  free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Family yearbook",        free: "Preview only", founding: "✓ Full year", standard: "✓ Full year" },
+                { feature: "Family yearbook",        free: "First 25", founding: "✓ Full year", standard: "✓ Full year" },
                 { feature: "Share with family",      free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
                 { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },

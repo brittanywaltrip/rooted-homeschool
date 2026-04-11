@@ -161,44 +161,7 @@ export default function YearbookPage() {
     );
   }
 
-  // ── Free user gate ──────────────────────────────────────────────────────────
-
-  if (!loading && isFreeUser) {
-    return (
-      <>
-        <PageHero overline="Yearbook" title="Your Yearbook" />
-        <div className="px-5 pt-6 pb-10 max-w-md mx-auto">
-          <div className="bg-[#2d5a3d] rounded-2xl px-6 py-10 text-white text-center">
-            <Lock className="w-10 h-10 mx-auto mb-4 opacity-80" />
-            <h2 className="text-xl font-bold mb-2" style={{ fontFamily: "var(--font-display)" }}>
-              Your family yearbook is building 🌿
-            </h2>
-            <p className="text-white/80 text-sm mb-2">
-              {memories.length} memor{memories.length === 1 ? "y" : "ies"} captured this year
-            </p>
-            <p className="text-white/70 text-sm mb-6">
-              Upgrade to Founding Family to unlock your full yearbook
-            </p>
-            <Link
-              href="/upgrade"
-              onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_gate' })}
-              className="inline-block bg-white text-[#2d5a3d] font-bold text-sm px-6 py-3 rounded-full hover:bg-white/90 transition-colors"
-            >
-              Unlock my yearbook — $39/yr →
-            </Link>
-            <div className="mt-4">
-              <Link
-                href="/upgrade"
-                className="text-white/60 text-xs hover:text-white/80 underline"
-              >
-                Learn more about Founding Family pricing
-              </Link>
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  }
+  // Free users can access the yearbook setup (reader enforces preview limit)
 
   // ── Submitted: preparation screen ─────────────────────────────────────────
 
