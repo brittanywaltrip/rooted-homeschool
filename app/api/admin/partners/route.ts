@@ -122,7 +122,13 @@ export async function GET(req: Request) {
     (a as Record<string, unknown>).total_paid = paidMap.get(a.code) ?? 0;
   }
 
-  return NextResponse.json({ affiliates, referrals, payments: payments ?? [] });
+  // Fetch pending partner applications
+  const { data: applications } = await supabaseAdmin
+    .from("partner_apps")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  return NextResponse.json({ affiliates, referrals, payments: payments ?? [], applications: applications ?? [] });
 }
 
 export async function PATCH(req: Request) {
