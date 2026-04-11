@@ -21,7 +21,7 @@ export default function GrowthPage() {
         <p className="text-xs font-medium uppercase tracking-widest text-[#7a6f65] mb-0.5">
           Watch Them Bloom
         </p>
-        <h1 className="text-2xl font-bold text-[#2d2926]">Growth 🌱</h1>
+        <h1 className="text-2xl text-[#2d2926]" style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontWeight: 400 }}>Growth</h1>
         <p className="text-sm text-[#7a6f65] mt-1">
           Track progress across every subject and skill.
         </p>

@@ -172,7 +172,7 @@ export default function SchedulePage() {
               ← Plan
             </Link>
           </div>
-          <h1 className="text-2xl font-bold text-[#2d2926]">Weekly Schedule 📅</h1>
+          <h1 className="text-2xl text-[#2d2926]" style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontWeight: 400 }}>Weekly Schedule</h1>
           <p className="text-sm text-[#7a6f65] mt-1">
             Subjects by day and scheduled lessons for the week.
           </p>

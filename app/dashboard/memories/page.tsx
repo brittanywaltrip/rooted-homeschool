@@ -667,7 +667,7 @@ export default function MemoriesPage() {
 
   return (
     <>
-    <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Photos, drawings, wins, books, field trips — everything." />
+    <PageHero overline="Your Family Story" title="Memories" subtitle="Photos, drawings, wins, books, field trips — everything." />
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
       {/* Header links */}

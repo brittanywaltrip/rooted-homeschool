@@ -451,7 +451,7 @@ export default function ResourcesPage() {
 
   return (
     <>
-    <PageHero overline="Discover" title="Resources 🌿" subtitle="Curated for your homeschool." />
+    <PageHero overline="Discover" title="Resources" subtitle="Curated for your homeschool." />
     <div className="max-w-3xl px-4 pt-6 pb-8 space-y-8" style={{ background: "#faf9f6" }}>
 
       {/* ════════════════════════════════════════════════════════════

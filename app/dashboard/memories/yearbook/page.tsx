@@ -285,7 +285,7 @@ export default function YearbookPage() {
     <>
       <PageHero
         overline={`${yearLabel} School Year`}
-        title={`Your ${yearLabel} Yearbook 📖`}
+        title={`Your ${yearLabel} Yearbook`}
         subtitle={memories.length === 0
           ? "Your pages are waiting"
           : `${memories.length} memor${memories.length === 1 ? "y" : "ies"} curated`}

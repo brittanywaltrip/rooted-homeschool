@@ -274,7 +274,7 @@ export default function YearbookEditPage() {
     <>
       <PageHero
         overline={`${yearLabel} School Year`}
-        title="Edit your book ✏️"
+        title="Edit your book"
         subtitle={isReadOnly ? "This yearbook is closed — read only" : `${filledCount} of ${totalCount} sections complete`}
       />
 
