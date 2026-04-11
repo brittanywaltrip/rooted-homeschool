@@ -161,8 +161,9 @@ export default function AdminPartnersPage() {
       <div className="max-w-5xl mx-auto px-5 py-8 space-y-10">
 
         {/* Summary cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <StatCard label="Active Partners" value={affiliates.filter((a) => a.is_active).length} />
+          <StatCard label="Total Clicks" value={affiliates.reduce((s, a) => s + (a.clicks ?? 0), 0)} />
           <StatCard label="Total Referrals" value={affiliates.reduce((s, a) => s + a.signups_referred, 0)} />
           <StatCard label="Paying Conversions" value={affiliates.reduce((s, a) => s + a.paying_customers, 0)} />
           <StatCard label="Commission Owed" value={`$${totalCommission.toFixed(2)}`} />
@@ -175,7 +176,7 @@ export default function AdminPartnersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#e8e2d9]">
-                  {["Name", "Code", "Referral Link", "Contact", "PayPal", "Coupon", "Rate", "Signups", "Paying", "Owed", "Status"].map((h) => (
+                  {["Name", "Code", "Referral Link", "Contact", "PayPal", "Coupon", "Rate", "Clicks", "Signups", "Paying", "Owed", "Status", ""].map((h) => (
                     <th key={h} className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] whitespace-nowrap">
                       {h}
                     </th>
@@ -183,36 +184,61 @@ export default function AdminPartnersPage() {
                 </tr>
               </thead>
               <tbody>
-                {affiliates.map((a) => (
-                  <tr key={a.id} className="border-b border-[#f0ede8] last:border-0 hover:bg-[#f8f7f4]">
-                    <td className="px-4 py-3 font-medium text-[#2d2926] whitespace-nowrap">{a.name}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{a.code}</td>
-                    <td className="px-4 py-3 text-xs text-[#7a6f65] max-w-[160px] truncate">
-                      rootedhomeschoolapp.com/upgrade?ref={a.code}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.contact_email ?? "—"}</td>
-                    <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.paypal_email ?? "—"}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-[#7a6f65]">{a.stripe_coupon_id}</td>
-                    <td className="px-4 py-3 text-xs text-[#7a6f65]">{a.commission_rate ?? 20}%</td>
-                    <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.signups_referred}</td>
-                    <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.paying_customers}</td>
-                    <td className="px-4 py-3 font-medium text-[#2d2926] whitespace-nowrap">
-                      ${a.commission_owed.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => toggleActive(a.id, a.is_active)}
-                        className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${
-                          a.is_active
-                            ? "bg-[#e8f0e9] text-[#2d5a3d]"
-                            : "bg-[#f5e6e6] text-[#8b3a3a]"
-                        }`}
-                      >
-                        {a.is_active ? "Active" : "Inactive"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {affiliates.map((a) => {
+                  const firstName = a.name.split(" ")[0];
+                  const rate = a.commission_rate ?? 20;
+                  const mailSubject = encodeURIComponent("Your Rooted Partner Stats \u2014 April 2026");
+                  const mailBody = encodeURIComponent(
+                    `Hi ${firstName},\n\nHere\u2019s your update:\n\n\u2022 ${a.clicks} clicks\n\u2022 ${a.signups_referred} signups\n\u2022 ${a.paying_customers} paid conversions\n\nCommission owed: $${a.commission_owed.toFixed(2)}\n\nWe\u2019ll send payment to ${a.paypal_email ?? "your PayPal"} on May 1st.\n\nThank you for spreading the word!\n\n\u2014 Brittany`
+                  );
+                  const mailHref = a.contact_email
+                    ? `mailto:${a.contact_email}?subject=${mailSubject}&body=${mailBody}`
+                    : undefined;
+
+                  return (
+                    <tr key={a.id} className="border-b border-[#f0ede8] last:border-0 hover:bg-[#f8f7f4]">
+                      <td className="px-4 py-3 font-medium text-[#2d2926] whitespace-nowrap">{a.name}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{a.code}</td>
+                      <td className="px-4 py-3 text-xs text-[#7a6f65] max-w-[160px] truncate">
+                        rootedhomeschoolapp.com/upgrade?ref={a.code}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.contact_email ?? "—"}</td>
+                      <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.paypal_email ?? "—"}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-[#7a6f65]">{a.stripe_coupon_id}</td>
+                      <td className="px-4 py-3 text-xs text-[#7a6f65]">{rate}%</td>
+                      <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.clicks}</td>
+                      <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.signups_referred}</td>
+                      <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.paying_customers}</td>
+                      <td className="px-4 py-3 font-medium text-[#2d2926] whitespace-nowrap">
+                        ${a.commission_owed.toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => toggleActive(a.id, a.is_active)}
+                          className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${
+                            a.is_active
+                              ? "bg-[#e8f0e9] text-[#2d5a3d]"
+                              : "bg-[#f5e6e6] text-[#8b3a3a]"
+                          }`}
+                        >
+                          {a.is_active ? "Active" : "Inactive"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        {mailHref ? (
+                          <a
+                            href={mailHref}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-[#5c7f63] hover:text-[#2d5a3d] transition-colors"
+                          >
+                            Email
+                          </a>
+                        ) : (
+                          <span className="text-xs text-[#b5aca4]">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
