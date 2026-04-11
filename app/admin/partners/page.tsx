@@ -135,7 +135,7 @@ export default function AdminPartnersPage() {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         affiliate_code: payModal.code,
-        amount: payModal.commission_owed,
+        amount: Math.max(0, payModal.commission_owed - payModal.total_paid),
         month,
         paypal_email: payModal.paypal_email,
       }),
