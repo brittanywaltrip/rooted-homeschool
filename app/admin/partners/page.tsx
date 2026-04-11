@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -22,6 +22,7 @@ interface Affiliate {
   clicks: number;
   notes: string | null;
   created_at: string;
+  account_email: string | null;
   signups_referred: number;
   paying_customers: number;
   commission_owed: number;
@@ -37,14 +38,35 @@ interface Referral {
   user_plan: string;
 }
 
+interface EditDraft {
+  contact_email: string;
+  paypal_email: string;
+  commission_rate: number;
+  notes: string;
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function AdminPartnersPage() {
   const router = useRouter();
+  const [token, setToken] = useState("");
   const [authed, setAuthed] = useState(false);
   const [affiliates, setAffiliates] = useState<Affiliate[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingCode, setEditingCode] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EditDraft>({ contact_email: "", paypal_email: "", commission_rate: 20, notes: "" });
+  const [saving, setSaving] = useState(false);
+
+  const loadData = useCallback(async (accessToken: string) => {
+    const res = await fetch("/api/admin/partners", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    setAffiliates(json.affiliates ?? []);
+    setReferrals(json.referrals ?? []);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -54,21 +76,36 @@ export default function AdminPartnersPage() {
         return;
       }
       setAuthed(true);
-
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) await loadData(session.access_token);
+      if (session) {
+        setToken(session.access_token);
+        await loadData(session.access_token);
+      }
       setLoading(false);
     })();
-  }, [router]);
+  }, [router, loadData]);
 
-  async function loadData(token: string) {
-    const res = await fetch("/api/admin/partners", {
-      headers: { Authorization: `Bearer ${token}` },
+  function startEdit(a: Affiliate) {
+    setEditingCode(a.code);
+    setEditDraft({
+      contact_email: a.contact_email ?? "",
+      paypal_email: a.paypal_email ?? "",
+      commission_rate: a.commission_rate ?? 20,
+      notes: a.notes ?? "",
     });
-    if (!res.ok) return;
-    const json = await res.json();
-    setAffiliates(json.affiliates ?? []);
-    setReferrals(json.referrals ?? []);
+  }
+
+  async function saveEdit() {
+    if (!editingCode) return;
+    setSaving(true);
+    await fetch("/api/admin/partners", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ code: editingCode, ...editDraft }),
+    });
+    setSaving(false);
+    setEditingCode(null);
+    await loadData(token);
   }
 
   async function toggleActive(id: string, currentlyActive: boolean) {
@@ -100,7 +137,7 @@ export default function AdminPartnersPage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-5 py-8 space-y-10">
+      <div className="max-w-6xl mx-auto px-5 py-8 space-y-10">
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -118,8 +155,8 @@ export default function AdminPartnersPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#e8e2d9]">
-                  {["Name", "Code", "Referral Link", "Contact", "PayPal", "Coupon", "Rate", "Clicks", "Signups", "Paying", "Owed", "Status", ""].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] whitespace-nowrap">
+                  {["Name", "Code", "Rooted Account", "Contact", "PayPal", "Rate", "Clicks", "Signups", "Paying", "Owed", "Status", ""].map((h) => (
+                    <th key={h} className="text-left px-3 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] whitespace-nowrap">
                       {h}
                     </th>
                   ))}
@@ -127,6 +164,7 @@ export default function AdminPartnersPage() {
               </thead>
               <tbody>
                 {affiliates.map((a) => {
+                  const isEditing = editingCode === a.code;
                   const firstName = a.name.split(" ")[0];
                   const rate = a.commission_rate ?? 20;
                   const mailSubject = encodeURIComponent("Your Rooted Partner Stats \u2014 April 2026");
@@ -138,47 +176,109 @@ export default function AdminPartnersPage() {
                     : undefined;
 
                   return (
-                    <tr key={a.id} className="border-b border-[#f0ede8] last:border-0 hover:bg-[#f8f7f4]">
-                      <td className="px-4 py-3 font-medium text-[#2d2926] whitespace-nowrap">{a.name}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{a.code}</td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65] max-w-[160px] truncate">
-                        rootedhomeschoolapp.com/upgrade?ref={a.code}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.contact_email ?? "\u2014"}</td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.paypal_email ?? "\u2014"}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-[#7a6f65]">{a.stripe_coupon_id}</td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65]">{rate}%</td>
-                      <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.clicks}</td>
-                      <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.signups_referred}</td>
-                      <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.paying_customers}</td>
-                      <td className="px-4 py-3 font-medium text-[#2d2926] whitespace-nowrap">
-                        ${a.commission_owed.toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => toggleActive(a.id, a.is_active)}
-                          className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${
-                            a.is_active
-                              ? "bg-[#e8f0e9] text-[#2d5a3d]"
-                              : "bg-[#f5e6e6] text-[#8b3a3a]"
-                          }`}
-                        >
-                          {a.is_active ? "Active" : "Inactive"}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3">
-                        {mailHref ? (
-                          <a
-                            href={mailHref}
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-[#5c7f63] hover:text-[#2d5a3d] transition-colors"
+                    <React.Fragment key={a.id}>
+                      <tr className={`border-b border-[#f0ede8] hover:bg-[#f8f7f4] ${isEditing ? "bg-[#f8f7f4]" : ""}`}>
+                        <td className="px-3 py-3 font-medium text-[#2d2926] whitespace-nowrap">{a.name}</td>
+                        <td className="px-3 py-3 font-mono text-xs text-[#5c7f63]">{a.code}</td>
+                        <td className="px-3 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.account_email ?? "\u2014"}</td>
+                        <td className="px-3 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.contact_email ?? "\u2014"}</td>
+                        <td className="px-3 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.paypal_email ?? "\u2014"}</td>
+                        <td className="px-3 py-3 text-xs text-[#7a6f65]">{rate}%</td>
+                        <td className="px-3 py-3 text-center font-medium text-[#2d2926]">{a.clicks}</td>
+                        <td className="px-3 py-3 text-center font-medium text-[#2d2926]">{a.signups_referred}</td>
+                        <td className="px-3 py-3 text-center font-medium text-[#2d2926]">{a.paying_customers}</td>
+                        <td className="px-3 py-3 font-medium text-[#2d2926] whitespace-nowrap">${a.commission_owed.toFixed(2)}</td>
+                        <td className="px-3 py-3">
+                          <button
+                            onClick={() => toggleActive(a.id, a.is_active)}
+                            className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${
+                              a.is_active ? "bg-[#e8f0e9] text-[#2d5a3d]" : "bg-[#f5e6e6] text-[#8b3a3a]"
+                            }`}
                           >
-                            Email
-                          </a>
-                        ) : (
-                          <span className="text-xs text-[#b5aca4]">{"\u2014"}</span>
-                        )}
-                      </td>
-                    </tr>
+                            {a.is_active ? "Active" : "Inactive"}
+                          </button>
+                        </td>
+                        <td className="px-3 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            {!isEditing && (
+                              <button
+                                onClick={() => startEdit(a)}
+                                className="text-xs font-semibold text-[#5c7f63] hover:text-[#2d5a3d] transition-colors"
+                              >
+                                Edit
+                              </button>
+                            )}
+                            {mailHref && (
+                              <a href={mailHref} className="text-xs font-semibold text-[#5c7f63] hover:text-[#2d5a3d] transition-colors">
+                                Email
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {isEditing && (
+                        <tr className="bg-[#f0f7f1] border-b border-[#e8e2d9]">
+                          <td colSpan={12} className="px-4 py-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                              <div>
+                                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Contact email</label>
+                                <input
+                                  type="email"
+                                  value={editDraft.contact_email}
+                                  onChange={(e) => setEditDraft((d) => ({ ...d, contact_email: e.target.value }))}
+                                  className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">PayPal email</label>
+                                <input
+                                  type="email"
+                                  value={editDraft.paypal_email}
+                                  onChange={(e) => setEditDraft((d) => ({ ...d, paypal_email: e.target.value }))}
+                                  className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Commission rate (%)</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={editDraft.commission_rate}
+                                  onChange={(e) => setEditDraft((d) => ({ ...d, commission_rate: parseInt(e.target.value) || 0 }))}
+                                  className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Notes</label>
+                                <input
+                                  type="text"
+                                  value={editDraft.notes}
+                                  onChange={(e) => setEditDraft((d) => ({ ...d, notes: e.target.value }))}
+                                  className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                                  placeholder="Internal notes..."
+                                />
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={saveEdit}
+                                disabled={saving}
+                                className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-lg transition-colors"
+                              >
+                                {saving ? "Saving..." : "Save"}
+                              </button>
+                              <button
+                                onClick={() => setEditingCode(null)}
+                                className="px-4 py-2 text-xs font-semibold text-[#7a6f65] hover:text-[#2d2926] border border-[#e8e2d9] rounded-lg transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
