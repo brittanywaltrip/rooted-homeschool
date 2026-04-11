@@ -365,7 +365,7 @@ export default function GardenPage() {
     <>
       <PageHero
         overline="Your Family's"
-        title="Garden"
+        title="Garden 🌿"
         subtitle="Every lesson and memory grows a leaf."
       />
       <div className="max-w-3xl px-4 pt-5 pb-7 space-y-6">

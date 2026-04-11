@@ -41,12 +41,11 @@ function NavLink({
     <Link
       href={href}
       onClick={onClick}
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-light transition-all ${
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
         active
           ? "text-[#3d5c42]"
           : "text-[#7a6f65] hover:bg-[#f0ede8] hover:text-[#2d2926]"
       }`}
-      style={{ letterSpacing: "0.02em" }}
     >
       <div className="relative">
         <Icon size={17} strokeWidth={active ? 2.5 : 1.8} />
@@ -269,7 +268,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
   if (checking) {
     return (
-      <div className="min-h-screen bg-[#f5f7f4] flex">
+      <div className="min-h-screen bg-[#f8f7f4] flex">
         {/* Skeleton sidebar */}
         <aside className="hidden md:flex flex-col w-52 bg-[#fefcf9] border-r border-[#e8e2d9] fixed top-0 left-0 h-full z-40">
           {/* Brand */}
@@ -416,7 +415,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
   return (
     <PartnerContext.Provider value={partnerCtx}>
-      <div className="min-h-screen bg-[#f5f7f4] flex">
+      <div className="min-h-screen bg-[#f8f7f4] flex">
         {/* Desktop sidebar */}
         <aside className="hidden md:flex flex-col w-52 bg-[#fefcf9] border-r border-[#e8e2d9] fixed top-0 left-0 h-full z-40">
           {sidebarContent}

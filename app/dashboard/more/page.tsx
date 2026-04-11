@@ -145,7 +145,7 @@ export default function MorePage() {
     <>
     <PageHero
       overline="Tools & Extras"
-      title="More"
+      title="More 🌿"
       subtitle="Everything else, all in one place."
     />
     <div className="max-w-xl mx-auto px-5 pt-5 pb-8 space-y-8">

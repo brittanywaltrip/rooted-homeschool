@@ -8,24 +8,6 @@
   animation: heroZoom 20s ease-in-out infinite alternate;
 }
 
-/* ─── Elevated button styling ──────────────────────────────────────────────── */
-
-/* Primary green buttons → pill shape, lighter weight, wider tracking */
-[class*="bg-[#5c7f63]"][class*="rounded-xl"],
-[class*="bg-[#2d5a3d]"][class*="rounded-xl"],
-[class*="bg-[#3d5c42]"][class*="rounded-xl"] {
-  border-radius: 9999px !important;
-  font-weight: 400 !important;
-  letter-spacing: 0.04em;
-}
-
-/* Outline green buttons too */
-[class*="border-[#5c7f63]"][class*="rounded-xl"] {
-  border-radius: 9999px !important;
-  font-weight: 400 !important;
-  letter-spacing: 0.04em;
-}
-
 :root {
   --background: #f8f7f4;
   --foreground: #2d2926;

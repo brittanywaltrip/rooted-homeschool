@@ -742,7 +742,7 @@ export default function PrintablesPage() {
 
       {/* ── Header ───────────────────────────────────────────────── */}
       <div>
-        <h1 className="text-2xl text-[#2d2926]" style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontWeight: 400 }}>Printables</h1>
+        <h1 className="text-2xl font-bold text-[#2d2926]">🖨️ Printables</h1>
         <p className="text-sm text-[#7a6f65] mt-1">
           No Canva needed. Your certificates and ID cards — made beautiful automatically.
         </p>
