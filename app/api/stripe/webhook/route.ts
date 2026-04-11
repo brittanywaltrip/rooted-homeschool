@@ -385,7 +385,9 @@ export async function POST(req: NextRequest) {
         is_pro: false,
         subscription_status: 'cancelled',
         plan_type: 'free',
+        subscription_end_date: new Date().toISOString(),
       }).eq('id', profile.id)
+      console.log('[webhook] subscription.deleted — cancelled profile:', profile.id, 'family:', profile.display_name)
 
       // Look up customer email from Stripe
       let customerEmail = '—'

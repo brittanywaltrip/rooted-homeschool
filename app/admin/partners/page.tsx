@@ -79,6 +79,17 @@ export default function AdminPartnersPage() {
       .order("created_at", { ascending: false })
       .limit(100);
 
+    // Fetch profiles for referral user_ids so we can resolve names
+    const refUserIds = (refRows ?? []).map((r) => r.user_id).filter(Boolean);
+    let refUserProfiles: { id: string; first_name: string | null; last_name: string | null; display_name: string | null; plan_type: string | null }[] = [];
+    if (refUserIds.length > 0) {
+      const { data: rup } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name, display_name, plan_type")
+        .in("id", refUserIds);
+      refUserProfiles = rup ?? [];
+    }
+
     // Build affiliate stats
     const enriched: Affiliate[] = (affRows ?? []).map((a) => {
       const referred = (referredProfiles ?? []).filter(
@@ -98,9 +109,9 @@ export default function AdminPartnersPage() {
 
     setAffiliates(enriched);
 
-    // Build referrals feed with profile names
-    const profileMap = new Map(
-      (referredProfiles ?? []).map((p) => [
+    // Build referrals feed — join with all fetched profiles (not just referred ones)
+    const allProfileMap = new Map(
+      [...(referredProfiles ?? []), ...refUserProfiles].map((p) => [
         p.id,
         {
           name: p.first_name
@@ -112,7 +123,7 @@ export default function AdminPartnersPage() {
     );
 
     const feed: Referral[] = (refRows ?? []).map((r) => {
-      const prof = profileMap.get(r.user_id);
+      const prof = allProfileMap.get(r.user_id);
       return {
         id: r.id,
         affiliate_code: r.affiliate_code,
@@ -142,8 +153,6 @@ export default function AdminPartnersPage() {
     );
   }
 
-  const totalCommission = affiliates.reduce((s, a) => s + a.commission_owed, 0);
-
   return (
     <div className="min-h-screen bg-[#2d3e30]">
       {/* Header */}
@@ -165,8 +174,8 @@ export default function AdminPartnersPage() {
           <StatCard label="Active Partners" value={affiliates.filter((a) => a.is_active).length} />
           <StatCard label="Total Clicks" value={affiliates.reduce((s, a) => s + (a.clicks ?? 0), 0)} />
           <StatCard label="Total Referrals" value={affiliates.reduce((s, a) => s + a.signups_referred, 0)} />
-          <StatCard label="Paying Conversions" value={affiliates.reduce((s, a) => s + a.paying_customers, 0)} />
-          <StatCard label="Commission Owed" value={`$${totalCommission.toFixed(2)}`} />
+          <StatCard label="Paying Conversions" value={referrals.filter((r) => r.converted).length} />
+          <StatCard label="Commission Owed" value={`$${affiliates.reduce((s, a) => s + a.commission_owed, 0).toFixed(2)}`} />
         </div>
 
         {/* Section 1 — Partner Roster */}
