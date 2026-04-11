@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Download } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import PageHero from "@/app/components/PageHero";
 import { AWARD_META } from "@/lib/certificate-templates";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -738,15 +739,9 @@ export default function PrintablesPage() {
   const educatorAwardTypes = allTypes.filter(t => AWARD_META[t as keyof typeof AWARD_META]?.isEducator);
 
   return (
+    <>
+    <PageHero overline="Your Family's" title="Printables" subtitle="No Canva needed. Your certificates and ID cards — made beautiful automatically." />
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-10">
-
-      {/* ── Header ───────────────────────────────────────────────── */}
-      <div>
-        <h1 className="text-2xl font-bold text-[#2d2926]">🖨️ Printables</h1>
-        <p className="text-sm text-[#7a6f65] mt-1">
-          No Canva needed. Your certificates and ID cards — made beautiful automatically.
-        </p>
-      </div>
 
       {/* ── Style Picker ──────────────────────────────────────────── */}
       <section>
@@ -906,5 +901,6 @@ export default function PrintablesPage() {
       )}
 
     </div>
+    </>
   );
 }
