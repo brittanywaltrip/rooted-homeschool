@@ -52,7 +52,6 @@ interface Payment {
 interface EditDraft {
   contact_email: string;
   paypal_email: string;
-  commission_rate: number;
   notes: string;
 }
 
@@ -66,9 +65,12 @@ export default function AdminPartnersPage() {
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingCode, setEditingCode] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState<EditDraft>({ contact_email: "", paypal_email: "", commission_rate: 20, notes: "" });
+
+  // Expanded row
+  const [expandedCode, setExpandedCode] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EditDraft>({ contact_email: "", paypal_email: "", notes: "" });
   const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Pay modal
   const [payModal, setPayModal] = useState<Affiliate | null>(null);
@@ -102,34 +104,37 @@ export default function AdminPartnersPage() {
     })();
   }, [router, loadData]);
 
-  function startEdit(a: Affiliate) {
-    setEditingCode(a.code);
+  function toggleRow(a: Affiliate) {
+    if (expandedCode === a.code) {
+      setExpandedCode(null);
+      return;
+    }
+    setExpandedCode(a.code);
     setEditDraft({
       contact_email: a.contact_email ?? "",
       paypal_email: a.paypal_email ?? "",
-      commission_rate: a.commission_rate ?? 20,
       notes: a.notes ?? "",
     });
+    setCopied(false);
   }
 
   async function saveEdit() {
-    if (!editingCode) return;
+    if (!expandedCode) return;
     setSaving(true);
     await fetch("/api/admin/partners", {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ code: editingCode, ...editDraft }),
+      body: JSON.stringify({ code: expandedCode, ...editDraft }),
     });
     setSaving(false);
-    setEditingCode(null);
+    setExpandedCode(null);
     await loadData(token);
   }
 
   async function confirmPay() {
     if (!payModal) return;
     setPaying(true);
-    const now = new Date();
-    const month = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    const month = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
     await fetch("/api/admin/pay-affiliate", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -145,7 +150,8 @@ export default function AdminPartnersPage() {
     await loadData(token);
   }
 
-  async function toggleActive(id: string, currentlyActive: boolean) {
+  async function toggleActive(e: React.MouseEvent, id: string, currentlyActive: boolean) {
+    e.stopPropagation();
     await supabase.from("affiliates").update({ is_active: !currentlyActive }).eq("id", id);
     setAffiliates((prev) =>
       prev.map((a) => (a.id === id ? { ...a, is_active: !currentlyActive } : a))
@@ -165,18 +171,16 @@ export default function AdminPartnersPage() {
   return (
     <div className="min-h-screen bg-[#2d3e30]">
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4 flex items-center justify-between">
-        <div>
-          <Link href="/admin" className="text-xs text-[#a8c5a0] hover:text-[#fefcf9] transition-colors">
-            ← Back to admin
-          </Link>
-          <h1 className="text-xl font-bold text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>
-            Partner Management
-          </h1>
-        </div>
+      <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4">
+        <Link href="/admin" className="text-xs text-[#a8c5a0] hover:text-[#fefcf9] transition-colors">
+          ← Back to admin
+        </Link>
+        <h1 className="text-xl font-bold text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>
+          Partner Management
+        </h1>
       </div>
 
-      <div className="max-w-6xl mx-auto px-5 py-8 space-y-10">
+      <div className="max-w-5xl mx-auto px-5 py-8 space-y-10">
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -190,12 +194,12 @@ export default function AdminPartnersPage() {
         {/* Section 1 — Partner Roster */}
         <section>
           <SectionHeader emoji="🤝" title="Partner Roster" />
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-x-auto">
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#e8e2d9]">
-                  {["Name", "Code", "Rooted Account", "Contact", "PayPal", "Rate", "Clicks", "Signups", "Paying", "Owed", "Paid", "Status", ""].map((h) => (
-                    <th key={h} className="text-left px-3 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] whitespace-nowrap">
+                  {["Name", "Code", "Account", "Clicks", "Signups", "Paying", "Owed", "Paid", "Status"].map((h) => (
+                    <th key={h} className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">
                       {h}
                     </th>
                   ))}
@@ -203,35 +207,27 @@ export default function AdminPartnersPage() {
               </thead>
               <tbody>
                 {affiliates.map((a) => {
-                  const isEditing = editingCode === a.code;
-                  const firstName = a.name.split(" ")[0];
-                  const rate = a.commission_rate ?? 20;
+                  const isExpanded = expandedCode === a.code;
                   const owed = Math.max(0, a.commission_owed - a.total_paid);
-                  const mailSubject = encodeURIComponent("Your Rooted Partner Stats \u2014 April 2026");
-                  const mailBody = encodeURIComponent(
-                    `Hi ${firstName},\n\nHere\u2019s your update:\n\n\u2022 ${a.clicks} clicks\n\u2022 ${a.signups_referred} signups\n\u2022 ${a.paying_customers} paid conversions\n\nCommission owed: $${owed.toFixed(2)}\n\nWe\u2019ll send payment to ${a.paypal_email ?? "your PayPal"} on May 1st.\n\nThank you for spreading the word!\n\n\u2014 Brittany`
-                  );
-                  const mailHref = a.contact_email
-                    ? `mailto:${a.contact_email}?subject=${mailSubject}&body=${mailBody}`
-                    : undefined;
+                  const refLink = `rootedhomeschoolapp.com/upgrade?ref=${a.code}`;
 
                   return (
                     <React.Fragment key={a.id}>
-                      <tr className={`border-b border-[#f0ede8] hover:bg-[#f8f7f4] ${isEditing ? "bg-[#f8f7f4]" : ""}`}>
-                        <td className="px-3 py-3 font-medium text-[#2d2926] whitespace-nowrap">{a.name}</td>
-                        <td className="px-3 py-3 font-mono text-xs text-[#5c7f63]">{a.code}</td>
-                        <td className="px-3 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.account_email ?? "\u2014"}</td>
-                        <td className="px-3 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.contact_email ?? "\u2014"}</td>
-                        <td className="px-3 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.paypal_email ?? "\u2014"}</td>
-                        <td className="px-3 py-3 text-xs text-[#7a6f65]">{rate}%</td>
-                        <td className="px-3 py-3 text-center font-medium text-[#2d2926]">{a.clicks}</td>
-                        <td className="px-3 py-3 text-center font-medium text-[#2d2926]">{a.signups_referred}</td>
-                        <td className="px-3 py-3 text-center font-medium text-[#2d2926]">{a.paying_customers}</td>
-                        <td className="px-3 py-3 font-medium text-[#2d2926] whitespace-nowrap">${owed.toFixed(2)}</td>
-                        <td className="px-3 py-3 text-xs text-[#7a6f65] whitespace-nowrap">${a.total_paid.toFixed(2)}</td>
-                        <td className="px-3 py-3">
+                      <tr
+                        onClick={() => toggleRow(a)}
+                        className={`border-b border-[#f0ede8] cursor-pointer transition-colors ${isExpanded ? "bg-[#f0f7f1]" : "hover:bg-[#f8f7f4]"}`}
+                      >
+                        <td className="px-4 py-3 font-medium text-[#2d2926] whitespace-nowrap">{a.name}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{a.code}</td>
+                        <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">{a.account_email ?? "\u2014"}</td>
+                        <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.clicks}</td>
+                        <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.signups_referred}</td>
+                        <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.paying_customers}</td>
+                        <td className="px-4 py-3 font-medium text-[#2d2926]">${owed.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-xs text-[#7a6f65]">${a.total_paid.toFixed(2)}</td>
+                        <td className="px-4 py-3">
                           <button
-                            onClick={() => toggleActive(a.id, a.is_active)}
+                            onClick={(e) => toggleActive(e, a.id, a.is_active)}
                             className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${
                               a.is_active ? "bg-[#e8f0e9] text-[#2d5a3d]" : "bg-[#f5e6e6] text-[#8b3a3a]"
                             }`}
@@ -239,60 +235,107 @@ export default function AdminPartnersPage() {
                             {a.is_active ? "Active" : "Inactive"}
                           </button>
                         </td>
-                        <td className="px-3 py-3 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            {!isEditing && (
-                              <button onClick={() => startEdit(a)} className="text-xs font-semibold text-[#5c7f63] hover:text-[#2d5a3d] transition-colors">
-                                Edit
-                              </button>
-                            )}
-                            {owed > 0 && (
-                              <button onClick={() => setPayModal(a)} className="text-xs font-semibold text-[#6366f1] hover:text-[#4338ca] transition-colors">
-                                Pay
-                              </button>
-                            )}
-                            {mailHref && (
-                              <a href={mailHref} className="text-xs font-semibold text-[#5c7f63] hover:text-[#2d5a3d] transition-colors">
-                                Email
-                              </a>
-                            )}
-                          </div>
-                        </td>
                       </tr>
-                      {isEditing && (
-                        <tr className="bg-[#f0f7f1] border-b border-[#e8e2d9]">
-                          <td colSpan={13} className="px-4 py-4">
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+
+                      {/* Expanded detail panel */}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={9} className="bg-[#faf8f4] border-b border-[#e8e2d9] px-5 py-5">
+                            <div className="space-y-5">
+
+                              {/* Referral link */}
                               <div>
-                                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Contact email</label>
-                                <input type="email" value={editDraft.contact_email} onChange={(e) => setEditDraft((d) => ({ ...d, contact_email: e.target.value }))}
-                                  className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]" />
+                                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Referral link</p>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-[#5c7f63] font-mono">{refLink}</span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigator.clipboard.writeText(`https://${refLink}`);
+                                      setCopied(true);
+                                      setTimeout(() => setCopied(false), 2000);
+                                    }}
+                                    className="text-xs font-semibold text-[#5c7f63] hover:text-[#2d5a3d] transition-colors"
+                                  >
+                                    {copied ? "Copied" : "Copy"}
+                                  </button>
+                                </div>
                               </div>
+
+                              {/* Edit form */}
                               <div>
-                                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">PayPal email</label>
-                                <input type="email" value={editDraft.paypal_email} onChange={(e) => setEditDraft((d) => ({ ...d, paypal_email: e.target.value }))}
-                                  className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]" />
+                                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-2">Edit details</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Contact email</label>
+                                    <input
+                                      type="email"
+                                      value={editDraft.contact_email}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => setEditDraft((d) => ({ ...d, contact_email: e.target.value }))}
+                                      className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">PayPal email</label>
+                                    <input
+                                      type="email"
+                                      value={editDraft.paypal_email}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => setEditDraft((d) => ({ ...d, paypal_email: e.target.value }))}
+                                      className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Notes</label>
+                                    <input
+                                      type="text"
+                                      value={editDraft.notes}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => setEditDraft((d) => ({ ...d, notes: e.target.value }))}
+                                      className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                                      placeholder="Internal notes..."
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); saveEdit(); }}
+                                    disabled={saving}
+                                    className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-lg transition-colors"
+                                  >
+                                    {saving ? "Saving..." : "Save"}
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setExpandedCode(null); }}
+                                    className="px-4 py-2 text-xs font-semibold text-[#7a6f65] hover:text-[#2d2926] border border-[#e8e2d9] rounded-lg transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+
+                                  {/* Pay button */}
+                                  {owed > 0 && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setPayModal(a); }}
+                                      className="ml-auto px-4 py-2 text-xs font-semibold bg-[#6366f1] hover:bg-[#4338ca] text-white rounded-lg transition-colors"
+                                    >
+                                      Pay ${owed.toFixed(2)} to {a.paypal_email ?? "PayPal"}
+                                    </button>
+                                  )}
+
+                                  {/* Email button */}
+                                  {a.contact_email && (
+                                    <a
+                                      href={`mailto:${a.contact_email}?subject=${encodeURIComponent("Your Rooted Partner Stats \u2014 April 2026")}&body=${encodeURIComponent(`Hi ${a.name.split(" ")[0]},\n\nHere\u2019s your update:\n\n\u2022 ${a.clicks} clicks\n\u2022 ${a.signups_referred} signups\n\u2022 ${a.paying_customers} paid conversions\n\nCommission owed: $${owed.toFixed(2)}\n\nWe\u2019ll send payment to ${a.paypal_email ?? "your PayPal"} on May 1st.\n\nThank you!\n\n\u2014 Brittany`)}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="px-4 py-2 text-xs font-semibold text-[#5c7f63] hover:text-[#2d5a3d] border border-[#e8e2d9] rounded-lg transition-colors"
+                                    >
+                                      Email
+                                    </a>
+                                  )}
+                                </div>
                               </div>
-                              <div>
-                                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Commission rate (%)</label>
-                                <input type="number" min={0} max={100} value={editDraft.commission_rate} onChange={(e) => setEditDraft((d) => ({ ...d, commission_rate: parseInt(e.target.value) || 0 }))}
-                                  className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]" />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Notes</label>
-                                <input type="text" value={editDraft.notes} onChange={(e) => setEditDraft((d) => ({ ...d, notes: e.target.value }))}
-                                  className="w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]" placeholder="Internal notes..." />
-                              </div>
-                            </div>
-                            <div className="flex gap-2">
-                              <button onClick={saveEdit} disabled={saving}
-                                className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-lg transition-colors">
-                                {saving ? "Saving..." : "Save"}
-                              </button>
-                              <button onClick={() => setEditingCode(null)}
-                                className="px-4 py-2 text-xs font-semibold text-[#7a6f65] hover:text-[#2d2926] border border-[#e8e2d9] rounded-lg transition-colors">
-                                Cancel
-                              </button>
+
                             </div>
                           </td>
                         </tr>
@@ -313,11 +356,11 @@ export default function AdminPartnersPage() {
               <p className="text-sm text-[#7a6f65]">No referral conversions yet.</p>
             </div>
           ) : (
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-x-auto">
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#e8e2d9]">
-                    {["Date", "Customer", "Affiliate Code", "Plan", "Commission"].map((h) => (
+                    {["Date", "Customer", "Affiliate", "Plan", "Commission"].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">{h}</th>
                     ))}
                   </tr>
@@ -329,8 +372,8 @@ export default function AdminPartnersPage() {
                       : r.user_plan === "monthly" ? "Monthly ($6.99/mo)"
                       : r.user_plan;
                     return (
-                      <tr key={r.id} className="border-b border-[#f0ede8] last:border-0 hover:bg-[#f8f7f4]">
-                        <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">
+                      <tr key={r.id} className="border-b border-[#f0ede8] last:border-0">
+                        <td className="px-4 py-3 text-xs text-[#7a6f65]">
                           {new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </td>
                         <td className="px-4 py-3 font-medium text-[#2d2926]">{r.user_name}</td>
@@ -354,7 +397,7 @@ export default function AdminPartnersPage() {
               <p className="text-sm text-[#7a6f65]">No payments recorded yet.</p>
             </div>
           ) : (
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-x-auto">
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#e8e2d9]">
@@ -365,8 +408,8 @@ export default function AdminPartnersPage() {
                 </thead>
                 <tbody>
                   {payments.map((p) => (
-                    <tr key={p.id} className="border-b border-[#f0ede8] last:border-0 hover:bg-[#f8f7f4]">
-                      <td className="px-4 py-3 text-xs text-[#7a6f65] whitespace-nowrap">
+                    <tr key={p.id} className="border-b border-[#f0ede8] last:border-0">
+                      <td className="px-4 py-3 text-xs text-[#7a6f65]">
                         {new Date(p.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{p.affiliate_code}</td>
@@ -385,36 +428,41 @@ export default function AdminPartnersPage() {
       </div>
 
       {/* ── Pay Confirmation Modal ──────────────────────────────────────── */}
-      {payModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" onClick={() => !paying && setPayModal(null)}>
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 max-w-sm mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
-              Confirm payment
-            </h3>
-            <p className="text-sm text-[#7a6f65] mb-4">
-              Pay <span className="font-bold text-[#2d2926]">${Math.max(0, payModal.commission_owed - payModal.total_paid).toFixed(2)}</span> to{" "}
-              <span className="font-medium text-[#2d2926]">{payModal.paypal_email ?? "no PayPal on file"}</span>{" "}
-              for <span className="font-medium text-[#2d2926]">{payModal.name}</span> ({payModal.code})?
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={confirmPay}
-                disabled={paying}
-                className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-xl transition-colors"
-              >
-                {paying ? "Processing..." : "Confirm payment"}
-              </button>
-              <button
-                onClick={() => setPayModal(null)}
-                disabled={paying}
-                className="px-4 py-2.5 text-sm font-semibold text-[#7a6f65] hover:text-[#2d2926] border border-[#e8e2d9] rounded-xl transition-colors"
-              >
-                Cancel
-              </button>
+      {payModal && (() => {
+        const modalOwed = Math.max(0, payModal.commission_owed - payModal.total_paid);
+        const monthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" onClick={() => !paying && setPayModal(null)}>
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 max-w-sm mx-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
+                Confirm payment
+              </h3>
+              <p className="text-sm text-[#7a6f65] mb-4">
+                Pay <span className="font-bold text-[#2d2926]">${modalOwed.toFixed(2)}</span> to{" "}
+                <span className="font-medium text-[#2d2926]">{payModal.paypal_email ?? "no PayPal on file"}</span>{" "}
+                for <span className="font-medium text-[#2d2926]">{payModal.name}</span> ({payModal.code})
+                {" \u2014 "}{monthLabel}?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={confirmPay}
+                  disabled={paying}
+                  className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-xl transition-colors"
+                >
+                  {paying ? "Processing..." : "Confirm payment"}
+                </button>
+                <button
+                  onClick={() => setPayModal(null)}
+                  disabled={paying}
+                  className="px-4 py-2.5 text-sm font-semibold text-[#7a6f65] hover:text-[#2d2926] border border-[#e8e2d9] rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
