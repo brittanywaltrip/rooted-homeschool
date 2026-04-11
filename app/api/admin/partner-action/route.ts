@@ -116,6 +116,21 @@ async function handleApprove(body: Record<string, unknown>) {
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
     You can track your clicks, signups, and earnings anytime in your Rooted app under <strong>Settings \u2192 Partner Dashboard</strong>.
   </p>
+  <div style="background: #fefcf9; border: 1px solid #e8e2d9; border-radius: 12px; padding: 16px; margin: 24px 0;">
+    <p style="font-size: 13px; font-weight: 600; color: #2d2926; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.05em;">FTC Disclosure</p>
+    <p style="font-size: 13px; color: #5c5248; line-height: 1.7; margin: 0 0 10px;">
+      Because you\u2019ll be earning commission through your referrals, the FTC requires a clear disclosure anytime you share your link or code. This applies across all platforms \u2014 Instagram, TikTok, YouTube, blogs, Facebook groups, and more.
+    </p>
+    <p style="font-size: 13px; color: #5c5248; line-height: 1.7; margin: 0 0 6px;">You can use simple language like:</p>
+    <ul style="font-size: 13px; color: #5c5248; line-height: 1.7; margin: 0 0 10px; padding-left: 20px;">
+      <li>\u201cAd: I partner with Rooted and earn a commission if you sign up using my link.\u201d</li>
+      <li>\u201cPaid partnership with Rooted.\u201d</li>
+      <li>\u201cThis is an affiliate link \u2014 I earn a small commission at no extra cost to you.\u201d</li>
+    </ul>
+    <p style="font-size: 13px; color: #5c5248; line-height: 1.7; margin: 0;">
+      The key is that it\u2019s clear, upfront, and easy to see \u2014 this protects both of us.
+    </p>
+  </div>
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
     Reply to this email anytime with questions \u2014 I read every one.
   </p>
@@ -127,7 +142,7 @@ async function handleApprove(body: Record<string, unknown>) {
   await sendEmail(
     contactEmail,
     'Welcome to the Rooted Partner Program \uD83C\uDF3F',
-    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets ${rate}% off their first year.\n\nYou earn 20% commission on every family that upgrades — paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nYour Rooted subscription is now complimentary — our gift to you.\n\nTrack your stats in Settings → Partner Dashboard.\n\nReply anytime!\n\nWith love,\nBrittany`,
+    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets ${rate}% off their first year.\n\nYou earn 20% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nYour Rooted subscription is now complimentary \u2014 our gift to you.\n\nTrack your stats in Settings \u2192 Partner Dashboard.\n\nFTC DISCLOSURE\n\nBecause you\u2019ll be earning commission through your referrals, the FTC requires a clear disclosure anytime you share your link or code. This applies across all platforms \u2014 Instagram, TikTok, YouTube, blogs, Facebook groups, and more.\n\nYou can use simple language like:\n- \u201cAd: I partner with Rooted and earn a commission if you sign up using my link.\u201d\n- \u201cPaid partnership with Rooted.\u201d\n- \u201cThis is an affiliate link \u2014 I earn a small commission at no extra cost to you.\u201d\n\nThe key is that it\u2019s clear, upfront, and easy to see \u2014 this protects both of us.\n\nReply anytime!\n\nWith love,\nBrittany`,
     welcomeHtml,
   )
 
