@@ -277,11 +277,11 @@ function StepOpening({ onNext }: { onNext: () => void }) {
       style={{ background: "#1a3d24" }}
     >
       <div className="flex flex-col items-center text-center max-w-sm w-full">
-        <img src="/rooted-logo-white.png" alt="Rooted" className="h-8 w-auto mb-6" />
+        <img src="/rooted-logo-nav.png" alt="Rooted" className="h-8 w-auto brightness-0 invert mb-6" />
         <div className="w-10 h-px bg-white/20 mb-8" />
         <h1
           className="text-3xl sm:text-[2.5rem] font-bold text-white mb-5 leading-snug"
-          style={{ fontFamily: "var(--font-display)" }}
+          style={{ fontFamily: "'Cormorant Garamond', Georgia, serif" }}
         >
           The homeschool years go by so fast.
         </h1>
