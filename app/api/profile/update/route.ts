@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   // upsert: creates row if missing, updates if exists (fixes silent no-op for new accounts)
   const { data: upsertData, error } = await supabase
     .from('profiles')
-    .upsert({ id: user.id, onboarded: true, ...patch }, { onConflict: 'id' })
+    .upsert({ id: user.id, ...patch }, { onConflict: 'id' })
     .select()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

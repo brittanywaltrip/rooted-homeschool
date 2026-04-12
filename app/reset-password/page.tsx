@@ -17,38 +17,51 @@ export default function ResetPasswordPage() {
   const [ready,    setReady]    = useState(false);
   const [tokenErr, setTokenErr] = useState(false);
 
-  // Supabase appends the tokens as a URL hash fragment.
-  // We parse them manually and call setSession so the client is authenticated
-  // before the user submits the new password.
+  // Handle multiple Supabase recovery flows:
+  // 1. PKCE flow: ?code= param → exchangeCodeForSession
+  // 2. Implicit flow: #access_token=...&type=recovery → setSession
+  // 3. Existing session: user already logged in via recovery
   useEffect(() => {
-    const hash   = window.location.hash.slice(1);
-    const params = new URLSearchParams(hash);
-    const accessToken  = params.get("access_token");
-    const refreshToken = params.get("refresh_token") ?? "";
-    const type         = params.get("type");
+    async function init() {
+      // 1. PKCE code exchange (Supabase redirects here with ?code=)
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get("code");
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) setTokenErr(true);
+        else setReady(true);
+        return;
+      }
 
-    if (accessToken && type === "recovery") {
-      supabase.auth
-        .setSession({ access_token: accessToken, refresh_token: refreshToken })
-        .then(({ error }) => {
-          if (error) setTokenErr(true);
-          else setReady(true);
+      // 2. Hash fragment (implicit flow fallback)
+      const hash   = window.location.hash.slice(1);
+      const params = new URLSearchParams(hash);
+      const accessToken  = params.get("access_token");
+      const refreshToken = params.get("refresh_token") ?? "";
+      const type         = params.get("type");
+
+      if (accessToken && type === "recovery") {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
         });
-      return;
-    }
+        if (error) setTokenErr(true);
+        else setReady(true);
+        return;
+      }
 
-    // Fallback: listen for PASSWORD_RECOVERY event if the SDK processes the
-    // hash itself (e.g. on page reload when session is already active)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setReady(true);
-    });
+      // 3. Listen for PASSWORD_RECOVERY event / check existing session
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+        if (event === "PASSWORD_RECOVERY") setReady(true);
+      });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+      const { data: { session } } = await supabase.auth.getSession();
       if (session) setReady(true);
       else if (!accessToken) setTokenErr(true);
-    });
 
-    return () => subscription.unsubscribe();
+      return () => subscription.unsubscribe();
+    }
+    init();
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
