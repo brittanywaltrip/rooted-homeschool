@@ -263,9 +263,12 @@ export default function AdminPartnersPage() {
   return (
     <div className="min-h-screen bg-[#2d3e30]">
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4">
-        <Link href="/admin" className="text-xs text-[#a8c5a0] hover:text-[#fefcf9] transition-colors">← Back to admin</Link>
-        <h1 className="text-xl font-bold text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>Partner Management</h1>
+      <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4 flex items-center gap-4">
+        <img src="/rooted-logo-white.png" alt="Rooted" style={{ height: '32px', width: 'auto' }} />
+        <div>
+          <Link href="/admin" className="text-xs text-[#a8c5a0] hover:text-[#fefcf9] transition-colors">← Back to admin</Link>
+          <h1 className="text-xl font-medium text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>Partner Management</h1>
+        </div>
       </div>
 
       <div className="max-w-5xl mx-auto px-5 py-8 space-y-10">

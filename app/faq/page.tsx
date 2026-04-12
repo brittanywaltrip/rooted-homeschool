@@ -120,19 +120,19 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, curated resources, and 1 AI Family Update per month. You also get 50 photos, your last 30 days of memories, and a yearbook preview. Pro unlocks unlimited photos, your full memory history, unlimited AI Family Updates, yearbook PDF download, progress reports, and curriculum pacing.",
+        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, curated resources, and 1 AI Family Update per month. You also get 50 photos, your last 30 days of memories, and a yearbook preview. A paid plan unlocks unlimited photos, your full memory history, unlimited AI Family Updates, yearbook PDF download, progress reports, and curriculum pacing.",
       },
       {
         q: "What is the Founding Family price?",
-        a: "Founding Families get lifetime access to Rooted Pro for $39/year — locked in forever, even as the price increases. This is our way of thanking early supporters who helped us build and improve the app. The Founding Family price is only available for a limited time while we're in early access. We also offer a monthly option at $6.99/mo if you prefer not to commit annually.",
+        a: "Founding Families get lifetime access to Rooted for $39/year — locked in forever, even as the price increases. This is our way of thanking early supporters who helped us build and improve the app. The Founding Family price is only available for a limited time while we're in early access. We also offer a monthly option at $6.99/mo if you prefer not to commit annually.",
       },
       {
         q: "When does the founding price end?",
         a: "The Founding Family pricing ($39/year) is available during our early access period. The standard annual price is $59/year. Founding Families keep their $39/year rate permanently — even as we add more features and the price increases.",
       },
       {
-        q: "How do I upgrade to Pro?",
-        a: 'Click Upgrade to Pro in your sidebar or visit the pricing section on the homepage. Choose from three options: $39/yr Founding Family (limited time, price locked forever), $59/yr Standard, or $6.99/mo monthly. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account is upgraded instantly — no waiting, no manual review.',
+        q: "How do I upgrade to a paid plan?",
+        a: 'Click Upgrade in your sidebar or visit the pricing section on the homepage. Choose from three options: $39/yr Founding Family (limited time, price locked forever), $59/yr Standard, or $6.99/mo monthly. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account is upgraded instantly — no waiting, no manual review.',
       },
       {
         q: "How do I cancel?",
@@ -156,15 +156,15 @@ const sections = [
     items: [
       {
         q: "What AI features does Rooted have?",
-        a: "Rooted's AI-powered Family Update generates a warm narrative summary of your recent school weeks — perfect for sharing with grandparents or keeping as a journal entry. Pro users get unlimited updates; free users get 1 per month.",
+        a: "Rooted's AI-powered Family Update generates a warm narrative summary of your recent school weeks — perfect for sharing with grandparents or keeping as a journal entry. Paid users get unlimited updates; free users get 1 per month.",
       },
       {
         q: "Why can't I access AI features on the free plan?",
-        a: "Free users get 1 AI Family Update per month, which is enough to try it out. Unlimited updates are a Pro feature because AI generation costs real money to run — every narrative requires a call to a large language model, and those costs add up. Rooted Pro is $39/year — less than one curriculum book.",
+        a: "Free users get 1 AI Family Update per month, which is enough to try it out. Unlimited updates are a paid feature because AI generation costs real money to run — every narrative requires a call to a large language model, and those costs add up. Founding Family is $39/year — less than one curriculum book.",
       },
       {
         q: "How many AI generations do I get?",
-        a: "Free users get 1 AI Family Update per month. Pro users get unlimited AI Family Updates. If you ever run into any issues, reach out to us at hello@rootedhomeschoolapp.com — we're happy to help.",
+        a: "Free users get 1 AI Family Update per month. Paid users get unlimited AI Family Updates. If you ever run into any issues, reach out to us at hello@rootedhomeschoolapp.com — we're happy to help.",
       },
     ],
   },
@@ -291,10 +291,7 @@ export default function FAQPage() {
 
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-8 h-8 rounded-xl bg-[#5c7f63] flex items-center justify-center text-base">
-            🌿
-          </div>
-          <span className="font-bold text-[#2d2926]">Rooted</span>
+          <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">
           Frequently Asked Questions

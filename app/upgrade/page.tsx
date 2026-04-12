@@ -147,7 +147,7 @@ function UpgradePageInner() {
 
         {/* Social proof */}
         <p className="text-sm text-[#9a8f85] text-center mb-10">
-          Join 276+ homeschool families already using Rooted 🌿
+          Join 700+ homeschool families already using Rooted 🌿
         </p>
 
         {/* Referral discount banner */}
