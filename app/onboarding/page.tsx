@@ -467,7 +467,7 @@ export default function OnboardingPage() {
             Add a family photo
           </h1>
           <p className="text-white/60 text-center text-sm mb-10">
-            Makes Rooted feel like yours — shows in your app header.
+            Makes Rooted feel like yours — shows in your app header and yearbook cover.
           </p>
 
           <input
