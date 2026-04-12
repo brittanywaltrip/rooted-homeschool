@@ -6,8 +6,7 @@ export default function TermsPage() {
           <a href="/" className="text-sm text-[#5c7f63] hover:underline">← Back to Rooted</a>
         </div>
         <div className="flex items-center gap-3 mb-8">
-          <div className="w-8 h-8 rounded-xl bg-[#5c7f63] flex items-center justify-center text-base">🌿</div>
-          <span className="font-bold text-[#2d2926]">Rooted</span>
+          <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">Terms of Service</h1>
         <p className="text-sm text-[#b5aca4] mb-10">Last updated: March 2026</p>

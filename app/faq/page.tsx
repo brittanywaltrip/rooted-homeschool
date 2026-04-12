@@ -291,10 +291,7 @@ export default function FAQPage() {
 
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-8 h-8 rounded-xl bg-[#5c7f63] flex items-center justify-center text-base">
-            🌿
-          </div>
-          <span className="font-bold text-[#2d2926]">Rooted</span>
+          <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">
           Frequently Asked Questions

@@ -546,18 +546,8 @@ export default function TourPage() {
         style={{ backgroundColor: "rgba(248, 247, 244, 0.94)" }}
       >
         <nav className="max-w-6xl mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2.5 group shrink-0">
-            <div className="w-8 h-8 rounded-xl bg-[#5c7f63] group-hover:bg-[#3d5c42] flex items-center justify-center text-base shadow-sm transition-colors">
-              🌿
-            </div>
-            <div className="leading-none">
-              <span className="text-sm font-bold text-[#2d2926] block" style={{ fontFamily: "var(--font-display)" }}>
-                Rooted
-              </span>
-              <span className="text-[10px] text-[#7a6f65] block tracking-wide leading-tight">
-                Homeschool
-              </span>
-            </div>
+          <Link href="/" className="flex items-center shrink-0">
+            <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
           </Link>
           <div className="flex items-center gap-2">
             <Link href="/login" className="hidden sm:inline-flex text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-3 py-2 rounded-lg hover:bg-[#f0ede8]">

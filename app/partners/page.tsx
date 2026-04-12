@@ -91,6 +91,18 @@ export default function PartnersPage() {
   return (
     <main className="min-h-screen bg-[#f8f7f4]">
 
+      {/* ── Nav ────────────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-50 bg-[#f8f7f4]/95 backdrop-blur-md border-b border-[#e8e2d9]">
+        <nav className="max-w-6xl mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center shrink-0">
+            <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
+          </Link>
+          <Link href="/login" className="text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-3 py-2 rounded-lg hover:bg-[#f0ede8]">
+            Log In
+          </Link>
+        </nav>
+      </header>
+
       {/* ── SECTION 1 — Hero (same as homepage) ────────────────────────── */}
       <section
         className="relative flex flex-col items-center justify-center text-center px-6 py-28 min-h-[60vh] overflow-hidden"
