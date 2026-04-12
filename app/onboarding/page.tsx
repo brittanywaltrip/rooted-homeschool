@@ -57,10 +57,10 @@ function StepShell({
         <img
           src="/rooted-logo-white.png"
           alt="Rooted"
-          className="h-9 w-auto mb-10 opacity-80"
+          className="h-12 w-auto mb-10 opacity-90"
           onError={(e) => {
             (e.target as HTMLImageElement).src = "/rooted-logo-nav.png";
-            (e.target as HTMLImageElement).className = "h-9 w-auto mb-10 opacity-80 brightness-0 invert";
+            (e.target as HTMLImageElement).className = "h-12 w-auto mb-10 opacity-90 brightness-0 invert";
           }}
         />
       )}
@@ -93,6 +93,7 @@ export default function OnboardingPage() {
   const [skipStep2, setSkipStep2] = useState(false);
   const [bothSkipped, setBothSkipped] = useState(false);
   const [celebrationReady, setCelebrationReady] = useState(false);
+  const celebrationReadyRef = useRef(false);
 
   // ── Auth + profile check ────────────────────────────────────────────────
 
@@ -106,7 +107,7 @@ export default function OnboardingPage() {
         .eq("id", user.id)
         .maybeSingle();
 
-      if ((profile as { onboarded?: boolean | null } | null)?.onboarded === true && !celebrationReady) {
+      if ((profile as { onboarded?: boolean | null } | null)?.onboarded === true && !celebrationReadyRef.current) {
         router.replace("/dashboard");
         return;
       }
@@ -246,6 +247,7 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (step === 4 && !celebrationReady) {
+      celebrationReadyRef.current = true;
       setCelebrationReady(true);
       completeOnboarding();
     }

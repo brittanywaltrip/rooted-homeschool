@@ -986,26 +986,30 @@ export default function MemoriesPage() {
           </div>
         ) : (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-            <span className="text-4xl mb-3">🌿</span>
-            <p className="font-medium text-[#2d2926] mb-2">Your family story starts here</p>
-            <p className="text-sm text-[#7a6f65] max-w-xs mb-6">
-              Every photo, win, book, and field trip lives here — and builds your yearbook automatically.
+            <span className="text-6xl mb-5">🌿</span>
+            <h2
+              className="text-xl font-medium text-[#2d2926] mb-2"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              Your family story starts here
+            </h2>
+            <p className="text-sm text-[#7a6f65] max-w-sm mb-8 leading-relaxed">
+              Every photo, win, book read, and field trip lives here — and builds your yearbook automatically as you go.
             </p>
             <button
               onClick={() => {
-                // Trigger the floating camera FAB
                 const fab = document.querySelector<HTMLButtonElement>('[data-fab-trigger]');
                 if (fab) fab.click();
               }}
-              className="w-full py-3.5 rounded-2xl bg-[var(--g-brand)] text-white font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98]"
+              className="w-full max-w-xs py-3.5 rounded-full bg-[var(--g-brand)] text-white font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98] mb-3"
             >
-              + Capture your first memory
+              +  Capture your first memory
             </button>
             <Link
               href="/dashboard/memories/yearbook/read"
-              className="w-full py-3 rounded-2xl border-2 border-[#e8e2d9] text-[#7a6f65] font-medium text-sm text-center hover:bg-[#f0ede8] transition-colors block"
+              className="w-full max-w-xs py-3 rounded-full border-2 border-[var(--g-brand)] text-[var(--g-brand)] font-medium text-sm text-center hover:bg-[#e8f0e9] transition-colors block"
             >
-              View your yearbook →
+              Preview your yearbook →
             </Link>
           </div>
         )
