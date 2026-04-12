@@ -59,4 +59,6 @@ export const TEMPLATES = {
   // Gifts
   giftReceived: '90e75658-0bc3-4f92-87dc-b18c98207d33',
   giftSent: 'b1b443ce-d51d-415d-bcbe-7a2f63b86323',
+  // Year in Review (May annual)
+  yearInReview: '993681cb-6432-4f62-8843-afdca205af22',
 } as const
