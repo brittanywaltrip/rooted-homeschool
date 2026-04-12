@@ -1032,9 +1032,14 @@ export default function YearbookReadPage() {
           <Link href="/dashboard/memories/yearbook" className="text-[12px] text-[#9a8f85] hover:text-white transition-colors">
             ← Yearbook
           </Link>
-          <button onClick={() => setShowSettingsPanel(true)} className="text-[16px] opacity-60 hover:opacity-100 transition-opacity" aria-label="Yearbook settings">
-            ⚙️
-          </button>
+          <div className="flex items-center gap-3">
+            <Link href="/dashboard/memories/yearbook/edit" className="text-[12px] text-[#c8e6c4] font-medium hover:text-white transition-colors">
+              ✏️ Edit your book
+            </Link>
+            <button onClick={() => setShowSettingsPanel(true)} className="text-[16px] opacity-60 hover:opacity-100 transition-opacity" aria-label="Yearbook settings">
+              ⚙️
+            </button>
+          </div>
         </div>
 
         {/* Book page area */}
@@ -1143,7 +1148,10 @@ export default function YearbookReadPage() {
             ← Yearbook
           </Link>
         </div>
-        <div className="absolute top-4 right-6 z-30">
+        <div className="absolute top-4 right-6 z-30 flex items-center gap-4">
+          <Link href="/dashboard/memories/yearbook/edit" className="text-sm text-[#c8e6c4] font-medium hover:text-white transition-colors">
+            ✏️ Edit your book
+          </Link>
           <button onClick={() => setShowSettingsPanel(true)} className="text-[18px] opacity-50 hover:opacity-100 transition-opacity" aria-label="Yearbook settings">
             ⚙️
           </button>

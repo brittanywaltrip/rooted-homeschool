@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { compressImage } from "@/lib/compress-image";
 import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
 
@@ -111,6 +112,15 @@ export default function YearbookEditPage() {
   const [bookmarkedMemories, setBookmarkedMemories] = useState<MemoryRow[]>([]);
   const [quoteMemories, setQuoteMemories] = useState<MemoryRow[]>([]);
 
+  // Cover / meta state
+  const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [coverSaved, setCoverSaved] = useState(false);
+  const [familyName, setFamilyName] = useState("");
+  const [familyNameSaved, setFamilyNameSaved] = useState(false);
+  const [schoolYear, setSchoolYear] = useState("");
+  const [schoolYearSaved, setSchoolYearSaved] = useState(false);
+
   // Letter state
   const [letter, setLetter] = useState("");
   const [favMemoryId, setFavMemoryId] = useState("");
@@ -207,6 +217,9 @@ export default function YearbookEditPage() {
       setUpdatedMap(uMap);
 
       // Hydrate state
+      setCoverPhotoUrl(cMap[ck("cover_photo")] ?? "");
+      setFamilyName(cMap[ck("family_name")] ?? "");
+      setSchoolYear(cMap[ck("school_year")] ?? "");
       setLetter(cMap[ck("letter_from_home")] ?? "");
       setFavMemoryId(cMap[ck("letter_favorite_memory_id")] ?? "");
       setFavCaption(cMap[ck("letter_favorite_caption")] ?? "");
@@ -233,8 +246,11 @@ export default function YearbookEditPage() {
 
   // ── Progress ────────────────────────────────────────────────────────────────
 
-  const totalCount = 3 + children.length * 7;
+  const totalCount = 6 + children.length * 7;
   const filledCount = [
+    coverPhotoUrl ? 1 : 0,
+    familyName.trim() ? 1 : 0,
+    schoolYear.trim() ? 1 : 0,
     letter.trim() ? 1 : 0,
     favMemoryId ? 1 : 0,
     favQuote ? 1 : 0,
@@ -298,6 +314,125 @@ export default function YearbookEditPage() {
           <div className="h-[5px] bg-[#e8e3dc] rounded-full overflow-hidden">
             <div className="h-full bg-[var(--g-deep)] rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
           </div>
+        </div>
+
+        {/* ── Cover photo ────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Cover photo</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            Upload a family photo for the front of your yearbook.
+          </p>
+          {coverPhotoUrl ? (
+            <div className="flex items-center gap-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={coverPhotoUrl} alt="Cover" className="h-[100px] w-auto rounded-lg object-cover border border-[#e8e3dc]" />
+              {!isReadOnly && (
+                <label className="text-[11px] text-[#5c7f63] font-medium cursor-pointer">
+                  Change
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !effectiveUserId) return;
+                      setCoverUploading(true);
+                      setCoverSaved(false);
+                      try {
+                        const compressed = await compressImage(file);
+                        const path = `${effectiveUserId}/yearbook-cover.jpg`;
+                        const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: true });
+                        if (upErr) throw upErr;
+                        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+                        const url = urlData.publicUrl + "?t=" + Date.now();
+                        setCoverPhotoUrl(url);
+                        await saveContent("cover_photo", url);
+                        setCoverSaved(true);
+                        setTimeout(() => setCoverSaved(false), 3000);
+                      } catch (err) {
+                        console.error("Cover upload error:", err);
+                      } finally {
+                        setCoverUploading(false);
+                      }
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          ) : (
+            !isReadOnly && (
+              <label className="flex items-center justify-center w-full py-6 rounded-lg border-2 border-dashed border-[#d4cfc8] text-[12px] text-[#9a8f85] hover:border-[#5c7f63] transition-colors cursor-pointer">
+                {coverUploading ? "Uploading…" : "Upload cover photo"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={coverUploading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file || !effectiveUserId) return;
+                    setCoverUploading(true);
+                    setCoverSaved(false);
+                    try {
+                      const compressed = await compressImage(file);
+                      const path = `${effectiveUserId}/yearbook-cover.jpg`;
+                      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: true });
+                      if (upErr) throw upErr;
+                      const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+                      const url = urlData.publicUrl + "?t=" + Date.now();
+                      setCoverPhotoUrl(url);
+                      await saveContent("cover_photo", url);
+                      setCoverSaved(true);
+                      setTimeout(() => setCoverSaved(false), 3000);
+                    } catch (err) {
+                      console.error("Cover upload error:", err);
+                    } finally {
+                      setCoverUploading(false);
+                    }
+                  }}
+                />
+              </label>
+            )
+          )}
+          {coverSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
+        </div>
+
+        {/* ── Family name ────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <label className="text-[13px] font-semibold text-[#2d2926] block mb-2">Family name</label>
+          <input
+            value={familyName}
+            onChange={(e) => { setFamilyName(e.target.value); setFamilyNameSaved(false); }}
+            onBlur={async () => {
+              if (isReadOnly || !effectiveUserId || !yearbookKey) return;
+              await saveContent("family_name", familyName);
+              setFamilyNameSaved(true);
+              setTimeout(() => setFamilyNameSaved(false), 3000);
+            }}
+            disabled={isReadOnly}
+            placeholder="The Waltrip Family"
+            className="w-full px-3 py-2 text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+          />
+          {familyNameSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
+        </div>
+
+        {/* ── School year ─────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <label className="text-[13px] font-semibold text-[#2d2926] block mb-2">School year</label>
+          <input
+            value={schoolYear}
+            onChange={(e) => { setSchoolYear(e.target.value); setSchoolYearSaved(false); }}
+            onBlur={async () => {
+              if (isReadOnly || !effectiveUserId || !yearbookKey) return;
+              await saveContent("school_year", schoolYear);
+              setSchoolYearSaved(true);
+              setTimeout(() => setSchoolYearSaved(false), 3000);
+            }}
+            disabled={isReadOnly}
+            placeholder="2025–2026"
+            className="w-full px-3 py-2 text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+          />
+          {schoolYearSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
         </div>
 
         {/* ── Letter from home ────────────────────────────────── */}
