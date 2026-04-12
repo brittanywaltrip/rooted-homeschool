@@ -2046,7 +2046,51 @@ export default function TodayPage() {
         </div>
       )}
 
-
+      {/* ═══════════════════════════════════════════════════════════
+          DISCOVER ROOTED — quiet exploration trail for new users
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && totalMemories === 0 && !hasAnyLessons && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
+            Explore everything Rooted can do
+          </p>
+          <div className="bg-white border border-[#e8e2d9] rounded-2xl divide-y divide-[#f0ede8] overflow-hidden">
+            {([
+              { emoji: "🌳", label: "Watch your garden grow", sub: "Every memory and lesson grows a leaf", href: "/dashboard/garden" },
+              { emoji: "📖", label: "Preview your yearbook", sub: "It builds itself from your memories", href: "/dashboard/memories/yearbook/read" },
+              { emoji: "📚", label: "Set up your curriculum", sub: "Auto-schedule lessons and track pace", href: "/dashboard/plan" },
+              { emoji: "🎁", label: "Explore free resources", sub: "Deals, freebies, and field trips near you", href: "/dashboard/resources" },
+              { emoji: "🖨️", label: "Print a certificate", sub: "Beautiful printables from your real data", href: "/dashboard/printables" },
+              { emoji: "👨‍👩‍👧", label: "Share with family", sub: "Give grandparents a window into your school", href: "/dashboard/settings?tab=family" },
+            ] as const).map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-3 px-4 py-3.5 hover:bg-[#faf8f4] transition-colors"
+              >
+                <span className="text-lg shrink-0">{item.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[#2d2926]">{item.label}</p>
+                  <p className="text-xs text-[#9a8f85]">{item.sub}</p>
+                </div>
+                <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
+              </Link>
+            ))}
+            <button
+              type="button"
+              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
+              className="flex items-center gap-3 px-4 py-3.5 hover:bg-[#faf8f4] transition-colors w-full text-left"
+            >
+              <span className="text-lg shrink-0">📷</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-[#2d2926]">Capture a memory</p>
+                <p className="text-xs text-[#9a8f85]">Photos, wins, books, field trips — everything</p>
+              </div>
+              <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           CAME BACK STATE — soft amber nudge if lessons unchecked after 2pm
