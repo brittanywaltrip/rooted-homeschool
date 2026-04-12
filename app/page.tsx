@@ -156,15 +156,6 @@ function WaitlistForm() {
 export default function Home() {
   const [scrolled, setScrolled] = useState(false);
 
-  // Safety net: redirect password reset codes that land on / to /reset-password
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-    if (code) {
-      window.location.href = `/reset-password?code=${code}`;
-    }
-  }, []);
-
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", onScroll, { passive: true });

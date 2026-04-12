@@ -17,51 +17,28 @@ export default function ResetPasswordPage() {
   const [ready,    setReady]    = useState(false);
   const [tokenErr, setTokenErr] = useState(false);
 
-  // Handle multiple Supabase recovery flows:
-  // 1. PKCE flow: ?code= param → exchangeCodeForSession
-  // 2. Implicit flow: #access_token=...&type=recovery → setSession
-  // 3. Existing session: user already logged in via recovery
+  // The auth callback already exchanged the PKCE code and set the session.
+  // We just need to verify the session exists before showing the form.
   useEffect(() => {
-    async function init() {
-      // 1. PKCE code exchange (Supabase redirects here with ?code=)
-      const urlParams = new URLSearchParams(window.location.search);
-      const code = urlParams.get("code");
-      if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (error) setTokenErr(true);
-        else setReady(true);
-        return;
-      }
+    // Listen for PASSWORD_RECOVERY event (fired when session is from a recovery flow)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") setReady(true);
+    });
 
-      // 2. Hash fragment (implicit flow fallback)
-      const hash   = window.location.hash.slice(1);
-      const params = new URLSearchParams(hash);
-      const accessToken  = params.get("access_token");
-      const refreshToken = params.get("refresh_token") ?? "";
-      const type         = params.get("type");
-
-      if (accessToken && type === "recovery") {
-        const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        if (error) setTokenErr(true);
-        else setReady(true);
-        return;
-      }
-
-      // 3. Listen for PASSWORD_RECOVERY event / check existing session
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-        if (event === "PASSWORD_RECOVERY") setReady(true);
-      });
-
-      const { data: { session } } = await supabase.auth.getSession();
+    // Check if session already exists (set by auth callback)
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) setReady(true);
-      else if (!accessToken) setTokenErr(true);
+      else {
+        // Give a moment for the session to propagate from cookies
+        setTimeout(async () => {
+          const { data: { session: retrySession } } = await supabase.auth.getSession();
+          if (retrySession) setReady(true);
+          else setTokenErr(true);
+        }, 1500);
+      }
+    });
 
-      return () => subscription.unsubscribe();
-    }
-    init();
+    return () => subscription.unsubscribe();
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -140,7 +117,7 @@ export default function ResetPasswordPage() {
               Choose a strong password for your account.
             </p>
 
-            {!ready && !tokenErr && (
+            {!ready && (
               <div className="bg-[#f8f7f4] border border-[#e8e2d9] rounded-xl px-4 py-3 mb-4 flex items-center gap-2">
                 <span className="w-4 h-4 border-2 border-[#5c7f63]/30 border-t-[#5c7f63] rounded-full animate-spin shrink-0" />
                 <p className="text-sm text-[#7a6f65]">Verifying your reset link…</p>

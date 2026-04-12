@@ -32,9 +32,10 @@ export async function GET(request: Request) {
     try {
       await supabase.auth.exchangeCodeForSession(code)
 
-      // Password recovery flow — redirect to set-new-password page
+      // Password recovery flow — check both type=recovery and next=/reset-password
       const type = requestUrl.searchParams.get('type')
-      if (type === 'recovery') {
+      const next = requestUrl.searchParams.get('next')
+      if (type === 'recovery' || next === '/reset-password') {
         const redirectResponse = NextResponse.redirect(new URL('/reset-password', requestUrl.origin))
         supabaseResponse.cookies.getAll().forEach(cookie => {
           redirectResponse.cookies.set(cookie.name, cookie.value)
