@@ -580,7 +580,7 @@ export default function SettingsPage() {
     setResetSending(true);
     setResetError("");
     const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
     });
     setResetSending(false);
     if (error) {
