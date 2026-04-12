@@ -17,26 +17,40 @@ export default function ResetPasswordPage() {
   const [ready,    setReady]    = useState(false);
   const [tokenErr, setTokenErr] = useState(false);
 
-  // The auth callback already exchanged the PKCE code and set the session.
-  // We just need to verify the session exists before showing the form.
+  // Supabase redirects here with ?code= for PKCE recovery flow.
+  // Exchange the code for a session, then clean the URL.
   useEffect(() => {
-    // Listen for PASSWORD_RECOVERY event (fired when session is from a recovery flow)
+    // PASSWORD_RECOVERY listener as fallback
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") setReady(true);
     });
 
-    // Check if session already exists (set by auth callback)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true);
-      else {
-        // Give a moment for the session to propagate from cookies
-        setTimeout(async () => {
-          const { data: { session: retrySession } } = await supabase.auth.getSession();
-          if (retrySession) setReady(true);
-          else setTokenErr(true);
-        }, 1500);
-      }
-    });
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+        if (error) {
+          console.error("Reset password code exchange error:", error);
+          setTokenErr(true);
+        } else {
+          setReady(true);
+          window.history.replaceState({}, "", "/reset-password");
+        }
+      });
+    } else {
+      // No code — check if session already exists
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) setReady(true);
+        else {
+          setTimeout(async () => {
+            const { data: { session: retrySession } } = await supabase.auth.getSession();
+            if (retrySession) setReady(true);
+            else setTokenErr(true);
+          }, 1500);
+        }
+      });
+    }
 
     return () => subscription.unsubscribe();
   }, []);
