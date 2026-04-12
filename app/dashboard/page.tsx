@@ -496,6 +496,8 @@ export default function TodayPage() {
   const loadDataBusy = useRef(false);
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
+  const [firstMemoryToast, setFirstMemoryToast] = useState<string | null>(null);
+  const prevTotalMemoriesRef = useRef<number | null>(null);
   const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editDeleting, setEditDeleting] = useState(false);
@@ -967,6 +969,20 @@ export default function TodayPage() {
     return () => window.removeEventListener("rooted:children-updated", handler);
   }, [loadData]);
 
+  // ── First memory magic moment ──────────────────────────────────────────────
+  useEffect(() => {
+    if (loading) return;
+    const prev = prevTotalMemoriesRef.current;
+    prevTotalMemoriesRef.current = totalMemories;
+    if (prev === 0 && totalMemories === 1 && !localStorage.getItem("rooted_first_memory_celebrated")) {
+      localStorage.setItem("rooted_first_memory_celebrated", "1");
+      const childName = children.length > 0 ? children[0].name : null;
+      setFirstMemoryToast(
+        childName ? `${childName}'s tree just grew its first leaf!` : "Your garden just grew its first leaf!"
+      );
+      setTimeout(() => setFirstMemoryToast(null), 4000);
+    }
+  }, [totalMemories, loading, children]);
 
   async function refreshTodayStory() {
     if (!effectiveUserId) return;
@@ -2855,6 +2871,19 @@ export default function TodayPage() {
                 Edit →
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── First memory magic moment toast ─────────────── */}
+      {firstMemoryToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] toast-slide-up">
+          <div className="bg-[var(--g-brand)] text-white px-6 py-3.5 rounded-full shadow-lg flex items-center gap-3">
+            <span className="text-lg">🌿</span>
+            <div>
+              <p className="text-sm font-semibold">{firstMemoryToast}</p>
+              <p className="text-xs text-white/70">Every memory and lesson grows it more.</p>
+            </div>
           </div>
         </div>
       )}
