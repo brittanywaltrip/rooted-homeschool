@@ -160,7 +160,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
   const userIds = [...activeUserIds]
   const { data: profiles } = await supabase
     .from('profiles')
-    .select('id, first_name')
+    .select('id, first_name, email_unsubscribed')
     .in('id', userIds)
 
   const { data: listData } = await supabase.auth.admin.listUsers()
@@ -181,7 +181,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
       await resend.emails.send({
         from: FROM,
         to: TEST_EMAIL,
-        subject: 'Your week with Rooted 🌿',
+        subject: `${sampleName}, your week with Rooted 🌿`,
         text: `Hi ${sampleName}, Last week was a great week of homeschooling. You captured 0 memories this week.\n\n— Brittany\nFounder, Rooted${emailFooterText()}`,
         html: emailHtml(sampleName, 'Last week was a great week of homeschooling.', 0),
       })
@@ -196,18 +196,26 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
     if (!email) continue
     if (testOnly && email !== TEST_EMAIL) continue
 
-    const profile = (profiles ?? []).find(p => p.id === userId) as { first_name?: string } | undefined
+    const profile = (profiles ?? []).find(p => p.id === userId) as { first_name?: string; email_unsubscribed?: boolean } | undefined
+    if (profile?.email_unsubscribed) continue
     const name = profile?.first_name ?? ''
     const mems = userMemories.get(userId) ?? []
     const lessons = userLessons.get(userId) ?? []
     const summaryLine = buildSummary(lessons, mems)
+    const unsubscribeUrl = `https://www.rootedhomeschoolapp.com/unsubscribe?email=${encodeURIComponent(email)}`
 
     try {
+      const displayName = name || 'there'
+      const personalizedSubject = name
+        ? `${name}, your week with Rooted 🌿`
+        : 'Your week with Rooted 🌿'
+
       const result = await sendResendTemplate(email, TEMPLATES.weeklySummary, {
-        firstName: name || 'there',
+        firstName: displayName,
         weeklySummary: `${summaryLine} You captured ${mems.length} ${mems.length === 1 ? 'memory' : 'memories'} this week.`,
         memoriesUrl: 'https://www.rootedhomeschoolapp.com/dashboard/memories',
-      })
+        unsubscribeUrl,
+      }, undefined, personalizedSubject)
       if (result.ok) {
         sent++
         try { await supabase.from('email_log').insert({ user_id: userId, email_type: 'weekly_summary' }) } catch {}

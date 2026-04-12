@@ -7,19 +7,23 @@ export async function sendResendTemplate(
   templateId: string,
   variables: Record<string, string>,
   from?: string,
+  subject?: string,
 ): Promise<{ ok: boolean; error?: string }> {
+  const payload: Record<string, unknown> = {
+    from: from ?? FROM,
+    to,
+    template_id: templateId,
+    template_variables: variables,
+  }
+  if (subject) payload.subject = subject
+
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      from: from ?? FROM,
-      to,
-      template_id: templateId,
-      template_variables: variables,
-    }),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: 'Unknown error' }))

@@ -86,6 +86,7 @@ export async function GET(req: NextRequest) {
       if (!inv.email) continue;
 
       const viewUrl = `https://www.rootedhomeschoolapp.com/family/${inv.token}`;
+      const unsubscribeUrl = `https://www.rootedhomeschoolapp.com/family/${inv.token}/unsubscribe`;
 
       // Build photo grid HTML for template variable
       const photoGridHtml = photoMems.length > 0
@@ -107,6 +108,7 @@ export async function GET(req: NextRequest) {
           photoGrid: photoGridHtml,
           highlights: highlightsHtml,
           familyUrl: viewUrl,
+          unsubscribeUrl,
         }, "Rooted <hello@rootedhomeschoolapp.com>");
         if (result.ok) sent++;
         else console.error(`Digest email error for ${inv.email}:`, result.error);
