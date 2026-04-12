@@ -59,7 +59,8 @@ function daysToBoolean(days: string[]): boolean[] {
 }
 
 function booleanToDays(bools: boolean[]): string[] {
-  return DAY_LABELS.filter((_, i) => bools[i]);
+  const days = DAY_LABELS.filter((_, i) => bools[i]);
+  return days.length > 0 ? days : ["Mon", "Tue", "Wed", "Thu", "Fri"];
 }
 
 // ─── WizardProgress ───────────────────────────────────────────────────────────
