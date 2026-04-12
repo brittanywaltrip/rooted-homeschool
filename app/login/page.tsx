@@ -101,7 +101,10 @@ export default function LoginPage() {
               <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Welcome back</h1>
               <p className="text-sm text-[#7a6f65] mb-5">Good to see you again.</p>
 
-              {/* Google sign-in */}
+              {/* Google auth temporarily hidden — re-enable when
+                  www cookie domain testing is complete */}
+              {false && (
+              <>
               <button
                 type="button"
                 onClick={async () => {
@@ -122,6 +125,8 @@ export default function LoginPage() {
                 <span className="text-xs text-[#b5aca4]">or</span>
                 <div className="flex-1 h-px bg-[#e8e2d9]" />
               </div>
+              </>
+              )}
 
               <form onSubmit={handleLogin} className="flex flex-col gap-4">
                 <div>

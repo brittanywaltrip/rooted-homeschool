@@ -125,7 +125,10 @@ export default function SignupPage() {
             <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Create your account</h1>
             <p className="text-sm text-[#7a6f65] mb-5">Start your family&apos;s learning journey.</p>
 
-            {/* Google sign-in */}
+            {/* Google auth temporarily hidden — re-enable when
+                www cookie domain testing is complete */}
+            {false && (
+            <>
             <button
               type="button"
               onClick={async () => {
@@ -146,6 +149,8 @@ export default function SignupPage() {
               <span className="text-xs text-[#b5aca4]">or</span>
               <div className="flex-1 h-px bg-[#e8e2d9]" />
             </div>
+            </>
+            )}
 
             <form onSubmit={handleSignup} className="flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-3">
