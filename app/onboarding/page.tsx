@@ -226,7 +226,31 @@ export default function OnboardingPage() {
       }
     }
     setSaving(false);
-    goTo(4);
+    goTo(5);
+  }
+
+  async function uploadFamilyPhoto(file: File) {
+    setSaving(true);
+    const compressed = await compressImage(file);
+    const ext = file.name.split(".").pop() ?? "jpg";
+    const path = `${userId}/family.${ext}`;
+    const { error: uploadErr } = await supabase.storage
+      .from("family-photos")
+      .upload(path, compressed, { contentType: "image/jpeg", upsert: true });
+    if (uploadErr) {
+      setError("Photo upload failed. Please try again.");
+      setSaving(false);
+      return;
+    }
+    const { data: urlData } = supabase.storage.from("family-photos").getPublicUrl(path);
+    const token = (await supabase.auth.getSession()).data.session?.access_token ?? "";
+    await fetch("/api/profile/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ family_photo_url: urlData.publicUrl }),
+    });
+    setPhotoUploaded(true);
+    setSaving(false);
   }
 
   const completeCalled = useRef(false);
@@ -252,7 +276,7 @@ export default function OnboardingPage() {
   // ── Complete onboarding when celebration step renders ────────────────
 
   useEffect(() => {
-    if (step === 4 && !celebrationReady) {
+    if (step === 5 && !celebrationReady) {
       celebrationReadyRef.current = true;
       setCelebrationReady(true);
       completeOnboarding();
@@ -429,9 +453,110 @@ export default function OnboardingPage() {
     );
   }
 
-  // ─── STEP 4 — Children ─────────────────────────────────────────────────
+  // ─── STEP 4 — Family Photo ──────────────────────────────────────────────
 
   if (step === 3) {
+    return (
+      <StepShell>
+        <div className={fadeClass}>
+          <ProgressDots current={currentDot} total={totalDots} />
+          <h1
+            className="text-3xl font-bold text-white text-center mb-3 leading-snug"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            Add a family photo
+          </h1>
+          <p className="text-white/60 text-center text-sm mb-10">
+            Makes Rooted feel like yours — shows in your app header.
+          </p>
+
+          <input
+            ref={photoRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (e.target) e.target.value = "";
+              if (f) {
+                setPhotoPreview(URL.createObjectURL(f));
+                uploadFamilyPhoto(f);
+              }
+            }}
+          />
+
+          <div className="flex justify-center mb-8">
+            {photoPreview ? (
+              <div className="relative">
+                <img
+                  src={photoPreview}
+                  alt="Family photo"
+                  className="w-40 h-40 rounded-full object-cover border-4 border-white/30"
+                />
+                {saving && (
+                  <div className="absolute inset-0 rounded-full bg-black/30 flex items-center justify-center">
+                    <div className="w-6 h-6 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  </div>
+                )}
+                {photoUploaded && !saving && (
+                  <div className="absolute bottom-1 right-1 w-8 h-8 rounded-full bg-white flex items-center justify-center">
+                    <Check size={16} className="text-[var(--g-brand)]" strokeWidth={3} />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => photoRef.current?.click()}
+                className="w-40 h-40 rounded-full border-2 border-dashed border-white/30 bg-white/10 hover:bg-white/15 flex flex-col items-center justify-center gap-2 transition-colors"
+              >
+                <Camera size={32} className="text-white/50" />
+                <span className="text-xs text-white/40">Tap to upload</span>
+              </button>
+            )}
+          </div>
+
+          {error && <p className="text-sm text-red-300 text-center mb-4">{error}</p>}
+
+          {photoUploaded ? (
+            <button
+              onClick={() => goTo(4)}
+              className="w-full py-4 rounded-2xl bg-white text-[var(--g-brand)] font-semibold text-base transition-all hover:bg-white/90 active:scale-[0.98] mb-3"
+            >
+              Continue →
+            </button>
+          ) : (
+            <>
+              {photoPreview && saving ? (
+                <button disabled className="w-full py-4 rounded-2xl bg-white/60 text-[var(--g-brand)] font-semibold text-base mb-3 opacity-60">
+                  Uploading...
+                </button>
+              ) : !photoPreview ? (
+                <button
+                  onClick={() => photoRef.current?.click()}
+                  className="w-full py-4 rounded-2xl bg-white text-[var(--g-brand)] font-semibold text-base transition-all hover:bg-white/90 active:scale-[0.98] mb-3"
+                >
+                  Choose a photo
+                </button>
+              ) : null}
+            </>
+          )}
+
+          <button onClick={() => goTo(4)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors">
+            Skip for now →
+          </button>
+
+          <button onClick={() => goTo(2)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors mt-2">
+            ← Back
+          </button>
+        </div>
+      </StepShell>
+    );
+  }
+
+  // ─── STEP 5 — Children ─────────────────────────────────────────────────
+
+  if (step === 4) {
     const filled = childRows.filter(r => r.name.trim());
     const filledCount = filled.length;
     const ctaLabel = filledCount === 0
@@ -534,7 +659,7 @@ export default function OnboardingPage() {
             {saving ? "Adding..." : ctaLabel}
           </button>
 
-          <button onClick={() => goTo(2)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors">
+          <button onClick={() => goTo(3)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors">
             ← Back
           </button>
         </div>
@@ -542,9 +667,9 @@ export default function OnboardingPage() {
     );
   }
 
-  // ─── STEP 5 — Celebration ─────────────────────────────────────────────
+  // ─── STEP 6 — Celebration ─────────────────────────────────────────────
 
-  if (step === 4) {
+  if (step === 5) {
     return (
       <StepShell green={false}>
         <div className={`${fadeClass} flex flex-col items-center text-center`}>
