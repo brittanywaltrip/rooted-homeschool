@@ -30,22 +30,28 @@ export async function GET(request: Request) {
     )
 
     try {
-      await supabase.auth.exchangeCodeForSession(code)
-      const { data: { user } } = await supabase.auth.getUser()
+      const { error: sessionError } = await supabase.auth.exchangeCodeForSession(code)
+      console.log('Auth callback: session exchange error:', sessionError)
+
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      console.log('Auth callback: user:', user?.id, 'email:', user?.email, 'error:', userError)
 
       if (user) {
-        const { data: profile } = await supabaseAdmin
+        const { data: profile, error: profileError } = await supabaseAdmin
           .from('profiles')
           .select('id')
           .eq('id', user.id)
           .single()
+        console.log('Auth callback: profile check:', profile, 'error:', profileError)
 
         if (!profile) {
           // Create a minimal profile row so onboarding can update it
-          await supabaseAdmin.from('profiles').upsert({ id: user.id }, { onConflict: 'id' })
+          const { error: upsertError } = await supabaseAdmin.from('profiles').upsert({ id: user.id }, { onConflict: 'id' })
+          console.log('Auth callback: upsert error:', upsertError)
         }
 
         const redirectPath = !profile ? '/onboarding' : '/dashboard'
+        console.log('Auth callback: redirecting to', redirectPath)
         const redirectResponse = NextResponse.redirect(new URL(redirectPath, requestUrl.origin))
 
         supabaseResponse.cookies.getAll().forEach(cookie => {
@@ -53,9 +59,11 @@ export async function GET(request: Request) {
         })
 
         return redirectResponse
+      } else {
+        console.log('Auth callback: no user after session exchange')
       }
     } catch (error) {
-      console.error('Auth callback error:', error)
+      console.error('Auth callback CATCH:', error)
     }
   }
 
