@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera, GraduationCap, ExternalLink, Sprout, Search } from "lucide-react";
+import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera, Sprout, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useProfile } from "@/lib/profile-context";
 
@@ -1308,16 +1308,6 @@ export default function SettingsPage() {
 
                     {/* Action buttons */}
                     <div className="flex items-center gap-1">
-                      {child.graduated_at ? (
-                        <a
-                          href={`/dashboard/graduation/${child.id}`}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-[#5c7f63] bg-[#e8f0e9] hover:bg-[#d4e8d4] transition-colors"
-                          title="View graduation slideshow"
-                        >
-                          <GraduationCap size={12} />
-                          <ExternalLink size={10} />
-                        </a>
-                      ) : null}
                       <button
                         onClick={() => startEdit(child)}
                         className="w-8 h-8 rounded-lg flex items-center justify-center text-[#b5aca4] hover:text-[#5c7f63] hover:bg-[#e8f0e9] transition-colors"
@@ -2276,7 +2266,6 @@ export default function SettingsPage() {
         <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-3 px-1">Help & More</p>
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
           {[
-            { label: "📖 How it works", href: "/dashboard/how-it-works",    sub: "A quick guide to every feature" },
             { label: "What's new",      href: "/dashboard/more/whats-new", sub: "Latest updates" },
             { label: "FAQ",             href: "/faq",                       sub: "Common questions" },
             { label: "Contact us",      href: "/contact",                   sub: "hello@rootedhomeschoolapp.com" },

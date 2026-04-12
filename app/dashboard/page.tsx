@@ -384,7 +384,6 @@ export default function TodayPage() {
   // Family activity notifications
   const [familyNotifs, setFamilyNotifs] = useState<FamilyNotification[]>([]);
   const [familyNotifsDismissed, setFamilyNotifsDismissed] = useState(false);
-  const [guideDismissed, setGuideDismissed] = useState(() => typeof window !== "undefined" && localStorage.getItem("rooted_guide_dismissed") === "1");
 
   const [familyName,      setFamilyName]      = useState("");
   const [firstName,       setFirstName]       = useState("");
@@ -2081,27 +2080,6 @@ export default function TodayPage() {
               <span className="text-[#5c7f63] text-xs shrink-0">→</span>
             </button>
           ))}
-        </div>
-      )}
-
-      {/* ── How It Works nudge — when no memories today ────────── */}
-      {todayStory.length === 0 && !guideDismissed && (
-        <div className="relative bg-[#fefcf9] border border-[#e8e2d9] border-l-[3px] border-l-[#8cba8e] rounded-2xl px-5 py-4">
-          <button
-            type="button"
-            onClick={() => { localStorage.setItem("rooted_guide_dismissed", "1"); setGuideDismissed(true); }}
-            className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white/60 flex items-center justify-center text-[#7a6f65] hover:bg-white transition-colors text-xs"
-            aria-label="Dismiss"
-          >
-            ✕
-          </button>
-          <p className="text-[13px] font-medium text-[#2d2926] mb-1">🌿 Not sure where to begin?</p>
-          <p className="text-[12px] text-[#7a6f65] leading-relaxed mb-2">
-            Rooted works best when you capture as you go. Here&apos;s how to get started.
-          </p>
-          <Link href="/dashboard/how-it-works" className="text-xs font-medium text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
-            Show me how →
-          </Link>
         </div>
       )}
 
