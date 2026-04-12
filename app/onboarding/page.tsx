@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -85,8 +85,7 @@ export default function OnboardingPage() {
   const [lastName, setLastName] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [selectedState, setSelectedState] = useState("");
-  const [childName, setChildName] = useState("");
-  const [childColor, setChildColor] = useState(CHILD_COLORS[0]);
+  const [childRows, setChildRows] = useState([{ name: "", color: CHILD_COLORS[0] }]);
 
   // Skip tracking
   const [skipStep1, setSkipStep1] = useState(false);
@@ -202,22 +201,25 @@ export default function OnboardingPage() {
   }
 
   async function saveStep4() {
-    if (!childName.trim()) { setError("Please add your child's name to continue"); return; }
+    const filled = childRows.filter(r => r.name.trim());
+    if (filled.length === 0) { setError("Please add your child's name to continue"); return; }
     setSaving(true);
-    const { error: childErr } = await supabase
-      .from("children")
-      .insert({
-        user_id: userId,
-        name: childName.trim(),
-        color: childColor,
-        sort_order: 1,
-        archived: false,
-        name_key: childName.trim().toLowerCase().replace(/\s+/g, "_"),
-      });
-    if (childErr) {
-      setError("Something went wrong. Please try again.");
-      setSaving(false);
-      return;
+    for (let i = 0; i < filled.length; i++) {
+      const { error: childErr } = await supabase
+        .from("children")
+        .insert({
+          user_id: userId,
+          name: filled[i].name.trim(),
+          color: filled[i].color,
+          sort_order: i + 1,
+          archived: false,
+          name_key: filled[i].name.trim().toLowerCase().replace(/\s+/g, "_"),
+        });
+      if (childErr) {
+        setError("Something went wrong. Please try again.");
+        setSaving(false);
+        return;
+      }
     }
     setSaving(false);
     goTo(4);
@@ -423,12 +425,31 @@ export default function OnboardingPage() {
     );
   }
 
-  // ─── STEP 4 — First Child ─────────────────────────────────────────────
+  // ─── STEP 4 — Children ─────────────────────────────────────────────────
 
   if (step === 3) {
-    const ctaLabel = childName.trim()
-      ? `Add ${childName.trim()} to my garden →`
-      : "Add your child to my garden →";
+    const filled = childRows.filter(r => r.name.trim());
+    const filledCount = filled.length;
+    const ctaLabel = filledCount === 0
+      ? "Add your children to my garden →"
+      : filledCount === 1
+        ? `Add ${filled[0].name.trim()} to my garden →`
+        : `Add ${filledCount} children to my garden →`;
+
+    function updateRow(idx: number, patch: Partial<{ name: string; color: string }>) {
+      setChildRows(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r));
+      setError("");
+    }
+
+    function addRow() {
+      const usedColors = childRows.map(r => r.color);
+      const nextColor = CHILD_COLORS.find(c => !usedColors.includes(c)) ?? CHILD_COLORS[childRows.length % CHILD_COLORS.length];
+      setChildRows(prev => [...prev, { name: "", color: nextColor }]);
+    }
+
+    function removeRow(idx: number) {
+      setChildRows(prev => prev.filter((_, i) => i !== idx));
+    }
 
     return (
       <StepShell>
@@ -438,37 +459,66 @@ export default function OnboardingPage() {
             className="text-3xl font-bold text-white text-center mb-3 leading-snug"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            Add your first child 🌱
+            Add your children 🌱
           </h1>
-          <p className="text-white/60 text-center text-sm mb-10">
+          <p className="text-white/60 text-center text-sm mb-8">
             Every child gets their own growing tree in your garden.
           </p>
 
-          <input
-            type="text"
-            value={childName}
-            onChange={(e) => { setChildName(e.target.value); setError(""); }}
-            placeholder="Child's name"
-            autoFocus
-            className="w-full px-5 py-4 rounded-2xl bg-white/15 border border-white/20 text-white text-lg placeholder-white/40 focus:outline-none focus:border-white/50 focus:bg-white/20 transition mb-5"
-          />
-
-          <div className="flex items-center justify-center gap-3 mb-8">
-            {CHILD_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setChildColor(c)}
-                className="w-9 h-9 rounded-full border-2 flex items-center justify-center transition-transform hover:scale-110 focus:outline-none"
-                style={{
-                  backgroundColor: c,
-                  borderColor: childColor === c ? "white" : "transparent",
-                }}
-              >
-                {childColor === c && <Check size={14} className="text-white" strokeWidth={3} />}
-              </button>
+          <div className="space-y-4 mb-4">
+            {childRows.map((row, idx) => (
+              <div key={idx} className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={row.name}
+                    onChange={(e) => updateRow(idx, { name: e.target.value })}
+                    placeholder={idx === 0 ? "Child's name" : "Another child's name"}
+                    autoFocus={idx === 0}
+                    className="flex-1 px-5 py-4 rounded-2xl bg-white/15 border border-white/20 text-white text-lg placeholder-white/40 focus:outline-none focus:border-white/50 focus:bg-white/20 transition"
+                  />
+                  {childRows.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeRow(idx)}
+                      className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/50 hover:text-white transition-colors shrink-0"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center justify-center gap-2.5">
+                  {CHILD_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => updateRow(idx, { color: c })}
+                      className="w-8 h-8 rounded-full border-2 flex items-center justify-center transition-transform hover:scale-110 focus:outline-none"
+                      style={{
+                        backgroundColor: c,
+                        borderColor: row.color === c ? "white" : "transparent",
+                      }}
+                    >
+                      {row.color === c && <Check size={12} className="text-white" strokeWidth={3} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
+
+          {childRows.length < 8 && (
+            <button
+              type="button"
+              onClick={addRow}
+              className="w-full text-center text-sm font-medium mb-6 py-2 transition-colors"
+              style={{ color: "rgba(255,255,255,0.5)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.7)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.5)")}
+            >
+              + Add another child
+            </button>
+          )}
 
           {error && <p className="text-sm text-red-300 text-center mb-4">{error}</p>}
 
