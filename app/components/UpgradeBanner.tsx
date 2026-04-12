@@ -23,11 +23,11 @@ export default function UpgradeBanner() {
       ]);
       if (!profile || profile.is_pro) return;
 
-      // Suppress for brand new users: no memories AND account < 48 hours old
-      const hasMemories = (memCount ?? 0) > 0;
+      // Suppress until user has 3+ memories AND account is 48+ hours old
+      const enoughMemories = (memCount ?? 0) >= 3;
       const accountAge = Date.now() - new Date(profile.created_at).getTime();
       const over48h = accountAge > 48 * 60 * 60 * 1000;
-      if (!hasMemories && !over48h) return;
+      if (!enoughMemories || !over48h) return;
 
       setShow(true);
     });
