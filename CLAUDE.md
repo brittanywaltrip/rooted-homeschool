@@ -124,9 +124,14 @@ plan_type is NULL (not 'free') for all free users — this is intentional. Treat
 - No handle_new_user trigger — profile creation is in app code (auth callback)
 
 ## Known issues
-- Google auth button hidden on main — SUPABASE_URL env var fix deployed, needs testing with fresh Gmail
-- CAN-SPAM: rooted-family-digest, rooted-weekly-summary, rooted-trial-warning missing unsubscribe links
-- Logo: Tour/FAQ/Privacy/Terms/Contact still use old square icon (fix in CC session 2)
+- 214 ghost accounts — users in auth.users with no profile row, caused by Google auth bug. Backfill script at scripts/backfill-missing-profiles.ts, admin endpoint at /api/admin/backfill-profiles.
+
+## Fixed (April 11, 2026)
+- Google auth: was broken (PKCE flow mismatch — browser used implicit flow, server expected PKCE code). Fixed by: createBrowserClient from @supabase/ssr for OAuth calls (lib/supabase-browser.ts), flowType: 'pkce' in lib/supabase.ts, NEXT_PUBLIC_SUPABASE_URL in auth callback.
+- CAN-SPAM: added unsubscribeUrl to weekly-summary, trial-warning, and family-digest cron emails.
+- Logo: replaced old square emoji icon with rooted-logo-nav.png wordmark on FAQ, Privacy, Terms, Contact, Login, Signup pages.
+- Resend email templates: all now use wordmark logo; welcome templates updated with "Add curriculum" nav fix (was "Add Subject").
+- Consolidated duplicate reengagement cron (removed old /api/cron/re-engagement route).
 
 ## Cron jobs
 3 jobs in vercel.json — see file for current state after session 4 cleanup.
