@@ -263,7 +263,7 @@ export default function Home() {
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
               { number: "700+",    label: "Families Growing with Rooted", icon: "🌱" },
-              { number: "7",       label: "Features, Everything in One Place", icon: "🎨" },
+              { number: "11",      label: "Tools for Your Homeschool", icon: "🎨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
               { number: "No Canva", label: "Beautiful Printables",  icon: "🖨️" },
             ].map(({ number, label, icon }) => (
@@ -675,11 +675,11 @@ export default function Home() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "All memory types (photos, books, wins, drawings, field trips)",
-                "Up to 50 memories visible",
+                "Up to 50 photos",
                 "Daily lesson tracking",
                 "Family garden & badges",
                 "Curated resources",
-                "Yearbook preview — last 30 days",
+                "Yearbook preview (first 4 spreads)",
                 "1 progress summary per year (view only)",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
