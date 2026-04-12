@@ -26,7 +26,7 @@ const FEATURES: {
     bullets: [
       "Save photos, field trip moments, and little things they said — it takes 10 seconds",
       "Build a book log as you go — a record of everything they've ever read",
-      "Generate a warm AI-written Family Update to share with grandparents, aunts, uncles, and cousins — no app needed",
+      "Share a private link with grandparents, aunts, uncles, and cousins — no app needed",
     ],
     note: "Shareable link, no app download needed 🔗",
   },

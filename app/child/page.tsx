@@ -137,20 +137,25 @@ export default function ChildPage() {
 
     const uid = session.user.id;
 
-    const [{ data: kids }, { data: completed }, { data: bookEvents }] = await Promise.all([
+    const [{ data: kids }, { data: completed }, { data: activityEvents }, { data: memoryRows }] = await Promise.all([
       supabase.from("children").select("id, name, color, birthday")
         .eq("user_id", uid).eq("archived", false).order("sort_order"),
       supabase.from("lessons").select("child_id")
         .eq("user_id", uid).eq("completed", true),
-      supabase.from("app_events").select("payload")
-        .eq("user_id", uid).eq("type", "book_read"),
+      supabase.from("app_events").select("type, payload")
+        .eq("user_id", uid).in("type", ["book_read", "memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"]),
+      supabase.from("memories").select("child_id, type")
+        .eq("user_id", uid),
     ]);
 
     const counts: Record<string, number> = {};
     completed?.forEach((l) => { counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
-    bookEvents?.forEach((e) => {
+    activityEvents?.forEach((e) => {
       const cid = e.payload?.child_id;
       if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
+    });
+    (memoryRows ?? []).forEach((m: { child_id: string | null }) => {
+      if (m.child_id) counts[m.child_id] = (counts[m.child_id] ?? 0) + 1;
     });
 
     setChildren(kids ?? []);
