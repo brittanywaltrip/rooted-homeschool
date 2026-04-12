@@ -53,25 +53,35 @@ NEVER show hello.rootedapp@gmail.com to users.
 - Stripe Founding price ID: price_1TCVWDLP14EaoUlTNwZFGS8A
 - Stripe Standard price ID: price_1TCVWgLP14EaoUlT25totKGW
 
+## Dashboard nav (what's in the sidebar/bottom nav)
+Today, Plan, Garden, Memories, Printables, Resources, Settings
+- Settings sub-tabs: Our Family, Our Kids, Account, Partners
+
 ## Features BUILT (can mention to users)
 - Lesson tracking (Today page)
-- Family garden (emoji trees, animated)
+- Plan page with Finish Line curriculum pacing (Pro only)
+- Family garden (emoji trees, animated, 10 growth stages)
 - Memories (photo grid, unified memories table)
-- Yearbook setup (/dashboard/yearbook) — preview only, no print yet
+- Yearbook reader (/dashboard/memories/yearbook) — Family Book only, no print yet
 - Resources (Free Picks, Easy Wins, state info)
-- Progress reports PDF
+- Progress reports PDF (Pro only)
 - AI Family Update (1/month free, unlimited paid)
 - Floating camera FAB (everywhere in dashboard)
 - Getting started checklist (new users)
 - Affiliate/partner system
+- Share with Family / grandparent portal (/family/[token])
+- Kids view (/child) — child-safe garden visualization
+
+## Hidden features (built but intentionally not in nav)
+- Family Update (/dashboard/family-update) — kept for future use, not in nav
+- /dashboard/yearbook now redirects to /dashboard/memories/yearbook
 
 ## Features NOT built (never mention to users)
 - High school transcripts
 - AI Graduation Letter
-- Kid Mode (hidden)
 - Co-teacher full login (view-only only)
 - Print yearbook service (preview only)
-- Grandparent shareable view
+- Individual Books yearbook option (removed — Family Book only)
 
 ## Key UX decisions (don't undo these)
 - Curriculum is OPTIONAL — equal-weight skip button
@@ -126,6 +136,9 @@ plan_type is NULL (not 'free') for all free users — this is intentional. Treat
 ## Known issues
 - 214 ghost accounts — users in auth.users with no profile row, caused by Google auth bug. Backfill script at scripts/backfill-missing-profiles.ts, admin endpoint at /api/admin/backfill-profiles.
 - Physical mailing address: 732 S 6th Street, STE N, Las Vegas, NV 89101 — added to lib/email-footer.ts code-generated emails. Still needs to be manually added to all 18 Resend templates in the dashboard.
+
+## Cleaned up
+- Ghost pages removed (preserved in git history): challenges, growth, how-it-works, insights, journey, progress, graduation, demo — 2,328 lines of dead code from previous app version
 
 ## Fixed (April 11, 2026)
 - Google auth: was broken (PKCE flow mismatch — browser used implicit flow, server expected PKCE code). Fixed by: createBrowserClient from @supabase/ssr for OAuth calls (lib/supabase-browser.ts), flowType: 'pkce' in lib/supabase.ts, NEXT_PUBLIC_SUPABASE_URL in auth callback.
