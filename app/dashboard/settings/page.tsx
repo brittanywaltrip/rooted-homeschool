@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Pencil, Trash2, Check, X, Plus, GripVertical, Users, Camera, Sprout, Search } from "lucide-react";
+import { Pencil, Trash2, Check, X, Plus, GripVertical, Camera, Sprout, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useProfile } from "@/lib/profile-context";
 
@@ -1580,29 +1580,6 @@ export default function SettingsPage() {
         </div>
       </section>}
 
-      {/* ── Co-teacher Access ───────────────────────────────── */}
-      {activeTab === "family" && <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-[#2d2926]">Co-teacher Access</h2>
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#5c7f63]">Coming Soon 🌿</span>
-          <span className="h-px flex-1 bg-[#e8e2d9]" />
-        </div>
-
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5">
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0">
-              <Users size={16} className="text-[#5c7f63]" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-[#2d2926] mb-0.5">Co-teacher access is coming soon</p>
-              <p className="text-xs text-[#7a6f65] leading-relaxed">
-                Your partner will be able to view lessons and memories — we&apos;re building this now and will let you know when it&apos;s ready.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>}
-
       {/* ── School Year ─────────────────────────────────────── */}
       {activeTab === "family" && <section className="space-y-3">
         <div className="flex items-center gap-2">
@@ -2022,7 +1999,8 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ── Kid View ─────────────────────────────────────────────────── */}
+      {/* ── Kid View (Our Kids tab only) ─────────────────────────────── */}
+      {activeTab === "kids" && (
       <div className="mt-8 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
         <Link
           href="/child"
@@ -2035,6 +2013,7 @@ export default function SettingsPage() {
           <span className="text-[#7a6f65]">→</span>
         </Link>
       </div>
+      )}
 
       {/* ── Rooted Partner ───────────────────────────────────────────── */}
       {activeTab === "account" && affiliateData?.is_active && (
@@ -2218,7 +2197,8 @@ export default function SettingsPage() {
         </section>
       )}
 
-      {/* ── Spread the word ──────────────────────────────────────────── */}
+      {/* ── Spread the word (Our Family tab only) ────────────────────── */}
+      {activeTab === "family" && (<>
       <div className="mt-6">
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
           <p className="text-sm font-medium text-[#2d2926]">Spread the word 🌱</p>
@@ -2260,8 +2240,10 @@ export default function SettingsPage() {
           </Link>
         </div>
       </div>
+      </>)}
 
-      {/* ── Help & More ──────────────────────────────────────────────── */}
+      {/* ── Help & More (Account tab only) ────────────────────────── */}
+      {activeTab === "account" && (<>
       <div className="mt-6 mb-8">
         <p className="text-[10px] font-semibold text-[#7a6f65] uppercase tracking-widest mb-3 px-1">Help & More</p>
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
@@ -2285,7 +2267,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* ── Sign Out ──────────────────────────────────────────────────── */}
+      {/* ── Sign Out (Account tab only) ─────────────────────────────── */}
       <button
         onClick={async () => {
           await supabase.auth.signOut();
@@ -2295,6 +2277,7 @@ export default function SettingsPage() {
       >
         Sign Out
       </button>
+      </>)}
 
       {/* ── New School Year Modal ────────────────────────────── */}
       {showYearModal && (
