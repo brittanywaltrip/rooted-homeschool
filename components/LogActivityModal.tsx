@@ -437,7 +437,7 @@ export default function LogActivityModal({
             <button
               onClick={handleSave}
               disabled={saving || !canSave}
-              className="mt-5 w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+              className="mt-5 w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
             >
               {saveLabel}
             </button>

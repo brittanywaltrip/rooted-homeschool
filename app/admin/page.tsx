@@ -459,7 +459,7 @@ export default function AdminPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-[#3d5c42] flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--g-deep)] flex items-center justify-center">
         <p className="text-[#fefcf9] text-sm">{error}</p>
       </div>
     );
@@ -467,7 +467,7 @@ export default function AdminPage() {
 
   if (!data) {
     return (
-      <div className="min-h-screen bg-[#3d5c42] flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--g-deep)] flex items-center justify-center">
         <p className="text-[#a8c5a0] text-sm animate-pulse">Loading…</p>
       </div>
     );
@@ -492,7 +492,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-[#2d3e30]">
 
       {/* ── Sticky Header ──────────────────────────────────── */}
-      <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4 flex items-center justify-between gap-4">
+      <div className="sticky top-0 z-50 bg-[var(--g-deep)] border-b border-[#4e7055] px-6 py-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <img src="/rooted-logo-white.png" alt="Rooted" style={{ height: '32px', width: 'auto' }} />
           <div>
@@ -729,7 +729,7 @@ export default function AdminPage() {
                   setSendingReengage(false);
                 }}
                 disabled={sendingReengage || reengageCount === 0}
-                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors"
               >
                 {sendingReengage ? "Sending…" : `Send re-engagement emails → (${reengageCount})`}
               </button>
@@ -768,7 +768,7 @@ export default function AdminPage() {
                   }
                   setPayoutsLoading(false);
                 }}
-                className="px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+                className="px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium transition-colors"
               >
                 Retry
               </button>
@@ -883,7 +883,7 @@ export default function AdminPage() {
                   setSendingTestimonial(false);
                 }}
                 disabled={sendingTestimonial}
-                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors"
               >
                 {sendingTestimonial ? "Sending…" : "Request testimonials →"}
               </button>
@@ -913,7 +913,7 @@ export default function AdminPage() {
                   setSendingWeekly(false);
                 }}
                 disabled={sendingWeekly}
-                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors"
               >
                 {sendingWeekly ? "Sending…" : "Send weekly summary now →"}
               </button>
@@ -925,7 +925,7 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="🔍" title="User Funnel" />
           {data.funnel === null ? (
-            <p className="text-sm text-[#8cba8e] opacity-60">Funnel data unavailable.</p>
+            <p className="text-sm text-[rgba(254, 252, 249, 0.55)] opacity-60">Funnel data unavailable.</p>
           ) : (() => {
             const base = data.funnel!.totalSignups || 1;
             const steps = [
@@ -976,7 +976,7 @@ export default function AdminPage() {
               onClick={() => setHideTestUsers(v => !v)}
               className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition-colors whitespace-nowrap ${
                 hideTestUsers
-                  ? "bg-[#e8f0e9] text-[#3d5c42] border-[#b8d9bc]"
+                  ? "bg-[#e8f0e9] text-[var(--g-deep)] border-[#b8d9bc]"
                   : "bg-rose-50 text-rose-600 border-rose-200"
               }`}
             >
@@ -1000,7 +1000,7 @@ export default function AdminPage() {
                       ? "bg-indigo-100 text-indigo-800 border-indigo-300"
                       : tab === "Refunded"
                       ? "bg-red-100 text-red-600 border-red-300"
-                      : "bg-[#e8f0e9] text-[#3d5c42] border-[#b8d9bc]"
+                      : "bg-[#e8f0e9] text-[var(--g-deep)] border-[#b8d9bc]"
                     : "bg-[#fefcf9] text-[#7a6f65] border-[#e8e2d9] hover:border-[#b5aca4]"
                 }`}
               >
@@ -1274,7 +1274,7 @@ export default function AdminPage() {
                 key={s}
                 onClick={() => setAppFilter(s)}
                 className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                  appFilter === s ? "bg-[#3d5c42] text-white" : "bg-white text-[#7a6f65] border border-[#e8e2d9]"
+                  appFilter === s ? "bg-[var(--g-deep)] text-white" : "bg-white text-[#7a6f65] border border-[#e8e2d9]"
                 }`}
               >
                 {s.charAt(0).toUpperCase() + s.slice(1)} ({partnerApps.filter(a => a.status === s).length})
@@ -1324,7 +1324,7 @@ export default function AdminPage() {
                           setPartnerApps((prev) => prev.map((a) => a.id === app.id ? { ...a, status: "approved" } : a));
                           setAppProcessing(null);
                         }}
-                        className="flex-1 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white text-xs font-semibold transition-colors"
+                        className="flex-1 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white text-xs font-semibold transition-colors"
                       >
                         {appProcessing === app.id ? "..." : "Approve \u2192"}
                       </button>

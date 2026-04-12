@@ -314,7 +314,7 @@ export default function FinishLineModal({ children, goal, onClose, onSaved, show
               Cancel
             </button>
             <button onClick={handleSave} disabled={saving}
-              className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+              className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors">
               {saving ? 'Saving…' : goal ? 'Save Changes' : 'Add Goal 🎯'}
             </button>
           </div>

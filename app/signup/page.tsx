@@ -84,7 +84,7 @@ export default function SignupPage() {
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
       {/* ── Left panel — desktop only ─────────────────────────────────────── */}
-      <div className="hidden lg:flex lg:w-1/2 bg-[#3d5c42] flex-col justify-center px-14 py-16">
+      <div className="hidden lg:flex lg:w-1/2 bg-[var(--g-deep)] flex-col justify-center px-14 py-16">
         <Link href="/" className="inline-block mb-12">
           <img src="/rooted-logo-nav.png" alt="Rooted" className="h-9 w-auto brightness-0 invert" />
         </Link>
@@ -112,7 +112,7 @@ export default function SignupPage() {
       {/* ── Right panel ────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col">
         {/* Mobile brand header */}
-        <div className="lg:hidden w-full bg-[#3d5c42] px-6 py-8 text-center">
+        <div className="lg:hidden w-full bg-[var(--g-deep)] px-6 py-8 text-center">
           <Link href="/" className="inline-block mb-2">
             <img src="/rooted-logo-nav.png" alt="Rooted" className="h-8 w-auto brightness-0 invert" />
           </Link>
@@ -204,7 +204,7 @@ export default function SignupPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors mt-1"
+                className="w-full bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors mt-1"
               >
                 {loading ? "Creating account…" : "Create Account"}
               </button>

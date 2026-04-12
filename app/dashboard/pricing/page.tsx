@@ -34,7 +34,7 @@ function Cell({ value, highlight }: { value: string; highlight?: boolean }) {
       ) : isDash ? (
         <Minus size={14} strokeWidth={2} className="inline text-[#d4cfc9]" />
       ) : (
-        <span className={highlight ? "text-[#3d5c42]" : "text-[#7a6f65]"}>{value}</span>
+        <span className={highlight ? "text-[var(--g-deep)]" : "text-[#7a6f65]"}>{value}</span>
       )}
     </td>
   );
@@ -80,7 +80,7 @@ export default function DashboardPricingPage() {
         <div className="flex items-center gap-3 bg-[#e8f5ea] border border-[#b8d9bc] rounded-2xl px-5 py-3.5">
           <span className="text-lg">✨</span>
           <div>
-            <p className="text-sm font-semibold text-[#3d5c42]">You&apos;re on Rooted Pro</p>
+            <p className="text-sm font-semibold text-[var(--g-deep)]">You&apos;re on Rooted Pro</p>
             <p className="text-xs text-[#5c7f63]">You have full access to all features below.</p>
           </div>
         </div>
@@ -157,7 +157,7 @@ export default function DashboardPricingPage() {
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
             {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "Priority support", "Price locked forever ✦"].map(f => (
-              <div key={f} className="flex items-center gap-2 text-xs text-[#3d5c42]">
+              <div key={f} className="flex items-center gap-2 text-xs text-[var(--g-deep)]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
               </div>
@@ -165,13 +165,13 @@ export default function DashboardPricingPage() {
           </div>
           <div className="mt-auto">
             {loaded && isPro ? (
-              <div className="w-full text-center py-2.5 rounded-xl bg-[#5c7f63]/20 text-xs font-semibold text-[#3d5c42]">
+              <div className="w-full text-center py-2.5 rounded-xl bg-[#5c7f63]/20 text-xs font-semibold text-[var(--g-deep)]">
                 ✓ Active
               </div>
             ) : (
               <Link
                 href="/upgrade"
-                className="block w-full text-center py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-bold transition-colors shadow-sm"
+                className="block w-full text-center py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-xs font-bold transition-colors shadow-sm"
               >
                 Subscribe — $39/yr →
               </Link>
@@ -301,7 +301,7 @@ export default function DashboardPricingPage() {
         <div className="text-center pb-4">
           <Link
             href="/upgrade"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold rounded-xl transition-colors shadow-sm"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold rounded-xl transition-colors shadow-sm"
           >
             <span>✨</span>
             Upgrade to Pro — $39/yr

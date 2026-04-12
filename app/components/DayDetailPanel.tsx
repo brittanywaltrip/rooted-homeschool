@@ -161,7 +161,7 @@ export default function DayDetailPanel({
             <div className="px-5 pb-8 pt-3 border-t border-[#f0ede8] shrink-0">
               <button
                 onClick={() => setShowAddModal(true)}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
               >
                 + Add to this day
               </button>

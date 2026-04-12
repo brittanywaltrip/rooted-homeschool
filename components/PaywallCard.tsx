@@ -18,7 +18,7 @@ export default function PaywallCard({ feature, description }: PaywallCardProps) 
         </p>
         <Link
           href="/dashboard/pricing"
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold text-sm transition-colors shadow-sm"
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-semibold text-sm transition-colors shadow-sm"
         >
           ✨ Upgrade to Pro
         </Link>

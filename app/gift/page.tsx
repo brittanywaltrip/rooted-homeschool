@@ -56,7 +56,7 @@ function GiftPageInner() {
             They&apos;ll be notified that someone special gifted them a year of Rooted.
             What a beautiful thing to give.
           </p>
-          <Link href="/" className="text-sm font-medium text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
+          <Link href="/" className="text-sm font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors">
             Back to Rooted →
           </Link>
         </div>
@@ -67,7 +67,7 @@ function GiftPageInner() {
   return (
     <main className="min-h-screen bg-[#f8f7f4]">
       {/* Header */}
-      <div className="bg-[#3d5c42] px-6 py-8 text-center">
+      <div className="bg-[var(--g-deep)] px-6 py-8 text-center">
         <Link href="/" className="inline-flex items-center gap-2 mb-1">
           <span className="text-2xl">🌿</span>
           <span className="text-xl font-bold text-white">Rooted</span>
@@ -116,7 +116,7 @@ function GiftPageInner() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#3d6b47] hover:bg-[#2d5a3d] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors"
+            className="w-full bg-[#3d6b47] hover:bg-[var(--g-brand)] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors"
           >
             {loading ? "Loading..." : "Gift a year of Rooted — $59 →"}
           </button>

@@ -63,7 +63,7 @@ export default function YearbookBookmark({ memoryId, initialValue, onChange, siz
         viewBox="0 0 20 22"
         className="shrink-0"
         style={{
-          color: inBook ? "#3d5c42" : "#c4b89a",
+          color: inBook ? "var(--g-deep)" : "#c4b89a",
           transform: pulse ? "scale(1.25)" : "scale(1)",
           transition: "transform 200ms ease",
         }}
@@ -75,7 +75,7 @@ export default function YearbookBookmark({ memoryId, initialValue, onChange, siz
         )}
       </svg>
       {showLabel && (
-        <span className="text-sm font-medium" style={{ color: inBook ? "#3d5c42" : "#7a6f65" }}>
+        <span className="text-sm font-medium" style={{ color: inBook ? "var(--g-deep)" : "#7a6f65" }}>
           {inBook ? "In Yearbook" : "Add to Yearbook"}
         </span>
       )}

@@ -129,7 +129,7 @@ function ContinueBtn({ label = "Continue →", onClick, disabled = false }: { la
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="w-full py-4 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98]"
+      className="w-full py-4 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white font-semibold text-base transition-all hover:shadow-md active:scale-[0.98]"
     >
       {label}
     </button>
@@ -157,7 +157,7 @@ function ProgressDots({ step, total = 6 }: { step: number; total?: number }) {
           className="rounded-full transition-all duration-300"
           style={{
             width: 8, height: 8,
-            backgroundColor: s < step ? "#5c7f63" : s === step ? "#3d5c42" : "#e8e2d9",
+            backgroundColor: s < step ? "#5c7f63" : s === step ? "var(--g-deep)" : "#e8e2d9",
           }}
         />
       ))}
@@ -481,7 +481,7 @@ function StepFirstMemory({
             </div>
             {saved && (
               <div className="bg-[#e8f0e9] border border-[#c8ddb8] rounded-2xl px-4 py-3 text-center">
-                <p className="text-sm font-semibold text-[#3d5c42]">
+                <p className="text-sm font-semibold text-[var(--g-deep)]">
                   Beautiful! Your story starts here. 🌱
                 </p>
               </div>
@@ -544,7 +544,7 @@ function StepSchoolDays({
                   : "border-[#e8e2d9] bg-white hover:border-[#c8bfb5]"
               }`}
             >
-              <span className={`text-xs font-bold ${schoolDays[i] ? "text-[#3d5c42]" : "text-[#b5aca4]"}`}>
+              <span className={`text-xs font-bold ${schoolDays[i] ? "text-[var(--g-deep)]" : "text-[#b5aca4]"}`}>
                 {label}
               </span>
               {schoolDays[i] && (
@@ -622,7 +622,7 @@ function StepSubjects({
                 }`}
               >
                 <span className="text-xl">{tile.emoji}</span>
-                <span className={`text-[11px] font-medium leading-tight ${active ? "text-[#3d5c42]" : "text-[#7a6f65]"}`}>
+                <span className={`text-[11px] font-medium leading-tight ${active ? "text-[var(--g-deep)]" : "text-[#7a6f65]"}`}>
                   {tile.name}
                 </span>
                 {active && (
@@ -649,7 +649,7 @@ function StepSubjects({
             type="button"
             onClick={addCustom}
             disabled={!customSubject.trim()}
-            className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white text-sm font-semibold transition-colors"
+            className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white text-sm font-semibold transition-colors"
           >
             <Plus size={16} />
           </button>
@@ -659,7 +659,7 @@ function StepSubjects({
         {selectedSubjects.filter((s) => !SUBJECT_TILES.some((t) => t.name === s)).length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">
             {selectedSubjects.filter((s) => !SUBJECT_TILES.some((t) => t.name === s)).map((s) => (
-              <span key={s} className="text-xs font-medium bg-[#e8f0e9] text-[#3d5c42] px-3 py-1.5 rounded-full flex items-center gap-1.5">
+              <span key={s} className="text-xs font-medium bg-[#e8f0e9] text-[var(--g-deep)] px-3 py-1.5 rounded-full flex items-center gap-1.5">
                 {s}
                 <button type="button" onClick={() => toggle(s)} className="hover:text-red-500 transition-colors">
                   <X size={10} />
@@ -807,7 +807,7 @@ function StepCurriculum({
         {added.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">
             {added.map((name) => (
-              <span key={name} className="text-xs font-medium bg-[#e8f0e9] text-[#3d5c42] px-3 py-1.5 rounded-full">
+              <span key={name} className="text-xs font-medium bg-[#e8f0e9] text-[var(--g-deep)] px-3 py-1.5 rounded-full">
                 ✓ {name}
               </span>
             ))}
@@ -861,7 +861,7 @@ function StepCurriculum({
             <button
               type="button"
               onClick={() => setMode("form")}
-              className="w-full text-center text-sm text-[#5c7f63] hover:text-[#3d5c42] font-medium mb-6 py-2"
+              className="w-full text-center text-sm text-[#5c7f63] hover:text-[var(--g-deep)] font-medium mb-6 py-2"
             >
               + Add something not listed
             </button>
@@ -919,7 +919,7 @@ function StepCurriculum({
                 ← Back
               </button>
               <button type="button" onClick={handleAdd} disabled={!curricName.trim()}
-                className="flex-1 py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white text-sm font-semibold transition-colors">
+                className="flex-1 py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white text-sm font-semibold transition-colors">
                 Add curriculum
               </button>
             </div>
@@ -934,7 +934,7 @@ function StepCurriculum({
           <button
             type="button"
             onClick={onSkip}
-            className="w-full py-4 rounded-2xl bg-[#e8f0e9] hover:bg-[#d4ead6] text-[#3d5c42] font-semibold text-base transition-all active:scale-[0.98]"
+            className="w-full py-4 rounded-2xl bg-[#e8f0e9] hover:bg-[#d4ead6] text-[var(--g-deep)] font-semibold text-base transition-all active:scale-[0.98]"
           >
             {added.length > 0 ? "Skip adding more →" : "Go to my dashboard →"}
           </button>

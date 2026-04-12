@@ -212,7 +212,7 @@ export default function AdminPartnersPage() {
   return (
     <div className="min-h-screen bg-[#2d3e30]">
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4 flex items-center gap-4">
+      <div className="sticky top-0 z-50 bg-[var(--g-deep)] border-b border-[#4e7055] px-6 py-4 flex items-center gap-4">
         <img src="/rooted-logo-white.png" alt="Rooted" style={{ height: '32px', width: 'auto' }} />
         <div>
           <Link href="/admin" className="text-xs text-[#a8c5a0] hover:text-[#fefcf9] transition-colors">← Back to admin</Link>
@@ -288,7 +288,7 @@ export default function AdminPartnersPage() {
                                       paypalEmail: app.paypal_email ?? "",
                                     });
                                   }}
-                                  className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] text-white rounded-lg transition-colors"
+                                  className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white rounded-lg transition-colors"
                                 >
                                   Approve
                                 </button>
@@ -341,7 +341,7 @@ export default function AdminPartnersPage() {
                         <td className="px-4 py-3 text-xs text-[#7a6f65]">${a.total_paid.toFixed(2)}</td>
                         <td className="px-4 py-3">
                           <button onClick={(e) => toggleActive(e, a.id, a.is_active)}
-                            className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${a.is_active ? "bg-[#e8f0e9] text-[#2d5a3d]" : "bg-[#f5e6e6] text-[#8b3a3a]"}`}>
+                            className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${a.is_active ? "bg-[#e8f0e9] text-[var(--g-brand)]" : "bg-[#f5e6e6] text-[#8b3a3a]"}`}>
                             {a.is_active ? "Active" : "Inactive"}
                           </button>
                         </td>
@@ -355,7 +355,7 @@ export default function AdminPartnersPage() {
                                 <div className="flex items-center gap-2">
                                   <span className="text-sm text-[#5c7f63] font-mono">{refLink}</span>
                                   <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`https://${refLink}`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                                    className="text-xs font-semibold text-[#5c7f63] hover:text-[#2d5a3d]">{copied ? "Copied" : "Copy"}</button>
+                                    className="text-xs font-semibold text-[#5c7f63] hover:text-[var(--g-brand)]">{copied ? "Copied" : "Copy"}</button>
                                 </div>
                               </div>
                               <div>
@@ -379,7 +379,7 @@ export default function AdminPartnersPage() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <button onClick={(e) => { e.stopPropagation(); saveEdit(); }} disabled={saving}
-                                    className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-lg transition-colors">
+                                    className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-lg transition-colors">
                                     {saving ? "Saving..." : "Save"}</button>
                                   <button onClick={(e) => { e.stopPropagation(); setExpandedCode(null); }}
                                     className="px-4 py-2 text-xs font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-lg">Cancel</button>
@@ -480,7 +480,7 @@ export default function AdminPartnersPage() {
               Pay <b className="text-[#2d2926]">${ow.toFixed(2)}</b> to <b className="text-[#2d2926]">{payModal.paypal_email ?? "no PayPal"}</b> for {payModal.name} ({payModal.code}) {"\u2014"} {mo}?
             </p>
             <div className="flex gap-2">
-              <button onClick={confirmPay} disabled={paying} className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-xl">{paying ? "Processing..." : "Confirm payment"}</button>
+              <button onClick={confirmPay} disabled={paying} className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-xl">{paying ? "Processing..." : "Confirm payment"}</button>
               <button onClick={() => setPayModal(null)} disabled={paying} className="px-4 py-2.5 text-sm font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-xl">Cancel</button>
             </div>
           </Modal>
@@ -517,7 +517,7 @@ export default function AdminPartnersPage() {
           </div>
           <div className="flex gap-2">
             <button onClick={confirmApprove} disabled={approving || !approveDraft.code || !approveDraft.stripeCouponId}
-              className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-xl">
+              className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-xl">
               {approving ? "Approving..." : "Approve & send welcome email"}
             </button>
             <button onClick={() => setApproveApp(null)} disabled={approving} className="px-4 py-2.5 text-sm font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-xl">Cancel</button>

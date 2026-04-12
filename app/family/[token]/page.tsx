@@ -327,7 +327,7 @@ export default function FamilyViewPage() {
   if (loading) {
     return (
       <main className="min-h-screen bg-[#f8f7f4]">
-        <div className="w-full px-5 pt-8 pb-6" style={{ backgroundColor: "#2d5a3d" }}>
+        <div className="w-full px-5 pt-8 pb-6" style={{ backgroundColor: "var(--g-brand)" }}>
           <div className="max-w-[480px] mx-auto">
             <div className="h-7 w-56 bg-white/20 rounded mb-2 animate-pulse" />
             <div className="h-4 w-32 bg-white/10 rounded animate-pulse" />
@@ -396,7 +396,7 @@ export default function FamilyViewPage() {
               <button
                 onClick={handleNameSubmit} disabled={!nameInput.trim()}
                 className="w-full py-3 rounded-xl text-sm font-medium text-white disabled:opacity-40 transition-all"
-                style={{ backgroundColor: "#2d5a3d" }}
+                style={{ backgroundColor: "var(--g-brand)" }}
               >
                 Let&apos;s go →
               </button>
@@ -407,13 +407,13 @@ export default function FamilyViewPage() {
 
       {/* ─── Gift success toast ────────────────────────────────────────── */}
       {giftSuccess && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#2d5a3d] text-white px-5 py-3 rounded-2xl shadow-lg text-sm font-medium animate-[toast-slide-up_0.3s_ease-out]">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[var(--g-brand)] text-white px-5 py-3 rounded-2xl shadow-lg text-sm font-medium animate-[toast-slide-up_0.3s_ease-out]">
           🎁 Gift sent! They&apos;ll be so happy.
         </div>
       )}
 
       {/* ─── Header ────────────────────────────────────────────────────── */}
-      <header className="w-full" style={{ backgroundColor: "#2d5a3d", padding: "32px 20px 24px" }}>
+      <header className="w-full" style={{ backgroundColor: "var(--g-brand)", padding: "32px 20px 24px" }}>
         <div className="max-w-[480px] mx-auto">
           <h1 className="text-2xl text-white leading-tight" style={{ fontFamily: "var(--font-display)", fontWeight: 500 }}>
             {familyName} 🌿
@@ -450,7 +450,7 @@ export default function FamilyViewPage() {
             <button
               onClick={handleGift} disabled={giftLoading}
               className="w-full py-3.5 rounded-xl text-sm font-medium text-white disabled:opacity-50 transition-all"
-              style={{ backgroundColor: "#2d5a3d" }}
+              style={{ backgroundColor: "var(--g-brand)" }}
             >
               {giftLoading ? "Loading..." : "Gift them a year — $59 →"}
             </button>
@@ -565,7 +565,7 @@ export default function FamilyViewPage() {
                         }}
                         disabled={sendingComment}
                         className="px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-40"
-                        style={{ backgroundColor: "#2d5a3d" }}
+                        style={{ backgroundColor: "var(--g-brand)" }}
                       >
                         Send
                       </button>
@@ -601,7 +601,7 @@ export default function FamilyViewPage() {
       </div>
 
       {/* ─── Gift nudge (always visible) ─────────────────────────────── */}
-      <div className="mx-4 mt-8 bg-[#fefcf9] border border-[#e8e2d9] border-l-[3px] border-l-[#8cba8e] rounded-2xl px-5 py-4">
+      <div className="mx-4 mt-8 bg-[#fefcf9] border border-[#e8e2d9] border-l-[3px] border-l-[rgba(254, 252, 249, 0.55)] rounded-2xl px-5 py-4">
         <p className="text-[13px] font-medium text-[#2d2926] mb-1">Love following along? 🎁</p>
         <p className="text-[12px] text-[#7a6f65] leading-relaxed mb-3">
           You can gift {familyName} a full year of Rooted so they never stop capturing these moments.
@@ -609,7 +609,7 @@ export default function FamilyViewPage() {
         <button
           onClick={handleGift}
           disabled={giftLoading}
-          className="text-xs font-medium text-white bg-[#3d6b47] hover:bg-[#2d5a3d] px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+          className="text-xs font-medium text-white bg-[#3d6b47] hover:bg-[var(--g-brand)] px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
         >
           {giftLoading ? "Loading..." : "Gift them a year →"}
         </button>

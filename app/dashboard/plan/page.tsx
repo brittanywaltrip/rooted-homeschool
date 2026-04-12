@@ -127,7 +127,7 @@ function calcPaceStatus(
   schoolDays: string[] | null,
 ): { label: string; color: string; bg: string } | null {
   if (!targetDate || !schoolDays || schoolDays.length === 0) return null;
-  if (remainingCount === 0) return { label: "✓ Complete", color: "#3d5c42", bg: "#e8f0e9" };
+  if (remainingCount === 0) return { label: "✓ Complete", color: "var(--g-deep)", bg: "#e8f0e9" };
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const target = new Date(targetDate + "T00:00:00");
   if (target < today) return { label: "⚠ Past deadline", color: "#b91c1c", bg: "#fef2f2" };
@@ -140,7 +140,7 @@ function calcPaceStatus(
     cursor.setDate(cursor.getDate() + 1);
     safety++;
   }
-  if (futureDays >= remainingCount) return { label: "✓ On pace", color: "#3d5c42", bg: "#e8f0e9" };
+  if (futureDays >= remainingCount) return { label: "✓ On pace", color: "var(--g-deep)", bg: "#e8f0e9" };
   const extraNeeded = remainingCount - futureDays;
   let extraFound = 0;
   const futureCursor = new Date(target);
@@ -912,7 +912,7 @@ export default function PlanPage() {
           onClick={() => setViewMode("week")}
           style={{
             flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
-            background: viewMode === "week" ? "#2D5a1B" : "white",
+            background: viewMode === "week" ? "var(--g-brand)" : "white",
             color: viewMode === "week" ? "white" : "#7a6f65",
           }}
         >
@@ -922,7 +922,7 @@ export default function PlanPage() {
           onClick={() => setViewMode("month")}
           style={{
             flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
-            background: viewMode === "month" ? "#2D5a1B" : "white",
+            background: viewMode === "month" ? "var(--g-brand)" : "white",
             color: viewMode === "month" ? "white" : "#7a6f65",
           }}
         >
@@ -1007,12 +1007,12 @@ export default function PlanPage() {
                 bg = "#fff8f0";
                 border = "0.5px solid #f0c878";
               } else if (isToday && isSelected) {
-                bg = "#2D5a1B";
+                bg = "var(--g-brand)";
               } else if (isToday) {
-                bg = "#2D5a1B";
+                bg = "var(--g-brand)";
               } else if (isSelected) {
                 bg = "#f4faf0";
-                border = "1.5px solid #2D5a1B";
+                border = "1.5px solid var(--g-brand)";
               } else if (hasLessons) {
                 bg = "white";
                 border = "0.5px solid #e8e0d4";
@@ -1123,10 +1123,10 @@ export default function PlanPage() {
                     bg = "#fff8f0";
                     border = "0.5px solid #f0c878";
                   } else if (isToday) {
-                    bg = "#2D5a1B";
+                    bg = "var(--g-brand)";
                   } else if (isSelected) {
                     bg = "#f4faf0";
-                    border = "1.5px solid #2D5a1B";
+                    border = "1.5px solid var(--g-brand)";
                   } else if (hasLessons) {
                     bg = "white";
                     border = "0.5px solid #e8e0d4";
@@ -1217,7 +1217,7 @@ export default function PlanPage() {
               const allDone = childDone === childTotal;
               let statusText: string;
               let statusColor: string;
-              if (allDone) { statusText = "✓ All done"; statusColor = "#2D5a1B"; }
+              if (allDone) { statusText = "✓ All done"; statusColor = "var(--g-brand)"; }
               else if (childDone === 0) { statusText = `0 of ${childTotal}`; statusColor = "#8a6d00"; }
               else { statusText = `${childDone} of ${childTotal} done`; statusColor = "#b5aca4"; }
 
@@ -1255,7 +1255,7 @@ export default function PlanPage() {
                           width: 18, height: 18, borderRadius: "50%", flexShrink: 0, marginTop: 1,
                           display: "flex", alignItems: "center", justifyContent: "center",
                           border: lesson.completed ? "none" : "1.5px solid #ccc",
-                          background: lesson.completed ? "#2D5a1B" : "transparent",
+                          background: lesson.completed ? "var(--g-brand)" : "transparent",
                           cursor: isPartner ? "default" : "pointer",
                         }}
                       >
@@ -1395,9 +1395,9 @@ export default function PlanPage() {
                     {/* Mini progress bar + percentage */}
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                       <div style={{ width: 48, height: 4, background: "#f0ede8", borderRadius: 2, overflow: "hidden" }}>
-                        <div style={{ width: miniFillWidth, height: "100%", background: "#2D5a1B", borderRadius: 2 }} />
+                        <div style={{ width: miniFillWidth, height: "100%", background: "var(--g-brand)", borderRadius: 2 }} />
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#2D5a1B", minWidth: 28, textAlign: "right" }}>{pct}%</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--g-brand)", minWidth: 28, textAlign: "right" }}>{pct}%</span>
                     </div>
 
                     {/* Chevron */}
@@ -1412,12 +1412,12 @@ export default function PlanPage() {
                       {/* Lesson count + percentage row */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: "#2d2926" }}>{displayCompleted} of {displayTotal} lessons</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#2D5a1B" }}>{pct}%</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--g-brand)" }}>{pct}%</span>
                       </div>
 
                       {/* Full-width progress bar */}
                       <div style={{ width: "100%", height: 6, background: "#ece8e0", borderRadius: 3, overflow: "hidden", marginBottom: 10 }}>
-                        <div style={{ width: `${Math.max(pct, pct > 0 ? 2 : 0)}%`, height: "100%", background: "#2D5a1B", borderRadius: 3 }} />
+                        <div style={{ width: `${Math.max(pct, pct > 0 ? 2 : 0)}%`, height: "100%", background: "var(--g-brand)", borderRadius: 3 }} />
                       </div>
 
                       {/* Meta row: finish status + Edit link */}
@@ -1425,7 +1425,7 @@ export default function PlanPage() {
                         {/* Finish status */}
                         <div>
                           {(() => {
-                            if (lessonsRemaining <= 0) return <span style={{ fontSize: 11, color: "#2D5a1B" }}>✓ Complete</span>;
+                            if (lessonsRemaining <= 0) return <span style={{ fontSize: 11, color: "var(--g-brand)" }}>✓ Complete</span>;
                             const startDate = goal?.created_at ? new Date(goal.created_at) : null;
                             if (!startDate) return <span style={{ fontSize: 11, color: "#aaa" }}>Log more to see pace</span>;
                             const daysSinceCreated = Math.max(1, (Date.now() - startDate.getTime()) / 86400000);
@@ -1448,7 +1448,7 @@ export default function PlanPage() {
                               if (diffDays > 14) {
                                 return <span style={{ fontSize: 11, color: "#8a6d00" }}>Behind pace · projected {projectedLabel}</span>;
                               }
-                              return <span style={{ fontSize: 11, color: "#2D5a1B" }}>✓ On track · finishes {projectedLabel}</span>;
+                              return <span style={{ fontSize: 11, color: "var(--g-brand)" }}>✓ On track · finishes {projectedLabel}</span>;
                             }
 
                             return <span style={{ fontSize: 11, color: "#aaa" }}>Projected finish: {projectedLabel}</span>;
@@ -1470,7 +1470,7 @@ export default function PlanPage() {
                               schoolDays: group.goalData?.school_days ?? [],
                             });
                           }}
-                          style={{ fontSize: 11, color: "#2D5a1B", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                          style={{ fontSize: 11, color: "var(--g-brand)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                         >
                           Edit →
                         </button>
@@ -1487,7 +1487,7 @@ export default function PlanPage() {
             onClick={() => setShowCreateWizard(true)}
             style={{
               width: "100%", background: "white", border: "0.5px solid #e8e0d4", borderRadius: 12,
-              padding: "11px 13px", fontSize: 12, color: "#2D5a1B", fontWeight: 600, cursor: "pointer",
+              padding: "11px 13px", fontSize: 12, color: "var(--g-brand)", fontWeight: 600, cursor: "pointer",
               marginTop: 8, textAlign: "center",
             }}
           >
@@ -1500,14 +1500,14 @@ export default function PlanPage() {
       {!loading && !isPartner && curricGroups.length === 0 && curriculumGoals.length === 0 && subjects.length === 0 && allLessons.length === 0 && (
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-8 flex flex-col items-center text-center">
           <span className="text-4xl mb-4">🌱</span>
-          <h2 className="text-xl font-semibold text-[#3d5c42] mb-2">Your plan is ready to grow!</h2>
+          <h2 className="text-xl font-semibold text-[var(--g-deep)] mb-2">Your plan is ready to grow!</h2>
           <p className="text-sm text-[#7a6f65] leading-relaxed max-w-sm mx-auto mb-6">
             Start by setting up your curriculum. Add your subjects, lessons, and schedule — it only takes a few minutes and sets the foundation for everything in Rooted.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center mb-5">
             <button
               onClick={() => setShowCreateWizard(true)}
-              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
+              className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
             >
               Set Up Curriculum →
             </button>
@@ -1585,7 +1585,7 @@ export default function PlanPage() {
                 <button
                   onClick={downloadReport}
                   disabled={downloadingReport}
-                  className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors shrink-0 ml-auto"
+                  className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors shrink-0 ml-auto"
                 >
                   {downloadingReport ? "Generating…" : "Download Report"}
                 </button>
@@ -1655,7 +1655,7 @@ export default function PlanPage() {
             onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
             style={{
               width: "100%", background: "white", border: "0.5px solid #e8e0d4", borderRadius: 12,
-              padding: "11px 13px", fontSize: 12, color: "#2D5a1B", fontWeight: 600, cursor: "pointer",
+              padding: "11px 13px", fontSize: 12, color: "var(--g-brand)", fontWeight: 600, cursor: "pointer",
               textAlign: "center",
             }}
           >
@@ -1706,7 +1706,7 @@ export default function PlanPage() {
             </div>
             <div className="flex gap-2 pt-1">
               <button onClick={() => setEditingLesson(null)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
-              <button onClick={saveEdit} disabled={savingEdit || !editTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+              <button onClick={saveEdit} disabled={savingEdit || !editTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {savingEdit ? "Saving…" : "Save Changes"}
               </button>
             </div>
@@ -1819,7 +1819,7 @@ export default function PlanPage() {
               <div className="flex gap-2 pt-1">
                 <button onClick={() => setShowVacModal(false)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
                 <button onClick={saveVacationBlock} disabled={savingVac || !vacCanSave}
-                  className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
+                  className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
                   {savingVac ? "Saving…" : "Save Break 🌴"}
                 </button>
               </div>
@@ -1883,7 +1883,7 @@ export default function PlanPage() {
             <div className="fixed bottom-0 left-0 right-0 z-[81] bg-[#faf8f4] rounded-t-2xl shadow-xl max-w-lg mx-auto">
               <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-medium text-[#3d5c42]" style={{ fontFamily: "var(--font-display)" }}>
+                  <h3 className="text-base font-medium text-[var(--g-deep)]" style={{ fontFamily: "var(--font-display)" }}>
                     Reschedule {isSingle ? (planRescheduleLesson.title || "this lesson") : `${n} missed lessons`}
                   </h3>
                   <button onClick={() => setPlanRescheduleLesson(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
@@ -1903,7 +1903,7 @@ export default function PlanPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => planRescheduleMoveTo(planPickerConfirmDate, true)}
-                        className="flex-1 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl hover:bg-[#3d5c42] transition-colors"
+                        className="flex-1 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl hover:bg-[var(--g-deep)] transition-colors"
                       >
                         Yes, add it
                       </button>
@@ -1972,7 +1972,7 @@ export default function PlanPage() {
                               planRescheduleMoveTo(planReschedulePickerDate);
                             }}
                             disabled={!planReschedulePickerDate || planReschedulePickerDate < todayStr || !isSchoolDayDate(planReschedulePickerDate, schoolDays)}
-                            className="px-5 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-[#3d5c42] transition-colors"
+                            className="px-5 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-[var(--g-deep)] transition-colors"
                           >
                             Move
                           </button>
@@ -1999,7 +1999,7 @@ export default function PlanPage() {
       {/* ── Reschedule undo toast (Plan page) ──────────────── */}
       {planRescheduleUndo && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
-          <div className="bg-[#2d5a3d] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
+          <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
             <span>{planRescheduleUndo.message}</span>
             <button onClick={() => undoPlanReschedule()} className="text-white font-semibold underline text-sm">Undo</button>
           </div>

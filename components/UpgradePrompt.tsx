@@ -31,7 +31,7 @@ function InlineBanner({ feature, valueProp, onDismiss }: UpgradePromptProps) {
           <div className="flex items-center gap-3 flex-wrap">
             <Link
               href="/upgrade"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-semibold transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-xs font-semibold transition-colors"
             >
               Claim Founding Price — $39/yr →
             </Link>
@@ -76,7 +76,7 @@ function ModalPrompt({ feature, valueProp, onDismiss }: UpgradePromptProps) {
           </p>
           <Link
             href="/upgrade"
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold text-sm transition-colors shadow-sm w-full justify-center"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-semibold text-sm transition-colors shadow-sm w-full justify-center"
           >
             Claim Founding Price — $39/yr →
           </Link>

@@ -93,7 +93,7 @@ export default function ResetPasswordPage() {
             </p>
             <button
               onClick={() => router.push("/dashboard")}
-              className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-medium py-3 rounded-xl transition-colors text-sm"
+              className="w-full bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-medium py-3 rounded-xl transition-colors text-sm"
             >
               Go to Dashboard
             </button>
@@ -112,7 +112,7 @@ export default function ResetPasswordPage() {
             </p>
             <Link
               href="/login"
-              className="block w-full text-center bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-medium py-3 rounded-xl transition-colors text-sm"
+              className="block w-full text-center bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-medium py-3 rounded-xl transition-colors text-sm"
             >
               Back to Login
             </Link>
@@ -173,7 +173,7 @@ export default function ResetPasswordPage() {
               <button
                 type="submit"
                 disabled={loading || !ready}
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors mt-1"
+                className="w-full bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors mt-1"
               >
                 {loading ? "Saving…" : "Update Password"}
               </button>

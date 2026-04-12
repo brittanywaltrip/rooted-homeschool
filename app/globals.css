@@ -11,6 +11,11 @@
 :root {
   --background: #f8f7f4;
   --foreground: #2d2926;
+  --g-deep: #1a2c22;
+  --g-brand: #2D5A3D;
+  --g-mid: #3d5c48;
+  --g-accent: #5c7f63;
+  --g-gold: #C4962A;
 }
 
 @theme inline {
@@ -20,7 +25,7 @@
   --color-green-primary: #5c7f63;
   --color-green-light: #7a9e7e;
   --color-green-pale: #e8f0e9;
-  --color-green-dark: #3d5c42;
+  --color-green-dark: var(--g-deep);
 
   --color-brown: #8b6f47;
   --color-brown-light: #c4956a;

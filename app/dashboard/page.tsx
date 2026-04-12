@@ -143,7 +143,7 @@ function getSubjectStyle(subjectName: string | undefined): { bg: string; text: s
   if (n.includes("read") || n.includes("language") || n.includes("english") || n.includes("writing") || n.includes("grammar") || n.includes("lit") || n.includes("spelling") || n.includes("phonics"))
     return { bg: "#f0e8f4", text: "#4a2a5a" };
   if (n.includes("science") || n.includes("biology") || n.includes("chemistry") || n.includes("physics") || n.includes("nature"))
-    return { bg: "#e8f0e9", text: "#3d5c42" };
+    return { bg: "#e8f0e9", text: "var(--g-deep)" };
   if (n.includes("history") || n.includes("social") || n.includes("geography") || n.includes("civics") || n.includes("government"))
     return { bg: "#fef0e4", text: "#7a4a1a" };
   if (n.includes("art") || n.includes("music") || n.includes("drama") || n.includes("theater") || n.includes("craft") || n.includes("draw"))
@@ -1669,7 +1669,7 @@ export default function TodayPage() {
     return (
       <>
         {/* Skeleton: Book Cover Card */}
-        <div className="mx-5 mt-5 rounded-2xl p-4 space-y-3" style={{ background: "#2d5a3d" }}>
+        <div className="mx-5 mt-5 rounded-2xl p-4 space-y-3" style={{ background: "var(--g-brand)" }}>
           <div className="w-24 h-2 rounded bg-white/10 animate-pulse" />
           <div className="w-16 h-8 rounded bg-white/15 animate-pulse" />
           <div className="w-40 h-3 rounded bg-white/10 animate-pulse" />
@@ -1705,7 +1705,7 @@ export default function TodayPage() {
         <p className="text-xs text-[#7a6f65] mb-4">Pull to refresh or try again.</p>
         <button
           onClick={() => { setLoadError(false); setLoading(true); loadData(); }}
-          className="px-4 py-2 rounded-xl bg-[#5c7f63] text-white text-sm font-medium hover:bg-[#3d5c42] transition-colors"
+          className="px-4 py-2 rounded-xl bg-[#5c7f63] text-white text-sm font-medium hover:bg-[var(--g-deep)] transition-colors"
         >
           Try again
         </button>
@@ -1720,7 +1720,7 @@ export default function TodayPage() {
          ═══════════════════════════════════════════════════════════ */}
       <div
         className="relative w-full rounded-b-[24px] px-6 pt-7 pb-8 overflow-hidden"
-        style={{ background: "#3d5c42" }}
+        style={{ background: "var(--g-deep)" }}
       >
         {/* Decorative background leaves (same as PageHero) */}
         <div
@@ -1737,7 +1737,7 @@ export default function TodayPage() {
         {/* Eyebrow: family name */}
         <p
           className="text-[11px] font-semibold tracking-widest uppercase mb-1"
-          style={{ color: "#8cba8e" }}
+          style={{ color: "rgba(254, 252, 249, 0.55)" }}
         >
           {familyName || "Today"}
         </p>
@@ -1843,11 +1843,11 @@ export default function TodayPage() {
                 {aheadPromptChildren.has(card.id) && !dismissedAheadPrompts.has(card.id) && (
                   <div className="px-3 pb-2.5">
                     <div className="flex items-center justify-between gap-2 bg-[#f4faf0] border border-[#d4e8c8] rounded-full px-3 py-1.5">
-                      <span className="text-[11px] text-[#3d5c42]">You&apos;re ahead of schedule — update your finish date?</span>
+                      <span className="text-[11px] text-[var(--g-deep)]">You&apos;re ahead of schedule — update your finish date?</span>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           onClick={() => rescheduleAfterExtra(card.id)}
-                          className="text-[11px] font-semibold text-[#2D5a1B] hover:underline"
+                          className="text-[11px] font-semibold text-[var(--g-brand)] hover:underline"
                         >Update</button>
                         <button
                           onClick={() => setDismissedAheadPrompts(prev => new Set(prev).add(card.id))}
@@ -1889,7 +1889,7 @@ export default function TodayPage() {
                     style={{
                       minWidth: 108, background: bgColor, borderRadius: 14,
                       border: `1px solid ${borderColor}`, padding: "10px 12px",
-                      outline: isExpanded ? `2px solid #2D5a1B` : "none",
+                      outline: isExpanded ? `2px solid var(--g-brand)` : "none",
                       outlineOffset: -1,
                     }}
                   >
@@ -1904,9 +1904,9 @@ export default function TodayPage() {
                     </div>
                     {/* Progress bar */}
                     <div className="w-full h-[3px] rounded-full mb-1.5" style={{ backgroundColor: "#ece8e0" }}>
-                      <div className="h-full rounded-full transition-all" style={{ width: `${total > 0 ? (done / total) * 100 : 0}%`, backgroundColor: "#2D5a1B" }} />
+                      <div className="h-full rounded-full transition-all" style={{ width: `${total > 0 ? (done / total) * 100 : 0}%`, backgroundColor: "var(--g-brand)" }} />
                     </div>
-                    <p className={`text-[10px] font-semibold ${cardAllDone ? "text-[#3d5c42]" : "text-[#9a8f85]"}`}>
+                    <p className={`text-[10px] font-semibold ${cardAllDone ? "text-[var(--g-deep)]" : "text-[#9a8f85]"}`}>
                       {cardAllDone ? "✓ All done" : `${done} of ${total} done`}
                     </p>
                   </button>
@@ -1950,11 +1950,11 @@ export default function TodayPage() {
                   {/* Ahead-of-schedule pill */}
                   {aheadPromptChildren.has(expandedChild) && !dismissedAheadPrompts.has(expandedChild) && (
                     <div className="flex items-center justify-between gap-2 bg-[#f4faf0] border border-[#d4e8c8] rounded-full px-3 py-1.5 mt-1">
-                      <span className="text-[11px] text-[#3d5c42]">You&apos;re ahead of schedule — update your finish date?</span>
+                      <span className="text-[11px] text-[var(--g-deep)]">You&apos;re ahead of schedule — update your finish date?</span>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           onClick={() => rescheduleAfterExtra(expandedChild)}
-                          className="text-[11px] font-semibold text-[#2D5a1B] hover:underline"
+                          className="text-[11px] font-semibold text-[var(--g-brand)] hover:underline"
                         >Update</button>
                         <button
                           onClick={() => setDismissedAheadPrompts(prev => new Set(prev).add(expandedChild))}
@@ -2074,7 +2074,7 @@ export default function TodayPage() {
           >
             ✕
           </button>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#3d5c42] mb-1">Family Activity</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--g-deep)] mb-1">Family Activity</p>
           {familyNotifs.map((n) => (
             <button
               key={n.id}
@@ -2204,7 +2204,7 @@ export default function TodayPage() {
           YEARBOOK TEASER — free users with at least 1 memory
          ═══════════════════════════════════════════════════════════ */}
       {(!planType || planType === "free" || previewFree) && (
-        <div className="bg-[#2d5a3d] rounded-2xl px-5 py-4 text-white">
+        <div className="bg-[var(--g-brand)] rounded-2xl px-5 py-4 text-white">
           <p className="text-sm font-medium flex items-center gap-2">
             🔒 Your family yearbook is taking shape 🌿
           </p>
@@ -2219,7 +2219,7 @@ export default function TodayPage() {
           <Link
             href="/upgrade"
             onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_teaser' })}
-            className="inline-block mt-3 px-4 py-2 bg-white text-[#2d5a3d] text-xs font-medium rounded-full hover:bg-white/90 transition-colors"
+            className="inline-block mt-3 px-4 py-2 bg-white text-[var(--g-brand)] text-xs font-medium rounded-full hover:bg-white/90 transition-colors"
           >
             Unlock my yearbook →
           </Link>
@@ -2284,7 +2284,7 @@ export default function TodayPage() {
               type="button"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-              style={{ background: "#2d5a3d" }}
+              style={{ background: "var(--g-brand)" }}
             >
               ✚ Capture a memory
             </button>
@@ -2529,7 +2529,7 @@ export default function TodayPage() {
                   setFtTitle(""); setFtNote(""); setFtChild(""); setFtMinutes("");
                   await loadData();
                 }}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {ftSaving ? "Saving…" : "Save"}
               </button>
             </div>
@@ -2568,7 +2568,7 @@ export default function TodayPage() {
                 🍃 This book will add a leaf to {bookChild ? children.find((c) => c.id === bookChild)?.name + "&apos;s" : "the"} garden tree.
               </p>
               <button onClick={saveBook} disabled={savingBook || !bookTitle.trim()}
-                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
                 {savingBook ? "Saving…" : "Log Book 🍃"}
               </button>
             </div>
@@ -2615,7 +2615,7 @@ export default function TodayPage() {
             </div>
             <div className="flex gap-2">
               <button onClick={() => setEditingLesson(null)} className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">Cancel</button>
-              <button onClick={saveEdit} disabled={savingEdit || !editTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors">
+              <button onClick={saveEdit} disabled={savingEdit || !editTitle.trim()} className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors">
                 {savingEdit ? "Saving…" : "Save Changes"}
               </button>
             </div>
@@ -2650,7 +2650,7 @@ export default function TodayPage() {
               </div>
             )}
             <button onClick={saveActivityEdit} disabled={savingActivityEdit || !activityEditTitle.trim()}
-              className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+              className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
               {savingActivityEdit ? "Saving…" : "Save"}
             </button>
             {!activityDeleteConfirm ? (
@@ -2676,7 +2676,7 @@ export default function TodayPage() {
       {/* ── Saved to Memories toast ──────────────────────── */}
       {savedMemoryToast && (
         <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[70] pointer-events-none toast-slide-up">
-          <div className="bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">
+          <div className="bg-[var(--g-deep)] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">
             Saved to Memories 🌱
           </div>
         </div>
@@ -2685,7 +2685,7 @@ export default function TodayPage() {
       {/* ── Garden growth toast ───────────────────────────── */}
       {gardenToast && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
-          <div className="bg-[#3d5c42] text-white text-sm font-medium px-5 py-3 rounded-xl shadow-lg flex items-center gap-2 whitespace-nowrap animate-bounce-once">
+          <div className="bg-[var(--g-deep)] text-white text-sm font-medium px-5 py-3 rounded-xl shadow-lg flex items-center gap-2 whitespace-nowrap animate-bounce-once">
             <span>🌿</span>
             <span>{gardenToast.name} earned a leaf! {gardenToast.leaves} total</span>
           </div>
@@ -2720,7 +2720,7 @@ export default function TodayPage() {
                 <p className="text-sm text-[#5c5248] leading-relaxed">Chrome → tap the <span className="font-semibold">Menu (⋮)</span> → <span className="font-semibold">Add to Home Screen</span></p>
               </div>
             </div>
-            <button onClick={() => setShowPwaModal(false)} className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors">Got it!</button>
+            <button onClick={() => setShowPwaModal(false)} className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors">Got it!</button>
           </div>
         </div>
       )}
@@ -2782,7 +2782,7 @@ export default function TodayPage() {
                 </div>
               )}
               <button onClick={saveDrawing} disabled={savingDrawing || !drawingTitle.trim()}
-                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
                 {savingDrawing ? "Saving…" : "Save Drawing 🎨"}
               </button>
             </div>
@@ -2793,7 +2793,7 @@ export default function TodayPage() {
       {/* ── Capture toast with Edit shortcut ──────────────── */}
       {captureToast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
-          <div className="bg-[#2d5a3d] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap flex items-center gap-3">
+          <div className="bg-[var(--g-brand)] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap flex items-center gap-3">
             <span>{captureToast.message}</span>
             {captureToast.memoryId && (
               <button
@@ -2853,7 +2853,7 @@ export default function TodayPage() {
                 </div>
               )}
               <button onClick={saveEditSheet} disabled={editSaving}
-                className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+                className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
                 {editSaving ? "Saving…" : "Save changes"}
               </button>
               {!editDeleteConfirm ? (
@@ -2892,7 +2892,7 @@ export default function TodayPage() {
               <div className="p-5">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-medium text-[#3d5c42]" style={{ fontFamily: "var(--font-display)" }}>
+                  <h3 className="text-base font-medium text-[var(--g-deep)]" style={{ fontFamily: "var(--font-display)" }}>
                     Reschedule {rescheduleLesson.title || "this lesson"}
                   </h3>
                   <button onClick={() => setRescheduleLesson(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
@@ -2937,7 +2937,7 @@ export default function TodayPage() {
                         <button
                           onClick={() => { if (reschedulePickerDate && reschedulePickerDate >= today) rescheduleMoveTo(reschedulePickerDate); }}
                           disabled={!reschedulePickerDate || reschedulePickerDate < today}
-                          className="px-5 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-[#3d5c42] transition-colors"
+                          className="px-5 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-[var(--g-deep)] transition-colors"
                         >
                           Move
                         </button>
@@ -3002,7 +3002,7 @@ export default function TodayPage() {
       {/* ── Reschedule undo toast ──────────────────────────── */}
       {rescheduleUndoToast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
-          <div className="bg-[#2d5a3d] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
+          <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
             <span>{rescheduleUndoToast.message}</span>
             <button
               onClick={() => undoReschedule()}
@@ -3030,7 +3030,7 @@ export default function TodayPage() {
       {/* ── Time pill toast ─────────────────────────── */}
       {timePill && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
-          <div className="bg-[#2d5a3d] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-2">
+          <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-2">
             {timePillEdit ? (
               <>
                 <span className="text-xs text-white/70">Time spent:</span>
@@ -3082,11 +3082,11 @@ export default function TodayPage() {
               {/* Type pills */}
               <div className="flex gap-2">
                 <button onClick={() => setWinType("win")}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "win" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "win" ? "bg-[var(--g-brand)] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
                   🏆 Win
                 </button>
                 <button onClick={() => setWinType("quote")}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "quote" ? "bg-[#2d5a3d] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${winType === "quote" ? "bg-[var(--g-brand)] text-white" : "bg-[#f0ede8] text-[#7a6f65]"}`}>
                   ✍️ Moment
                 </button>
               </div>
@@ -3199,7 +3199,7 @@ export default function TodayPage() {
                   }
                 }}
                 disabled={savingWin || !winText.trim()}
-                className="w-full py-3 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                className="w-full py-3 rounded-xl bg-[var(--g-brand)] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
               >
                 {savingWin ? "Saving..." : "Save"}
               </button>

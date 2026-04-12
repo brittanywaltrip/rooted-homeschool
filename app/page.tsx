@@ -20,7 +20,7 @@ function MemoriesMockup() {
 function TodayMockup() {
   return (
     <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none">
-      <div className="bg-[#2d5a3d] px-4 py-3 text-center">
+      <div className="bg-[var(--g-brand)] px-4 py-3 text-center">
         <p className="text-[8px] text-white/60 uppercase tracking-widest">The Meadows Family</p>
         <p className="text-sm font-semibold text-white">Good morning! 🌿</p>
         <p className="text-[10px] text-white/70 mt-0.5">Wednesday, April 2</p>
@@ -197,8 +197,8 @@ export default function Home() {
               href="/signup"
               className={`inline-flex items-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-full transition-colors ${
                 scrolled
-                  ? "bg-[#5c7f63] hover:bg-[#3d5c42] text-white"
-                  : "bg-white text-[#2d5a3d] hover:bg-white/90"
+                  ? "bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white"
+                  : "bg-white text-[var(--g-brand)] hover:bg-white/90"
               }`}
             >
               Start Free
@@ -237,7 +237,7 @@ export default function Home() {
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
-            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#2d5a3d] hover:bg-white/90 font-medium px-8 py-4 rounded-full transition-all text-base shadow-lg">
+            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[var(--g-brand)] hover:bg-white/90 font-medium px-8 py-4 rounded-full transition-all text-base shadow-lg">
               Get Started Free →
             </Link>
             <Link href="/tour" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/10 font-semibold px-8 py-4 rounded-full transition-all text-base border border-white/35" style={{ backdropFilter: "blur(12px)" }}>
@@ -385,7 +385,7 @@ export default function Home() {
             <p className="text-[#7a6f65] leading-relaxed mb-6">
               Photos, field trips, funny quotes, books they loved — save it all as it happens. One tap from anywhere in the app. Build a memory book your family will treasure forever.
             </p>
-            <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold px-6 py-3 rounded-full transition-colors text-sm shadow-sm">
+            <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-semibold px-6 py-3 rounded-full transition-colors text-sm shadow-sm">
               Start capturing →
             </Link>
           </div>
@@ -433,7 +433,7 @@ export default function Home() {
             <p className="text-[#7a6f65] leading-relaxed mb-6">
               Every lesson earns a leaf. Watch each child&apos;s tree bloom through the garden stages. At the end of the year, see everything come together in a family yearbook you&apos;ll keep forever.
             </p>
-            <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold px-6 py-3 rounded-full transition-colors text-sm shadow-sm">
+            <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-semibold px-6 py-3 rounded-full transition-colors text-sm shadow-sm">
               Get started →
             </Link>
           </div>
@@ -738,7 +738,7 @@ export default function Home() {
             </ul>
             <Link
               href="/signup"
-              className="block w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-medium py-3.5 rounded-xl transition-colors text-sm shadow-sm"
+              className="block w-full bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-medium py-3.5 rounded-xl transition-colors text-sm shadow-sm"
             >
               Claim Founding Price →
             </Link>
@@ -873,7 +873,7 @@ export default function Home() {
           </p>
           <Link
             href="/signup"
-            className="inline-flex items-center gap-2 bg-[#2d5a3d] hover:bg-[#3d5c42] text-white font-medium px-8 py-4 rounded-full transition-colors text-base shadow-lg"
+            className="inline-flex items-center gap-2 bg-[var(--g-brand)] hover:bg-[var(--g-deep)] text-white font-medium px-8 py-4 rounded-full transition-colors text-base shadow-lg"
           >
             Start for Free →
           </Link>

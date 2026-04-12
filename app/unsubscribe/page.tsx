@@ -35,7 +35,7 @@ function UnsubscribeInner() {
           <p className="text-sm text-[#7a6f65] leading-relaxed mb-6">
             You won&apos;t receive any more marketing emails from Rooted. Your account and memories are still safe.
           </p>
-          <Link href="/" className="text-sm font-medium text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
+          <Link href="/" className="text-sm font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors">
             Back to Rooted →
           </Link>
         </div>

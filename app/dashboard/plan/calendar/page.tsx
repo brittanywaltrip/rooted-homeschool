@@ -334,7 +334,7 @@ export default function CalendarPage() {
       {/* ── Back link ──────────────────────────────────────── */}
       <Link
         href="/dashboard/plan"
-        className="inline-flex items-center gap-1 text-xs text-[#7a6f65] hover:text-[#3d5c42] transition-colors"
+        className="inline-flex items-center gap-1 text-xs text-[#7a6f65] hover:text-[var(--g-deep)] transition-colors"
       >
         <ChevronLeft size={13} /> Plan
       </Link>
@@ -366,7 +366,7 @@ export default function CalendarPage() {
             onClick={() => setSelectedChild(null)}
             className={`shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${
               !selectedChild
-                ? "bg-[#3d5c42] text-white"
+                ? "bg-[var(--g-deep)] text-white"
                 : "bg-white text-[#7a6f65] border border-[#e8e2d9] hover:bg-[#f0ede8]"
             }`}
           >
@@ -428,7 +428,7 @@ export default function CalendarPage() {
                   onClick={() => setSelectedDay(selectedDay === dateStr ? null : dateStr)}
                   className={`min-h-[72px] rounded-xl p-1.5 flex flex-col border transition-all text-left ${
                     isSelected
-                      ? "border-[#3d5c42] bg-[#f2f9f3] ring-1 ring-[#3d5c42]/20"
+                      ? "border-[var(--g-deep)] bg-[#f2f9f3] ring-1 ring-[var(--g-deep)]/20"
                       : isToday
                       ? "border-[#5c7f63] bg-[#f8fcf8]"
                       : vacation
@@ -441,7 +441,7 @@ export default function CalendarPage() {
                     <span
                       className={`text-[11px] font-bold leading-none ${
                         isToday
-                          ? "w-5 h-5 rounded-full bg-[#3d5c42] text-white flex items-center justify-center"
+                          ? "w-5 h-5 rounded-full bg-[var(--g-deep)] text-white flex items-center justify-center"
                           : isGoldenDay
                           ? "w-5 h-5 rounded-full flex items-center justify-center text-[#8b6820]"
                           : vacation
@@ -548,7 +548,7 @@ export default function CalendarPage() {
               selectedDayActivity.fieldTrips.length > 0) && (
               <div className="flex gap-2 mt-1 flex-wrap">
                 {selectedDayActivity.lessons.length > 0 && (
-                  <span className="text-[10px] font-semibold bg-[#e8f0e9] text-[#3d5c42] px-2 py-0.5 rounded-full">
+                  <span className="text-[10px] font-semibold bg-[#e8f0e9] text-[var(--g-deep)] px-2 py-0.5 rounded-full">
                     {selectedDayActivity.lessons.length} lesson{selectedDayActivity.lessons.length !== 1 ? "s" : ""}
                   </span>
                 )}
@@ -591,7 +591,7 @@ export default function CalendarPage() {
                   {/* Lessons */}
                   {group.lessons.map((l) => (
                     <div key={l.id} className="flex items-center gap-2 pl-8">
-                      <div className="w-[5px] h-[5px] rounded-full bg-[#3d5c42] shrink-0" />
+                      <div className="w-[5px] h-[5px] rounded-full bg-[var(--g-deep)] shrink-0" />
                       <span className={`text-xs ${l.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
                         {l.title}
                       </span>

@@ -294,8 +294,8 @@ export default function YearbookPage() {
           href="/dashboard/memories/yearbook/read"
           className={`mt-4 block w-full text-center text-[15px] font-semibold px-5 py-3.5 rounded-xl ${
             memories.length === 0
-              ? "opacity-50 pointer-events-none bg-white/80 text-[#3d5c42]"
-              : "bg-white text-[#3d5c42] active:scale-[0.98] transition-transform"
+              ? "opacity-50 pointer-events-none bg-white/80 text-[var(--g-deep)]"
+              : "bg-white text-[var(--g-deep)] active:scale-[0.98] transition-transform"
           }`}
         >
           📖 Read Your Yearbook
@@ -315,7 +315,7 @@ export default function YearbookPage() {
               </p>
               <Link
                 href="/dashboard/settings?tab=billing"
-                className="mt-2 inline-block text-[12px] font-semibold text-[#3d5c42] underline underline-offset-2"
+                className="mt-2 inline-block text-[12px] font-semibold text-[var(--g-deep)] underline underline-offset-2"
               >
                 Unlock your full yearbook →
               </Link>
@@ -327,11 +327,11 @@ export default function YearbookPage() {
         <div className="flex justify-end mb-4">
           <Link
             href="/dashboard/memories/yearbook/edit"
-            className="relative text-[13px] font-medium text-[#3d5c42] underline underline-offset-2"
+            className="relative text-[13px] font-medium text-[var(--g-deep)] underline underline-offset-2"
           >
             ✏️ Edit memories
             {progressPct < 100 && (
-              <span className="ml-1.5 inline-block w-2 h-2 rounded-full bg-[#8cba8e] align-middle" />
+              <span className="ml-1.5 inline-block w-2 h-2 rounded-full bg-[rgba(254, 252, 249, 0.55)] align-middle" />
             )}
           </Link>
         </div>
@@ -339,7 +339,7 @@ export default function YearbookPage() {
         {/* ── Cover card ──────────────────────────────────────── */}
         <div className="rounded-2xl overflow-hidden border border-[#c0dd97]" style={{ background: "#faf6f0" }}>
           {/* Top strip */}
-          <div className="relative overflow-hidden px-4 py-3" style={{ background: "#3d5c42" }}>
+          <div className="relative overflow-hidden px-4 py-3" style={{ background: "var(--g-deep)" }}>
             <span className="absolute top-1 right-2 text-[72px] leading-none opacity-[0.06] select-none pointer-events-none">🌿</span>
             <span className="absolute -bottom-2 left-1 text-[56px] leading-none opacity-[0.05] select-none pointer-events-none">🌱</span>
             <div className="relative z-10 flex items-start justify-between">
@@ -347,7 +347,7 @@ export default function YearbookPage() {
                 <p className="text-[18px] font-bold text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>
                   {familyName}
                 </p>
-                <p className="text-[10px] text-[#8cba8e] uppercase tracking-wider mt-0.5">
+                <p className="text-[10px] text-[rgba(254, 252, 249, 0.55)] uppercase tracking-wider mt-0.5">
                   {yearLabel} school year
                 </p>
               </div>
@@ -367,7 +367,7 @@ export default function YearbookPage() {
             ].map((stat, i) => (
               <div key={stat.label} className="flex-1 text-center relative">
                 {i > 0 && <div className="absolute left-0 top-1 bottom-1 w-px bg-[#e8e2d9]" />}
-                <p className="text-[18px] font-bold text-[#3d5c42]">{stat.count}</p>
+                <p className="text-[18px] font-bold text-[var(--g-deep)]">{stat.count}</p>
                 <p className="text-[10px] text-[#9a8f85]">{stat.label}</p>
               </div>
             ))}
@@ -382,7 +382,7 @@ export default function YearbookPage() {
           </div>
           <div className="h-[5px] bg-[#e8e3dc] rounded-full overflow-hidden">
             <div
-              className="h-full bg-[#3d5c42] rounded-full transition-all duration-500"
+              className="h-full bg-[var(--g-deep)] rounded-full transition-all duration-500"
               style={{ width: `${progressPct}%` }}
             />
           </div>
@@ -401,7 +401,7 @@ export default function YearbookPage() {
               </p>
               <Link
                 href="/dashboard/memories"
-                className="inline-block text-sm font-medium text-[#3d5c42] border border-[#3d5c42] rounded-xl px-5 py-2.5 hover:bg-[#f0ede8] transition-colors"
+                className="inline-block text-sm font-medium text-[var(--g-deep)] border border-[var(--g-deep)] rounded-xl px-5 py-2.5 hover:bg-[#f0ede8] transition-colors"
               >
                 ← Back to Memories
               </Link>
@@ -441,7 +441,7 @@ export default function YearbookPage() {
               <p className="text-lg font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
                 Ready to print? 📚
               </p>
-              <p className="text-sm text-[#3d5c42] mb-4 max-w-sm mx-auto">
+              <p className="text-sm text-[var(--g-deep)] mb-4 max-w-sm mx-auto">
                 Your memories are beautifully arranged and ready to become a keepsake.
               </p>
               <button

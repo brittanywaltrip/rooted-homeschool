@@ -374,13 +374,13 @@ export default function GardenPage() {
       {!tipDismissed && totalLeaves === 0 && (
         <div className="flex items-start gap-3 rounded-xl border-l-4 border-[#7ab87a] bg-[#f4faf4] px-4 py-3">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-[#3d5c42] mb-0.5">🌿 Your garden grows with every lesson</p>
+            <p className="text-sm font-medium text-[var(--g-deep)] mb-0.5">🌿 Your garden grows with every lesson</p>
             <p className="text-xs text-[#5c7f63] leading-relaxed">
               Log a lesson on Today to earn a leaf and watch your family&apos;s garden come to life.
             </p>
             <Link
               href="/dashboard"
-              className="inline-block mt-1.5 text-xs font-semibold text-[#3d5c42] hover:underline"
+              className="inline-block mt-1.5 text-xs font-semibold text-[var(--g-deep)] hover:underline"
             >
               Go to Today →
             </Link>
@@ -389,7 +389,7 @@ export default function GardenPage() {
             type="button"
             onClick={dismissTip}
             aria-label="Dismiss tip"
-            className="shrink-0 text-[#7ab87a] hover:text-[#3d5c42] text-lg leading-none mt-0.5 transition-colors"
+            className="shrink-0 text-[#7ab87a] hover:text-[var(--g-deep)] text-lg leading-none mt-0.5 transition-colors"
           >
             ×
           </button>
@@ -519,7 +519,7 @@ export default function GardenPage() {
                 {/* Leaf count pill */}
                 <div className="mt-1 flex items-center gap-0.5 shadow-sm" style={{ background: "#ffffff", borderRadius: 12, padding: "3px 8px" }}>
                   <span style={{ fontSize: 11 }}>🍃</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "#2d5a3d" }}>{leaves}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "var(--g-brand)" }}>{leaves}</span>
                 </div>
 
                 {/* Name tag */}
@@ -695,7 +695,7 @@ export default function GardenPage() {
                           <div className="w-full h-full rounded-xl bg-gradient-to-b from-[#e8f0e9] to-[#d4ead4] flex items-center justify-center text-2xl">{badge.emoji}</div>
                         )}
                       </div>
-                      <span className="text-[10px] font-semibold text-[#3d5c42] text-center leading-tight mt-1.5">
+                      <span className="text-[10px] font-semibold text-[var(--g-deep)] text-center leading-tight mt-1.5">
                         {badge.label}
                       </span>
                     </div>

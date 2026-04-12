@@ -242,7 +242,7 @@ export default function PartnersPage() {
           </p>
           <a
             href="#apply"
-            className="inline-flex items-center justify-center gap-2 bg-white text-[#3d5c42] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base"
+            className="inline-flex items-center justify-center gap-2 bg-white text-[var(--g-deep)] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base"
             style={{
               boxShadow:
                 "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35), 0 0 48px rgba(134,201,138,0.12)",
@@ -307,11 +307,11 @@ export default function PartnersPage() {
       {/* ── SECTION 2b — What your followers get ──────────────────────── */}
       <section className="px-6 sm:px-8 py-12 bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border-t border-b border-[#b8d9bc]">
         <div className="max-w-3xl mx-auto text-center">
-          <p className="text-xs font-semibold text-[#3d5c42] uppercase tracking-[0.2em] mb-3">What your followers get</p>
+          <p className="text-xs font-semibold text-[var(--g-deep)] uppercase tracking-[0.2em] mb-3">What your followers get</p>
           <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
             Founding Family — $39/yr, locked forever
           </h2>
-          <p className="text-sm text-[#3d5c42] leading-relaxed mb-4 max-w-lg mx-auto">
+          <p className="text-sm text-[var(--g-deep)] leading-relaxed mb-4 max-w-lg mx-auto">
             {(() => {
               const diff = Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000);
               const deadline = diff <= 0 ? "" : diff === 1 ? " This offer ends tomorrow." : ` This offer ends in ${diff} days.`;
@@ -357,7 +357,7 @@ export default function PartnersPage() {
             ].map((s) => (
               <div key={s.step} className="flex gap-5 items-start">
                 <div className="w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0">
-                  <span className="text-sm font-bold text-[#3d5c42]">
+                  <span className="text-sm font-bold text-[var(--g-deep)]">
                     {s.step}
                   </span>
                 </div>
@@ -523,7 +523,7 @@ export default function PartnersPage() {
                       onClick={() => setHasRootedAccount(val)}
                       className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-colors ${
                         hasRootedAccount === val
-                          ? "border-[#3d5c42] bg-[#f0f7f0] text-[#2d2926]"
+                          ? "border-[var(--g-deep)] bg-[#f0f7f0] text-[#2d2926]"
                           : "border-[#e8e2d9] bg-white text-[#7a6f65]"
                       }`}
                     >
@@ -627,7 +627,7 @@ export default function PartnersPage() {
                       key={id}
                       className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-colors ${
                         selectedPlatforms.includes(id)
-                          ? "border-[#3d5c42] bg-[#f0f7f0]"
+                          ? "border-[var(--g-deep)] bg-[#f0f7f0]"
                           : "border-[#e8e2d9] bg-white"
                       }`}
                     >
@@ -651,7 +651,7 @@ export default function PartnersPage() {
                             });
                           }
                         }}
-                        className="accent-[#3d5c42]"
+                        className="accent-[var(--g-deep)]"
                       />
                       <span className="text-sm text-[#2d2926]">{label}</span>
                     </label>
@@ -756,7 +756,7 @@ export default function PartnersPage() {
                       key={opt}
                       className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm cursor-pointer transition-colors ${
                         usedRooted === opt
-                          ? "bg-[#e8f0e9] border-[#5c7f63] text-[#3d5c42] font-semibold"
+                          ? "bg-[#e8f0e9] border-[#5c7f63] text-[var(--g-deep)] font-semibold"
                           : "bg-[#f8f7f4] border-[#e8e2d9] text-[#7a6f65] hover:border-[#c8bfb5]"
                       }`}
                     >
@@ -784,7 +784,7 @@ export default function PartnersPage() {
                       key={opt}
                       className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm cursor-pointer transition-colors ${
                         postFrequency === opt
-                          ? "bg-[#e8f0e9] border-[#5c7f63] text-[#3d5c42] font-semibold"
+                          ? "bg-[#e8f0e9] border-[#5c7f63] text-[var(--g-deep)] font-semibold"
                           : "bg-[#f8f7f4] border-[#e8e2d9] text-[#7a6f65] hover:border-[#c8bfb5]"
                       }`}
                     >
@@ -812,7 +812,7 @@ export default function PartnersPage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full bg-[#3d5c42] hover:bg-[#2d4a32] disabled:opacity-60 text-white font-bold py-4 rounded-xl transition-colors text-base"
+                className="w-full bg-[var(--g-deep)] hover:bg-[#2d4a32] disabled:opacity-60 text-white font-bold py-4 rounded-xl transition-colors text-base"
               >
                 {submitting ? "Submitting..." : "Submit Application →"}
               </button>
@@ -858,7 +858,7 @@ export default function PartnersPage() {
             >
               Ready to share something you already love?
             </h2>
-            <p className="text-[#3d5c42] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
+            <p className="text-[var(--g-deep)] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
               Join our curated group of homeschool creators. No pressure, no
               quotas — just an honest partnership.
             </p>
@@ -879,7 +879,7 @@ export default function PartnersPage() {
           <p className="text-sm text-[#5c5248] leading-relaxed italic mb-4">
             &ldquo;I review every partner application personally. This isn&apos;t about big numbers — it&apos;s about real homeschool families helping other families find something that works. If that sounds like you, I&apos;d love to hear from you.&rdquo;
           </p>
-          <p className="text-sm font-semibold text-[#3d5c42]">— Brittany, Founder</p>
+          <p className="text-sm font-semibold text-[var(--g-deep)]">— Brittany, Founder</p>
           <p className="text-xs text-[#7a6f65] mt-2">
             Questions? Email{' '}
             <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>

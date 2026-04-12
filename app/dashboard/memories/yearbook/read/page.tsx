@@ -360,7 +360,7 @@ export default function YearbookReadPage() {
     id: "cover",
     label: "Cover",
     leftContent: coverPhotoUrl ? (
-      <div className="relative flex flex-col w-full h-full overflow-hidden items-center justify-center" style={{ background: "#3d5c42" }}>
+      <div className="relative flex flex-col w-full h-full overflow-hidden items-center justify-center" style={{ background: "var(--g-deep)" }}>
         {/* Botanical watermarks */}
         <span className="absolute top-4 right-3 text-[100px] opacity-[0.05] select-none pointer-events-none" style={{ transform: "rotate(-15deg)" }}>🌿</span>
         <span className="absolute bottom-8 left-2 text-[80px] opacity-[0.04] select-none pointer-events-none" style={{ transform: "rotate(20deg)" }}>🍃</span>
@@ -381,33 +381,33 @@ export default function YearbookReadPage() {
           </div>
 
           {/* Year label */}
-          <p className="text-[9px] font-semibold tracking-[0.2em] uppercase text-[#8cba8e] mt-4">
+          <p className="text-[9px] font-semibold tracking-[0.2em] uppercase text-[rgba(254, 252, 249, 0.55)] mt-4">
             {yearLabel}
           </p>
         </div>
 
         <div className="flex justify-between items-center w-full px-5 pb-3 relative z-10">
-          <span className="text-[9px] tracking-[0.18em] text-[#8cba8e]/50">ROOTED</span>
+          <span className="text-[9px] tracking-[0.18em] text-[rgba(254, 252, 249, 0.55)]/50">ROOTED</span>
           <span className="bg-white/10 text-[9px] text-[#c8e6c4] px-3 py-1 rounded-full">
             {memories.length} memories
           </span>
         </div>
       </div>
     ) : (
-      <div className="relative flex flex-col w-full h-full overflow-hidden" style={{ background: "#3d5c42" }}>
+      <div className="relative flex flex-col w-full h-full overflow-hidden" style={{ background: "var(--g-deep)" }}>
         <span className="absolute top-6 right-4 text-[120px] opacity-[0.06] select-none pointer-events-none" style={{ transform: "rotate(-15deg)" }}>🌿</span>
         <span className="absolute bottom-10 left-3 text-[100px] opacity-[0.05] select-none pointer-events-none" style={{ transform: "rotate(20deg)" }}>🍃</span>
         <span className="absolute top-1/3 left-1/2 -translate-x-1/2 text-[160px] opacity-[0.03] select-none pointer-events-none">🌱</span>
 
         <div className="flex-1 flex flex-col items-center justify-center p-6 relative z-10 text-center">
-          <div className="w-12 h-px bg-[#8cba8e]/40 mb-5" />
-          <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#8cba8e] mb-3">
+          <div className="w-12 h-px bg-[rgba(254, 252, 249, 0.55)]/40 mb-5" />
+          <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[rgba(254, 252, 249, 0.55)] mb-3">
             {yearLabel}
           </p>
           <h1 className="text-[28px] leading-snug text-[#fefcf9]" style={{ fontFamily: "Georgia, serif" }}>
             {coverTitle}<br />Yearbook
           </h1>
-          <div className="w-9 h-px bg-[#8cba8e]/30 my-5" />
+          <div className="w-9 h-px bg-[rgba(254, 252, 249, 0.55)]/30 my-5" />
           <p className="text-[11px] text-white/45 italic max-w-[220px] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
             A year of learning, growing, and making memories
           </p>
@@ -420,7 +420,7 @@ export default function YearbookReadPage() {
         </div>
 
         <div className="flex justify-between items-center px-5 pb-4 relative z-10">
-          <span className="text-[9px] tracking-[0.18em] text-[#8cba8e]/60">ROOTED</span>
+          <span className="text-[9px] tracking-[0.18em] text-[rgba(254, 252, 249, 0.55)]/60">ROOTED</span>
           <span className="bg-white/10 text-[9px] text-[#c8e6c4] px-3 py-1 rounded-full">
             {memories.length} memories
           </span>
@@ -430,7 +430,7 @@ export default function YearbookReadPage() {
     rightContent: (
       <PageShell>
         <div className="flex flex-col items-center justify-center text-center px-4">
-          <span className="text-[48px] font-serif text-[#8cba8e] leading-none">&ldquo;</span>
+          <span className="text-[48px] font-serif text-[rgba(254, 252, 249, 0.55)] leading-none">&ldquo;</span>
           <p className="italic text-[11px] text-[#5a5048] leading-relaxed max-w-[200px] mt-1 line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
             Every lesson, every photo, every little moment — Rooted holds onto it all.
           </p>
@@ -455,7 +455,7 @@ export default function YearbookReadPage() {
     leftContent: (
       <PageShell>
         <div className="shrink-0">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#8cba8e]">Written for our family</p>
+          <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[rgba(254, 252, 249, 0.55)]">Written for our family</p>
           <h2 className="text-[16px] font-bold text-[#2d2926] mt-1" style={{ fontFamily: "var(--font-display)" }}>A letter from home</h2>
           <p className="text-[9px] text-[#b5aca4] mt-0.5">A message from the heart</p>
           <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
@@ -474,7 +474,7 @@ export default function YearbookReadPage() {
               <p className="text-[12px] italic text-[#c4b89a] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
                 Your letter will go here —<br />a message to your family, from the heart.
               </p>
-              <Link href="/dashboard/memories/yearbook/edit" className="mt-3 text-[10px] text-[#8cba8e] font-medium">
+              <Link href="/dashboard/memories/yearbook/edit" className="mt-3 text-[10px] text-[rgba(254, 252, 249, 0.55)] font-medium">
                 Write your letter →
               </Link>
             </div>
@@ -491,7 +491,7 @@ export default function YearbookReadPage() {
               { n: quoteCount, l: "quotes" },
             ].map((s) => (
               <div key={s.l} className="bg-[#eeeade] rounded px-2 py-1 text-center flex-1">
-                <p className="text-[14px] font-bold text-[#3d5c42]">{s.n}</p>
+                <p className="text-[14px] font-bold text-[var(--g-deep)]">{s.n}</p>
                 <p className="text-[7px] text-[#9a8f85]">{s.l}</p>
               </div>
             ))}
@@ -511,7 +511,7 @@ export default function YearbookReadPage() {
                 <img src={favMemory.photo_url} alt="" className="w-full rounded-md object-cover" style={{ aspectRatio: "4/3" }} />
               ) : (
                 <div className="w-full rounded-md bg-[#eaf3de] flex items-center justify-center p-4" style={{ aspectRatio: "4/3" }}>
-                  <p className="text-sm font-medium text-[#3d5c42] text-center line-clamp-2">{favMemory.title}</p>
+                  <p className="text-sm font-medium text-[var(--g-deep)] text-center line-clamp-2">{favMemory.title}</p>
                 </div>
               )}
               <p className="text-[8px] text-[#9a8f85] mt-1">
@@ -527,7 +527,7 @@ export default function YearbookReadPage() {
               <p className="text-[10px] italic text-[#c4b89a]" style={{ fontFamily: "Georgia, serif" }}>
                 Your favorite moment will shine here
               </p>
-              <Link href="/dashboard/memories/yearbook/edit" className="mt-2 text-[9px] text-[#8cba8e] font-medium">
+              <Link href="/dashboard/memories/yearbook/edit" className="mt-2 text-[9px] text-[rgba(254, 252, 249, 0.55)] font-medium">
                 Choose in editor →
               </Link>
             </div>
@@ -593,7 +593,7 @@ export default function YearbookReadPage() {
       leftContent: (
         <PageShell>
           <div className="shrink-0">
-            <p className="text-[9px] text-[#8cba8e]">Chapter {ci + 1}</p>
+            <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)]">Chapter {ci + 1}</p>
             <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>
               {child.name}&apos;s year
             </h2>
@@ -618,7 +618,7 @@ export default function YearbookReadPage() {
           )}
 
           {latestWin && (
-            <div className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[#8cba8e] mb-2 shrink-0">
+            <div className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[rgba(254, 252, 249, 0.55)] mb-2 shrink-0">
               <p className="text-[7px] uppercase tracking-wider text-[#5c7f63] mb-0.5 flex items-center gap-1">
                 <span>⭐</span>
                 <span>Win</span>
@@ -638,7 +638,7 @@ export default function YearbookReadPage() {
               { n: childMems.filter((m) => m.type === "book").length, l: "books" },
             ].map((s) => (
               <div key={s.l} className="bg-[#eeeade] rounded px-2 py-1 text-center flex-1">
-                <p className="text-[13px] font-bold text-[#3d5c42]">{s.n}</p>
+                <p className="text-[13px] font-bold text-[var(--g-deep)]">{s.n}</p>
                 <p className="text-[7px] text-[#9a8f85]">{s.l}</p>
               </div>
             ))}
@@ -648,7 +648,7 @@ export default function YearbookReadPage() {
       rightContent: (
         <PageShell>
           <div className="shrink-0">
-            <p className="text-[9px] text-[#8cba8e]">{child.name} in their own words</p>
+            <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)]">{child.name} in their own words</p>
             <h3 className="text-[14px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>
               Year-end interview
             </h3>
@@ -755,7 +755,7 @@ export default function YearbookReadPage() {
     leftContent: (
       <PageShell>
         <div className="shrink-0">
-          <p className="text-[9px] text-[#8cba8e]">Together</p>
+          <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)]">Together</p>
           <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>Our family</h2>
           <p className="text-[9px] text-[#b5aca4] mt-0.5">{familyMemories.length} shared memories</p>
           <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
@@ -772,7 +772,7 @@ export default function YearbookReadPage() {
               </>
             )}
             {famWins.map((w) => (
-              <div key={w.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[#8cba8e]">
+              <div key={w.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[rgba(254, 252, 249, 0.55)]">
                 <p className="text-[7px] uppercase tracking-wider text-[#5c7f63] flex items-center gap-1">
                   <span>{w.type === "field_trip" ? "🗺️" : "⭐"}</span>
                   <span>{w.type === "field_trip" ? "Trip" : "Win"}</span>
@@ -844,7 +844,7 @@ export default function YearbookReadPage() {
     leftContent: (
       <PageShell>
         <div className="shrink-0">
-          <p className="text-[9px] text-[#8cba8e]">The people who love you</p>
+          <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)]">The people who love you</p>
           <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>From the village</h2>
           <p className="text-[9px] text-[#b5aca4] mt-0.5">0 messages</p>
           <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
@@ -856,7 +856,7 @@ export default function YearbookReadPage() {
           </p>
           <Link
             href="/dashboard/settings"
-            className="mt-4 inline-flex items-center gap-1 text-[11px] text-[#3d5c42] font-medium border border-[#c0dd97] rounded-lg px-3 py-2 hover:bg-[#eaf3de] transition-colors"
+            className="mt-4 inline-flex items-center gap-1 text-[11px] text-[var(--g-deep)] font-medium border border-[#c0dd97] rounded-lg px-3 py-2 hover:bg-[#eaf3de] transition-colors"
           >
             Invite family to sign →
           </Link>
@@ -871,7 +871,7 @@ export default function YearbookReadPage() {
           </p>
           <Link
             href="/dashboard/settings"
-            className="mt-3 bg-[#3d5c42] text-[#eaf3de] text-[9px] rounded-lg px-3 py-2"
+            className="mt-3 bg-[var(--g-deep)] text-[#eaf3de] text-[9px] rounded-lg px-3 py-2"
           >
             Add your message →
           </Link>
@@ -904,7 +904,7 @@ export default function YearbookReadPage() {
         <span className="absolute top-2 right-3 text-[72px] opacity-[0.06] select-none pointer-events-none">🌿</span>
         <span className="absolute -bottom-2 left-2 text-[56px] opacity-[0.05] select-none pointer-events-none">🌱</span>
         <div className="text-center relative z-10">
-          <p className="text-[22px] text-[#8cba8e] font-bold" style={{ fontFamily: "var(--font-display)" }}>Rooted</p>
+          <p className="text-[22px] text-[rgba(254, 252, 249, 0.55)] font-bold" style={{ fontFamily: "var(--font-display)" }}>Rooted</p>
           <p className="text-[8px] text-[#5a7a45] tracking-[0.18em] uppercase mt-1">Homeschool · Memory Keeping</p>
         </div>
       </div>
@@ -1004,7 +1004,7 @@ export default function YearbookReadPage() {
           </p>
           <Link
             href="/dashboard/memories"
-            className="inline-block mt-6 bg-[#3d5c42] text-[#eaf3de] px-6 py-3 rounded-xl font-semibold text-sm"
+            className="inline-block mt-6 bg-[var(--g-deep)] text-[#eaf3de] px-6 py-3 rounded-xl font-semibold text-sm"
           >
             Browse memories →
           </Link>
@@ -1053,7 +1053,7 @@ export default function YearbookReadPage() {
             >
               {/* Page header */}
               <div className="shrink-0 pt-4 pb-1.5 text-center relative" style={{ background: isDark ? "transparent" : undefined }}>
-                <p className="text-[8px] font-medium tracking-[0.15em] uppercase text-[#8cba8e]">
+                <p className="text-[8px] font-medium tracking-[0.15em] uppercase text-[rgba(254, 252, 249, 0.55)]">
                   {pages[safePage]?.header}
                 </p>
                 {/* Edit shortcut */}
@@ -1076,7 +1076,7 @@ export default function YearbookReadPage() {
                       {pages[safePage]?.content}
                     </div>
                     <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center z-10">
-                      <div className="w-12 h-12 rounded-full bg-[#2d5a3d]/10 flex items-center justify-center mb-4">
+                      <div className="w-12 h-12 rounded-full bg-[var(--g-brand)]/10 flex items-center justify-center mb-4">
                         <span className="text-2xl">🌿</span>
                       </div>
                       <h3 className="text-lg font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
@@ -1088,7 +1088,7 @@ export default function YearbookReadPage() {
                       <Link
                         href="/upgrade"
                         onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_reader_gate' })}
-                        className="inline-block bg-[#2d5a3d] text-white font-semibold text-sm px-6 py-3 rounded-full hover:bg-[#3d5c42] transition-colors"
+                        className="inline-block bg-[var(--g-brand)] text-white font-semibold text-sm px-6 py-3 rounded-full hover:bg-[var(--g-deep)] transition-colors"
                       >
                         Unlock — $39/yr →
                       </Link>
@@ -1177,7 +1177,7 @@ export default function YearbookReadPage() {
                   <Spine />
                   <div className="w-1/2 h-full blur-md opacity-40 pointer-events-none">{spreads[spreadIndex]?.rightContent}</div>
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-center z-10">
-                    <div className="w-14 h-14 rounded-full bg-[#2d5a3d]/10 flex items-center justify-center mb-4">
+                    <div className="w-14 h-14 rounded-full bg-[var(--g-brand)]/10 flex items-center justify-center mb-4">
                       <span className="text-3xl">🌿</span>
                     </div>
                     <h3 className="text-xl font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
@@ -1189,7 +1189,7 @@ export default function YearbookReadPage() {
                     <Link
                       href="/upgrade"
                       onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_reader_gate' })}
-                      className="inline-block bg-[#2d5a3d] text-white font-semibold text-sm px-6 py-3 rounded-full hover:bg-[#3d5c42] transition-colors"
+                      className="inline-block bg-[var(--g-brand)] text-white font-semibold text-sm px-6 py-3 rounded-full hover:bg-[var(--g-deep)] transition-colors"
                     >
                       Unlock — $39/yr →
                     </Link>

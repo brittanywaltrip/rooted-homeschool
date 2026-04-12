@@ -105,7 +105,7 @@ function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string 
         <p className="text-[10px] text-[#7a6f65]">Families</p>
       </div>
       <div className="px-3 py-3 text-center">
-        <p className="text-lg font-bold text-[#3d5c42]">{stats?.payingCount ?? '—'}</p>
+        <p className="text-lg font-bold text-[var(--g-deep)]">{stats?.payingCount ?? '—'}</p>
         <p className="text-[10px] text-[#7a6f65]">Paying</p>
       </div>
       <div className="px-3 py-3 text-center">
@@ -1021,7 +1021,7 @@ export default function SettingsPage() {
                     onClick={saveFirstName}
                     disabled={savingFirst}
                     className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
-                      savedFirst ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                      savedFirst ? "bg-[#e8f0e9] text-[var(--g-deep)]" : "bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white"
                     }`}
                   >
                     {savedFirst ? "✓" : savingFirst ? "…" : "Save"}
@@ -1055,7 +1055,7 @@ export default function SettingsPage() {
                     onClick={saveLastName}
                     disabled={savingLast}
                     className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
-                      savedLast ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                      savedLast ? "bg-[#e8f0e9] text-[var(--g-deep)]" : "bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white"
                     }`}
                   >
                     {savedLast ? "✓" : savingLast ? "…" : "Save"}
@@ -1093,7 +1093,7 @@ export default function SettingsPage() {
                   onClick={saveFamilyName}
                   disabled={savingFamily || !familyName.trim()}
                   className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
-                    savedFamily ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                    savedFamily ? "bg-[#e8f0e9] text-[var(--g-deep)]" : "bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white"
                   }`}
                 >
                   {savedFamily ? "✓" : savingFamily ? "…" : "Save"}
@@ -1147,7 +1147,7 @@ export default function SettingsPage() {
                 onClick={saveHomeschoolState}
                 disabled={savingState}
                 className={`px-3 py-2.5 rounded-xl text-sm font-medium transition-colors shrink-0 ${
-                  savedState ? "bg-[#e8f0e9] text-[#3d5c42]" : "bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white"
+                  savedState ? "bg-[#e8f0e9] text-[var(--g-deep)]" : "bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white"
                 }`}
               >
                 {savedState ? "✓" : savingState ? "…" : "Save"}
@@ -1242,7 +1242,7 @@ export default function SettingsPage() {
                       <button
                         onClick={() => saveEdit(child.id)}
                         disabled={savingEdit || !editName.trim()}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white text-sm font-medium transition-colors"
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white text-sm font-medium transition-colors"
                       >
                         <Check size={14} />
                         {savingEdit ? "Saving…" : "Save Changes"}
@@ -1372,7 +1372,7 @@ export default function SettingsPage() {
             <button
               type="submit"
               disabled={addingChild || !newName.trim()}
-              className="w-full flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white text-sm font-medium py-3 rounded-xl transition-colors"
+              className="w-full flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white text-sm font-medium py-3 rounded-xl transition-colors"
             >
               <Plus size={16} />
               {addingChild ? "Adding…" : "Add Child"}
@@ -1409,7 +1409,7 @@ export default function SettingsPage() {
               const token = familyInvites[0]?.token;
               window.open(token ? `/family/${token}` : "/family/preview", "_blank");
             }}
-            className="w-full border border-[#c8dfc8] bg-[#f0f7f0] text-[#3d5c42] rounded-xl py-2.5 mb-4 text-sm font-medium flex items-center justify-center gap-2"
+            className="w-full border border-[#c8dfc8] bg-[#f0f7f0] text-[var(--g-deep)] rounded-xl py-2.5 mb-4 text-sm font-medium flex items-center justify-center gap-2"
           >
             👁 Preview family view
           </button>
@@ -1440,7 +1440,7 @@ export default function SettingsPage() {
             <button
               onClick={sendFamilyInvite}
               disabled={sendingInvite || !familyInviteEmail.trim() || !familyInviteName.trim()}
-              className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors"
             >
               {sendingInvite ? "Sending..." : "Send invite 🌿"}
             </button>
@@ -1554,7 +1554,7 @@ export default function SettingsPage() {
                             <button
                               onClick={() => reactivateInvite(inv)}
                               disabled={actioningId === inv.id}
-                              className="px-2.5 py-1 rounded-lg bg-[#5c7f63] text-[11px] text-white font-medium hover:bg-[#3d5c42] transition-colors disabled:opacity-50"
+                              className="px-2.5 py-1 rounded-lg bg-[#5c7f63] text-[11px] text-white font-medium hover:bg-[var(--g-deep)] transition-colors disabled:opacity-50"
                             >
                               {actioningId === inv.id ? "..." : "Re-invite"}
                             </button>
@@ -1594,7 +1594,7 @@ export default function SettingsPage() {
           <button
             type="button"
             onClick={() => { setShowYearModal(true); setYearError(""); }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#c8ddb8] bg-[#f0f8f0] hover:bg-[#e4f2e4] text-[#3d5c42] text-sm font-medium transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#c8ddb8] bg-[#f0f8f0] hover:bg-[#e4f2e4] text-[var(--g-deep)] text-sm font-medium transition-colors"
           >
             <span>🌱</span>
             Start New School Year
@@ -1643,7 +1643,7 @@ export default function SettingsPage() {
             ) : (
               <a
                 href="/upgrade"
-                className="shrink-0 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+                className="shrink-0 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium transition-colors"
               >
                 Upgrade to Founding Family →
               </a>
@@ -1672,7 +1672,7 @@ export default function SettingsPage() {
               <button
                 onClick={sendPasswordReset}
                 disabled={resetSending || !userEmail}
-                className="px-4 py-2 rounded-xl border border-[#c8ddb8] text-[#3d5c42] text-sm font-medium hover:bg-[#f2f9f3] disabled:opacity-50 transition-colors"
+                className="px-4 py-2 rounded-xl border border-[#c8ddb8] text-[var(--g-deep)] text-sm font-medium hover:bg-[#f2f9f3] disabled:opacity-50 transition-colors"
               >
                 {resetSending ? "Sending…" : "Reset Password"}
               </button>
@@ -1692,7 +1692,7 @@ export default function SettingsPage() {
           <button
             onClick={exportData}
             disabled={exporting}
-            className="px-4 py-2 rounded-xl border border-[#2d5a3d] text-[#2d5a3d] text-sm font-medium hover:bg-[#f2f9f3] disabled:opacity-50 transition-colors"
+            className="px-4 py-2 rounded-xl border border-[var(--g-brand)] text-[var(--g-brand)] text-sm font-medium hover:bg-[#f2f9f3] disabled:opacity-50 transition-colors"
           >
             {exporting ? "Preparing your export…" : "Export My Data 📦"}
           </button>
@@ -1863,7 +1863,7 @@ export default function SettingsPage() {
                       <p className="text-[11px] text-[#7a6f65] mt-0.5">Families reached</p>
                     </div>
                     <div className="px-3 py-4 text-center">
-                      <p className="text-2xl font-bold text-[#3d5c42]">{previewStats?.payingCount ?? '—'}</p>
+                      <p className="text-2xl font-bold text-[var(--g-deep)]">{previewStats?.payingCount ?? '—'}</p>
                       <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
                     </div>
                     <div className="px-3 py-4 text-center">
@@ -2067,7 +2067,7 @@ export default function SettingsPage() {
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Families reached</p>
               </div>
               <div className="px-3 py-4 text-center">
-                <p className="text-2xl font-bold text-[#3d5c42]">{affiliateStats?.payingCount ?? '—'}</p>
+                <p className="text-2xl font-bold text-[var(--g-deep)]">{affiliateStats?.payingCount ?? '—'}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
               </div>
               <div className="px-3 py-4 text-center">
@@ -2088,7 +2088,7 @@ export default function SettingsPage() {
                   <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your Earnings</p>
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
-                      <p className="text-2xl font-bold text-[#3d5c42]">${thisMonthPaid.toFixed(2)}</p>
+                      <p className="text-2xl font-bold text-[var(--g-deep)]">${thisMonthPaid.toFixed(2)}</p>
                       <p className="text-[10px] text-[#7a6f65] mt-0.5">This month</p>
                     </div>
                     <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
@@ -2113,7 +2113,7 @@ export default function SettingsPage() {
                               <td className="px-3 py-2 text-xs text-[#2d2926]">{p.month}</td>
                               <td className="px-3 py-2 text-xs font-medium text-[#2d2926]">${Number(p.amount).toFixed(2)}</td>
                               <td className="px-3 py-2 text-xs text-[#7a6f65]">{new Date(p.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
-                              <td className="px-3 py-2"><span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[#2d5a3d]">Paid</span></td>
+                              <td className="px-3 py-2"><span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[var(--g-brand)]">Paid</span></td>
                             </tr>
                           ))}
                         </tbody>
@@ -2207,7 +2207,7 @@ export default function SettingsPage() {
                 showCopiedToast("Link copied!");
               }
             }}
-            className="px-4 py-2 rounded-xl bg-[#2d5a3d] hover:bg-[#3d5c42] text-white text-sm font-medium transition-colors"
+            className="px-4 py-2 rounded-xl bg-[var(--g-brand)] hover:bg-[var(--g-deep)] text-white text-sm font-medium transition-colors"
           >
             Share with a friend
           </button>
@@ -2224,7 +2224,7 @@ export default function SettingsPage() {
           <p className="text-xs text-[#7a6f65] mt-0.5 mb-3">Know a homeschool family who would love this? Gift them a year.</p>
           <Link
             href="/gift"
-            className="text-xs font-medium text-[#5c7f63] hover:text-[#3d5c42] transition-colors"
+            className="text-xs font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors"
           >
             Go to gift page →
           </Link>
@@ -2308,7 +2308,7 @@ export default function SettingsPage() {
               <button
                 onClick={startNewSchoolYear}
                 disabled={yearTransitioning}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
               >
                 {yearTransitioning ? "Archiving…" : "Archive & Start Fresh →"}
               </button>

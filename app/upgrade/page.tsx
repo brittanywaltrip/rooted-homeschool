@@ -221,7 +221,7 @@ function UpgradePageInner() {
                 {refCode && refAffiliateName ? (
                   <>
                     <span className="text-xl text-[#b5aca4] line-through font-bold">$39</span>
-                    <span className="text-3xl font-bold text-[#2d5a3d]">$33.15</span>
+                    <span className="text-3xl font-bold text-[var(--g-brand)]">$33.15</span>
                     <span className="text-sm text-[#5c7f63] font-semibold">/yr · locked forever</span>
                   </>
                 ) : (
@@ -234,7 +234,7 @@ function UpgradePageInner() {
               {refCode && refAffiliateName && (
                 <p className="text-xs text-[#5c7f63] font-medium -mt-1 mb-1">with {refAffiliateName}&apos;s referral</p>
               )}
-              <p className="text-sm text-[#3d5c42] leading-relaxed">
+              <p className="text-sm text-[var(--g-deep)] leading-relaxed">
                 For the first 200 families who believe in where this is going
               </p>
               {countdown && (
@@ -264,7 +264,7 @@ function UpgradePageInner() {
             {isPaying ? (
               <Link
                 href="/dashboard"
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm text-center block"
+                className="w-full bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm text-center block"
               >
                 ✓ You&apos;re already a member — Go to app →
               </Link>
@@ -272,7 +272,7 @@ function UpgradePageInner() {
               <button
                 onClick={() => handleClick('founding')}
                 disabled={loadingPlan !== null}
-                className="w-full bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm flex items-center justify-center gap-2"
+                className="w-full bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm flex items-center justify-center gap-2"
               >
                 {loadingPlan === 'founding' ? (
                   <>
@@ -321,7 +321,7 @@ function UpgradePageInner() {
             <button
               type="button"
               onClick={() => { navigator.clipboard.writeText('https://rootedhomeschoolapp.com/gift'); }}
-              className="shrink-0 text-xs font-medium text-[#5c7f63] hover:text-[#3d5c42] transition-colors px-2 py-1"
+              className="shrink-0 text-xs font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors px-2 py-1"
             >
               Copy link
             </button>
