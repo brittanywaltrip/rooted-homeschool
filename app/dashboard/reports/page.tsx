@@ -195,7 +195,7 @@ export default function ReportsPage() {
   const [dateTo,        setDateTo]        = useState(toDateStr(new Date()));
   const [showPreview,   setShowPreview]   = useState(false);
 
-  useEffect(() => { document.title = "Reports \u00b7 Rooted"; }, []);
+  useEffect(() => { document.title = "Reports \u00b7 Rooted"; localStorage.setItem("rooted_visited_reports", "1"); }, []);
 
   useEffect(() => {
     if (!effectiveUserId) return;
