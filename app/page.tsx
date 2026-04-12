@@ -3,7 +3,6 @@
 import Link from "next/link";
 import HashRedirect from "./components/HashRedirect";
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
 
 // ─── App mockup components ──────────────────────────────────────────────────
 
@@ -92,62 +91,6 @@ function PrintablesMockup() {
         </div>
       </div>
     </div>
-  );
-}
-
-// ─── Waitlist form (Supabase logic unchanged) ─────────────────────────────────
-
-function WaitlistForm() {
-  const [email,     setEmail]     = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [loading,   setLoading]   = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setLoading(true);
-    try {
-      await supabase.from("app_events").insert({
-        type: "waitlist_signup",
-        payload: { email: email.trim(), timestamp: new Date().toISOString() },
-      });
-    } catch {
-      // Silently continue — confirmation still shown to user
-    }
-    setLoading(false);
-    setSubmitted(true);
-  }
-
-  if (submitted) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-4">
-        <div className="w-14 h-14 rounded-full bg-[#e8f0e9] flex items-center justify-center text-2xl">🌱</div>
-        <p className="font-semibold text-[#2d2926]">You&apos;re on the list!</p>
-        <p className="text-sm text-[#7a6f65] text-center max-w-xs">
-          We&apos;ll email <strong>{email}</strong> when founding family pricing is available.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2 w-full max-w-md mx-auto">
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="your@email.com"
-        required
-        className="flex-1 px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
-      />
-      <button
-        type="submit"
-        disabled={loading}
-        className="bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-xl transition-colors text-sm whitespace-nowrap shadow-sm"
-      >
-        {loading ? "Saving…" : "Join Waitlist"}
-      </button>
-    </form>
   );
 }
 
@@ -273,7 +216,7 @@ export default function Home() {
         {/* Animated photo background */}
         <div
           className="absolute inset-0 bg-cover bg-center hero-zoom"
-          style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1448375240586-882707db888b?w=1600&q=90)' }}
+          style={{ backgroundImage: 'url(/landing-hero.jpg)' }}
         />
 
         {/* Dark green overlay */}
@@ -285,8 +228,8 @@ export default function Home() {
         {/* Content */}
         <div className="relative z-10 flex flex-col items-center max-w-3xl">
           <h1 className="anim-fade-in-up delay-150 leading-[1.08] mb-6 text-white" style={{ fontFamily: "var(--font-display)", textShadow: "0 2px 32px rgba(0,0,0,0.4)", letterSpacing: "-0.02em" }}>
-            <span className="block text-3xl sm:text-4xl lg:text-5xl font-bold text-white/80">The homeschool years go fast.</span>
-            <span className="block text-4xl sm:text-5xl lg:text-[5rem] font-bold mt-2 text-white">Rooted helps you hold onto what matters.</span>
+            <span className="block text-3xl sm:text-4xl lg:text-5xl font-medium text-white/80">The homeschool years go fast.</span>
+            <span className="block text-4xl sm:text-5xl lg:text-[5rem] font-medium mt-2 text-white">Rooted helps you hold onto what matters.</span>
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/80 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
@@ -294,7 +237,7 @@ export default function Home() {
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
-            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#2d5a3d] hover:bg-white/90 font-bold px-8 py-4 rounded-full transition-all text-base shadow-lg">
+            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#2d5a3d] hover:bg-white/90 font-medium px-8 py-4 rounded-full transition-all text-base shadow-lg">
               Get Started Free →
             </Link>
             <Link href="/tour" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/10 font-semibold px-8 py-4 rounded-full transition-all text-base border border-white/35" style={{ backdropFilter: "blur(12px)" }}>
@@ -327,7 +270,7 @@ export default function Home() {
               <div key={label} className="py-9 px-4 text-center">
                 <div className="text-xl mb-2">{icon}</div>
                 <div
-                  className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-1 leading-none"
+                  className="text-2xl sm:text-3xl font-medium text-[#2d2926] mb-1 leading-none"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   {number}
@@ -376,7 +319,7 @@ export default function Home() {
             See it in action
           </p>
           <h2
-            className="text-3xl sm:text-4xl font-bold text-[#2d2926]"
+            className="text-3xl sm:text-4xl font-medium text-[#2d2926]"
             style={{ fontFamily: "var(--font-display)" }}
           >
             Built for how you actually homeschool
@@ -410,7 +353,7 @@ export default function Home() {
               <div className="mockup-inner rounded-t-xl overflow-hidden">{mockup}</div>
               <div className="text-center px-4 pb-5">
                 <h3
-                  className="text-sm font-bold text-[#2d2926] mb-1.5"
+                  className="text-sm font-medium text-[#2d2926] mb-1.5"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   {title}
@@ -436,7 +379,7 @@ export default function Home() {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Capture every moment</p>
-            <h3 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+            <h3 className="text-2xl sm:text-3xl font-medium text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
               The little things become the <em className="not-italic text-[#5c7f63]">big things.</em>
             </h3>
             <p className="text-[#7a6f65] leading-relaxed mb-6">
@@ -452,7 +395,7 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           <div className="order-2 lg:order-1">
             <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Plan with ease</p>
-            <h3 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+            <h3 className="text-2xl sm:text-3xl font-medium text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
               Know exactly what&apos;s next — <em className="not-italic text-[#5c7f63]">without the stress.</em>
             </h3>
             <p className="text-[#7a6f65] leading-relaxed mb-6">
@@ -484,7 +427,7 @@ export default function Home() {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Watch them grow</p>
-            <h3 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+            <h3 className="text-2xl sm:text-3xl font-medium text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
               See how far they&apos;ve come — <em className="not-italic text-[#5c7f63]">beautifully.</em>
             </h3>
             <p className="text-[#7a6f65] leading-relaxed mb-6">
@@ -505,7 +448,7 @@ export default function Home() {
               Everything you need
             </p>
             <h2
-              className="text-3xl sm:text-4xl font-bold text-[#2d2926]"
+              className="text-3xl sm:text-4xl font-medium text-[#2d2926]"
               style={{ fontFamily: "var(--font-display)" }}
             >
               Everything you need to homeschool with confidence
@@ -514,20 +457,6 @@ export default function Home() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
-              {
-                emoji: "📸",
-                title: "Capture Memories",
-                color: "#fef3e0",
-                border: "#f0d090",
-                desc: "Photos, little quotes, field trips, books they loved \u2014 saved as it happens. Build a memory book your family will treasure forever.",
-              },
-              {
-                emoji: "🗓️",
-                title: "Plan Your Days",
-                color: "#e8f0e9",
-                border: "#b8d9bc",
-                desc: "Schedule lessons, see what\u2019s up today, and keep the whole family on track.",
-              },
               {
                 emoji: "🌱",
                 title: "Watch Them Grow",
@@ -543,25 +472,11 @@ export default function Home() {
                 desc: "See exactly how much your kids have learned \u2014 then print it, share it with family, or save it forever.",
               },
               {
-                emoji: "📖",
-                title: "Your Family Yearbook",
-                color: "#f5f0fa",
-                border: "#d9bee8",
-                desc: "Wins, quotes, and books fill it automatically all year. Add photos you love. At year-end: a beautiful book with your letter, each child\u2019s chapter, and messages from family.",
-              },
-              {
                 emoji: "📚",
                 title: "Curated Resources",
                 color: "#e8f4f8",
                 border: "#a8d0e0",
                 desc: "Discounts, field trips, printables, science projects, and state homeschool information \u2014 curated for you.",
-              },
-              {
-                emoji: "🖨️",
-                title: "Printables",
-                color: "#fef9f0",
-                border: "#e8d4b0",
-                desc: "Certificates, ID cards, and awards built from your family\u2019s real data. No design skills needed. Just click and print.",
               },
             ].map((f) => (
               <div
@@ -571,7 +486,7 @@ export default function Home() {
               >
                 <div className="text-3xl mb-3">{f.emoji}</div>
                 <h3
-                  className="font-bold text-[#2d2926] mb-2 text-base"
+                  className="font-medium text-[#2d2926] mb-2 text-base"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   {f.title}
@@ -579,94 +494,6 @@ export default function Home() {
                 <p className="text-sm text-[#7a6f65] leading-relaxed">{f.desc}</p>
               </div>
             ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── 6. MEMORIES ───────────────────────────────────────────────────────── */}
-      <section
-        className="px-6 sm:px-8 py-24"
-        style={{ background: "linear-gradient(160deg, #fef9f0 0%, #fefcf9 40%, #f0f7f1 100%)" }}
-      >
-        <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-                The part moms love most
-              </p>
-              <h2
-                className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
-                style={{ fontFamily: "var(--font-display)" }}
-              >
-                The little things?{" "}
-                <em className="not-italic" style={{ color: "#5c7f63" }}>You&apos;ll want to remember them.</em>
-              </h2>
-              <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                Between the lessons, the field trips, the little things they said that made you laugh — so much gets forgotten. Rooted gives you a beautiful, simple place to save it all.
-              </p>
-              <ul className="space-y-4 mb-8">
-                {[
-                  { emoji: "📸", title: "Photos from your day", desc: "Snap and save moments as they happen — field trips, projects, backyard science." },
-                  { emoji: "✍️", title: "Little notes & quotes", desc: "Write down what they said, what clicked, what made them proud. You'll want these later." },
-                  { emoji: "📖", title: "Books they loved", desc: "Build a reading log automatically as you go. A record of their whole reading life." },
-                  { emoji: "🌿", title: "Look back and see it", desc: "Your whole homeschool journey, month by month. Proof you're doing something beautiful." },
-                ].map((item) => (
-                  <li key={item.title} className="flex gap-4 items-start">
-                    <div className="w-9 h-9 rounded-xl bg-[#e8f0e9] flex items-center justify-center text-lg shrink-0 mt-0.5">
-                      {item.emoji}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-[#2d2926] text-sm mb-0.5">{item.title}</p>
-                      <p className="text-xs text-[#7a6f65] leading-relaxed">{item.desc}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm shadow-sm">
-                Start capturing memories →
-              </Link>
-            </div>
-
-            <div className="flex justify-center lg:justify-end">
-              <div
-                className="bg-white rounded-3xl shadow-2xl border border-[#e8e2d9] overflow-hidden w-full max-w-sm select-none"
-                style={{ boxShadow: "0 24px 60px rgba(92, 127, 99, 0.12), 0 4px 16px rgba(0,0,0,0.06)" }}
-              >
-                <div className="bg-[#fefcf9] border-b border-[#e8e2d9] px-4 py-3 flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-[#d4956a]" />
-                  <span className="text-xs font-semibold text-[#2d2926]">Memories</span>
-                  <span className="ml-auto text-[10px] text-[#b5aca4]">March 2026</span>
-                </div>
-                <div className="p-4 space-y-3">
-                  <div className="rounded-2xl overflow-hidden border border-[#e8e2d9]">
-                    <div className="h-28 flex items-center justify-center text-4xl" style={{ background: "linear-gradient(135deg, #c8e8d0 0%, #a8d4b8 100%)" }}>
-                      🦋
-                    </div>
-                    <div className="bg-white px-3 py-2.5">
-                      <p className="text-xs font-semibold text-[#2d2926]">Butterfly lifecycle — backyard science!</p>
-                      <p className="text-[10px] text-[#b5aca4] mt-0.5">March 14 · Science</p>
-                    </div>
-                  </div>
-                  <div className="bg-[#fef9f0] border border-[#f0d090] rounded-2xl p-3">
-                    <p className="text-[10px] font-bold text-[#8b6f47] uppercase tracking-widest mb-1.5">✍️ She said...</p>
-                    <p className="text-xs text-[#2d2926] italic leading-relaxed">&ldquo;Mom, I think I actually love fractions now.&rdquo;</p>
-                    <p className="text-[10px] text-[#b5aca4] mt-2">Emma · March 17</p>
-                  </div>
-                  <div className="bg-[#f0f4ff] border border-[#c8d0f0] rounded-2xl px-3 py-2.5 flex items-center gap-3">
-                    <div className="text-2xl">📖</div>
-                    <div>
-                      <p className="text-xs font-semibold text-[#2d2926]">Finished Charlotte&apos;s Web</p>
-                      <p className="text-[10px] text-[#b5aca4]">Zoe · March 15 · Book #8 this year</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="px-4 pb-4">
-                  <div className="bg-[#e8f0e9] rounded-xl px-3 py-2 text-center">
-                    <p className="text-[10px] text-[#5c7f63] font-semibold">🌿 24 memories this month</p>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </section>
@@ -686,14 +513,14 @@ export default function Home() {
                     <div className="w-2 h-2 rounded-full bg-[#8b6f47]" />
                     <span className="text-xs font-semibold text-[#2d2926]">Progress Report</span>
                   </div>
-                  <div className="flex items-center gap-1.5 bg-[#5c7f63] text-white text-[10px] font-bold px-2.5 py-1 rounded-lg">
+                  <div className="flex items-center gap-1.5 bg-[#5c7f63] text-white text-[10px] font-medium px-2.5 py-1 rounded-lg">
                     🖨️ Print
                   </div>
                 </div>
                 <div className="p-5 space-y-4">
                   <div>
                     <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Zoe Parker · 2025–2026</p>
-                    <p className="text-sm font-bold text-[#2d2926] mt-0.5">Annual Progress Report</p>
+                    <p className="text-sm font-medium text-[#2d2926] mt-0.5">Annual Progress Report</p>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
                     {[
@@ -703,7 +530,7 @@ export default function Home() {
                       { label: "Subjects", value: "4" },
                     ].map(({ label, value }) => (
                       <div key={label} className="text-center bg-[#f8f5f0] rounded-xl py-2.5">
-                        <p className="text-sm font-bold text-[#2d2926]">{value}</p>
+                        <p className="text-sm font-medium text-[#2d2926]">{value}</p>
                         <p className="text-[8px] text-[#7a6f65]">{label}</p>
                       </div>
                     ))}
@@ -736,7 +563,7 @@ export default function Home() {
                 Your family&apos;s story, beautifully documented
               </p>
               <h2
-                className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
+                className="text-3xl sm:text-4xl font-medium text-[#2d2926] mb-5 leading-snug"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 See how far they&apos;ve come.
@@ -747,7 +574,6 @@ export default function Home() {
               <ul className="space-y-4 mb-8">
                 {[
                   { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook — a living record of their whole learning life." },
-                  { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles — anyone you choose. They can view memories and leave messages for the kids. No app download needed." },
                   { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
@@ -777,7 +603,7 @@ export default function Home() {
               Share with family
             </p>
             <h2
-              className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
+              className="text-3xl sm:text-4xl font-medium text-[#2d2926] mb-5 leading-snug"
               style={{ fontFamily: "var(--font-display)" }}
             >
               The people who love your kids will love this too.
@@ -820,7 +646,7 @@ export default function Home() {
             Simple, honest pricing
           </p>
           <h2
-            className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-4"
+            className="text-3xl sm:text-4xl font-medium text-[#2d2926] mb-4"
             style={{ fontFamily: "var(--font-display)" }}
           >
             Start free. Grow with Rooted.
@@ -836,10 +662,10 @@ export default function Home() {
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Free Forever</p>
+            <p className="text-xs font-medium uppercase tracking-widest text-[#b5aca4] mb-3">Free Forever</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
-                className="text-4xl font-bold text-[#2d2926]"
+                className="text-4xl font-medium text-[#2d2926]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 $0
@@ -853,7 +679,7 @@ export default function Home() {
                 "Daily lesson tracking",
                 "Family garden & badges",
                 "Curated resources",
-                "Yearbook preview (first 25 memories)",
+                "Yearbook preview — last 30 days",
                 "1 progress summary per year (view only)",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
@@ -873,15 +699,15 @@ export default function Home() {
           {/* Founding Family */}
           <div className="relative bg-gradient-to-br from-[#eaf6ec] via-[#d6ecd9] to-[#c4e2ca] rounded-2xl p-6 text-center flex flex-col founding-glow">
             {/* Shimmer badge */}
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap founding-shimmer-badge text-white text-[11px] font-bold px-5 py-1.5 rounded-full shadow-md">
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap founding-shimmer-badge text-white text-[11px] font-medium px-5 py-1.5 rounded-full shadow-md">
               🌱 Best Value — Founding Price
             </div>
-            <p className="text-xs font-bold uppercase tracking-widest text-[#5c7f63] mb-3 mt-2">
+            <p className="text-xs font-medium uppercase tracking-widest text-[#5c7f63] mb-3 mt-2">
               Founding Family
             </p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
-                className="text-4xl font-bold text-[#2d2926]"
+                className="text-4xl font-medium text-[#2d2926]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 $39
@@ -906,14 +732,14 @@ export default function Home() {
                 "Lifetime founding price 🎁",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#2d2926]">
-                  <span className="text-[#5c7f63] mt-0.5 shrink-0 text-xs font-bold">✓</span>
+                  <span className="text-[#5c7f63] mt-0.5 shrink-0 text-xs font-medium">✓</span>
                   {f}
                 </li>
               ))}
             </ul>
             <Link
               href="/signup"
-              className="block w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-3.5 rounded-xl transition-colors text-sm shadow-sm"
+              className="block w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-medium py-3.5 rounded-xl transition-colors text-sm shadow-sm"
             >
               Claim Founding Price →
             </Link>
@@ -927,10 +753,10 @@ export default function Home() {
 
           {/* Standard */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Standard</p>
+            <p className="text-xs font-medium uppercase tracking-widest text-[#b5aca4] mb-3">Standard</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
-                className="text-4xl font-bold text-[#2d2926]"
+                className="text-4xl font-medium text-[#2d2926]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 $59
@@ -966,10 +792,10 @@ export default function Home() {
 
           {/* Monthly */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Monthly</p>
+            <p className="text-xs font-medium uppercase tracking-widest text-[#b5aca4] mb-3">Monthly</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
-                className="text-4xl font-bold text-[#2d2926]"
+                className="text-4xl font-medium text-[#2d2926]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 $6.99
@@ -1004,47 +830,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Feature comparison table */}
-        <div className="overflow-x-auto rounded-2xl border border-[#e8e2d9]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-[#f8f7f4] border-b border-[#e8e2d9]">
-                <th className="text-left px-4 py-3 font-semibold text-[#7a6f65]">Feature</th>
-                <th className="text-center px-4 py-3 font-semibold text-[#b5aca4]">Free</th>
-                <th className="text-center px-4 py-3 font-bold text-[#5c7f63] bg-[#f0f7f0]">Founding</th>
-                <th className="text-center px-4 py-3 font-semibold text-[#7a6f65]">Standard</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { feature: "Children",               free: "Unlimited", founding: "Unlimited",  standard: "Unlimited" },
-                { feature: "Lesson tracking",        free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Garden & growth tree",   free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Photo memories",         free: "50",    founding: "✓ Unlimited", standard: "✓ Unlimited" },
-                { feature: "Memory timeline",        free: "30 days", founding: "✓ All time", standard: "✓ All time" },
-                { feature: "Year in Review",         free: "1 / year", founding: "✓ Unlimited", standard: "✓ Unlimited" },
-                { feature: "Progress reports",       free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Curriculum pacing guide", free: "—",    founding: "✓",          standard: "✓"         },
-                { feature: "Monthly family update",  free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Family yearbook",        free: "First 25", founding: "✓ Full year", standard: "✓ Full year" },
-                { feature: "Share with family",      free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
-                { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },
-              ].map((row, i) => (
-                <tr
-                  key={row.feature}
-                  className={`border-b border-[#f0ede8] ${i % 2 === 0 ? "bg-white" : "bg-[#fefcf9]"}`}
-                >
-                  <td className="px-4 py-3 text-[#2d2926] font-medium">{row.feature}</td>
-                  <td className="px-4 py-3 text-center text-[#b5aca4]">{row.free}</td>
-                  <td className="px-4 py-3 text-center text-[#3d5c42] font-medium bg-[#f0f7f0]">{row.founding}</td>
-                  <td className="px-4 py-3 text-center text-[#7a6f65]">{row.standard}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
         <p className="text-xs text-[#b5aca4] mt-6 text-center">
           Try it free. No credit card needed to get started.
         </p>
@@ -1066,7 +851,7 @@ export default function Home() {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">From the founder</p>
-            <h2 className="text-xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
+            <h2 className="text-xl font-medium text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
               Built by a homeschool mom, for homeschool families.
             </h2>
             <p className="text-[#7a6f65] leading-relaxed text-sm mb-4">
@@ -1077,70 +862,11 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 9. WAITLIST CTA ────────────────────────────────────────────────── */}
-      <section className="px-6 sm:px-8 pb-24">
-        <div
-          className="max-w-2xl mx-auto rounded-3xl px-8 py-14 sm:px-14 text-center relative overflow-hidden"
-          style={{
-            background: "linear-gradient(135deg, #d0ebd4 0%, #e0f2e4 35%, #c8e8cf 70%, #b8dfc0 100%)",
-            border: "1px solid #aed4b5",
-          }}
-        >
-          {/* Decorative leaves */}
-          <span
-            className="absolute top-5 left-5 text-[5rem] opacity-[0.10] select-none pointer-events-none leading-none"
-            aria-hidden="true"
-          >
-            🌿
-          </span>
-          <span
-            className="absolute bottom-5 right-6 text-[4.5rem] opacity-[0.10] select-none pointer-events-none leading-none"
-            style={{ transform: "scaleX(-1) rotate(20deg)" }}
-            aria-hidden="true"
-          >
-            🌿
-          </span>
-          <span
-            className="absolute top-1/2 right-5 -translate-y-1/2 text-4xl opacity-[0.07] select-none pointer-events-none leading-none"
-            style={{ transform: "translateY(-50%) rotate(-15deg)" }}
-            aria-hidden="true"
-          >
-            🍃
-          </span>
-          <span
-            className="absolute top-1/2 left-5 -translate-y-1/2 text-3xl opacity-[0.07] select-none pointer-events-none leading-none"
-            style={{ transform: "translateY(-50%) rotate(15deg)" }}
-            aria-hidden="true"
-          >
-            🍃
-          </span>
-
-          <div className="relative z-10">
-            <div className="text-5xl mb-5">🌱</div>
-            <h2
-              className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              Start your homeschool journey today
-            </h2>
-            <p className="text-[#3d5c42] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
-              Free to start. No credit card needed. Join families already using Rooted.
-            </p>
-            <Link
-              href="/signup"
-              className="inline-block bg-[#5c7f63] hover:bg-[#4a6b50] text-white font-semibold px-8 py-3 rounded-full transition-colors"
-            >
-              Get Started Free →
-            </Link>
-          </div>
-        </div>
-      </section>
-
       {/* ── 10. BOTTOM CTA ────────────────────────────────────────────────── */}
       <section className="bg-[#e8f0ea] px-6 sm:px-8 py-20">
         <div className="max-w-2xl mx-auto text-center">
           <h2
-            className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-4 italic"
+            className="text-3xl sm:text-4xl font-medium text-[#2d2926] mb-4 italic"
             style={{ fontFamily: "var(--font-display)" }}
           >
             Ready to get rooted?
@@ -1150,7 +876,7 @@ export default function Home() {
           </p>
           <Link
             href="/signup"
-            className="inline-flex items-center gap-2 bg-[#2d5a3d] hover:bg-[#3d5c42] text-white font-bold px-8 py-4 rounded-full transition-colors text-base shadow-lg"
+            className="inline-flex items-center gap-2 bg-[#2d5a3d] hover:bg-[#3d5c42] text-white font-medium px-8 py-4 rounded-full transition-colors text-base shadow-lg"
           >
             Start for Free →
           </Link>
@@ -1172,7 +898,7 @@ export default function Home() {
                   🌿
                 </div>
                 <span
-                  className="font-bold text-[#2d2926] text-base"
+                  className="font-medium text-[#2d2926] text-base"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   Rooted
@@ -1215,6 +941,7 @@ export default function Home() {
                 © {new Date().getFullYear()} Rooted
               </p>
               <p className="text-xs text-[#c8bfb5]">Made with care for learning families</p>
+              <span className="text-xs text-[#b5aca4] block mt-1">Photo by Lukasz Szmigiel / Unsplash</span>
             </div>
           </div>
 
