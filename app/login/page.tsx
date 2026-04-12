@@ -57,9 +57,8 @@ export default function LoginPage() {
 
       {/* ── Left panel — desktop only ─────────────────────────────────────── */}
       <div className="hidden lg:flex lg:w-1/2 bg-[#3d5c42] flex-col justify-center px-14 py-16">
-        <Link href="/" className="flex items-center gap-3 mb-12">
-          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-xl">🌿</div>
-          <span className="text-xl font-bold text-white">Rooted</span>
+        <Link href="/" className="inline-block mb-12">
+          <img src="/rooted-logo-nav.png" alt="Rooted" className="h-9 w-auto brightness-0 invert" />
         </Link>
 
         <h2 className="text-3xl font-bold font-serif text-white leading-snug mb-8">
@@ -87,9 +86,8 @@ export default function LoginPage() {
 
         {/* Mobile logo + tagline */}
         <div className="lg:hidden text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 mb-3">
-            <span className="text-2xl">🌿</span>
-            <span className="text-xl font-semibold text-[#5c7f63]">Rooted</span>
+          <Link href="/" className="inline-block mb-3">
+            <img src="/rooted-logo-nav.png" alt="Rooted" className="h-8 w-auto" />
           </Link>
           <p className="text-sm text-[#7a6f65]">Every lesson. Every memory. Every milestone.</p>
         </div>
