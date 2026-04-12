@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
       const { data: { user } } = await supabase.auth.getUser()
 
       if (user) {
-        const { data: profile } = await supabase
+        const { data: profile } = await supabaseAdmin
           .from('profiles')
           .select('id')
           .eq('id', user.id)
@@ -41,7 +42,7 @@ export async function GET(request: Request) {
 
         if (!profile) {
           // Create a minimal profile row so onboarding can update it
-          await supabase.from('profiles').upsert({ id: user.id }, { onConflict: 'id' })
+          await supabaseAdmin.from('profiles').upsert({ id: user.id }, { onConflict: 'id' })
         }
 
         const redirectPath = !profile ? '/onboarding' : '/dashboard'
