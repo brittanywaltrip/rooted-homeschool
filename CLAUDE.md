@@ -110,3 +110,26 @@ Step 5: Done + Brittany founder closing moment
 ## Storage buckets (Supabase)
 - memory-photos: user photo memories (public)
 - family-photos: family profile photos (public)
+
+## Plan system (as of April 11, 2026)
+Three fields control feature gating:
+- plan_type: NULL for free users, 'founding_family'/'standard'/'monthly'/'gift' for paid. Set ONLY by Stripe webhook.
+- subscription_status: 'free' (DB default) or 'active'/'cancelled'/'refunded'. Set ONLY by Stripe webhook.
+- is_pro: boolean, false by default. Set ONLY by Stripe webhook.
+plan_type is NULL (not 'free') for all free users — this is intentional. Treat NULL as free in all components.
+
+## Database state (April 11, 2026)
+- 461 free profiles, 22 paid (founding_family), 1 gift edge case
+- ~214 auth.users with no profile row (likely Google auth bug victims)
+- No handle_new_user trigger — profile creation is in app code (auth callback)
+
+## Known issues
+- Google auth button hidden on main — SUPABASE_URL env var fix deployed, needs testing with fresh Gmail
+- CAN-SPAM: rooted-family-digest, rooted-weekly-summary, rooted-trial-warning missing unsubscribe links
+- Logo: Tour/FAQ/Privacy/Terms/Contact still use old square icon (fix in CC session 2)
+
+## Cron jobs
+3 jobs in vercel.json — see file for current state after session 4 cleanup.
+- /api/cron/reengagement: daily 2PM UTC — 3-email drip sequence for inactive users
+- /api/cron/check-links: weekly Monday 9AM UTC — validate resource links
+- /api/cron/weekly-summary: weekly Monday 3PM UTC — family weekly summary emails

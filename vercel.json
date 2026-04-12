@@ -11,10 +11,6 @@
     {
       "path": "/api/cron/weekly-summary",
       "schedule": "0 15 * * 1"
-    },
-    {
-      "path": "/api/cron/re-engagement",
-      "schedule": "0 10 * * *"
     }
   ]
 }
