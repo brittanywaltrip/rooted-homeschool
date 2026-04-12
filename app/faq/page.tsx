@@ -120,7 +120,7 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, and curated resources. You also get 50 photos, your last 30 days of memories, and a yearbook preview. A paid plan unlocks unlimited photos, your full memory history, yearbook PDF download, progress reports, and curriculum pacing.",
+        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, and curated resources. You also get 50 photos, your last 30 days of memories, and a yearbook preview. A paid plan includes unlimited photos, your full memory history, yearbook PDF download, progress reports, and curriculum pacing.",
       },
       {
         q: "What is the Founding Family price?",
@@ -188,7 +188,7 @@ const sections = [
       },
       {
         q: "Do free users get a yearbook?",
-        a: "Free users can build a yearbook, but it only shows memories from the last 30 days (the same limit as the rest of the free plan). Upgrading to a paid plan unlocks your full school year. Your yearbook text — the letter, child interviews, and future notes — is always saved regardless of plan.",
+        a: "Free users can build a yearbook, but it only shows memories from the last 30 days (the same limit as the rest of the free plan). Upgrading to a paid plan gives you your full school year. Your yearbook text — the letter, child interviews, and future notes — is always saved regardless of plan.",
       },
       {
         q: "Are my archived yearbooks saved if I cancel my subscription?",

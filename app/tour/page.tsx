@@ -78,7 +78,6 @@ const FEATURES: {
     bullets: [
       "Every lesson logged becomes part of a beautiful record — print it, share it, or save it forever",
       "Share a PDF with grandparents showing exactly what your kids learned this year",
-      "Builds high school transcripts automatically as your teen logs lessons and credits",
     ],
     note: "A keepsake and a progress record — all in one 🌿",
   },
@@ -859,7 +858,6 @@ export default function TourPage() {
                 {[
                   { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook — a living record of their whole learning life." },
                   { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles — anyone you choose. No app download needed." },
-                  { emoji: "🎓", title: "High school transcripts", desc: "Build a college-ready transcript automatically as your teen logs lessons and credits." },
                   { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">

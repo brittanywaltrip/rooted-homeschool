@@ -2235,7 +2235,7 @@ export default function TodayPage() {
                   Your yearbook has {yearbookCount} memor{yearbookCount === 1 ? "y" : "ies"} so far this year
                 </p>
                 <p className="text-[11px] text-[#9a8f85]">
-                  {isFreeUser ? "Upgrade to unlock your family yearbook →" : "Tap to open your family yearbook →"}
+                  {isFreeUser ? "View your family yearbook →" : "Tap to open your family yearbook →"}
                 </p>
               </div>
             </button>
@@ -2321,9 +2321,9 @@ export default function TodayPage() {
           <p className="text-xs text-white/75 mt-1">
             {(() => {
               const diff = Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000);
-              if (diff < 0) return "Upgrade to Founding Family to unlock your yearbook";
-              if (diff === 0) return "Last chance — upgrade today to unlock your yearbook";
-              return `Upgrade to Founding Family to unlock your yearbook — ${diff} day${diff !== 1 ? "s" : ""} left`;
+              if (diff < 0) return "Upgrade to Founding Family for your full yearbook";
+              if (diff === 0) return "Last chance — upgrade today for your full yearbook";
+              return `Upgrade to Founding Family for your full yearbook — ${diff} day${diff !== 1 ? "s" : ""} left`;
             })()}
           </p>
           <Link
@@ -2331,7 +2331,7 @@ export default function TodayPage() {
             onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_teaser' })}
             className="inline-block mt-3 px-4 py-2 bg-white text-[var(--g-brand)] text-xs font-medium rounded-full hover:bg-white/90 transition-colors"
           >
-            Unlock my yearbook →
+            View my yearbook →
           </Link>
         </div>
       )}
