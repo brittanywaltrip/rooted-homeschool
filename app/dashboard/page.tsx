@@ -1720,7 +1720,7 @@ export default function TodayPage() {
          ═══════════════════════════════════════════════════════════ */}
       <div
         className="mx-[10px] mt-[10px] relative overflow-hidden"
-        style={{ backgroundColor: "#2D5a1B", borderRadius: 16, padding: 16 }}
+        style={{ backgroundColor: "#3d5c42", borderRadius: 16, padding: 16 }}
       >
         {/* Leaf watermark */}
         <span
