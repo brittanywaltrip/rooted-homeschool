@@ -341,10 +341,10 @@ export default function YearbookEditPage() {
                       setCoverSaved(false);
                       try {
                         const compressed = await compressImage(file);
-                        const path = `${effectiveUserId}/yearbook-cover.jpg`;
-                        const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: true });
+                        const path = `${effectiveUserId}/cover.jpg`;
+                        const { error: upErr } = await supabase.storage.from("yearbook-covers").upload(path, compressed, { contentType: "image/jpeg", upsert: true });
                         if (upErr) throw upErr;
-                        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+                        const { data: urlData } = supabase.storage.from("yearbook-covers").getPublicUrl(path);
                         const url = urlData.publicUrl + "?t=" + Date.now();
                         setCoverPhotoUrl(url);
                         await saveContent("cover_photo", url);
@@ -376,10 +376,10 @@ export default function YearbookEditPage() {
                     setCoverSaved(false);
                     try {
                       const compressed = await compressImage(file);
-                      const path = `${effectiveUserId}/yearbook-cover.jpg`;
-                      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: true });
+                      const path = `${effectiveUserId}/cover.jpg`;
+                      const { error: upErr } = await supabase.storage.from("yearbook-covers").upload(path, compressed, { contentType: "image/jpeg", upsert: true });
                       if (upErr) throw upErr;
-                      const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+                      const { data: urlData } = supabase.storage.from("yearbook-covers").getPublicUrl(path);
                       const url = urlData.publicUrl + "?t=" + Date.now();
                       setCoverPhotoUrl(url);
                       await saveContent("cover_photo", url);
