@@ -60,7 +60,7 @@ function StepShell({
           className="h-9 w-auto mb-10 opacity-80"
           onError={(e) => {
             (e.target as HTMLImageElement).src = "/rooted-logo-nav.png";
-            (e.target as HTMLImageElement).className = "h-7 w-auto mb-10 opacity-80 brightness-0 invert";
+            (e.target as HTMLImageElement).className = "h-9 w-auto mb-10 opacity-80 brightness-0 invert";
           }}
         />
       )}
@@ -92,6 +92,7 @@ export default function OnboardingPage() {
   const [skipStep1, setSkipStep1] = useState(false);
   const [skipStep2, setSkipStep2] = useState(false);
   const [bothSkipped, setBothSkipped] = useState(false);
+  const [celebrationReady, setCelebrationReady] = useState(false);
 
   // ── Auth + profile check ────────────────────────────────────────────────
 
@@ -105,7 +106,7 @@ export default function OnboardingPage() {
         .eq("id", user.id)
         .maybeSingle();
 
-      if ((profile as { onboarded?: boolean | null } | null)?.onboarded === true) {
+      if ((profile as { onboarded?: boolean | null } | null)?.onboarded === true && !celebrationReady) {
         router.replace("/dashboard");
         return;
       }
@@ -241,7 +242,16 @@ export default function OnboardingPage() {
     });
   }, []);
 
-  // ── Render ─────────────────────────────────────────────────────────────
+  // ── Complete onboarding when celebration step renders ────────────────
+
+  useEffect(() => {
+    if (step === 4 && !celebrationReady) {
+      setCelebrationReady(true);
+      completeOnboarding();
+    }
+  }, [step, celebrationReady, completeOnboarding]);
+
+  // ── Render ──────────────────────���─────────────────────────────────────���
 
   if (!ready) {
     return (
@@ -479,8 +489,6 @@ export default function OnboardingPage() {
   // ─── STEP 5 — Celebration ─────────────────────────────────────────────
 
   if (step === 4) {
-    completeOnboarding();
-
     return (
       <StepShell green={false}>
         <div className={`${fadeClass} flex flex-col items-center text-center`}>

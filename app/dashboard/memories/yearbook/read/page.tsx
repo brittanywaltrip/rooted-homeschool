@@ -1079,7 +1079,7 @@ export default function YearbookReadPage() {
                         <span className="text-2xl">🌿</span>
                       </div>
                       <h3 className="text-lg font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
-                        Unlock your full yearbook
+                        Your full yearbook awaits
                       </h3>
                       <p className="text-xs text-[#7a6f65] mb-5 max-w-xs">
                         You&apos;re previewing your yearbook. Upgrade to see every page.
@@ -1089,7 +1089,7 @@ export default function YearbookReadPage() {
                         onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_reader_gate' })}
                         className="inline-block bg-[var(--g-brand)] text-white font-semibold text-sm px-6 py-3 rounded-full hover:bg-[var(--g-deep)] transition-colors"
                       >
-                        Unlock — $39/yr →
+                        Upgrade — $39/yr →
                       </Link>
                     </div>
                   </>
@@ -1180,7 +1180,7 @@ export default function YearbookReadPage() {
                       <span className="text-3xl">🌿</span>
                     </div>
                     <h3 className="text-xl font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
-                      Unlock your full yearbook
+                      Your full yearbook awaits
                     </h3>
                     <p className="text-sm text-[#7a6f65] mb-5 max-w-sm">
                       You&apos;re previewing your yearbook. Upgrade to see every page.

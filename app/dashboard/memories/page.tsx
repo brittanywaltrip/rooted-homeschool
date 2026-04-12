@@ -690,19 +690,21 @@ export default function MemoriesPage() {
         </button>
       </div>
 
-      {/* ── Yearbook card ──────────────────────────────────────── */}
-      <Link
-        href="/dashboard/memories/yearbook"
-        className="bg-[#faf6f0] border border-[#c0dd97] rounded-2xl p-3 flex items-center gap-3 hover:border-[#5c7f63] transition-colors"
-      >
-        <span className="text-[20px]">📖</span>
-        <div>
-          <p className="text-[13px] font-semibold text-[var(--g-deep)]">Your family yearbook →</p>
-          <p className="text-[11px] text-[#9a8f85]">
-            {memories.filter((m) => m.include_in_book).length} memories bookmarked this year
-          </p>
-        </div>
-      </Link>
+      {/* ── Yearbook card (hidden when 0 memories) ────────────────── */}
+      {memories.length > 0 && (
+        <Link
+          href="/dashboard/memories/yearbook"
+          className="bg-[#faf6f0] border border-[#c0dd97] rounded-2xl p-3 flex items-center gap-3 hover:border-[#5c7f63] transition-colors"
+        >
+          <span className="text-[20px]">📖</span>
+          <div>
+            <p className="text-[13px] font-semibold text-[var(--g-deep)]">Your family yearbook →</p>
+            <p className="text-[11px] text-[#9a8f85]">
+              {memories.filter((m) => m.include_in_book).length} memories bookmarked this year
+            </p>
+          </div>
+        </Link>
+      )}
 
       {/* ── Filter pills ─────────────────────────────────────── */}
       {/* ROW 1: Primary filters */}
@@ -894,20 +896,20 @@ export default function MemoriesPage() {
         </div>
       )}
 
-      {/* Memory counter awareness banner */}
-      {(!planType || planType === "free" || previewFree) && !loading && (
+      {/* Memory counter awareness banner — only show when user has memories */}
+      {(!planType || planType === "free" || previewFree) && !loading && memories.length > 0 && (
         <div className="bg-[#e8f0e8] border border-[#c8d8c8] rounded-2xl px-4 py-3">
           <p className="text-sm text-[var(--g-brand)]">
             You have <strong>{memories.length}</strong> memories captured 🌱{" "}
             <Link href="/upgrade" onClick={() => posthog.capture('upgrade_clicked', { source: 'memory_banner' })} className="underline font-medium text-[var(--g-brand)] hover:text-[var(--g-deep)]">
-              Upgrade to unlock your full yearbook and archive →
+              Upgrade for unlimited memories and full yearbook →
             </Link>
           </p>
         </div>
       )}
 
-      {/* Free user upgrade banner */}
-      {!isPro && !loading && (
+      {/* Free user upgrade banner — only show when user has memories */}
+      {!isPro && !loading && memories.length > 0 && (
         <UpgradePrompt
           inline
           feature="Full Memory History"
@@ -984,28 +986,27 @@ export default function MemoriesPage() {
           </div>
         ) : (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
-            <span className="text-4xl mb-3">🌱</span>
-            <p className="font-medium text-[#2d2926] mb-1">No memories yet</p>
-            <p className="text-sm text-[#7a6f65] max-w-xs">
-              Tap Capture to add your first one.
+            <span className="text-4xl mb-3">🌿</span>
+            <p className="font-medium text-[#2d2926] mb-2">Your family story starts here</p>
+            <p className="text-sm text-[#7a6f65] max-w-xs mb-6">
+              Every photo, win, book, and field trip lives here — and builds your yearbook automatically.
             </p>
             <button
-              onClick={async () => {
-                const shareData = {
-                  title: "Rooted",
-                  text: "I\u2019ve been using Rooted to capture our homeschool memories \u2014 thought you might love it!",
-                  url: "https://rootedhomeschoolapp.com",
-                };
-                if (navigator.share) {
-                  try { await navigator.share(shareData); } catch {}
-                } else {
-                  await navigator.clipboard.writeText(shareData.url);
-                }
+              onClick={() => {
+                // Trigger the floating camera FAB
+                const fab = document.querySelector<HTMLButtonElement>('[data-fab-trigger]');
+                if (fab) fab.click();
               }}
-              className="mt-4 text-xs text-[#5c7f63] hover:text-[var(--g-deep)] font-medium transition-colors"
+              className="w-full py-3.5 rounded-2xl bg-[var(--g-brand)] text-white font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98]"
             >
-              Loving Rooted? Share it with a friend →
+              + Capture your first memory
             </button>
+            <Link
+              href="/dashboard/memories/yearbook/read"
+              className="w-full py-3 rounded-2xl border-2 border-[#e8e2d9] text-[#7a6f65] font-medium text-sm text-center hover:bg-[#f0ede8] transition-colors block"
+            >
+              View your yearbook →
+            </Link>
           </div>
         )
       ) : (

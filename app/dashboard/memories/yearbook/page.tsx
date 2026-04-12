@@ -317,7 +317,7 @@ export default function YearbookPage() {
                 href="/dashboard/settings?tab=billing"
                 className="mt-2 inline-block text-[12px] font-semibold text-[var(--g-deep)] underline underline-offset-2"
               >
-                Unlock your full yearbook →
+                View your full yearbook →
               </Link>
             </div>
           </div>
