@@ -1733,7 +1733,7 @@ export default function TodayPage() {
          ═══════════════════════════════════════════════════════════ */}
       <div
         className="relative w-full rounded-b-[24px] px-6 pt-7 pb-8 overflow-hidden"
-        style={{ background: "var(--g-deep)" }}
+        style={{ background: "var(--g-brand)" }}
       >
         {/* Decorative background leaves (same as PageHero) */}
         <div

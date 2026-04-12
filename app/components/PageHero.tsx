@@ -28,7 +28,7 @@ export default function PageHero({
   return (
     <div
       className={`relative w-full rounded-b-[24px] px-6 pt-7 pb-8 overflow-hidden ${className}`}
-      style={{ background: bgColor || "var(--g-deep)" }}
+      style={{ background: bgColor || "var(--g-brand)" }}
     >
       {/* Decorative background leaves */}
       <div
