@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { compressImage } from "@/lib/compress-image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import PageHero from "@/app/components/PageHero";
 
 function safeParseDateStr(d: string | null | undefined): Date | null {
@@ -102,6 +103,7 @@ function SaveStatus({ status }: { status: "idle" | "saving" | "saved" | "error" 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function YearbookEditPage() {
+  const router = useRouter();
   const { effectiveUserId, isPartner } = usePartner();
   const [loading, setLoading] = useState(true);
   const [children, setChildren] = useState<Child[]>([]);
@@ -768,7 +770,7 @@ export default function YearbookEditPage() {
                   if (note.trim()) await saveContent("child_future_note", note, child.id);
                 }
                 setSaveAllStatus("saved");
-                setTimeout(() => setSaveAllStatus("idle"), 4000);
+                setTimeout(() => router.push("/dashboard/memories/yearbook/read"), 1500);
               } catch {
                 setSaveAllStatus("idle");
               }
