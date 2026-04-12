@@ -1190,7 +1190,7 @@ export default function YearbookReadPage() {
                       onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_reader_gate' })}
                       className="inline-block bg-[var(--g-brand)] text-white font-semibold text-sm px-6 py-3 rounded-full hover:bg-[var(--g-deep)] transition-colors"
                     >
-                      Unlock — $39/yr →
+                      View full yearbook — $39/yr →
                     </Link>
                   </div>
                 </div>
