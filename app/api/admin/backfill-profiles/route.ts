@@ -22,10 +22,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const result = await backfillMissingProfiles();
+    const url = new URL(req.url);
+    const enrichNames = url.searchParams.get("names") === "true";
+    const result = await backfillMissingProfiles(enrichNames);
 
     return NextResponse.json({
-      message: `Backfill complete. Created ${result.created} profiles.`,
+      message: `Backfill complete. Created ${result.created} profiles (names=${enrichNames}).`,
       ...result,
     });
   } catch (err: unknown) {

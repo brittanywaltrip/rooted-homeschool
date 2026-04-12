@@ -125,6 +125,7 @@ plan_type is NULL (not 'free') for all free users — this is intentional. Treat
 
 ## Known issues
 - 214 ghost accounts — users in auth.users with no profile row, caused by Google auth bug. Backfill script at scripts/backfill-missing-profiles.ts, admin endpoint at /api/admin/backfill-profiles.
+- Physical mailing address: 732 S 6th Street, STE N, Las Vegas, NV 89101 — added to lib/email-footer.ts code-generated emails. Still needs to be manually added to all 18 Resend templates in the dashboard.
 
 ## Fixed (April 11, 2026)
 - Google auth: was broken (PKCE flow mismatch — browser used implicit flow, server expected PKCE code). Fixed by: createBrowserClient from @supabase/ssr for OAuth calls (lib/supabase-browser.ts), flowType: 'pkce' in lib/supabase.ts, NEXT_PUBLIC_SUPABASE_URL in auth callback.
@@ -132,9 +133,11 @@ plan_type is NULL (not 'free') for all free users — this is intentional. Treat
 - Logo: replaced old square emoji icon with rooted-logo-nav.png wordmark on FAQ, Privacy, Terms, Contact, Login, Signup pages.
 - Resend email templates: all now use wordmark logo; welcome templates updated with "Add curriculum" nav fix (was "Add Subject").
 - Consolidated duplicate reengagement cron (removed old /api/cron/re-engagement route).
+- first_name backfill: ran SQL in production to populate NULL first_name profiles from Google OAuth metadata (auth.users.raw_user_meta_data).
 
 ## Cron jobs
-3 jobs in vercel.json — see file for current state after session 4 cleanup.
+4 jobs in vercel.json.
 - /api/cron/reengagement: daily 2PM UTC — 3-email drip sequence for inactive users
 - /api/cron/check-links: weekly Monday 9AM UTC — validate resource links
 - /api/cron/weekly-summary: weekly Monday 3PM UTC — family weekly summary emails
+- /api/cron/year-in-review: May 1st 2PM UTC — annual summary for paying customers only
