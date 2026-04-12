@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { compressImage } from "@/lib/compress-image";
 import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
 
@@ -120,6 +121,12 @@ export default function YearbookEditPage() {
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
   const [showQuotePicker, setShowQuotePicker] = useState(false);
 
+  // Cover photo state
+  const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [coverError, setCoverError] = useState("");
+  const coverInputRef = useRef<HTMLInputElement>(null);
+
   // Per-child state
   const [childAnswers, setChildAnswers] = useState<Record<string, Record<string, string>>>({});
   const [childNotes, setChildNotes] = useState<Record<string, string>>({});
@@ -150,6 +157,37 @@ export default function YearbookEditPage() {
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,yearbook_key,content_type,child_id,question_key" });
   }, [effectiveUserId, yearbookKey, isReadOnly]);
+
+  // ── Cover photo upload ─────────────────────────────────────────────────────
+
+  async function handleCoverUpload(file: File) {
+    if (!effectiveUserId || !yearbookKey || isReadOnly) return;
+    setCoverUploading(true);
+    setCoverError("");
+    try {
+      const compressed = await compressImage(file);
+      const path = `${effectiveUserId}/cover.jpg`;
+      const { error: uploadErr } = await supabase.storage
+        .from("yearbook-covers")
+        .upload(path, compressed, { contentType: "image/jpeg", upsert: true });
+      if (uploadErr) {
+        setCoverError(
+          uploadErr.message.includes("Bucket not found")
+            ? "Storage bucket 'yearbook-covers' not found. Please contact support."
+            : `Upload failed: ${uploadErr.message}`
+        );
+        setCoverUploading(false);
+        return;
+      }
+      const { data: urlData } = supabase.storage.from("yearbook-covers").getPublicUrl(path);
+      const url = `${urlData.publicUrl}?t=${Date.now()}`;
+      setCoverPhotoUrl(url);
+      await saveContent("cover_photo", url);
+    } catch {
+      setCoverError("Upload failed. Please try again.");
+    }
+    setCoverUploading(false);
+  }
 
   // ── Load data ───────────────────────────────────────────────────────────────
 
@@ -207,6 +245,7 @@ export default function YearbookEditPage() {
       setUpdatedMap(uMap);
 
       // Hydrate state
+      setCoverPhotoUrl(cMap[ck("cover_photo")] ?? "");
       setLetter(cMap[ck("letter_from_home")] ?? "");
       setFavMemoryId(cMap[ck("letter_favorite_memory_id")] ?? "");
       setFavCaption(cMap[ck("letter_favorite_caption")] ?? "");
@@ -298,6 +337,57 @@ export default function YearbookEditPage() {
           <div className="h-[5px] bg-[#e8e3dc] rounded-full overflow-hidden">
             <div className="h-full bg-[var(--g-deep)] rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
           </div>
+        </div>
+
+        {/* ── Cover photo ──────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Cover photo</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            Choose a photo for the front of your yearbook.
+          </p>
+          {coverPhotoUrl ? (
+            <div className="flex items-center gap-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={coverPhotoUrl}
+                alt=""
+                className="w-24 h-32 rounded-lg object-cover border border-[#e8e3dc]"
+              />
+              {!isReadOnly && (
+                <button
+                  onClick={() => coverInputRef.current?.click()}
+                  disabled={coverUploading}
+                  className="text-[12px] text-[#5c7f63] font-medium hover:text-[var(--g-deep)] transition-colors disabled:opacity-50"
+                >
+                  {coverUploading ? "Uploading…" : "Change photo"}
+                </button>
+              )}
+            </div>
+          ) : (
+            !isReadOnly && (
+              <button
+                onClick={() => coverInputRef.current?.click()}
+                disabled={coverUploading}
+                className="w-full py-6 rounded-lg border-2 border-dashed border-[#d4cfc8] text-[12px] text-[#9a8f85] hover:border-[#5c7f63] transition-colors disabled:opacity-50"
+              >
+                {coverUploading ? "Uploading…" : "Tap to add a cover photo"}
+              </button>
+            )
+          )}
+          <input
+            ref={coverInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleCoverUpload(file);
+              e.target.value = "";
+            }}
+          />
+          {coverError && (
+            <p className="text-[11px] text-red-500 mt-2">{coverError}</p>
+          )}
         </div>
 
         {/* ── Letter from home ────────────────────────────────── */}
