@@ -1729,44 +1729,53 @@ export default function TodayPage() {
   return (
     <>
       {/* ═══════════════════════════════════════════════════════════
-          HEADER CARD — dark green, leaf watermark
+          HEADER — matches PageHero layout exactly
          ═══════════════════════════════════════════════════════════ */}
       <div
-        className="mx-[10px] mt-[10px] relative overflow-hidden"
-        style={{ backgroundColor: "#2D5a1B", borderRadius: 16, padding: 16 }}
+        className="relative w-full rounded-b-[24px] px-6 pt-7 pb-8 overflow-hidden"
+        style={{ background: "#3d5c42" }}
       >
-        {/* Leaf watermark */}
-        <span
-          className="absolute select-none pointer-events-none"
-          style={{ top: -8, right: -4, fontSize: 80, opacity: 0.1, lineHeight: 1 }}
+        {/* Decorative background leaves (same as PageHero) */}
+        <div
+          className="absolute top-2 right-3 text-[100px] leading-none select-none pointer-events-none"
+          style={{ opacity: 0.06 }}
           aria-hidden
-        >🌿</span>
+        >🌿</div>
+        <div
+          className="absolute -bottom-2 left-2 text-[80px] leading-none select-none pointer-events-none"
+          style={{ opacity: 0.05 }}
+          aria-hidden
+        >🌱</div>
 
         {/* Eyebrow: family name */}
-        {familyName && (
-          <p style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
-            {familyName}
-          </p>
-        )}
+        <p
+          className="text-[11px] font-semibold tracking-widest uppercase mb-1"
+          style={{ color: "#8cba8e" }}
+        >
+          {familyName || "Today"}
+        </p>
 
         {/* Greeting */}
-        <p style={{ fontFamily: "Lora, Georgia, serif", fontWeight: 700, fontSize: 22, color: "#fff", lineHeight: 1.25 }}>
+        <h1
+          className="text-[22px] sm:text-[26px] font-bold leading-tight"
+          style={{ color: "#fefcf9", fontFamily: "var(--font-display)" }}
+        >
           {(() => {
             const h = new Date().getHours();
             const tod = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
             return firstName ? `${tod}, ${firstName}` : tod;
           })()}
-        </p>
+        </h1>
 
         {/* Date + stats row */}
-        <div className="flex items-center justify-between mt-2">
-          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+        <div className="flex items-center justify-between mt-1">
+          <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.70)" }}>
             {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-          </span>
+          </p>
           {totalMemories > 0 && (
-            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+            <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.70)" }}>
               {totalMemories} memories{activeDaysThisMonth > 0 ? ` · ${activeDaysThisMonth} day${activeDaysThisMonth !== 1 ? "s" : ""} active` : ""}
-            </span>
+            </p>
           )}
         </div>
       </div>
