@@ -796,7 +796,7 @@ export default function Home() {
                 "Daily lesson tracking",
                 "Family garden & badges",
                 "Curated resources",
-                "Yearbook preview — last 30 days of memories",
+                "Yearbook preview — last 30 days",
                 "1 progress summary per year (view only)",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
@@ -947,47 +947,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Feature comparison table */}
-        <div className="overflow-x-auto rounded-2xl border border-[#e8e2d9]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-[#f8f7f4] border-b border-[#e8e2d9]">
-                <th className="text-left px-4 py-3 font-semibold text-[#7a6f65]">Feature</th>
-                <th className="text-center px-4 py-3 font-semibold text-[#b5aca4]">Free</th>
-                <th className="text-center px-4 py-3 font-medium text-[#5c7f63] bg-[#f0f7f0]">Founding</th>
-                <th className="text-center px-4 py-3 font-semibold text-[#7a6f65]">Standard</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { feature: "Children",               free: "Unlimited", founding: "Unlimited",  standard: "Unlimited" },
-                { feature: "Lesson tracking",        free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Garden & growth tree",   free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Photo memories",         free: "50",    founding: "✓ Unlimited", standard: "✓ Unlimited" },
-                { feature: "Memory timeline",        free: "30 days", founding: "✓ All time", standard: "✓ All time" },
-                { feature: "Year in Review",         free: "1 / year", founding: "✓ Unlimited", standard: "✓ Unlimited" },
-                { feature: "Progress reports",       free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Curriculum pacing guide", free: "—",    founding: "✓",          standard: "✓"         },
-                { feature: "Monthly family update",  free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Family yearbook",        free: "First 25", founding: "✓ Full year", standard: "✓ Full year" },
-                { feature: "Share with family",      free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
-                { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },
-              ].map((row, i) => (
-                <tr
-                  key={row.feature}
-                  className={`border-b border-[#f0ede8] ${i % 2 === 0 ? "bg-white" : "bg-[#fefcf9]"}`}
-                >
-                  <td className="px-4 py-3 text-[#2d2926] font-medium">{row.feature}</td>
-                  <td className="px-4 py-3 text-center text-[#b5aca4]">{row.free}</td>
-                  <td className="px-4 py-3 text-center text-[#3d5c42] font-medium bg-[#f0f7f0]">{row.founding}</td>
-                  <td className="px-4 py-3 text-center text-[#7a6f65]">{row.standard}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
         <p className="text-xs text-[#b5aca4] mt-6 text-center">
           Try it free. No credit card needed to get started.
         </p>
@@ -1016,65 +975,6 @@ export default function Home() {
               Hi, I&apos;m Brittany — homeschool mom and creator of the Rooted App. I built Rooted because I always felt unorganized and was constantly wondering if we were falling behind. Rooted helps you plan your days, track learning, capture memories, and see your child&apos;s growth — and honestly, it does so much more than that. I didn&apos;t want something complicated. I just wanted to feel organized and on track. So I made it. From our family to yours — we hope you join our Rooted family.
             </p>
             <p className="text-sm font-semibold text-[#5c7f63]">— Brittany, founder &amp; homeschool mom 🌱</p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── 9. WAITLIST CTA ────────────────────────────────────────────────── */}
-      <section className="px-6 sm:px-8 pb-24">
-        <div
-          className="max-w-2xl mx-auto rounded-3xl px-8 py-14 sm:px-14 text-center relative overflow-hidden"
-          style={{
-            background: "linear-gradient(135deg, #d0ebd4 0%, #e0f2e4 35%, #c8e8cf 70%, #b8dfc0 100%)",
-            border: "1px solid #aed4b5",
-          }}
-        >
-          {/* Decorative leaves */}
-          <span
-            className="absolute top-5 left-5 text-[5rem] opacity-[0.10] select-none pointer-events-none leading-none"
-            aria-hidden="true"
-          >
-            🌿
-          </span>
-          <span
-            className="absolute bottom-5 right-6 text-[4.5rem] opacity-[0.10] select-none pointer-events-none leading-none"
-            style={{ transform: "scaleX(-1) rotate(20deg)" }}
-            aria-hidden="true"
-          >
-            🌿
-          </span>
-          <span
-            className="absolute top-1/2 right-5 -translate-y-1/2 text-4xl opacity-[0.07] select-none pointer-events-none leading-none"
-            style={{ transform: "translateY(-50%) rotate(-15deg)" }}
-            aria-hidden="true"
-          >
-            🍃
-          </span>
-          <span
-            className="absolute top-1/2 left-5 -translate-y-1/2 text-3xl opacity-[0.07] select-none pointer-events-none leading-none"
-            style={{ transform: "translateY(-50%) rotate(15deg)" }}
-            aria-hidden="true"
-          >
-            🍃
-          </span>
-
-          <div className="relative z-10">
-            <div className="text-5xl mb-5">🌱</div>
-            <h2
-              className="text-2xl sm:text-3xl font-medium text-[#2d2926] mb-3"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              Start your homeschool journey today
-            </h2>
-            <p className="text-[#3d5c42] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
-              Free to start. No credit card needed. Join families already using Rooted.
-            </p>
-            <Link
-              href="/signup"
-              className="inline-block bg-[#5c7f63] hover:bg-[#4a6b50] text-white font-semibold px-8 py-3 rounded-full transition-colors"
-            >
-              Get Started Free →
-            </Link>
           </div>
         </div>
       </section>
