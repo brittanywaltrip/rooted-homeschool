@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -128,7 +129,8 @@ export default function SignupPage() {
             <button
               type="button"
               onClick={async () => {
-                await supabase.auth.signInWithOAuth({
+                const browserClient = createSupabaseBrowserClient();
+                await browserClient.auth.signInWithOAuth({
                   provider: "google",
                   options: { redirectTo: `${window.location.origin}/auth/callback` },
                 });
