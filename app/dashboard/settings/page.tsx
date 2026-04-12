@@ -580,7 +580,7 @@ export default function SettingsPage() {
     setResetSending(true);
     setResetError("");
     const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
-      redirectTo: "https://rootedhomeschoolapp.com/reset-password",
+      redirectTo: `${window.location.origin}/auth/callback?type=recovery`,
     });
     setResetSending(false);
     if (error) {

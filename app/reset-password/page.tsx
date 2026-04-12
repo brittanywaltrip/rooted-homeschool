@@ -106,15 +106,15 @@ export default function ResetPasswordPage() {
             <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
               <span className="text-2xl">🔗</span>
             </div>
-            <h1 className="text-xl font-bold text-[#2d2926] mb-2">Link expired or invalid</h1>
-            <p className="text-sm text-[#7a6f65] mb-6">
-              Password reset links expire after 1 hour. Request a new one from the login page.
+            <h1 className="text-xl font-bold text-[#2d2926] mb-2">Link expired or already used</h1>
+            <p className="text-sm text-[#7a6f65] mb-6 leading-relaxed">
+              This link has expired or was already used. Password reset links can only be used once.
             </p>
             <Link
-              href="/login"
+              href="/login?reset=true"
               className="block w-full text-center bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-medium py-3 rounded-xl transition-colors text-sm"
             >
-              Back to Login
+              Request a new one →
             </Link>
           </div>
         )}

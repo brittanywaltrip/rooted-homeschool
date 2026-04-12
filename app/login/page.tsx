@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
@@ -10,7 +10,8 @@ type View = "login" | "forgot" | "forgot-sent";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [view,     setView]     = useState<View>("login");
+  const searchParams = useSearchParams();
+  const [view,     setView]     = useState<View>(searchParams.get("reset") === "true" ? "forgot" : "login");
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [resetEmail, setResetEmail] = useState("");
@@ -39,7 +40,7 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: `${window.location.origin}/auth/callback?type=recovery`,
     });
     setLoading(false);
     if (error) setError(error.message);
