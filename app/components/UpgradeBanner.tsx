@@ -35,7 +35,7 @@ export default function UpgradeBanner() {
             Founding Family pricing ends in {daysLeft} day{daysLeft !== 1 ? "s" : ""} — lock in $39/yr forever
           </p>
           <p className="text-white/70 text-[11px] leading-tight mt-0.5">
-            Memories, insights, transcripts & more. First 200 families only.
+            Memories, insights, transcripts & more.
           </p>
         </div>
       </div>

@@ -39,7 +39,7 @@ export default function ContactPage() {
             <span className="text-2xl">🐛</span>
             <div>
               <h3 className="font-bold text-[#2d2926] mb-1">Found a bug?</h3>
-              <p className="text-sm text-[#7a6f65] mb-2">We&apos;re in beta and actively fixing things. Tell us what happened and we&apos;ll fix it fast.</p>
+              <p className="text-sm text-[#7a6f65] mb-2">We&apos;re always improving — tell us what happened and we&apos;ll fix it fast.</p>
               <a href="mailto:hello@rootedhomeschoolapp.com?subject=Bug Report" className="text-sm font-semibold text-[#5c7f63] hover:underline">
                 Send a bug report →
               </a>

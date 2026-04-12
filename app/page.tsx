@@ -303,7 +303,7 @@ export default function Home() {
           </div>
 
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
-            <span>🌿</span> Trusted by 600+ homeschool families
+            <span>🌿</span> Trusted by 700+ homeschool families
           </p>
         </div>
 
@@ -319,7 +319,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
-              { number: "600+",    label: "Families Growing with Rooted", icon: "🌱" },
+              { number: "700+",    label: "Families Growing with Rooted", icon: "🌱" },
               { number: "7",       label: "Features, Everything in One Place", icon: "🎨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
               { number: "No Canva", label: "Beautiful Printables",  icon: "🖨️" },
@@ -1146,7 +1146,7 @@ export default function Home() {
             Ready to get rooted?
           </h2>
           <p className="text-[#7a6f65] text-base mb-8">
-            Join 600+ homeschool families. Free to start.
+            Join 700+ homeschool families. Free to start.
           </p>
           <Link
             href="/signup"
