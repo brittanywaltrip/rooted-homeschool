@@ -221,7 +221,6 @@ export default function YearbookReadPage() {
     show_village: true,
   };
   const [ybSettings, setYbSettings] = useState<YearbookSettings>(DEFAULT_YB_SETTINGS);
-  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
 
   // ── Content key helper ──────────────────────────────────────────────────────
 
@@ -1032,14 +1031,9 @@ export default function YearbookReadPage() {
           <Link href="/dashboard/memories/yearbook" className="text-[12px] text-[#9a8f85] hover:text-white transition-colors">
             ← Yearbook
           </Link>
-          <div className="flex items-center gap-3">
-            <Link href="/dashboard/memories/yearbook/edit" className="text-[12px] text-[#c8e6c4] font-medium hover:text-white transition-colors">
-              ✏️ Edit your book
-            </Link>
-            <button onClick={() => setShowSettingsPanel(true)} className="text-[16px] opacity-60 hover:opacity-100 transition-opacity" aria-label="Yearbook settings">
-              ⚙️
-            </button>
-          </div>
+          <Link href="/dashboard/memories/yearbook/edit" className="text-[16px] opacity-60 hover:opacity-100 transition-opacity" aria-label="Customize yearbook">
+            ⚙️
+          </Link>
         </div>
 
         {/* Book page area */}
@@ -1148,13 +1142,10 @@ export default function YearbookReadPage() {
             ← Yearbook
           </Link>
         </div>
-        <div className="absolute top-4 right-6 z-30 flex items-center gap-4">
-          <Link href="/dashboard/memories/yearbook/edit" className="text-sm text-[#c8e6c4] font-medium hover:text-white transition-colors">
-            ✏️ Edit your book
-          </Link>
-          <button onClick={() => setShowSettingsPanel(true)} className="text-[18px] opacity-50 hover:opacity-100 transition-opacity" aria-label="Yearbook settings">
+        <div className="absolute top-4 right-6 z-30">
+          <Link href="/dashboard/memories/yearbook/edit" className="text-[18px] opacity-50 hover:opacity-100 transition-opacity" aria-label="Customize yearbook">
             ⚙️
-          </button>
+          </Link>
         </div>
 
         <div className="flex items-center gap-4">
@@ -1234,57 +1225,6 @@ export default function YearbookReadPage() {
         </div>
       </div>
 
-      {/* ── Settings bottom sheet ─────────────────────────── */}
-      {showSettingsPanel && (
-        <div className="fixed inset-0 z-[60] flex items-end md:items-center justify-center" onClick={() => setShowSettingsPanel(false)}>
-          <div className="absolute inset-0 bg-black/50" />
-          <div
-            className="relative w-full max-w-md bg-[#FAFAF7] rounded-t-2xl md:rounded-2xl p-5 pb-8 md:pb-5 space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-[14px] font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-                Customize your yearbook
-              </h3>
-              <button onClick={() => setShowSettingsPanel(false)} className="text-[#9a8f85] hover:text-[#2d2926] text-lg">✕</button>
-            </div>
-            <p className="text-[11px] text-[#9a8f85]">Toggle sections on or off. Changes save automatically.</p>
-            <div className="space-y-1">
-              {([
-                { key: "show_letter" as const, emoji: "📝", label: "Letter from home" },
-                { key: "show_year_in_numbers" as const, emoji: "📊", label: "Year in Numbers" },
-                { key: "show_child_chapters" as const, emoji: "👧", label: "Child chapters" },
-                { key: "show_favorite_things" as const, emoji: "💛", label: "Favorite things pages" },
-                { key: "show_books_section" as const, emoji: "📚", label: "Books sections" },
-                { key: "show_family_chapter" as const, emoji: "👨‍👩‍👧", label: "Our family chapter" },
-                { key: "show_village" as const, emoji: "👵", label: "From the village" },
-              ]).map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => toggleYbSetting(item.key)}
-                  className="w-full flex items-center justify-between px-3 py-3 rounded-xl hover:bg-[#f0ede8] transition-colors"
-                >
-                  <span className="text-[13px] text-[#2d2926] flex items-center gap-2.5">
-                    <span className="text-[16px]">{item.emoji}</span>
-                    {item.label}
-                  </span>
-                  <div
-                    className={`w-10 h-6 rounded-full relative transition-colors ${
-                      ybSettings[item.key] ? "bg-[#5c7f63]" : "bg-[#d4cfc8]"
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                        ybSettings[item.key] ? "translate-x-[18px]" : "translate-x-0.5"
-                      }`}
-                    />
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

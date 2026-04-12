@@ -138,6 +138,27 @@ export default function YearbookEditPage() {
   const [activeField, setActiveField] = useState<string | null>(null);
   const [saveAllStatus, setSaveAllStatus] = useState<"idle" | "saving" | "saved">("idle");
 
+  // Section settings
+  type YearbookSettings = {
+    show_letter: boolean;
+    show_year_in_numbers: boolean;
+    show_child_chapters: boolean;
+    show_favorite_things: boolean;
+    show_books_section: boolean;
+    show_family_chapter: boolean;
+    show_village: boolean;
+  };
+  const DEFAULT_YB_SETTINGS: YearbookSettings = {
+    show_letter: true,
+    show_year_in_numbers: true,
+    show_child_chapters: true,
+    show_favorite_things: true,
+    show_books_section: true,
+    show_family_chapter: true,
+    show_village: true,
+  };
+  const [ybSettings, setYbSettings] = useState<YearbookSettings>(DEFAULT_YB_SETTINGS);
+
   // ── Content key helper ──────────────────────────────────────────────────────
 
   function ck(contentType: string, childId?: string | null, questionKey?: string | null) {
@@ -171,9 +192,13 @@ export default function YearbookEditPage() {
     (async () => {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("yearbook_opened_at, yearbook_closed_at, display_name")
+        .select("yearbook_opened_at, yearbook_closed_at, display_name, yearbook_settings")
         .eq("id", effectiveUserId)
         .single();
+
+      if ((profile as Record<string, unknown>)?.yearbook_settings) {
+        setYbSettings({ ...DEFAULT_YB_SETTINGS, ...(profile as Record<string, unknown>).yearbook_settings as Partial<YearbookSettings> });
+      }
 
       let openedAt = profile?.yearbook_opened_at;
       if (!openedAt) {
@@ -293,7 +318,7 @@ export default function YearbookEditPage() {
     <>
       <PageHero
         overline={`${yearLabel} School Year`}
-        title="Edit your book ✏️"
+        title="Customize your yearbook"
         subtitle={isReadOnly ? "This yearbook is closed — read only" : `${filledCount} of ${totalCount} sections complete`}
       />
 
@@ -316,6 +341,55 @@ export default function YearbookEditPage() {
           </div>
           <div className="h-[5px] bg-[#e8e3dc] rounded-full overflow-hidden">
             <div className="h-full bg-[var(--g-deep)] rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
+
+        {/* ── Sections ────────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Sections</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            Choose what appears in your yearbook.
+          </p>
+          <div className="space-y-1">
+            {([
+              { key: "show_letter" as const, emoji: "📝", label: "Letter from home" },
+              { key: "show_year_in_numbers" as const, emoji: "📊", label: "Year in Numbers" },
+              { key: "show_child_chapters" as const, emoji: "👧", label: "Child chapters" },
+              { key: "show_favorite_things" as const, emoji: "💛", label: "Favorite things pages" },
+              { key: "show_books_section" as const, emoji: "📚", label: "Books sections" },
+              { key: "show_family_chapter" as const, emoji: "👨‍👩‍👧", label: "Our family chapter" },
+              { key: "show_village" as const, emoji: "👵", label: "From the village" },
+            ]).map((item) => (
+              <button
+                key={item.key}
+                onClick={async () => {
+                  if (isReadOnly) return;
+                  const next = { ...ybSettings, [item.key]: !ybSettings[item.key] };
+                  setYbSettings(next);
+                  if (effectiveUserId) {
+                    await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
+                  }
+                }}
+                disabled={isReadOnly}
+                className="w-full flex items-center justify-between px-3 py-3 rounded-xl hover:bg-[#f0ede8] transition-colors disabled:opacity-60"
+              >
+                <span className="text-[13px] text-[#2d2926] flex items-center gap-2.5">
+                  <span className="text-[16px]">{item.emoji}</span>
+                  {item.label}
+                </span>
+                <div
+                  className={`w-10 h-6 rounded-full relative transition-colors ${
+                    ybSettings[item.key] ? "bg-[#5c7f63]" : "bg-[#d4cfc8]"
+                  }`}
+                >
+                  <div
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                      ybSettings[item.key] ? "translate-x-[18px]" : "translate-x-0.5"
+                    }`}
+                  />
+                </div>
+              </button>
+            ))}
           </div>
         </div>
 
