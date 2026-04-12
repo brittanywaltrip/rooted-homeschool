@@ -69,22 +69,22 @@ export async function GET(req: Request) {
 
   // Build affiliate stats
   const affiliates = (affRows ?? []).map((a) => {
+    // Signups: all profiles where referred_by = code (free + paid)
     const referred = (referredProfiles ?? []).filter(
       (p) => p.referred_by?.toUpperCase() === a.code?.toUpperCase()
     );
-    const paying = referred.filter((p) => {
-      const fullProfile = profileMap.get(p.id);
-      const planType = fullProfile?.plan_type ?? p.plan_type;
-      return planType !== "free";
-    });
+    // Paying: only referrals where converted = true
+    const convertedReferrals = (refRows ?? []).filter(
+      (r) => r.affiliate_code?.toUpperCase() === a.code?.toUpperCase() && r.converted === true
+    );
     const rate = a.commission_rate ?? 20;
-    const commissionOwed = paying.length * 39 * (rate / 100);
+    const commissionOwed = convertedReferrals.length * 39 * (rate / 100);
 
     return {
       ...a,
       account_email: a.user_id ? accountEmailMap.get(a.user_id) ?? null : null,
       signups_referred: referred.length,
-      paying_customers: paying.length,
+      paying_customers: convertedReferrals.length,
       commission_owed: commissionOwed,
     };
   });
