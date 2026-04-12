@@ -67,6 +67,7 @@ export async function GET(req: NextRequest) {
         expiryDate: trialEndDate,
         giftUrl,
         familyUrl: viewUrl,
+        unsubscribeUrl: unsubUrl,
       }, "Rooted <hello@rootedhomeschoolapp.com>");
 
       if (result.ok) {
