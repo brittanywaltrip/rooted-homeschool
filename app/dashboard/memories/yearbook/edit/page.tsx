@@ -134,6 +134,7 @@ export default function YearbookEditPage() {
   const [childAnswers, setChildAnswers] = useState<Record<string, Record<string, string>>>({});
   const [childNotes, setChildNotes] = useState<Record<string, string>>({});
   const [activeField, setActiveField] = useState<string | null>(null);
+  const [saveAllStatus, setSaveAllStatus] = useState<"idle" | "saving" | "saved">("idle");
 
   // ── Content key helper ──────────────────────────────────────────────────────
 
@@ -744,6 +745,40 @@ export default function YearbookEditPage() {
             </div>
           );
         })}
+
+        {/* ── Save all button ─────────────────────────────────── */}
+        {!isReadOnly && (
+          <button
+            onClick={async () => {
+              setSaveAllStatus("saving");
+              try {
+                await saveContent("cover_photo", coverPhotoUrl);
+                await saveContent("family_name", familyName);
+                await saveContent("school_year", schoolYear);
+                await saveContent("letter_from_home", letter);
+                if (favMemoryId) await saveContent("letter_favorite_memory_id", favMemoryId);
+                if (favCaption) await saveContent("letter_favorite_caption", favCaption);
+                if (favQuote) await saveContent("letter_favorite_quote", favQuote);
+                for (const child of children) {
+                  for (const q of INTERVIEW_QUESTIONS) {
+                    const val = childAnswers[child.id]?.[q.key] ?? "";
+                    if (val.trim()) await saveContent("child_interview", val, child.id, q.key);
+                  }
+                  const note = childNotes[child.id] ?? "";
+                  if (note.trim()) await saveContent("child_future_note", note, child.id);
+                }
+                setSaveAllStatus("saved");
+                setTimeout(() => setSaveAllStatus("idle"), 4000);
+              } catch {
+                setSaveAllStatus("idle");
+              }
+            }}
+            disabled={saveAllStatus === "saving"}
+            className="w-full py-3 rounded-xl text-sm font-medium transition-colors bg-[#2d5a3d] hover:bg-[#3d5c42] text-white disabled:opacity-60"
+          >
+            {saveAllStatus === "saving" ? "Saving…" : saveAllStatus === "saved" ? "All changes saved ✓" : "Save all changes"}
+          </button>
+        )}
       </div>
     </>
   );

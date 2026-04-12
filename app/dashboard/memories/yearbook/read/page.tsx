@@ -708,10 +708,10 @@ export default function YearbookReadPage() {
         child_name: child.name,
       }));
       const favAnswers: Record<string, string> = {
-        fav_loved: contentMap[ck("child_favorite", child.id, "fav_loved")] ?? "",
-        fav_book: contentMap[ck("child_favorite", child.id, "fav_book")] ?? "",
-        fav_surprised: contentMap[ck("child_favorite", child.id, "fav_surprised")] ?? "",
-        fav_next_year: contentMap[ck("child_favorite", child.id, "fav_next_year")] ?? "",
+        fav_loved: contentMap[ck("child_interview", child.id, "q_loved_learning")] ?? "",
+        fav_book: contentMap[ck("child_interview", child.id, "q_favorite_book")] ?? "",
+        fav_surprised: contentMap[ck("child_interview", child.id, "q_surprised_you")] ?? "",
+        fav_next_year: contentMap[ck("child_interview", child.id, "q_learn_next_year")] ?? "",
       };
       const favSpread = buildFavoriteThingsSpread(favMemories, child.name, favAnswers);
       spreads.push({
