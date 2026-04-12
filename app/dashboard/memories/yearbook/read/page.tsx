@@ -359,7 +359,7 @@ export default function YearbookReadPage() {
     id: "cover",
     label: "Cover",
     leftContent: coverPhotoUrl ? (
-      <div className="relative flex flex-col w-full h-full overflow-hidden items-center justify-center" style={{ background: "var(--g-deep)" }}>
+      <div className="relative flex flex-col w-full h-full overflow-hidden items-center justify-center" style={{ background: "var(--g-brand)" }}>
         {/* Botanical watermarks */}
         <span className="absolute top-4 right-3 text-[100px] opacity-[0.05] select-none pointer-events-none" style={{ transform: "rotate(-15deg)" }}>🌿</span>
         <span className="absolute bottom-8 left-2 text-[80px] opacity-[0.04] select-none pointer-events-none" style={{ transform: "rotate(20deg)" }}>🍃</span>
@@ -393,7 +393,7 @@ export default function YearbookReadPage() {
         </div>
       </div>
     ) : (
-      <div className="relative flex flex-col w-full h-full overflow-hidden" style={{ background: "var(--g-deep)" }}>
+      <div className="relative flex flex-col w-full h-full overflow-hidden" style={{ background: "var(--g-brand)" }}>
         <span className="absolute top-6 right-4 text-[120px] opacity-[0.06] select-none pointer-events-none" style={{ transform: "rotate(-15deg)" }}>🌿</span>
         <span className="absolute bottom-10 left-3 text-[100px] opacity-[0.05] select-none pointer-events-none" style={{ transform: "rotate(20deg)" }}>🍃</span>
         <span className="absolute top-1/3 left-1/2 -translate-x-1/2 text-[160px] opacity-[0.03] select-none pointer-events-none">🌱</span>
