@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
 import PageHero from "@/app/components/PageHero";
-import { checkAndAwardBadges, checkFoundingBadge, ACTIVITY_BADGES, type BadgeDef } from "@/lib/badges";
+import { checkAndAwardBadges, checkFoundingBadge, ACTIVITY_BADGES } from "@/lib/badges";
 
 function treeEmoji(leaves: number): string {
   const s = getStageFromLeaves(leaves);
@@ -219,7 +219,6 @@ export default function GardenPage() {
   const [isAffiliate, setIsAffiliate]   = useState(false);
   const [badgeCelebration, setBadgeCelebration] = useState<string | null>(null);
   const [earnedActivityBadgeIds, setEarnedActivityBadgeIds] = useState<Set<string>>(new Set());
-  const [badgeNotification, setBadgeNotification] = useState<BadgeDef | null>(null);
   const [memoriesCount, setMemoriesCount] = useState(0);
   const [booksCount, setBooksCount] = useState(0);
 
@@ -310,18 +309,6 @@ export default function GardenPage() {
     }
     load();
   }, [effectiveUserId]);
-
-  // Listen for badge-earned events and show slide-up notification
-  useEffect(() => {
-    function onBadgeEarned(e: Event) {
-      const badge = (e as CustomEvent<BadgeDef>).detail;
-      setBadgeNotification(badge);
-      setEarnedActivityBadgeIds((prev) => new Set([...prev, badge.id]));
-      setTimeout(() => setBadgeNotification(null), 4500);
-    }
-    window.addEventListener("badge-earned", onBadgeEarned);
-    return () => window.removeEventListener("badge-earned", onBadgeEarned);
-  }, []);
 
   const [tipDismissed, setTipDismissed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -859,30 +846,6 @@ export default function GardenPage() {
           </div>
         </div>
       )}
-
-      {/* Activity badge slide-up notification */}
-      {badgeNotification && (
-        <div
-          className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2"
-          style={{ animation: "slide-up-badge 0.4s ease-out forwards" }}
-        >
-          <div className="bg-[#1e3d29] text-white rounded-2xl shadow-xl px-5 py-4 flex items-center gap-4 max-w-sm">
-            <span className="text-3xl shrink-0">{badgeNotification.emoji}</span>
-            <div>
-              <p className="text-sm font-bold">{badgeNotification.label} earned!</p>
-              <p className="text-xs text-white/75 mt-0.5 leading-relaxed">{badgeNotification.message}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Slide-up animation keyframes */}
-      <style jsx global>{`
-        @keyframes slide-up-badge {
-          from { transform: translate(-50%, 100%); opacity: 0; }
-          to   { transform: translate(-50%, 0);    opacity: 1; }
-        }
-      `}</style>
 
     </>
   );
