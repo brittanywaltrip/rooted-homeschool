@@ -181,7 +181,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
       await resend.emails.send({
         from: FROM,
         to: TEST_EMAIL,
-        subject: 'Your week with Rooted 🌿',
+        subject: `${sampleName}, your week with Rooted 🌿`,
         text: `Hi ${sampleName}, Last week was a great week of homeschooling. You captured 0 memories this week.\n\n— Brittany\nFounder, Rooted${emailFooterText()}`,
         html: emailHtml(sampleName, 'Last week was a great week of homeschooling.', 0),
       })
@@ -205,12 +205,17 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
     const unsubscribeUrl = `https://www.rootedhomeschoolapp.com/unsubscribe?email=${encodeURIComponent(email)}`
 
     try {
+      const displayName = name || 'there'
+      const personalizedSubject = name
+        ? `${name}, your week with Rooted 🌿`
+        : 'Your week with Rooted 🌿'
+
       const result = await sendResendTemplate(email, TEMPLATES.weeklySummary, {
-        firstName: name || 'there',
+        firstName: displayName,
         weeklySummary: `${summaryLine} You captured ${mems.length} ${mems.length === 1 ? 'memory' : 'memories'} this week.`,
         memoriesUrl: 'https://www.rootedhomeschoolapp.com/dashboard/memories',
         unsubscribeUrl,
-      })
+      }, undefined, personalizedSubject)
       if (result.ok) {
         sent++
         try { await supabase.from('email_log').insert({ user_id: userId, email_type: 'weekly_summary' }) } catch {}
