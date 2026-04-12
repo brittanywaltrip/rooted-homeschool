@@ -2332,7 +2332,7 @@ export default function TodayPage() {
       {/* ═══════════════════════════════════════════════════════════
           YEARBOOK TEASER — free users with at least 1 memory
          ═══════════════════════════════════════════════════════════ */}
-      {(!planType || planType === "free" || previewFree) && (
+      {(!planType || planType === "free" || previewFree) && totalMemories > 0 && (
         <div className="bg-[var(--g-brand)] rounded-2xl px-5 py-4 text-white">
           <p className="text-sm font-medium flex items-center gap-2">
             🔒 Your family yearbook is taking shape 🌿
