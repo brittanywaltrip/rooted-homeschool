@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Camera, ChevronRight, Check, BookOpen, Users, User, Lock } from "lucide-react";
+import { Camera, ChevronRight, Check, BookOpen, Users } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -63,7 +63,6 @@ export default function YearbookPage() {
   const [yearTitle, setYearTitle] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [bookType, setBookType] = useState<"family" | "individual">("family");
   const [selectedChildren, setSelectedChildren] = useState<Set<string>>(new Set());
   const [coverPhotoId, setCoverPhotoId] = useState<string | null>(null);
   const [showPhotoPicker, setShowPhotoPicker] = useState(false);
@@ -319,48 +318,7 @@ export default function YearbookPage() {
           </div>
         </div>
 
-        {/* 3. Book type toggle */}
-        <div className="space-y-2">
-          <label className="text-[10px] font-semibold uppercase tracking-widest text-[#a09890]">
-            Book Type
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setBookType("family")}
-              className={`flex items-center gap-3 px-4 py-3.5 rounded-xl border-2 transition-all text-left ${
-                bookType === "family"
-                  ? "border-[#5c7f63] bg-[#e8f0e9]"
-                  : "border-[#e8e2d9] bg-white hover:border-[#c8bfb5]"
-              }`}
-            >
-              <Users size={20} className={bookType === "family" ? "text-[#5c7f63]" : "text-[#b5aca4]"} />
-              <div>
-                <p className={`text-sm font-semibold ${bookType === "family" ? "text-[#3d5c42]" : "text-[#2d2926]"}`}>
-                  Family Book
-                </p>
-                <p className="text-[11px] text-[#7a6f65]">All kids together</p>
-              </div>
-            </button>
-            <button
-              onClick={() => setBookType("individual")}
-              className={`flex items-center gap-3 px-4 py-3.5 rounded-xl border-2 transition-all text-left ${
-                bookType === "individual"
-                  ? "border-[#5c7f63] bg-[#e8f0e9]"
-                  : "border-[#e8e2d9] bg-white hover:border-[#c8bfb5]"
-              }`}
-            >
-              <User size={20} className={bookType === "individual" ? "text-[#5c7f63]" : "text-[#b5aca4]"} />
-              <div>
-                <p className={`text-sm font-semibold ${bookType === "individual" ? "text-[#3d5c42]" : "text-[#2d2926]"}`}>
-                  Individual Books
-                </p>
-                <p className="text-[11px] text-[#7a6f65]">One per child</p>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        {/* 4. Children checkboxes */}
+        {/* 3. Children checkboxes */}
         {children.length > 0 && (
           <div className="space-y-2">
             <label className="text-[10px] font-semibold uppercase tracking-widest text-[#a09890]">
@@ -402,7 +360,7 @@ export default function YearbookPage() {
           </div>
         )}
 
-        {/* 5. Cover photo picker */}
+        {/* 4. Cover photo picker */}
         <div className="space-y-2">
           <label className="text-[10px] font-semibold uppercase tracking-widest text-[#a09890]">
             Cover Photo
@@ -494,9 +452,7 @@ export default function YearbookPage() {
             <BookOpen size={14} className="text-[#5c7f63]" />
             <span className="font-semibold">{yearTitle || "Untitled"}</span>
             <span className="text-[#b5aca4]">·</span>
-            <span className="text-[#7a6f65]">
-              {bookType === "family" ? "Family Book" : `${selectedChildren.size} Individual ${selectedChildren.size === 1 ? "Book" : "Books"}`}
-            </span>
+            <span className="text-[#7a6f65]">Family Book</span>
           </div>
           <p className="text-xs text-[#7a6f65]">
             {photoMemories.length} {photoMemories.length === 1 ? "photo" : "photos"} available
