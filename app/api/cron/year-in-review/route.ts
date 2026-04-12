@@ -13,7 +13,7 @@ const BASE_URL = 'https://www.rootedhomeschoolapp.com'
 
 // ── Core logic ──────────────────────────────────────────────────────────
 
-async function sendYearInReview(): Promise<{ sent: number; errors: number; total: number }> {
+async function sendYearInReview(): Promise<{ sent: number; skipped: number; errors: number; total: number }> {
   // 1. Fetch paying users who haven't unsubscribed
   const { data: profiles, error: profileErr } = await supabase
     .from('profiles')
@@ -21,7 +21,7 @@ async function sendYearInReview(): Promise<{ sent: number; errors: number; total
 
   if (profileErr) {
     console.error('[year-in-review] Failed to fetch profiles:', profileErr.message)
-    return { sent: 0, errors: 0, total: 0 }
+    return { sent: 0, skipped: 0, errors: 0, total: 0 }
   }
 
   const eligible = (profiles ?? []).filter(p =>
@@ -29,7 +29,7 @@ async function sendYearInReview(): Promise<{ sent: number; errors: number; total
     !p.email_unsubscribed
   )
 
-  if (eligible.length === 0) return { sent: 0, errors: 0, total: 0 }
+  if (eligible.length === 0) return { sent: 0, skipped: 0, errors: 0, total: 0 }
 
   // 2. Fetch auth user emails (paginated)
   const emailMap = new Map<string, string>()
@@ -58,7 +58,7 @@ async function sendYearInReview(): Promise<{ sent: number; errors: number; total
 
   if (memErr) {
     console.error('[year-in-review] Failed to fetch memories:', memErr.message)
-    return { sent: 0, errors: 0, total: eligible.length }
+    return { sent: 0, skipped: 0, errors: 0, total: eligible.length }
   }
 
   // Group memories by user
