@@ -72,12 +72,17 @@ async function sendYearInReview(): Promise<{ sent: number; errors: number; total
   // 4. Send emails
   let sent = 0
   let errors = 0
+  let skipped = 0
 
   for (const profile of eligible) {
     const email = emailMap.get(profile.id)
     if (!email) continue
 
     const mems = userMemories.get(profile.id) ?? []
+    if (mems.length === 0) {
+      skipped++
+      continue
+    }
     const firstName = profile.first_name || 'there'
     const photosCount = mems.filter(m => m.type === 'photo').length
     const booksCount = mems.filter(m => m.type === 'book').length
@@ -119,8 +124,8 @@ async function sendYearInReview(): Promise<{ sent: number; errors: number; total
     }
   }
 
-  console.log(`[year-in-review] Sent ${sent}/${eligible.length}, errors: ${errors}`)
-  return { sent, errors, total: eligible.length }
+  console.log(`[year-in-review] Sent ${sent}/${eligible.length}, skipped: ${skipped}, errors: ${errors}`)
+  return { sent, skipped, errors, total: eligible.length }
 }
 
 // ── GET: Vercel cron trigger ────────────────────────────────────────────
