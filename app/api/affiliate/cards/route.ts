@@ -57,7 +57,7 @@ function printCardHtml(name: string, code: string, url: string): string {
         <div class="feat"><span>📸</span>Memories & photos</div>
         <div class="feat"><span>📚</span>Lesson tracking</div>
         <div class="feat"><span>🌳</span>Family garden</div>
-        <div class="feat"><span>✨</span>AI family updates</div>
+        <div class="feat"><span>✨</span>Family yearbook</div>
       </div>
     </div>
     <div class="qr-wrap">

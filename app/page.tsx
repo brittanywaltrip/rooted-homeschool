@@ -725,7 +725,6 @@ export default function Home() {
                 "Unlimited Year in Review summaries",
                 "Printable progress reports — see exactly how much they've learned",
                 "Curriculum pacing guide — stay on track all year without the stress",
-                "Monthly family update — a beautiful summary of your month, ready to share",
                 "Full family yearbook — every memory beautifully organized into a book",
                 "Share with family — send grandparents a private link to follow along in real time",
                 "Priority support",
@@ -772,7 +771,6 @@ export default function Home() {
                 "Unlimited Year in Review summaries",
                 "Printable progress reports — see exactly how much they've learned",
                 "Curriculum pacing guide — stay on track all year without the stress",
-                "Monthly family update — a beautiful summary of your month, ready to share",
                 "Full family yearbook — every memory beautifully organized into a book",
                 "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
@@ -811,7 +809,6 @@ export default function Home() {
                 "Unlimited Year in Review summaries",
                 "Printable progress reports — see exactly how much they've learned",
                 "Curriculum pacing guide — stay on track all year without the stress",
-                "Monthly family update — a beautiful summary of your month, ready to share",
                 "Full family yearbook — every memory beautifully organized into a book",
                 "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (

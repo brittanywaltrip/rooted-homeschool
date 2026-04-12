@@ -141,7 +141,7 @@ function UpgradePageInner() {
             Your family&apos;s story deserves to be kept forever.
           </h1>
           <p className="text-[#7a6f65] leading-relaxed max-w-md mx-auto text-base">
-            Upgrade to unlock unlimited memories, your family yearbook, and AI updates to share with the people you love.
+            Upgrade to unlock unlimited memories, your family yearbook, and shareable links for the people you love.
           </p>
         </div>
 
@@ -251,7 +251,6 @@ function UpgradePageInner() {
                 'Full family yearbook — unlock, read & download',
                 'Share with family (grandparent portal)',
                 'Downloadable progress reports',
-                'AI-written monthly family updates',
                 'Priority support from Brittany',
                 'Founding price locked forever 🎁',
               ].map((label) => (

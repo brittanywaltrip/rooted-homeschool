@@ -17,7 +17,7 @@ const sections = [
       },
       {
         q: "Is Rooted free?",
-        a: "Yes — Rooted is free to start, no credit card needed. Free families get lesson tracking, the garden, curated resources, memories for the last 30 days, and 1 AI Family Update per month. Upgrade to Founding Family ($39/yr) for unlimited everything including yearbook PDF download.",
+        a: "Yes — Rooted is free to start, no credit card needed. Free families get lesson tracking, the garden, curated resources, and memories for the last 30 days. Upgrade to Founding Family ($39/yr) for unlimited everything including yearbook PDF download.",
       },
       {
         q: "How do I set up my curriculum?",
@@ -120,7 +120,7 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, curated resources, and 1 AI Family Update per month. You also get 50 photos, your last 30 days of memories, and a yearbook preview. A paid plan unlocks unlimited photos, your full memory history, unlimited AI Family Updates, yearbook PDF download, progress reports, and curriculum pacing.",
+        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, and curated resources. You also get 50 photos, your last 30 days of memories, and a yearbook preview. A paid plan unlocks unlimited photos, your full memory history, yearbook PDF download, progress reports, and curriculum pacing.",
       },
       {
         q: "What is the Founding Family price?",
@@ -147,24 +147,6 @@ const sections = [
       {
         q: "Who built Rooted?",
         a: "Brittany Waltrip — a homeschool mom who built the app she wished existed. Questions? Email hello@rootedhomeschoolapp.com",
-      },
-    ],
-  },
-  {
-    title: "AI Features",
-    emoji: "✨",
-    items: [
-      {
-        q: "What AI features does Rooted have?",
-        a: "Rooted's AI-powered Family Update generates a warm narrative summary of your recent school weeks — perfect for sharing with grandparents or keeping as a journal entry. Paid users get unlimited updates; free users get 1 per month.",
-      },
-      {
-        q: "Why can't I access AI features on the free plan?",
-        a: "Free users get 1 AI Family Update per month, which is enough to try it out. Unlimited updates are a paid feature because AI generation costs real money to run — every narrative requires a call to a large language model, and those costs add up. Founding Family is $39/year — less than one curriculum book.",
-      },
-      {
-        q: "How many AI generations do I get?",
-        a: "Free users get 1 AI Family Update per month. Paid users get unlimited AI Family Updates. If you ever run into any issues, reach out to us at hello@rootedhomeschoolapp.com — we're happy to help.",
       },
     ],
   },
