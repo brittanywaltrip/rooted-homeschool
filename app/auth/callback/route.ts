@@ -47,7 +47,7 @@ export async function GET(request: Request) {
       if (user) {
         const { data: profile } = await supabaseAdmin
           .from('profiles')
-          .select('id')
+          .select('id, onboarded')
           .eq('id', user.id)
           .single()
 
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
           await supabaseAdmin.from('profiles').upsert({ id: user.id }, { onConflict: 'id' })
         }
 
-        const redirectPath = !profile ? '/onboarding' : '/dashboard'
+        const redirectPath = !profile || profile.onboarded !== true ? '/onboarding' : '/dashboard'
         const redirectResponse = NextResponse.redirect(new URL(redirectPath, requestUrl.origin))
 
         supabaseResponse.cookies.getAll().forEach(cookie => {
