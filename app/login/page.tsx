@@ -48,7 +48,7 @@ function LoginContent() {
     setError("");
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-      redirectTo: `${window.location.origin}/auth/callback?type=recovery`,
+      redirectTo: `${window.location.origin}/auth/callback`,
     });
     setLoading(false);
     if (error) setError(error.message);
