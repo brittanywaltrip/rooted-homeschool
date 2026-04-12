@@ -419,7 +419,7 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           <div>
             <img
-              src="https://images.unsplash.com/photo-1491841651911-c44484e0cf2b?w=800&q=80"
+              src="https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=800&q=80"
               alt="Nature and growth"
               className="w-full rounded-xl object-cover shadow-lg"
               style={{ aspectRatio: "4/3" }}
