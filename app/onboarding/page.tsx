@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, X } from "lucide-react";
+import { Camera, Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/compress-image";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,9 @@ export default function OnboardingPage() {
   const [displayName, setDisplayName] = useState("");
   const [selectedState, setSelectedState] = useState("");
   const [childRows, setChildRows] = useState([{ name: "", color: CHILD_COLORS[0] }]);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoUploaded, setPhotoUploaded] = useState(false);
+  const photoRef = useRef<HTMLInputElement>(null);
 
   // Skip tracking
   const [skipStep1, setSkipStep1] = useState(false);
@@ -150,7 +154,7 @@ export default function OnboardingPage() {
   const visibleSteps = [
     ...(!skipStep1 ? [0] : []),
     ...(!skipStep2 ? [1] : []),
-    2, 3, 4,
+    2, 3, 4, 5,
   ];
   const totalDots = visibleSteps.length;
   const currentDot = visibleSteps.indexOf(step);
@@ -556,11 +560,11 @@ export default function OnboardingPage() {
           </p>
 
           <button
-            onClick={() => router.push("/dashboard")}
+            onClick={() => router.push("/dashboard/memories?new=true")}
             className="w-full py-4 rounded-2xl font-semibold text-base text-white transition-all hover:opacity-90 active:scale-[0.98]"
             style={{ background: "var(--g-brand)" }}
           >
-            Let&apos;s get started →
+            Capture your first memory →
           </button>
         </div>
       </StepShell>
