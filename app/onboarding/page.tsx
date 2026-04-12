@@ -57,7 +57,7 @@ function StepShell({
         <img
           src="/rooted-logo-white.png"
           alt="Rooted"
-          className="h-7 w-auto mb-10 opacity-80"
+          className="h-9 w-auto mb-10 opacity-80"
           onError={(e) => {
             (e.target as HTMLImageElement).src = "/rooted-logo-nav.png";
             (e.target as HTMLImageElement).className = "h-7 w-auto mb-10 opacity-80 brightness-0 invert";
