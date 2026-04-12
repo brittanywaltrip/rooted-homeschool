@@ -458,20 +458,6 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
               {
-                emoji: "📸",
-                title: "Capture Memories",
-                color: "#fef3e0",
-                border: "#f0d090",
-                desc: "Photos, little quotes, field trips, books they loved \u2014 saved as it happens. Build a memory book your family will treasure forever.",
-              },
-              {
-                emoji: "🗓️",
-                title: "Plan Your Days",
-                color: "#e8f0e9",
-                border: "#b8d9bc",
-                desc: "Schedule lessons, see what\u2019s up today, and keep the whole family on track.",
-              },
-              {
                 emoji: "🌱",
                 title: "Watch Them Grow",
                 color: "#f0f7e0",
@@ -486,25 +472,11 @@ export default function Home() {
                 desc: "See exactly how much your kids have learned \u2014 then print it, share it with family, or save it forever.",
               },
               {
-                emoji: "📖",
-                title: "Your Family Yearbook",
-                color: "#f5f0fa",
-                border: "#d9bee8",
-                desc: "Wins, quotes, and books fill it automatically all year. Add photos you love. At year-end: a beautiful book with your letter, each child\u2019s chapter, and messages from family.",
-              },
-              {
                 emoji: "📚",
                 title: "Curated Resources",
                 color: "#e8f4f8",
                 border: "#a8d0e0",
                 desc: "Discounts, field trips, printables, science projects, and state homeschool information \u2014 curated for you.",
-              },
-              {
-                emoji: "🖨️",
-                title: "Printables",
-                color: "#fef9f0",
-                border: "#e8d4b0",
-                desc: "Certificates, ID cards, and awards built from your family\u2019s real data. No design skills needed. Just click and print.",
               },
             ].map((f) => (
               <div
@@ -522,94 +494,6 @@ export default function Home() {
                 <p className="text-sm text-[#7a6f65] leading-relaxed">{f.desc}</p>
               </div>
             ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── 6. MEMORIES ───────────────────────────────────────────────────────── */}
-      <section
-        className="px-6 sm:px-8 py-24"
-        style={{ background: "linear-gradient(160deg, #fef9f0 0%, #fefcf9 40%, #f0f7f1 100%)" }}
-      >
-        <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-                The part moms love most
-              </p>
-              <h2
-                className="text-3xl sm:text-4xl font-medium text-[#2d2926] mb-5 leading-snug"
-                style={{ fontFamily: "var(--font-display)" }}
-              >
-                The little things?{" "}
-                <em className="not-italic" style={{ color: "#5c7f63" }}>You&apos;ll want to remember them.</em>
-              </h2>
-              <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                Between the lessons, the field trips, the little things they said that made you laugh — so much gets forgotten. Rooted gives you a beautiful, simple place to save it all.
-              </p>
-              <ul className="space-y-4 mb-8">
-                {[
-                  { emoji: "📸", title: "Photos from your day", desc: "Snap and save moments as they happen — field trips, projects, backyard science." },
-                  { emoji: "✍️", title: "Little notes & quotes", desc: "Write down what they said, what clicked, what made them proud. You'll want these later." },
-                  { emoji: "📖", title: "Books they loved", desc: "Build a reading log automatically as you go. A record of their whole reading life." },
-                  { emoji: "🌿", title: "Look back and see it", desc: "Your whole homeschool journey, month by month. Proof you're doing something beautiful." },
-                ].map((item) => (
-                  <li key={item.title} className="flex gap-4 items-start">
-                    <div className="w-9 h-9 rounded-xl bg-[#e8f0e9] flex items-center justify-center text-lg shrink-0 mt-0.5">
-                      {item.emoji}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-[#2d2926] text-sm mb-0.5">{item.title}</p>
-                      <p className="text-xs text-[#7a6f65] leading-relaxed">{item.desc}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm shadow-sm">
-                Start capturing memories →
-              </Link>
-            </div>
-
-            <div className="flex justify-center lg:justify-end">
-              <div
-                className="bg-white rounded-3xl shadow-2xl border border-[#e8e2d9] overflow-hidden w-full max-w-sm select-none"
-                style={{ boxShadow: "0 24px 60px rgba(92, 127, 99, 0.12), 0 4px 16px rgba(0,0,0,0.06)" }}
-              >
-                <div className="bg-[#fefcf9] border-b border-[#e8e2d9] px-4 py-3 flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-[#d4956a]" />
-                  <span className="text-xs font-semibold text-[#2d2926]">Memories</span>
-                  <span className="ml-auto text-[10px] text-[#b5aca4]">March 2026</span>
-                </div>
-                <div className="p-4 space-y-3">
-                  <div className="rounded-2xl overflow-hidden border border-[#e8e2d9]">
-                    <div className="h-28 flex items-center justify-center text-4xl" style={{ background: "linear-gradient(135deg, #c8e8d0 0%, #a8d4b8 100%)" }}>
-                      🦋
-                    </div>
-                    <div className="bg-white px-3 py-2.5">
-                      <p className="text-xs font-semibold text-[#2d2926]">Butterfly lifecycle — backyard science!</p>
-                      <p className="text-[10px] text-[#b5aca4] mt-0.5">March 14 · Science</p>
-                    </div>
-                  </div>
-                  <div className="bg-[#fef9f0] border border-[#f0d090] rounded-2xl p-3">
-                    <p className="text-[10px] font-medium text-[#8b6f47] uppercase tracking-widest mb-1.5">✍️ She said...</p>
-                    <p className="text-xs text-[#2d2926] italic leading-relaxed">&ldquo;Mom, I think I actually love fractions now.&rdquo;</p>
-                    <p className="text-[10px] text-[#b5aca4] mt-2">Emma · March 17</p>
-                  </div>
-                  <div className="bg-[#f0f4ff] border border-[#c8d0f0] rounded-2xl px-3 py-2.5 flex items-center gap-3">
-                    <div className="text-2xl">📖</div>
-                    <div>
-                      <p className="text-xs font-semibold text-[#2d2926]">Finished Charlotte&apos;s Web</p>
-                      <p className="text-[10px] text-[#b5aca4]">Zoe · March 15 · Book #8 this year</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="px-4 pb-4">
-                  <div className="bg-[#e8f0e9] rounded-xl px-3 py-2 text-center">
-                    <p className="text-[10px] text-[#5c7f63] font-semibold">🌿 24 memories this month</p>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </section>
@@ -690,7 +574,6 @@ export default function Home() {
               <ul className="space-y-4 mb-8">
                 {[
                   { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook — a living record of their whole learning life." },
-                  { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles — anyone you choose. They can view memories and leave messages for the kids. No app download needed." },
                   { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
