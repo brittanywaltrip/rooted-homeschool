@@ -2013,33 +2013,35 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          NEW USER STATE — no memories, no curriculum
+          NEW USER STATE — single focused activation card
          ═══════════════════════════════════════════════════════════ */}
       {!loading && totalMemories === 0 && !hasAnyLessons && (
-        <div>
-          <div className="bg-white border border-[#e8e2d9] rounded-[14px] overflow-hidden divide-y divide-[#f0ede8]">
-            {[
-              { icon: "📸", title: "Snap your first photo", sub: "Tap the camera button anytime", action: () => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); } },
-              { icon: "✍️", title: "Log a win or moment", sub: "Big or small, it all belongs here", action: () => setShowWinSheet(true) },
-              { icon: "📖", title: "Add a book you're reading", sub: "Build your family library", action: () => setShowBookModal(true) },
-              { icon: "📋", title: "Set up your curriculum", sub: "Lessons auto-schedule in Plan", action: null, href: "/dashboard/plan" },
-              { icon: "🌱", title: "Watch your garden grow", sub: "Every lesson and memory grows a leaf", action: null, href: "/dashboard/garden" },
-            ].map((row) => {
-              const inner = (
-                <div className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-[#faf8f5] transition-colors">
-                  <span className="text-xl shrink-0">{row.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-semibold text-[#2d2926]">{row.title}</p>
-                    <p className="text-[11px] text-[#9a8f85]">{row.sub}</p>
-                  </div>
-                  <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
-                </div>
-              );
-              if ((row as { href?: string }).href) {
-                return <Link key={row.title} href={(row as { href: string }).href}>{inner}</Link>;
-              }
-              return <button key={row.title} type="button" className="w-full text-left" onClick={row.action ?? undefined}>{inner}</button>;
-            })}
+        <div className="bg-white border border-[#e8e2d9] rounded-2xl p-8 text-center">
+          <span className="text-4xl block mb-4">🌱</span>
+          <p className="text-base font-medium text-[#2d2926] mb-1">
+            {children.length > 0 ? `${children[0].name}'s first seed is planted.` : "Your first seed is planted."}
+          </p>
+          <p className="text-sm text-[#7a6f65] mb-6">
+            Capture a memory to watch it grow.
+          </p>
+          <button
+            type="button"
+            onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
+            className="w-full py-3.5 rounded-2xl text-white font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98]"
+            style={{ background: "var(--g-brand)" }}
+          >
+            + Capture your first memory
+          </button>
+          <div className="border-t border-[#f0ede8] mt-6 pt-4">
+            <p className="text-xs text-[#b5aca4] mb-3">Also here when you&apos;re ready:</p>
+            <div className="flex flex-col items-center gap-2">
+              <Link href="/dashboard/plan" className="text-xs text-[#9a8f85] hover:text-[#7a6f65] transition-colors">
+                📚 Set up curriculum →
+              </Link>
+              <Link href="/dashboard/memories/yearbook/read" className="text-xs text-[#9a8f85] hover:text-[#7a6f65] transition-colors">
+                📖 View your yearbook →
+              </Link>
+            </div>
           </div>
         </div>
       )}

@@ -10,12 +10,26 @@ export default function UpgradeBanner() {
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) return;
-      const { data } = await supabase
-        .from("profiles")
-        .select("is_pro")
-        .eq("id", session.user.id)
-        .single();
-      if (data && !data.is_pro) setShow(true);
+      const [{ data: profile }, { count: memCount }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("is_pro, created_at")
+          .eq("id", session.user.id)
+          .single(),
+        supabase
+          .from("memories")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", session.user.id),
+      ]);
+      if (!profile || profile.is_pro) return;
+
+      // Suppress for brand new users: no memories AND account < 48 hours old
+      const hasMemories = (memCount ?? 0) > 0;
+      const accountAge = Date.now() - new Date(profile.created_at).getTime();
+      const over48h = accountAge > 48 * 60 * 60 * 1000;
+      if (!hasMemories && !over48h) return;
+
+      setShow(true);
     });
   }, []);
 
