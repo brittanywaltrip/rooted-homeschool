@@ -677,7 +677,7 @@ export default function MemoriesPage() {
           onClick={() => {
             window.open('/family/preview', '_blank');
           }}
-          className="text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors cursor-pointer"
+          className="text-sm text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors cursor-pointer"
         >
           👁 Preview family view
         </button>
@@ -697,7 +697,7 @@ export default function MemoriesPage() {
       >
         <span className="text-[20px]">📖</span>
         <div>
-          <p className="text-[13px] font-semibold text-[#3d5c42]">Your family yearbook →</p>
+          <p className="text-[13px] font-semibold text-[var(--g-deep)]">Your family yearbook →</p>
           <p className="text-[11px] text-[#9a8f85]">
             {memories.filter((m) => m.include_in_book).length} memories bookmarked this year
           </p>
@@ -727,7 +727,7 @@ export default function MemoriesPage() {
         <button
           onClick={() => setShowMoreFilters(!showMoreFilters)}
           className="px-3.5 py-1.5 rounded-full text-sm transition-colors"
-          style={{ background: "#f4faf0", border: "1px solid #c0dea8", color: "#2D5a1B", fontWeight: 500 }}
+          style={{ background: "#f4faf0", border: "1px solid #c0dea8", color: "var(--g-brand)", fontWeight: 500 }}
         >
           {showMoreFilters ? "Less ‹" : "More ›"}
         </button>
@@ -897,9 +897,9 @@ export default function MemoriesPage() {
       {/* Memory counter awareness banner */}
       {(!planType || planType === "free" || previewFree) && !loading && (
         <div className="bg-[#e8f0e8] border border-[#c8d8c8] rounded-2xl px-4 py-3">
-          <p className="text-sm text-[#2d5a3d]">
+          <p className="text-sm text-[var(--g-brand)]">
             You have <strong>{memories.length}</strong> memories captured 🌱{" "}
-            <Link href="/upgrade" onClick={() => posthog.capture('upgrade_clicked', { source: 'memory_banner' })} className="underline font-medium text-[#2d5a3d] hover:text-[#3d5c42]">
+            <Link href="/upgrade" onClick={() => posthog.capture('upgrade_clicked', { source: 'memory_banner' })} className="underline font-medium text-[var(--g-brand)] hover:text-[var(--g-deep)]">
               Upgrade to unlock your full yearbook and archive →
             </Link>
           </p>
@@ -947,7 +947,7 @@ export default function MemoriesPage() {
           <p className="text-sm text-[#7a6f65] max-w-xs mb-4">Pull to refresh or try again.</p>
           <button
             onClick={() => { setLoadError(false); setLoading(true); load(); }}
-            className="px-4 py-2 rounded-xl bg-[#5c7f63] text-white text-sm font-medium hover:bg-[#3d5c42] transition-colors"
+            className="px-4 py-2 rounded-xl bg-[#5c7f63] text-white text-sm font-medium hover:bg-[var(--g-deep)] transition-colors"
           >
             Try again
           </button>
@@ -966,7 +966,7 @@ export default function MemoriesPage() {
             </p>
             <Link
               href="/dashboard"
-              className="px-5 py-2.5 rounded-xl bg-[#2d5a3d] hover:bg-[#1e3d29] text-white text-sm font-semibold transition-colors"
+              className="px-5 py-2.5 rounded-xl bg-[var(--g-brand)] hover:bg-[#1e3d29] text-white text-sm font-semibold transition-colors"
             >
               Capture a memory →
             </Link>
@@ -1002,7 +1002,7 @@ export default function MemoriesPage() {
                   await navigator.clipboard.writeText(shareData.url);
                 }
               }}
-              className="mt-4 text-xs text-[#5c7f63] hover:text-[#3d5c42] font-medium transition-colors"
+              className="mt-4 text-xs text-[#5c7f63] hover:text-[var(--g-deep)] font-medium transition-colors"
             >
               Loving Rooted? Share it with a friend →
             </button>
@@ -1280,10 +1280,10 @@ export default function MemoriesPage() {
                         className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap z-50"
                         onClick={dismissYearbookTip}
                       >
-                        <div className="bg-[#3d5c42] text-white text-xs px-3 py-1.5 rounded-full shadow-lg">
+                        <div className="bg-[var(--g-deep)] text-white text-xs px-3 py-1.5 rounded-full shadow-lg">
                           Tap to add this memory to your yearbook
                         </div>
-                        <div className="w-2 h-2 bg-[#3d5c42] rotate-45 mx-auto -mt-1" />
+                        <div className="w-2 h-2 bg-[var(--g-deep)] rotate-45 mx-auto -mt-1" />
                       </div>
                     )}
                   </div>
@@ -1438,7 +1438,7 @@ export default function MemoriesPage() {
               <button
                 onClick={saveEdit}
                 disabled={editSaving}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors"
               >
                 {editSaving ? "Saving…" : "Save"}
               </button>
@@ -1534,7 +1534,7 @@ export default function MemoriesPage() {
                   <button
                     onClick={saveReflectionEdit}
                     disabled={savingReflection || !reflectionEditText.trim()}
-                    className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                    className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors"
                   >
                     {savingReflection ? "Saving…" : "Save"}
                   </button>

@@ -209,61 +209,10 @@ export default function AdminPartnersPage() {
   const pendingApps = applications.filter((a) => a.status === "pending");
   const IC = "w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]";
 
-  function renderExpandedPanel(a: Affiliate, owed: number, refLink: string) {
-    return (
-      <div className="space-y-5">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Referral link</p>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-[#5c7f63] font-mono truncate">{refLink}</span>
-            <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`https://${refLink}`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-              className="text-xs font-semibold text-[#5c7f63] hover:text-[#2d5a3d] shrink-0">{copied ? "Copied" : "Copy"}</button>
-          </div>
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-2">Edit details</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-            <div>
-              <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Contact email</label>
-              <input type="email" value={editDraft.contact_email} onClick={(e) => e.stopPropagation()}
-                onChange={(e) => setEditDraft((d) => ({ ...d, contact_email: e.target.value }))} className={IC} />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">PayPal email</label>
-              <input type="email" value={editDraft.paypal_email} onClick={(e) => e.stopPropagation()}
-                onChange={(e) => setEditDraft((d) => ({ ...d, paypal_email: e.target.value }))} className={IC} />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Notes</label>
-              <input type="text" value={editDraft.notes} onClick={(e) => e.stopPropagation()}
-                onChange={(e) => setEditDraft((d) => ({ ...d, notes: e.target.value }))} className={IC} placeholder="Internal notes..." />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button onClick={(e) => { e.stopPropagation(); saveEdit(); }} disabled={saving}
-              className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-lg transition-colors">
-              {saving ? "Saving..." : "Save"}</button>
-            <button onClick={(e) => { e.stopPropagation(); setExpandedCode(null); }}
-              className="px-4 py-2 text-xs font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-lg">Cancel</button>
-            {owed > 0 && (
-              <button onClick={(e) => { e.stopPropagation(); setPayModal(a); }}
-                className="px-4 py-2 text-xs font-semibold bg-[#6366f1] hover:bg-[#4338ca] text-white rounded-lg transition-colors">
-                Pay ${owed.toFixed(2)}</button>
-            )}
-            {a.contact_email && (
-              <a href={`mailto:${a.contact_email}`} onClick={(e) => e.stopPropagation()}
-                className="px-4 py-2 text-xs font-semibold text-[#5c7f63] border border-[#e8e2d9] rounded-lg">Email</a>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#2d3e30]">
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-[#3d5c42] border-b border-[#4e7055] px-6 py-4 flex items-center gap-4">
+      <div className="sticky top-0 z-50 bg-[var(--g-deep)] border-b border-[#4e7055] px-6 py-4 flex items-center gap-4">
         <img src="/rooted-logo-white.png" alt="Rooted" style={{ height: '32px', width: 'auto' }} />
         <div>
           <Link href="/admin" className="text-xs text-[#a8c5a0] hover:text-[#fefcf9] transition-colors">← Back to admin</Link>
@@ -339,7 +288,7 @@ export default function AdminPartnersPage() {
                                       paypalEmail: app.paypal_email ?? "",
                                     });
                                   }}
-                                  className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] text-white rounded-lg transition-colors"
+                                  className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white rounded-lg transition-colors"
                                 >
                                   Approve
                                 </button>
@@ -365,9 +314,7 @@ export default function AdminPartnersPage() {
         {/* ── Partner Roster ────────────────────────────────────────────── */}
         <section>
           <SectionHeader emoji="🤝" title="Partner Roster" />
-
-          {/* Desktop table */}
-          <div className="hidden md:block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#e8e2d9]">
@@ -394,7 +341,7 @@ export default function AdminPartnersPage() {
                         <td className="px-4 py-3 text-xs text-[#7a6f65]">${a.total_paid.toFixed(2)}</td>
                         <td className="px-4 py-3">
                           <button onClick={(e) => toggleActive(e, a.id, a.is_active)}
-                            className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${a.is_active ? "bg-[#e8f0e9] text-[#2d5a3d]" : "bg-[#f5e6e6] text-[#8b3a3a]"}`}>
+                            className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${a.is_active ? "bg-[#e8f0e9] text-[var(--g-brand)]" : "bg-[#f5e6e6] text-[#8b3a3a]"}`}>
                             {a.is_active ? "Active" : "Inactive"}
                           </button>
                         </td>
@@ -402,7 +349,52 @@ export default function AdminPartnersPage() {
                       {isExpanded && (
                         <tr>
                           <td colSpan={9} className="bg-[#faf8f4] border-b border-[#e8e2d9] px-5 py-5">
-                            {renderExpandedPanel(a, owed, refLink)}
+                            <div className="space-y-5">
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Referral link</p>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-[#5c7f63] font-mono">{refLink}</span>
+                                  <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`https://${refLink}`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                                    className="text-xs font-semibold text-[#5c7f63] hover:text-[var(--g-brand)]">{copied ? "Copied" : "Copy"}</button>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-2">Edit details</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Contact email</label>
+                                    <input type="email" value={editDraft.contact_email} onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => setEditDraft((d) => ({ ...d, contact_email: e.target.value }))} className={IC} />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">PayPal email</label>
+                                    <input type="email" value={editDraft.paypal_email} onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => setEditDraft((d) => ({ ...d, paypal_email: e.target.value }))} className={IC} />
+                                  </div>
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Notes</label>
+                                    <input type="text" value={editDraft.notes} onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => setEditDraft((d) => ({ ...d, notes: e.target.value }))} className={IC} placeholder="Internal notes..." />
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button onClick={(e) => { e.stopPropagation(); saveEdit(); }} disabled={saving}
+                                    className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-lg transition-colors">
+                                    {saving ? "Saving..." : "Save"}</button>
+                                  <button onClick={(e) => { e.stopPropagation(); setExpandedCode(null); }}
+                                    className="px-4 py-2 text-xs font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-lg">Cancel</button>
+                                  {owed > 0 && (
+                                    <button onClick={(e) => { e.stopPropagation(); setPayModal(a); }}
+                                      className="ml-auto px-4 py-2 text-xs font-semibold bg-[#6366f1] hover:bg-[#4338ca] text-white rounded-lg transition-colors">
+                                      Pay ${owed.toFixed(2)}</button>
+                                  )}
+                                  {a.contact_email && (
+                                    <a href={`mailto:${a.contact_email}`} onClick={(e) => e.stopPropagation()}
+                                      className="px-4 py-2 text-xs font-semibold text-[#5c7f63] border border-[#e8e2d9] rounded-lg">Email</a>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -411,52 +403,6 @@ export default function AdminPartnersPage() {
                 })}
               </tbody>
             </table>
-          </div>
-
-          {/* Mobile cards */}
-          <div className="md:hidden space-y-3">
-            {affiliates.map((a) => {
-              const isExpanded = expandedCode === a.code;
-              const owed = Math.max(0, a.commission_owed - a.total_paid);
-              const refLink = `rootedhomeschoolapp.com/upgrade?ref=${a.code}`;
-              return (
-                <div key={a.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
-                  <div onClick={() => toggleRow(a)} className={`px-4 py-4 cursor-pointer transition-colors ${isExpanded ? "bg-[#f0f7f1] rounded-t-2xl" : ""}`}>
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <p className="font-medium text-[#2d2926] text-sm">{a.name}</p>
-                        <p className="font-mono text-xs text-[#5c7f63]">{a.code}</p>
-                      </div>
-                      <button onClick={(e) => toggleActive(e, a.id, a.is_active)}
-                        className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${a.is_active ? "bg-[#e8f0e9] text-[#2d5a3d]" : "bg-[#f5e6e6] text-[#8b3a3a]"}`}>
-                        {a.is_active ? "Active" : "Inactive"}
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      {[
-                        { label: "Clicks", val: a.clicks },
-                        { label: "Signups", val: a.signups_referred },
-                        { label: "Paying", val: a.paying_customers },
-                        { label: "Owed", val: `$${owed.toFixed(2)}` },
-                        { label: "Paid", val: `$${a.total_paid.toFixed(2)}` },
-                        { label: "Status", val: a.is_active ? "Active" : "Off" },
-                      ].map((s) => (
-                        <div key={s.label} className="bg-white border border-[#f0ede8] rounded-lg px-2 py-2">
-                          <p className="text-sm font-medium text-[#2d2926]">{s.val}</p>
-                          <p className="text-[10px] text-[#b5aca4]">{s.label}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-xs text-[#7a6f65] mt-2 truncate">{a.account_email ?? ""}</p>
-                  </div>
-                  {isExpanded && (
-                    <div className="bg-[#faf8f4] border-t border-[#e8e2d9] px-4 py-4 rounded-b-2xl">
-                      {renderExpandedPanel(a, owed, refLink)}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
           </div>
         </section>
 
@@ -468,48 +414,26 @@ export default function AdminPartnersPage() {
               <p className="text-sm text-[#7a6f65]">No referral conversions yet.</p>
             </div>
           ) : (
-            <>
-              {/* Desktop table */}
-              <div className="hidden md:block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
-                <table className="w-full text-sm">
-                  <thead><tr className="border-b border-[#e8e2d9]">
-                    {["Date", "Customer", "Affiliate", "Plan", "Commission"].map((h) => (
-                      <th key={h} className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">{h}</th>
-                    ))}
-                  </tr></thead>
-                  <tbody>
-                    {referrals.map((r) => (
-                      <tr key={r.id} className="border-b border-[#f0ede8] last:border-0">
-                        <td className="px-4 py-3 text-xs text-[#7a6f65]">{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
-                        <td className="px-4 py-3 font-medium text-[#2d2926]">{r.user_name}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{r.affiliate_code}</td>
-                        <td className="px-4 py-3 text-xs text-[#7a6f65]">{r.user_plan === "founding_family" ? "Founding ($39/yr)" : r.user_plan === "standard" ? "Standard ($59/yr)" : r.user_plan === "monthly" ? "Monthly ($6.99/mo)" : r.user_plan}</td>
-                        <td className="px-4 py-3 font-medium text-[#2d2926]">{r.converted ? "$7.80" : "$0"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {/* Mobile cards */}
-              <div className="md:hidden space-y-3">
-                {referrals.map((r) => {
-                  const planLabel = r.user_plan === "founding_family" ? "Founding ($39/yr)" : r.user_plan === "standard" ? "Standard ($59/yr)" : r.user_plan === "monthly" ? "Monthly ($6.99/mo)" : r.user_plan;
-                  return (
-                    <div key={r.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-4 py-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="font-medium text-sm text-[#2d2926]">{r.user_name}</p>
-                        <p className="font-medium text-sm text-[#2d2926]">{r.converted ? "$7.80" : "$0"}</p>
-                      </div>
-                      <div className="flex items-center justify-between text-xs text-[#7a6f65]">
-                        <span>{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
-                        <span className="font-mono text-[#5c7f63]">{r.affiliate_code}</span>
-                      </div>
-                      <p className="text-xs text-[#7a6f65] mt-1">{planLabel}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-[#e8e2d9]">
+                  {["Date", "Customer", "Affiliate", "Plan", "Commission"].map((h) => (
+                    <th key={h} className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {referrals.map((r) => (
+                    <tr key={r.id} className="border-b border-[#f0ede8] last:border-0">
+                      <td className="px-4 py-3 text-xs text-[#7a6f65]">{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
+                      <td className="px-4 py-3 font-medium text-[#2d2926]">{r.user_name}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{r.affiliate_code}</td>
+                      <td className="px-4 py-3 text-xs text-[#7a6f65]">{r.user_plan === "founding_family" ? "Founding ($39/yr)" : r.user_plan === "standard" ? "Standard ($59/yr)" : r.user_plan === "monthly" ? "Monthly ($6.99/mo)" : r.user_plan}</td>
+                      <td className="px-4 py-3 font-medium text-[#2d2926]">{r.converted ? "$7.80" : "$0"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 
@@ -556,7 +480,7 @@ export default function AdminPartnersPage() {
               Pay <b className="text-[#2d2926]">${ow.toFixed(2)}</b> to <b className="text-[#2d2926]">{payModal.paypal_email ?? "no PayPal"}</b> for {payModal.name} ({payModal.code}) {"\u2014"} {mo}?
             </p>
             <div className="flex gap-2">
-              <button onClick={confirmPay} disabled={paying} className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-xl">{paying ? "Processing..." : "Confirm payment"}</button>
+              <button onClick={confirmPay} disabled={paying} className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-xl">{paying ? "Processing..." : "Confirm payment"}</button>
               <button onClick={() => setPayModal(null)} disabled={paying} className="px-4 py-2.5 text-sm font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-xl">Cancel</button>
             </div>
           </Modal>
@@ -593,7 +517,7 @@ export default function AdminPartnersPage() {
           </div>
           <div className="flex gap-2">
             <button onClick={confirmApprove} disabled={approving || !approveDraft.code || !approveDraft.stripeCouponId}
-              className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-50 text-white rounded-xl">
+              className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-xl">
               {approving ? "Approving..." : "Approve & send welcome email"}
             </button>
             <button onClick={() => setApproveApp(null)} disabled={approving} className="px-4 py-2.5 text-sm font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-xl">Cancel</button>

@@ -279,7 +279,7 @@ export default function YearbookEditPage() {
       />
 
       <div className="max-w-3xl mx-auto px-4 pt-5 pb-20 space-y-4">
-        <Link href="/dashboard/memories/yearbook" className="inline-flex items-center gap-1.5 text-sm text-[#5c7f63] hover:text-[#3d5c42] transition-colors">
+        <Link href="/dashboard/memories/yearbook" className="inline-flex items-center gap-1.5 text-sm text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors">
           ← Back to yearbook
         </Link>
 
@@ -296,7 +296,7 @@ export default function YearbookEditPage() {
             <span className="text-[11px] text-[#9a8f85]">{filledCount} of {totalCount} sections complete</span>
           </div>
           <div className="h-[5px] bg-[#e8e3dc] rounded-full overflow-hidden">
-            <div className="h-full bg-[#3d5c42] rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
+            <div className="h-full bg-[var(--g-deep)] rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
           </div>
         </div>
 
@@ -312,7 +312,7 @@ export default function YearbookEditPage() {
             onChange={(e) => setLetter(e.target.value)}
             disabled={isReadOnly}
             placeholder="Dear family…"
-            className="w-full min-h-[140px] text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[#3d5c42] resize-y disabled:opacity-60"
+            className="w-full min-h-[140px] text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] resize-y disabled:opacity-60"
             style={{ fontFamily: "Georgia, serif" }}
           />
           <SaveStatus status={letterStatus} />
@@ -357,7 +357,7 @@ export default function YearbookEditPage() {
                 onChange={(e) => setFavCaption(e.target.value)}
                 disabled={isReadOnly}
                 placeholder="Why this moment matters…"
-                className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#3d5c42] disabled:opacity-60"
+                className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
                 style={{ fontFamily: "Georgia, serif" }}
               />
               <SaveStatus status={captionStatus} />
@@ -383,7 +383,7 @@ export default function YearbookEditPage() {
                       await saveContent("letter_favorite_memory_id", m.id);
                     }}
                     className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
-                      m.id === favMemoryId ? "border-[#3d5c42]" : "border-transparent"
+                      m.id === favMemoryId ? "border-[var(--g-deep)]" : "border-transparent"
                     }`}
                   >
                     {m.photo_url ? (
@@ -392,7 +392,7 @@ export default function YearbookEditPage() {
                     ) : (
                       <div className="w-full h-full bg-[#eaf3de] flex flex-col items-center justify-center p-1">
                         <span className="text-2xl">{m.type === "win" ? "🏆" : m.type === "book" ? "📖" : "🗒️"}</span>
-                        <p className="text-[8px] text-[#3d5c42] text-center line-clamp-2 mt-0.5">{m.title}</p>
+                        <p className="text-[8px] text-[var(--g-deep)] text-center line-clamp-2 mt-0.5">{m.title}</p>
                       </div>
                     )}
                   </button>
@@ -438,7 +438,7 @@ export default function YearbookEditPage() {
                 }}
                 disabled={isReadOnly}
                 placeholder="Type your favorite quote…"
-                className="w-full px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[#3d5c42] italic disabled:opacity-60"
+                className="w-full px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] italic disabled:opacity-60"
                 style={{ fontFamily: "Georgia, serif" }}
               />
             </div>
@@ -492,7 +492,7 @@ export default function YearbookEditPage() {
                       await saveContent("letter_favorite_quote", m.id);
                     }}
                     className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                      m.id === favQuote ? "border-[#3d5c42] bg-[#eaf3de]" : "border-[#e8e3dc] hover:bg-[#faf8f4]"
+                      m.id === favQuote ? "border-[var(--g-deep)] bg-[#eaf3de]" : "border-[#e8e3dc] hover:bg-[#faf8f4]"
                     }`}
                   >
                     <p className="italic text-[12px] text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
@@ -562,11 +562,11 @@ export default function YearbookEditPage() {
                             }}
                             autoFocus={activeField === fieldKey}
                             disabled={isReadOnly}
-                            className="w-full min-h-[60px] text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[#3d5c42] resize-y disabled:opacity-60"
+                            className="w-full min-h-[60px] text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] resize-y disabled:opacity-60"
                             style={{ fontFamily: "Georgia, serif" }}
                           />
                           {val.trim() && updatedMap[updKey] && (
-                            <p className="text-[9px] text-[#8cba8e] mt-0.5">
+                            <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)] mt-0.5">
                               ✓ Saved {new Date(updatedMap[updKey]).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                             </p>
                           )}
@@ -602,7 +602,7 @@ export default function YearbookEditPage() {
                   }}
                   disabled={isReadOnly}
                   placeholder={`Dear future ${child.name}…`}
-                  className="w-full min-h-[80px] text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[#3d5c42] resize-y disabled:opacity-60"
+                  className="w-full min-h-[80px] text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] resize-y disabled:opacity-60"
                   style={{ fontFamily: "Georgia, serif" }}
                 />
               </div>

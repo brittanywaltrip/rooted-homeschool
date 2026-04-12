@@ -29,14 +29,14 @@ export default function NotFound() {
         <Link
           href="/"
           className="px-6 py-2.5 rounded-lg text-center text-sm font-medium transition-colors"
-          style={{ backgroundColor: "#2d5a3d", color: "#fff" }}
+          style={{ backgroundColor: "var(--g-brand)", color: "#fff" }}
         >
           Go home
         </Link>
         <Link
           href="/dashboard"
           className="px-6 py-2.5 rounded-lg text-center text-sm font-medium border transition-colors"
-          style={{ borderColor: "#2d5a3d", color: "#2d5a3d" }}
+          style={{ borderColor: "var(--g-brand)", color: "var(--g-brand)" }}
         >
           Go to my dashboard
         </Link>

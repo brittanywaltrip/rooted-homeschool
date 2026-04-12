@@ -62,7 +62,7 @@ export async function GET(req: Request) {
   const { data: lessonsByUserRows } = await supabaseAdmin
     .from("lessons")
     .select("user_id, completed_at, date")
-    .eq("completed", true);
+    .not("completed_at", "is", null);
 
   // Build lesson count per user + last lesson date per user
   const lessonsByUser    = new Map<string, number>();
@@ -115,17 +115,16 @@ export async function GET(req: Request) {
   // Features
   const [
     { data: vacationData },
-    { data: booksData },
-    { data: memoriesData },
+    { data: booksCountData },
+    { data: memoriesCountData },
   ] = await Promise.all([
     supabaseAdmin.from("vacation_blocks").select("id"),
-    supabaseAdmin.from("app_events").select("id").eq("type", "book_read"),
-    supabaseAdmin.from("app_events").select("id")
-      .in("type", ["memory_photo", "memory_project", "memory_book"]),
+    supabaseAdmin.from("memories").select("id").eq("type", "book"),
+    supabaseAdmin.from("memories").select("id"),
   ]);
   const vacationBlocks = vacationData?.length ?? 0;
-  const booksLogged = booksData?.length ?? 0;
-  const memoriesCreated = memoriesData?.length ?? 0;
+  const booksLogged = booksCountData?.length ?? 0;
+  const memoriesCreated = memoriesCountData?.length ?? 0;
 
   const profileMap    = new Map(profiles?.map(p => [p.id, p]) ?? []);
   const TEST_EMAILS   = ["test@", "example.com"];

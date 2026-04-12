@@ -267,15 +267,15 @@ function PlanMockup() {
       <div className="p-4 space-y-3">
         <div className="flex items-center justify-between">
           <p className="text-sm font-bold text-[#2d2926]">📅 Week of March 17–21</p>
-          <span className="text-[10px] bg-[#e8f0e9] text-[#3d5c42] px-2 py-0.5 rounded-full font-semibold">Auto-scheduled ✓</span>
+          <span className="text-[10px] bg-[#e8f0e9] text-[var(--g-deep)] px-2 py-0.5 rounded-full font-semibold">Auto-scheduled ✓</span>
         </div>
         <div className="grid grid-cols-5 gap-1.5">
           {[
-            { day: "Mon", items: [{ label: "Math", bg: "#e8f0e9", text: "#3d5c42" }, { label: "History", bg: "#fef0e4", text: "#7a4a1a" }] },
+            { day: "Mon", items: [{ label: "Math", bg: "#e8f0e9", text: "var(--g-deep)" }, { label: "History", bg: "#fef0e4", text: "#7a4a1a" }] },
             { day: "Tue", items: [{ label: "Reading", bg: "#e4f0f4", text: "#1a4a5a" }, { label: "Science", bg: "#f0e8f4", text: "#4a2a5a" }] },
-            { day: "Wed", items: [{ label: "Math", bg: "#e8f0e9", text: "#3d5c42" }, { label: "Writing", bg: "#fce8ec", text: "#7a2a36" }] },
+            { day: "Wed", items: [{ label: "Math", bg: "#e8f0e9", text: "var(--g-deep)" }, { label: "Writing", bg: "#fce8ec", text: "#7a2a36" }] },
             { day: "Thu", items: [{ label: "Reading", bg: "#e4f0f4", text: "#1a4a5a" }, { label: "History", bg: "#fef0e4", text: "#7a4a1a" }] },
-            { day: "Fri", items: [{ label: "Math", bg: "#e8f0e9", text: "#3d5c42" }, { label: "Science", bg: "#f0e8f4", text: "#4a2a5a" }] },
+            { day: "Fri", items: [{ label: "Math", bg: "#e8f0e9", text: "var(--g-deep)" }, { label: "Science", bg: "#f0e8f4", text: "#4a2a5a" }] },
           ].map((col) => (
             <div key={col.day} className="space-y-1.5">
               <div className="text-center text-[10px] font-bold text-[#7a6f65] uppercase tracking-wide">{col.day}</div>
@@ -398,7 +398,7 @@ function InsightsMockup() {
               { day: "Thu", h: 52 }, { day: "Fri", h: 32 }, { day: "Sat", h: 12 }, { day: "Sun", h: 0 },
             ].map(({ day, h }) => (
               <div key={day} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", flex: 1, height: "100%" }}>
-                {h > 0 && <div style={{ width: 24, height: h, backgroundColor: "#2d5a3d", borderRadius: "3px 3px 0 0" }} />}
+                {h > 0 && <div style={{ width: 24, height: h, backgroundColor: "var(--g-brand)", borderRadius: "3px 3px 0 0" }} />}
                 <span style={{ fontSize: 8, color: "#7a6f65", marginTop: 3 }}>{day}</span>
               </div>
             ))}
@@ -415,14 +415,14 @@ function InsightsMockup() {
 
 function YearbookMockup() {
   return (
-    <MockupShell title="Family Yearbook" dot="#3d5c42">
+    <MockupShell title="Family Yearbook" dot="var(--g-deep)">
       <div className="space-y-3">
         {/* Cover card */}
-        <div className="rounded-xl overflow-hidden" style={{ background: "#3d5c42" }}>
+        <div className="rounded-xl overflow-hidden" style={{ background: "var(--g-deep)" }}>
           <div className="px-3 py-2.5 relative">
             <span className="absolute top-0 right-1 text-[28px] opacity-[0.08] select-none">🌿</span>
             <p className="text-[12px] font-bold text-white relative z-10" style={{ fontFamily: "var(--font-display)" }}>The Parker Family</p>
-            <p className="text-[8px] text-[#8cba8e] uppercase tracking-wider">2025-26 school year</p>
+            <p className="text-[8px] text-[rgba(254, 252, 249, 0.55)] uppercase tracking-wider">2025-26 school year</p>
           </div>
           <div className="bg-[#faf6f0] px-3 py-2 flex justify-between text-center">
             {[
@@ -432,7 +432,7 @@ function YearbookMockup() {
               { n: "3", l: "Quotes" },
             ].map((s) => (
               <div key={s.l}>
-                <p className="text-[13px] font-bold text-[#3d5c42]">{s.n}</p>
+                <p className="text-[13px] font-bold text-[var(--g-deep)]">{s.n}</p>
                 <p className="text-[7px] text-[#9a8f85]">{s.l}</p>
               </div>
             ))}
@@ -458,7 +458,7 @@ function YearbookMockup() {
             <span>12 of 17 sections</span>
           </div>
           <div className="h-1 bg-[#e8e3dc] rounded-full overflow-hidden">
-            <div className="h-full bg-[#3d5c42] rounded-full" style={{ width: "70%" }} />
+            <div className="h-full bg-[var(--g-deep)] rounded-full" style={{ width: "70%" }} />
           </div>
         </div>
       </div>
@@ -553,7 +553,7 @@ export default function TourPage() {
             <Link href="/login" className="hidden sm:inline-flex text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-3 py-2 rounded-lg hover:bg-[#f0ede8]">
               Log In
             </Link>
-            <Link href="/signup" className="inline-flex items-center gap-1.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] text-white px-5 py-2.5 rounded-xl transition-colors shadow-sm">
+            <Link href="/signup" className="inline-flex items-center gap-1.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white px-5 py-2.5 rounded-xl transition-colors shadow-sm">
               Start Free
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
                 <path d="M1.5 5.5h8M5.5 1.5l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -612,7 +612,7 @@ export default function TourPage() {
             Plan your days, capture memories, and actually see how far your kids have come.
           </p>
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
-            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#3d5c42] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35)" }}>
+            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[var(--g-deep)] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35)" }}>
               Get Started Free →
             </Link>
             <a href="#walkthrough" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base" style={{ border: "1px solid rgba(255,255,255,0.35)", background: "rgba(255,255,255,0.06)" }}>
@@ -714,7 +714,7 @@ export default function TourPage() {
                 </div>
               )}
 
-              <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-xl transition-colors shadow-sm">
+              <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold px-5 py-3 rounded-xl transition-colors shadow-sm">
                 Try {feature.label} free →
               </Link>
             </div>
@@ -778,7 +778,7 @@ export default function TourPage() {
                   </li>
                 ))}
               </ul>
-              <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm shadow-sm">
+              <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm shadow-sm">
                 Start capturing memories →
               </Link>
             </div>
@@ -916,14 +916,14 @@ export default function TourPage() {
             <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
               Start your homeschool journey today
             </h2>
-            <p className="text-[#3d5c42] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
+            <p className="text-[var(--g-deep)] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
               Free to start. No credit card needed. Join families already using Rooted.
             </p>
             <Link href="/signup" className="inline-block bg-[#5c7f63] hover:bg-[#4a6b50] text-white font-semibold px-8 py-3 rounded-full transition-colors">
               Get Started Free →
             </Link>
             <p className="mt-4">
-              <Link href="/upgrade" className="text-sm text-[#3d5c42] hover:underline font-medium">
+              <Link href="/upgrade" className="text-sm text-[var(--g-deep)] hover:underline font-medium">
                 View plans →
               </Link>
             </p>

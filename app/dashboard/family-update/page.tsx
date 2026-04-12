@@ -298,7 +298,7 @@ export default function FamilyUpdatePage() {
         <button
           onClick={handleGenerate}
           disabled={generating}
-          className="w-full flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-bold py-3.5 rounded-xl transition-colors shadow-sm"
+          className="w-full flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white font-bold py-3.5 rounded-xl transition-colors shadow-sm"
         >
           <Sparkles size={16} />
           {generating ? 'Generating your update…' : 'Generate Update ✨'}
@@ -405,7 +405,7 @@ export default function FamilyUpdatePage() {
                 />
                 <button
                   onClick={handleCopy}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-xs font-semibold rounded-xl transition-colors shrink-0"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-xs font-semibold rounded-xl transition-colors shrink-0"
                 >
                   {copied ? <Check size={13} /> : <Copy size={13} />}
                   {copied ? 'Copied!' : 'Copy'}

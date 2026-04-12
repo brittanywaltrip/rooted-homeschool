@@ -359,7 +359,7 @@ function PhotoUpload({ photoUrl, onChange }: {
       <div className="flex gap-4 items-start">
         <div onClick={() => !photoUrl && inputRef.current?.click()}
           className={`relative flex-shrink-0 overflow-hidden rounded border-2 flex items-center justify-center transition-colors ${
-            photoUrl ? "border-[#e8e2d9] w-[72px] h-[90px]" : "border-dashed border-[#5c7f63] w-[72px] h-[90px] cursor-pointer hover:border-[#3d5c42] hover:bg-[#f0f7f1]"
+            photoUrl ? "border-[#e8e2d9] w-[72px] h-[90px]" : "border-dashed border-[#5c7f63] w-[72px] h-[90px] cursor-pointer hover:border-[var(--g-deep)] hover:bg-[#f0f7f1]"
           }`} style={{ background: photoUrl ? undefined : "#fafef8" }}>
           {photoUrl ? (
             <img src={photoUrl} className="w-full h-full object-cover object-top" alt="ID photo" />
@@ -373,7 +373,7 @@ function PhotoUpload({ photoUrl, onChange }: {
         <div className="flex-1 min-w-0 pt-1">
           {!photoUrl ? (
             <button type="button" onClick={() => inputRef.current?.click()}
-              className="text-sm font-semibold text-white bg-[#5c7f63] hover:bg-[#3d5c42] px-3 py-1.5 rounded-lg transition-colors">
+              className="text-sm font-semibold text-white bg-[#5c7f63] hover:bg-[var(--g-deep)] px-3 py-1.5 rounded-lg transition-colors">
               📷 Upload photo
             </button>
           ) : (
@@ -432,11 +432,11 @@ function IDCardEditor({
           <div className="flex items-center gap-2">
             <button onClick={handleDownload} disabled={!canDownload || downloading}
               title={!photoUrl ? "Upload a photo to enable download" : undefined}
-              className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors">
+              className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors">
               <Download size={11} /> {downloading ? "Generating\u2026" : "Download ID Card"}
             </button>
             <button onClick={handlePrintSheet} disabled={!canDownload || downloadingSheet}
-              className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors">
+              className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors">
               <span className="text-[11px]">📄</span> {downloadingSheet ? "Generating\u2026" : "Print Sheet"}
             </button>
           </div>
@@ -524,7 +524,7 @@ function AwardCard({
           </p>
         </div>
         <button onClick={() => onDownload(note, date)} disabled={downloading}
-          className="flex items-center gap-1.5 text-[11px] font-semibold text-[#5c7f63] hover:text-[#3d5c42] disabled:opacity-50 shrink-0 mt-0.5">
+          className="flex items-center gap-1.5 text-[11px] font-semibold text-[#5c7f63] hover:text-[var(--g-deep)] disabled:opacity-50 shrink-0 mt-0.5">
           {downloading ? (
             <span className="inline-block w-3 h-3 border-2 border-[#5c7f63] border-t-transparent rounded-full animate-spin" />
           ) : (
@@ -758,7 +758,7 @@ export default function PrintablesPage() {
               <div className="mb-2.5 rounded overflow-hidden shadow-sm w-fit">
                 <CardPreview style={s.id} fields={sampleFields} scale={0.6} />
               </div>
-              <p className={`text-xs font-bold leading-tight ${activeStyle === s.id ? "text-[#3d5c42]" : "text-[#2d2926]"}`}>
+              <p className={`text-xs font-bold leading-tight ${activeStyle === s.id ? "text-[var(--g-deep)]" : "text-[#2d2926]"}`}>
                 {s.emoji} {s.name}
               </p>
               <p className="text-[10px] text-[#b5aca4] mt-0.5">{s.desc}</p>
@@ -814,7 +814,7 @@ export default function PrintablesPage() {
               <ChildSelect childrenList={children} value={gradChild} onChange={(id) => setGradChild(id)} />
               <SelectInput label="Grade Level" value={gradGrade} options={GRADES} onChange={setGradGrade} />
               <button onClick={handleManualGraduation} disabled={downloadingAward === "manual-grad"}
-                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors">
+                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors">
                 <Download size={12} /> {downloadingAward === "manual-grad" ? "Generating\u2026" : "Download Certificate"}
               </button>
             </div>
@@ -824,7 +824,7 @@ export default function PrintablesPage() {
               <ChildSelect childrenList={children} value={subjectChild} onChange={(id) => setSubjectChild(id)} />
               <FieldInput label="Subject Name" value={subjectName} onChange={setSubjectName} placeholder="e.g. Math, Reading" />
               <button onClick={handleManualSubject} disabled={downloadingAward === "manual-subject" || !subjectName.trim()}
-                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors">
+                className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors">
                 <Download size={12} /> {downloadingAward === "manual-subject" ? "Generating\u2026" : "Download Certificate"}
               </button>
             </div>
@@ -851,7 +851,7 @@ export default function PrintablesPage() {
             </div>
           </div>
           <button onClick={handleCustomDownload} disabled={customDownloading || !customName.trim()}
-            className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors">
+            className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors">
             <Download size={12} /> {customDownloading ? "Generating\u2026" : "Download Certificate"}
           </button>
         </div>

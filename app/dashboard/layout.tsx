@@ -43,7 +43,7 @@ function NavLink({
       onClick={onClick}
       className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
         active
-          ? "text-[#3d5c42]"
+          ? "text-[var(--g-deep)]"
           : "text-[#7a6f65] hover:bg-[#f0ede8] hover:text-[#2d2926]"
       }`}
     >
@@ -361,7 +361,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         <Link
           href="/dashboard/settings"
           onClick={() => setMenuOpen(false)}
-          className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
+          className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[var(--g-deep)] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
         >
           {avatarPhotoUrl ? (
             <img src={avatarPhotoUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
@@ -446,7 +446,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '32px', width: 'auto' }} />
             <Link
               href="/dashboard/settings"
-              className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[#3d5c42] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
+              className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[var(--g-deep)] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
             >
               {avatarPhotoUrl ? (
                 <img src={avatarPhotoUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
@@ -462,7 +462,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           {partnerCtx.isPartner && (
             <div className="bg-[#e8f5ea] border-b border-[#b8d9bc] px-4 py-2.5 flex items-center gap-2">
               <span className="text-sm">👀</span>
-              <p className="text-xs font-medium text-[#3d5c42]">
+              <p className="text-xs font-medium text-[var(--g-deep)]">
                 Viewing{partnerCtx.ownerName ? ` ${partnerCtx.ownerName}'s` : ""} family dashboard as a partner
                 <span className="ml-2 text-[#5c7f63] opacity-80">· read-only</span>
               </p>
@@ -482,7 +482,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                 key={href}
                 href={href}
                 className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[9px] font-medium transition-colors ${
-                  active ? "text-[#3d5c42]" : "text-[#c8bfb5]"
+                  active ? "text-[var(--g-deep)]" : "text-[#c8bfb5]"
                 }`}
               >
                 <div className="relative">
@@ -502,7 +502,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         {!partnerCtx.isPartner && !fabUrl && (
           <button onClick={openFabPicker}
             className="fixed bottom-28 right-4 md:bottom-6 md:right-6 z-50 w-14 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 shadow-lg active:scale-90 transition-all hover:shadow-xl"
-            style={{ backgroundColor: "#2d5a3d" }} aria-label="Quick photo">
+            style={{ backgroundColor: "var(--g-brand)" }} aria-label="Quick photo">
             <Camera size={20} className="text-white" strokeWidth={2.2} />
             <span className="text-white leading-none" style={{ fontSize: 9 }}>Quick photo</span>
           </button>
@@ -547,7 +547,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                 )}
                 <button onClick={saveFabPhoto} disabled={fabSaving}
                   className="w-full py-3 rounded-xl text-sm font-bold text-white transition-all shadow-sm disabled:opacity-60"
-                  style={{ backgroundColor: "#2d5a3d" }}>
+                  style={{ backgroundColor: "var(--g-brand)" }}>
                   {fabSaving ? "Saving..." : "Save 🌱"}
                 </button>
               </div>
@@ -585,7 +585,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
         {fabToast && (
           <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
-            <div className="bg-[#3d5c42] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">{fabToast}</div>
+            <div className="bg-[var(--g-deep)] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">{fabToast}</div>
           </div>
         )}
 

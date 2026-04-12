@@ -125,7 +125,7 @@ function ResourceForm({
         <button
           onClick={() => onSave(form)}
           disabled={saving || !form.title?.trim()}
-          className="flex items-center gap-1.5 px-4 py-2 bg-[#5c7f63] text-white text-sm font-medium rounded-lg hover:bg-[#3d5c42] disabled:opacity-50 transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 bg-[#5c7f63] text-white text-sm font-medium rounded-lg hover:bg-[var(--g-deep)] disabled:opacity-50 transition-colors"
         >
           <Check size={14} />
           {saving ? "Saving…" : "Save"}
@@ -162,7 +162,7 @@ function ResourceRow({
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             <span className="font-semibold text-sm text-[#2d2926]">{resource.title}</span>
             {resource.badge_text && (
-              <span className="text-[10px] font-bold bg-[#e8f0e9] text-[#3d5c42] px-2 py-0.5 rounded-full">
+              <span className="text-[10px] font-bold bg-[#e8f0e9] text-[var(--g-deep)] px-2 py-0.5 rounded-full">
                 {resource.badge_text}
               </span>
             )}
@@ -384,7 +384,7 @@ export default function AdminResourcesPage() {
           <div className="flex items-center gap-4 mb-4">
             <Link
               href="/admin"
-              className="inline-flex items-center gap-1.5 text-xs text-[#7a6f65] hover:text-[#3d5c42] transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs text-[#7a6f65] hover:text-[var(--g-deep)] transition-colors"
             >
               <ArrowLeft size={13} />
               Back to admin
@@ -395,7 +395,7 @@ export default function AdminResourcesPage() {
             Manage all resource links shown to users. Changes go live immediately.
           </p>
           <div className="mt-2 flex items-center gap-2">
-            <span className="text-xs bg-[#e8f0e9] text-[#3d5c42] px-2.5 py-1 rounded-full font-medium">
+            <span className="text-xs bg-[#e8f0e9] text-[var(--g-deep)] px-2.5 py-1 rounded-full font-medium">
               {resources.length} total resources
             </span>
             <span className="text-xs bg-[#f5ede0] text-[#8b6f47] px-2.5 py-1 rounded-full font-medium">
@@ -463,7 +463,7 @@ export default function AdminResourcesPage() {
                     ) : (
                       <button
                         onClick={() => { setAddingCat(cat.id); setEditingId(null); }}
-                        className="flex items-center gap-2 w-full px-4 py-3 border border-dashed border-[#c8bfb5] rounded-xl text-sm text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#3d5c42] hover:bg-[#f0f4f0] transition-colors"
+                        className="flex items-center gap-2 w-full px-4 py-3 border border-dashed border-[#c8bfb5] rounded-xl text-sm text-[#7a6f65] hover:border-[#5c7f63] hover:text-[var(--g-deep)] hover:bg-[#f0f4f0] transition-colors"
                       >
                         <Plus size={15} />
                         Add {cat.label.split(" ").slice(1).join(" ")} resource

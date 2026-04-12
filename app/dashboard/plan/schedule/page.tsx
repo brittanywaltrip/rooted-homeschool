@@ -63,7 +63,7 @@ function getSubjectStyle(color: string | null, name: string): { bg: string; text
   if (n.includes("read") || n.includes("language") || n.includes("english") || n.includes("writing"))
     return { bg: "#f0e8f4", text: "#4a2a5a" };
   if (n.includes("science") || n.includes("biology") || n.includes("chemistry"))
-    return { bg: "#e8f0e9", text: "#3d5c42" };
+    return { bg: "#e8f0e9", text: "var(--g-deep)" };
   if (n.includes("history") || n.includes("social") || n.includes("geography"))
     return { bg: "#fef0e4", text: "#7a4a1a" };
   if (n.includes("art") || n.includes("music") || n.includes("drama"))
@@ -260,12 +260,12 @@ export default function SchedulePage() {
                     }`}
                   >
                     <span className={`text-[10px] font-bold uppercase tracking-widest ${
-                      isToday ? "text-[#3d5c42]" : isPast ? "text-[#c8bfb5]" : "text-[#7a6f65]"
+                      isToday ? "text-[var(--g-deep)]" : isPast ? "text-[#c8bfb5]" : "text-[#7a6f65]"
                     }`}>
                       {dayName}
                     </span>
                     <span className={`text-xl font-bold leading-tight mt-0.5 ${
-                      isToday ? "text-[#3d5c42]" : isPast ? "text-[#c8bfb5]" : "text-[#2d2926]"
+                      isToday ? "text-[var(--g-deep)]" : isPast ? "text-[#c8bfb5]" : "text-[#2d2926]"
                     }`}>
                       {day.getDate()}
                     </span>
@@ -357,7 +357,7 @@ export default function SchedulePage() {
               </p>
               <Link
                 href="/dashboard/plan"
-                className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+                className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
               >
                 Go to Plan 📋
               </Link>

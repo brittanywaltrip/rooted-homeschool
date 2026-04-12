@@ -295,7 +295,7 @@ export default function LogTodayModal({
                     onClick={() => setDateOverride(opt.value)}
                     className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                       effectiveDate === opt.value
-                        ? "bg-[#eef5ee] border-[#5c7f63] text-[#3d5c42] font-semibold"
+                        ? "bg-[#eef5ee] border-[#5c7f63] text-[var(--g-deep)] font-semibold"
                         : "bg-white border-[#e8e2d9] text-[#7a6f65]"
                     }`}
                   >
@@ -374,7 +374,7 @@ export default function LogTodayModal({
               type="button"
               onClick={handleSave}
               disabled={!canSave}
-              className="w-full py-3 rounded-xl bg-[#3d5c42] hover:bg-[#2d4a32] disabled:opacity-40 text-white text-sm font-semibold transition-colors"
+              className="w-full py-3 rounded-xl bg-[var(--g-deep)] hover:bg-[#2d4a32] disabled:opacity-40 text-white text-sm font-semibold transition-colors"
             >
               {saving ? "Saving\u2026" : "Save \uD83C\uDF3F"}
             </button>

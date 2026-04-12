@@ -11,11 +11,6 @@ const supabaseAdmin = createClient(
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-// Hardcoded PayPal emails until paypal_email column exists
-const PAYPAL_EMAILS: Record<string, string> = {
-  AMBER: "ambercody@paypal.com",
-};
-
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
@@ -30,20 +25,12 @@ export async function GET(req: Request) {
   // Load active affiliates
   const { data: affiliates, error: affErr } = await supabaseAdmin
     .from("affiliates")
-    .select("id, name, code, stripe_coupon_id, is_active")
+    .select("id, name, code, stripe_coupon_id, is_active, paypal_email")
     .eq("is_active", true);
 
   if (affErr || !affiliates) {
     return NextResponse.json({ error: "Failed to load affiliates" }, { status: 500 });
   }
-
-  // Current month boundaries
-  const now = new Date();
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const firstOfMonthUnix = Math.floor(firstOfMonth.getTime() / 1000);
-  const nowUnix = Math.floor(now.getTime() / 1000);
-
-  const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   // Build coupon ID → affiliate lookup
   const couponToAffiliate = new Map<string, typeof affiliates[number]>();
@@ -53,15 +40,12 @@ export async function GET(req: Request) {
     }
   }
 
-  // Fetch charges this month
+  // Fetch ALL charges (paginate through everything)
   const charges: Stripe.Charge[] = [];
   let hasMore = true;
   let startingAfter: string | undefined;
   while (hasMore) {
-    const params: Stripe.ChargeListParams = {
-      limit: 100,
-      created: { gte: firstOfMonthUnix, lte: nowUnix },
-    };
+    const params: Stripe.ChargeListParams = { limit: 100 };
     if (startingAfter) params.starting_after = startingAfter;
     const batch = await stripe.charges.list(params);
     charges.push(...batch.data);
@@ -106,8 +90,8 @@ export async function GET(req: Request) {
       redemptions_this_month: stats.redemptions,
       gross_this_month_cents: stats.grossCents,
       commission_cents: commissionCents,
-      paypal_email: PAYPAL_EMAILS[aff.code] ?? null,
-      month_label: monthLabel,
+      paypal_email: aff.paypal_email ?? null,
+      month_label: "All Time",
     };
   });
 

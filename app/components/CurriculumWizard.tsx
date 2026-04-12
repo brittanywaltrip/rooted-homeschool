@@ -38,7 +38,7 @@ const SUBJECT_CHIPS = [
   { label: "Math",          bg: "#e4f0f4", text: "#1a4a5a" },
   { label: "Reading",       bg: "#f0e8f4", text: "#4a2a5a" },
   { label: "Language Arts", bg: "#ede8f4", text: "#3a2a6a" },
-  { label: "Science",       bg: "#e8f0e9", text: "#3d5c42" },
+  { label: "Science",       bg: "#e8f0e9", text: "var(--g-deep)" },
   { label: "History",       bg: "#fef0e4", text: "#7a4a1a" },
   { label: "Art",           bg: "#fce8ec", text: "#7a2a36" },
   { label: "Other",         bg: "#f0ede8", text: "#5c5248" },
@@ -614,7 +614,7 @@ export default function CurriculumWizard({
                   </p>
                 </div>
                 <Link href="/dashboard/settings?section=children" onClick={onClose}
-                  className="inline-block px-5 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors">
+                  className="inline-block px-5 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors">
                   Go to Settings →
                 </Link>
               </div>
@@ -638,7 +638,7 @@ export default function CurriculumWizard({
 
             {children.length > 0 && (
               <button onClick={() => setStep(2)} disabled={!childId}
-                className="w-full py-3 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
+                className="w-full py-3 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
                 Next →
               </button>
             )}
@@ -687,7 +687,7 @@ export default function CurriculumWizard({
                       key={i}
                       className="flex items-center gap-1.5 bg-[#eef5ee] border border-[#b8d9bc] rounded-full px-3 py-1.5"
                     >
-                      <span className="text-[#3d5c42] text-xs">✓</span>
+                      <span className="text-[var(--g-deep)] text-xs">✓</span>
                       <span className="text-xs font-semibold text-[#2d2926]">{item.name}</span>
                       <span className="text-[10px] text-[#7a6f65]">· {item.lessons} lessons</span>
                     </div>
@@ -761,7 +761,7 @@ export default function CurriculumWizard({
                   className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">← Back</button>
               )}
               <button onClick={() => setStep(3)} disabled={!step2Valid}
-                className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
+                className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
                 Next →
               </button>
             </div>
@@ -895,7 +895,7 @@ export default function CurriculumWizard({
               <div className="space-y-2">
                 {finishDate && (
                   <div className="bg-[#f2f9f3] border border-[#c8ddb8] rounded-2xl px-4 py-3 text-center">
-                    <p className="text-sm text-[#3d5c42] leading-relaxed">
+                    <p className="text-sm text-[var(--g-deep)] leading-relaxed">
                       📅 At <strong>{lessonsPerDay}</strong> lesson{perDayNum !== 1 ? "s" : ""}/day on{" "}
                       <strong>{selectedDayNames || "your school days"}</strong>,
                       <br />you&apos;ll finish <strong>{remaining} lesson{remaining !== 1 ? "s" : ""}</strong> by{" "}
@@ -918,7 +918,7 @@ export default function CurriculumWizard({
                 )}
                 {targetDate && requiredPerDay !== null && requiredPerDay <= perDayNum && (
                   <div className="bg-[#f2f9f3] border border-[#c8ddb8] rounded-2xl px-4 py-2.5 text-center">
-                    <p className="text-sm text-[#3d5c42] font-semibold">✓ You&apos;re on track to meet your goal!</p>
+                    <p className="text-sm text-[var(--g-deep)] font-semibold">✓ You&apos;re on track to meet your goal!</p>
                   </div>
                 )}
               </div>
@@ -928,7 +928,7 @@ export default function CurriculumWizard({
               <button onClick={() => setStep(2)}
                 className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">← Back</button>
               <button onClick={() => setStep(4)} disabled={!step3Valid}
-                className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
+                className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white font-semibold text-sm transition-colors">
                 {mode === "edit" ? "Review Changes →" : "Generate My Schedule →"}
               </button>
             </div>
@@ -980,7 +980,7 @@ export default function CurriculumWizard({
                   <button onClick={() => setStep(3)}
                     className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors">← Back</button>
                   <button onClick={mode === "edit" ? saveEdit : generate}
-                    className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold text-sm transition-colors">
+                    className="flex-[2] py-2.5 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-semibold text-sm transition-colors">
                     {mode === "edit" ? "Save Changes ✓" : `Create ${remaining} Lessons ✓`}
                   </button>
                 </div>
@@ -1025,11 +1025,11 @@ export default function CurriculumWizard({
                 {mode === "create" && (
                   <div className="flex flex-col gap-2 items-center">
                     <button onClick={resetForAnotherCurriculum}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-2xl border-2 border-[#5c7f63] text-[#3d5c42] text-sm font-semibold hover:bg-[#e8f0e9] transition-colors">
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-2xl border-2 border-[#5c7f63] text-[var(--g-deep)] text-sm font-semibold hover:bg-[#e8f0e9] transition-colors">
                       <BookOpen size={14} />+ New Curriculum for {childObj?.name ?? "this child"}
                     </button>
                     <button onClick={onClose}
-                      className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors shadow-sm">
+                      className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors shadow-sm">
                       View my plan →
                     </button>
                   </div>
@@ -1037,7 +1037,7 @@ export default function CurriculumWizard({
 
                 {mode === "edit" && (
                   <button onClick={onClose}
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-semibold transition-colors shadow-sm">
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors shadow-sm">
                     Done →
                   </button>
                 )}

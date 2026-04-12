@@ -370,7 +370,7 @@ export default function YearInReviewPage() {
           <button
             onClick={generate}
             disabled={generating || !stats}
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-semibold text-sm transition-colors shadow-sm"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white font-semibold text-sm transition-colors shadow-sm"
           >
             {generating ? (
               <>
@@ -488,7 +488,7 @@ export default function YearInReviewPage() {
           <div className="flex flex-col sm:flex-row gap-3 no-print pb-4">
             <button
               onClick={() => window.print()}
-              className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-semibold text-sm transition-colors shadow-sm"
+              className="flex-1 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-semibold text-sm transition-colors shadow-sm"
             >
               <Download size={16} />
               Save as PDF / Print

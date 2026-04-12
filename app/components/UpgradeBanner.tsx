@@ -27,7 +27,7 @@ export default function UpgradeBanner() {
   if (!show || dismissed) return null;
 
   return (
-    <div className="bg-gradient-to-r from-[#3d5c42] to-[#5c7f63] px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+    <div className="bg-gradient-to-r from-[var(--g-deep)] to-[#5c7f63] px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
       <div className="flex items-center gap-3">
         <span className="text-lg shrink-0">🌱</span>
         <div>
@@ -42,7 +42,7 @@ export default function UpgradeBanner() {
       <div className="flex items-center gap-2 shrink-0">
         <Link
           href="/upgrade"
-          className="bg-white text-[#3d5c42] text-xs font-bold px-4 py-1.5 rounded-full hover:bg-[#f0f9f1] transition-colors whitespace-nowrap"
+          className="bg-white text-[var(--g-deep)] text-xs font-bold px-4 py-1.5 rounded-full hover:bg-[#f0f9f1] transition-colors whitespace-nowrap"
         >
           Claim your spot →
         </Link>

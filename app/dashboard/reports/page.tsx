@@ -160,7 +160,7 @@ function PrintReport({
           </h3>
           <div className="flex flex-wrap gap-1.5">
             {[...presentDates].sort().map((d) => (
-              <span key={d} className="text-[10px] bg-[#e8f0e9] text-[#3d5c42] px-2 py-1 rounded-lg">
+              <span key={d} className="text-[10px] bg-[#e8f0e9] text-[var(--g-deep)] px-2 py-1 rounded-lg">
                 {new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </span>
             ))}
@@ -413,7 +413,7 @@ export default function ReportsPage() {
         </button>
         <button
           onClick={() => { setShowPreview(true); setTimeout(() => window.print(), 300); }}
-          className="flex-1 flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-sm font-medium py-3 rounded-xl transition-colors"
+          className="flex-1 flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium py-3 rounded-xl transition-colors"
         >
           <Printer size={16} />
           Print / Save PDF

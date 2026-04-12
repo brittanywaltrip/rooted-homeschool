@@ -79,7 +79,7 @@ export default function FamilyPreviewPage() {
   if (loading) {
     return (
       <main className="min-h-screen bg-[#f8f7f4]">
-        <div className="w-full px-5 pt-8 pb-6" style={{ backgroundColor: "#2d5a3d" }}>
+        <div className="w-full px-5 pt-8 pb-6" style={{ backgroundColor: "var(--g-brand)" }}>
           <div className="max-w-[480px] mx-auto">
             <div className="h-7 w-56 bg-white/20 rounded mb-2 animate-pulse" />
             <div className="h-4 w-32 bg-white/10 rounded animate-pulse" />
@@ -97,7 +97,7 @@ export default function FamilyPreviewPage() {
   return (
     <main className="min-h-screen bg-[#f8f7f4] pb-24">
       {/* ── Preview banner ──────────────────────────────────────────── */}
-      <div className="sticky top-0 z-50 bg-[#3d5c42] text-white text-sm py-3 px-5 flex items-center justify-between">
+      <div className="sticky top-0 z-50 bg-[var(--g-deep)] text-white text-sm py-3 px-5 flex items-center justify-between">
         <Link href="/dashboard/settings" className="text-white/80 hover:text-white text-sm shrink-0">
           ← Back to Settings
         </Link>
@@ -108,7 +108,7 @@ export default function FamilyPreviewPage() {
       </div>
 
       {/* ── Header (same as real portal) ────────────────────────────── */}
-      <header className="w-full" style={{ backgroundColor: "#2d5a3d", padding: "32px 20px 24px" }}>
+      <header className="w-full" style={{ backgroundColor: "var(--g-brand)", padding: "32px 20px 24px" }}>
         <div className="max-w-[480px] mx-auto">
           <h1 className="text-2xl text-white leading-tight" style={{ fontFamily: "var(--font-display)", fontWeight: 500 }}>
             {familyName} 🌿

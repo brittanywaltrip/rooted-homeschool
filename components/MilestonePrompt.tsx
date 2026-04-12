@@ -56,7 +56,7 @@ export default function MilestonePrompt({
         </div>
 
         {/* Header */}
-        <div className="rounded-2xl mx-5 px-5 py-6 text-center" style={{ background: "linear-gradient(135deg, #2d5a3d 0%, #3d7a50 100%)" }}>
+        <div className="rounded-2xl mx-5 px-5 py-6 text-center" style={{ background: "linear-gradient(135deg, var(--g-brand) 0%, #3d7a50 100%)" }}>
           <button
             onClick={onDismiss}
             className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/20 transition-colors"
@@ -77,7 +77,7 @@ export default function MilestonePrompt({
           <Link
             href={upgradeHref}
             className="block w-full py-3 rounded-xl text-sm font-bold text-white text-center transition-all shadow-sm"
-            style={{ backgroundColor: "#2d5a3d" }}
+            style={{ backgroundColor: "var(--g-brand)" }}
           >
             Upgrade — $39/yr →
           </Link>

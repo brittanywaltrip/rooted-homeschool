@@ -28,7 +28,7 @@ export default function PageHero({
   return (
     <div
       className={`relative w-full rounded-b-[24px] px-6 pt-7 pb-8 overflow-hidden ${className}`}
-      style={{ background: bgColor || "#3d5c42" }}
+      style={{ background: bgColor || "var(--g-deep)" }}
     >
       {/* Decorative background leaves */}
       <div
@@ -57,7 +57,7 @@ export default function PageHero({
         <div>
           <p
             className="text-[11px] font-semibold tracking-widest uppercase mb-1"
-            style={{ color: "#8cba8e" }}
+            style={{ color: "rgba(254, 252, 249, 0.55)" }}
           >
             {overline}
           </p>

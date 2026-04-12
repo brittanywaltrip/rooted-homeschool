@@ -30,7 +30,7 @@ export default function BadgeNotification({ badge, onDone }: BadgeNotificationPr
     >
       <div
         className="rounded-2xl px-5 py-4 shadow-xl flex items-center gap-4"
-        style={{ background: "linear-gradient(135deg, #2d5a3d 0%, #3d7a50 100%)" }}
+        style={{ background: "linear-gradient(135deg, var(--g-brand) 0%, #3d7a50 100%)" }}
       >
         <span className="text-4xl shrink-0">{badge.emoji}</span>
         <div className="min-w-0">

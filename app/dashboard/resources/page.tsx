@@ -282,7 +282,7 @@ function BookmarkBtn({ id, savedMap, onToggle }: { id: string; savedMap: Record<
 
 function GradePill({ grade }: { grade: string }) {
   return (
-    <span className="bg-[#e8f0e9] text-[#3d5c42] rounded-full px-2 py-0.5 text-xs font-semibold">
+    <span className="bg-[#e8f0e9] text-[var(--g-deep)] rounded-full px-2 py-0.5 text-xs font-semibold">
       {grade}
     </span>
   );
@@ -310,7 +310,7 @@ function ResourceCard({ r, savedMap, onToggle }: { r: DbResource; savedMap: Reco
             <GradePill grade={r.grade_level} />
             <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">{getCategoryLabel(r.category)}</span>
             {r.badge_text && (
-              <span className="text-[10px] font-medium bg-[#e4f0e6] text-[#3d5c42] px-2 py-0.5 rounded-full">{r.badge_text}</span>
+              <span className="text-[10px] font-medium bg-[#e4f0e6] text-[var(--g-deep)] px-2 py-0.5 rounded-full">{r.badge_text}</span>
             )}
             {isNew && (
               <span className="text-[10px] font-bold bg-[#fef5e4] text-[#8b6820] px-2 py-0.5 rounded-full">New 🌱</span>
@@ -464,7 +464,7 @@ export default function ResourcesPage() {
         const win = validWins[todayIdx];
         return (
           <div className="space-y-2">
-            <div className="rounded-2xl p-5 text-white" style={{ background: "linear-gradient(135deg, #2d5a3d 0%, #3d7a50 100%)" }}>
+            <div className="rounded-2xl p-5 text-white" style={{ background: "linear-gradient(135deg, var(--g-brand) 0%, #3d7a50 100%)" }}>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] font-semibold uppercase tracking-widest text-white/70">{"\u26A1"} Today&apos;s easy win</span>
                 <span className="text-[10px] text-white/40">{"\u21BB"} New idea tomorrow</span>
@@ -476,7 +476,7 @@ export default function ResourcesPage() {
                 {win.time && <span className="text-[10px] font-medium bg-white/15 px-2 py-0.5 rounded-full">{"\u23F1"} {win.time}</span>}
                 {win.grade && <span className="text-[10px] font-medium bg-white/15 px-2 py-0.5 rounded-full">{win.grade}</span>}
                 {win.url && (
-                  <a href={win.url} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs font-semibold bg-white text-[#3d5c42] px-3 py-1 rounded-lg hover:bg-white/90 transition-colors">
+                  <a href={win.url} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs font-semibold bg-white text-[var(--g-deep)] px-3 py-1 rounded-lg hover:bg-white/90 transition-colors">
                     Try it {"\u2192"}
                   </a>
                 )}

@@ -121,7 +121,7 @@ export default function WelcomePage() {
               <p className="text-xs text-[#7a6f65]">Founder · Rooted</p>
             </div>
           </div>
-          <p className="text-sm text-[#3d5c42] leading-relaxed italic">
+          <p className="text-sm text-[var(--g-deep)] leading-relaxed italic">
             &ldquo;You just made my day. As a homeschool mom who built this for families exactly like yours,
             your support means everything to me. I poured my heart into every part of this app — I hope
             it gives your family a little more calm, a little more joy, and a lot more confidence.
@@ -152,7 +152,7 @@ export default function WelcomePage() {
         {/* CTA */}
         <Link
           href="/dashboard"
-          className="inline-flex items-center justify-center gap-2 w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-4 rounded-xl transition-colors text-base shadow-md"
+          className="inline-flex items-center justify-center gap-2 w-full bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-bold py-4 rounded-xl transition-colors text-base shadow-md"
         >
           Start Your Journey →
         </Link>

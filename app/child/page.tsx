@@ -14,7 +14,7 @@ type Child = { id: string; name: string; color: string | null; birthday?: string
 const STAGES = [
   { name: "Tiny Seed",      emoji: "🌰", min: 0,  color: "#c4956a", bg: "#f5ede0", msg: "You're just getting started — and that's amazing!" },
   { name: "Sprouting!",     emoji: "🌱", min: 5,  color: "#5c7f63", bg: "#e8f5ea", msg: "Look at you go! You're growing fast!" },
-  { name: "Sapling",        emoji: "🌿", min: 15, color: "#3d5c42", bg: "#d4ead4", msg: "Growing stronger every single day!" },
+  { name: "Sapling",        emoji: "🌿", min: 15, color: "var(--g-deep)", bg: "#d4ead4", msg: "Growing stronger every single day!" },
   { name: "Growing Tall",   emoji: "🌳", min: 30, color: "#2d5c38", bg: "#c8e6c8", msg: "Wow, you're reaching for the sky!" },
   { name: "THRIVING! ✨",   emoji: "🌲", min: 50, color: "#1e4828", bg: "#b8ddb8", msg: "You are AMAZING! Look how far you've come!" },
 ];
@@ -77,7 +77,7 @@ function BigTree({ stageIndex }: { stageIndex: number }) {
           <path d="M50 74 Q28 60 35 40 Q48 54 50 74" fill="#5c7f63" className="leaf-shimmer" />
           <path d="M50 74 Q72 60 65 40 Q52 54 50 74" fill="#7a9e7e" className="leaf-shimmer" />
           <circle cx="50" cy="36" r="17" fill="#5c7f63" opacity="0.9" />
-          <circle cx="50" cy="24" r="13" fill="#3d5c42" />
+          <circle cx="50" cy="24" r="13" fill="var(--g-deep)" />
         </g>
       )}
       {stage === 4 && (
@@ -88,7 +88,7 @@ function BigTree({ stageIndex }: { stageIndex: number }) {
           <circle cx="32" cy="44" r="17" fill="#7a9e7e" />
           <circle cx="68" cy="44" r="17" fill="#7a9e7e" />
           <circle cx="50" cy="32" r="20" fill="#5c7f63" />
-          <circle cx="50" cy="18" r="14" fill="#3d5c42" />
+          <circle cx="50" cy="18" r="14" fill="var(--g-deep)" />
         </g>
       )}
       {stage >= 5 && (
@@ -101,9 +101,9 @@ function BigTree({ stageIndex }: { stageIndex: number }) {
           <circle cx="38" cy="62" r="14" fill="#5c7f63" opacity="0.9" />
           <circle cx="62" cy="62" r="14" fill="#5c7f63" opacity="0.9" />
           <circle cx="50" cy="34" r="23" fill="#5c7f63" />
-          <circle cx="50" cy="16" r="16" fill="#3d5c42" />
-          <circle cx="34" cy="26" r="11" fill="#3d5c42" opacity="0.85" />
-          <circle cx="66" cy="26" r="11" fill="#3d5c42" opacity="0.85" />
+          <circle cx="50" cy="16" r="16" fill="var(--g-deep)" />
+          <circle cx="34" cy="26" r="11" fill="var(--g-deep)" opacity="0.85" />
+          <circle cx="66" cy="26" r="11" fill="var(--g-deep)" opacity="0.85" />
           <circle cx="20" cy="36" r="2" fill="#a8d8a8" className="sparkle" style={{ animationDelay: "0.3s" }} />
           <circle cx="80" cy="30" r="2" fill="#a8d8a8" className="sparkle" style={{ animationDelay: "0.9s" }} />
           <circle cx="50" cy="8"  r="1.5" fill="#c8f0c8" className="sparkle" style={{ animationDelay: "1.5s" }} />
@@ -196,7 +196,7 @@ export default function ChildPage() {
           <p className="text-white text-2xl font-bold drop-shadow mb-2">No children set up yet!</p>
           <p className="text-white/80 mb-6">Ask a parent to add children in Settings.</p>
           <button onClick={() => router.push("/dashboard")}
-            className="bg-white text-[#3d5c42] font-bold px-6 py-3 rounded-2xl shadow-lg">
+            className="bg-white text-[var(--g-deep)] font-bold px-6 py-3 rounded-2xl shadow-lg">
             Go back
           </button>
         </div>

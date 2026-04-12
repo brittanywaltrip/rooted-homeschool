@@ -58,9 +58,9 @@ export async function GET(req: NextRequest) {
           query: {
             kind: 'HogQLQuery',
             query: `select
-              countIf(DISTINCT person_id, timestamp >= toStartOfDay(now())) as active_today,
-              countIf(DISTINCT person_id, timestamp >= now() - interval 7 day) as active_week,
-              countIf(DISTINCT person_id, timestamp >= now() - interval 30 day) as active_month
+              uniqIf(person_id, timestamp >= toStartOfDay(now())) as active_today,
+              uniqIf(person_id, timestamp >= now() - interval 7 day) as active_week,
+              uniqIf(person_id, timestamp >= now() - interval 30 day) as active_month
             from events
             where event = '$pageview'
               and timestamp >= now() - interval 30 day`,
