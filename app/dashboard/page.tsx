@@ -2332,7 +2332,12 @@ export default function TodayPage() {
             🔒 Your family yearbook is taking shape 🌿
           </p>
           <p className="text-xs text-white/75 mt-1">
-            Upgrade to Founding Family to unlock your yearbook before April 30
+            {(() => {
+              const diff = Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000);
+              if (diff < 0) return "Upgrade to Founding Family to unlock your yearbook";
+              if (diff === 0) return "Last chance — upgrade today to unlock your yearbook";
+              return `Upgrade to Founding Family to unlock your yearbook — ${diff} day${diff !== 1 ? "s" : ""} left`;
+            })()}
           </p>
           <Link
             href="/upgrade"

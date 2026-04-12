@@ -312,7 +312,11 @@ export default function PartnersPage() {
             Founding Family — $39/yr, locked forever
           </h2>
           <p className="text-sm text-[#3d5c42] leading-relaxed mb-4 max-w-lg mx-auto">
-            Your code gives them 15% off the Founding Family plan — $39/yr locked in forever, no matter how much Rooted grows. This offer ends April 30.
+            {(() => {
+              const diff = Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000);
+              const deadline = diff <= 0 ? "" : diff === 1 ? " This offer ends tomorrow." : ` This offer ends in ${diff} days.`;
+              return `Your code gives them 15% off the Founding Family plan — $39/yr locked in forever, no matter how much Rooted grows.${deadline}`;
+            })()}
           </p>
           <div className="inline-flex items-center gap-2 bg-white/70 border border-[#b8d9bc] rounded-xl px-4 py-2 text-sm text-[#2d2926] font-medium">
             {"\uD83C\uDF81"} Your code: 15% off {"\u00B7"} Their price: locked forever
