@@ -2121,8 +2121,8 @@ export default function TodayPage() {
         if (!nudge && resourcesVisited && !sharingVisited) {
           nudge = {
             key: "sharing", emoji: "👨\u200D👩\u200D👧",
-            title: "Share with grandma",
-            body: "Give family a free portal to see your kids\u2019 memories and milestones \u2014 they\u2019ll love it.",
+            title: "Share with family",
+            body: "Give loved ones a free portal to see your kids\u2019 memories and milestones.",
             href: "/dashboard/settings?tab=family", lsKey: "rooted_visited_sharing",
           };
         }
@@ -2130,7 +2130,7 @@ export default function TodayPage() {
           nudge = {
             key: "printables", emoji: "🖨️",
             title: "Print a certificate",
-            body: "Beautiful printables from your real lesson data.",
+            body: "Certificates, ID cards, and lesson planners from your real data.",
             href: "/dashboard/printables", lsKey: "rooted_visited_printables",
           };
         }
