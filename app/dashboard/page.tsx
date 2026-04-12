@@ -416,13 +416,13 @@ export default function TodayPage() {
     if (sessionStorage.getItem("setup-banner-dismissed") === "1") setBannerDismissed(true);
   }, []);
 
-  const [nudgeDismissed,   setNudgeDismissed]   = useState(false);
+  const [nudgeTick,   setNudgeTick]   = useState(false);
   const [isPro,            setIsPro]            = useState(false);
   const [planType,         setPlanType]         = useState<string | null>(null);
   const [yearbookCount,    setYearbookCount]    = useState(0);
   const [upgradeDismissed, setUpgradeDismissed] = useState(false);
   useEffect(() => {
-    if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") setNudgeDismissed(true);
+    if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") setNudgeTick(true);
     const udDate = localStorage.getItem("rooted_upgrade_dismissed");
     if (udDate === localDateStr(new Date())) setUpgradeDismissed(true);
   }, []);
@@ -500,6 +500,7 @@ export default function TodayPage() {
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
   const [firstMemoryToast, setFirstMemoryToast] = useState<string | null>(null);
   const prevTotalMemoriesRef = useRef<number | null>(null);
+  const [, forceUpdate] = useState(0);
   const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editDeleting, setEditDeleting] = useState(false);
@@ -2174,50 +2175,116 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          DISCOVER ROOTED — quiet exploration trail for new users
+          CONTEXTUAL ONBOARDING — one warm nudge card at a time
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && totalMemories === 0 && !hasAnyLessons && (
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-            Explore everything Rooted can do
-          </p>
-          <div className="bg-white border border-[#e8e2d9] rounded-2xl divide-y divide-[#f0ede8] overflow-hidden">
-            {([
-              { emoji: "🌳", label: "Watch your garden grow", sub: "Every memory and lesson grows a leaf", href: "/dashboard/garden" },
-              { emoji: "📖", label: "Preview your yearbook", sub: "It builds itself from your memories", href: "/dashboard/memories/yearbook/read" },
-              { emoji: "📚", label: "Set up your curriculum", sub: "Auto-schedule lessons and track pace", href: "/dashboard/plan" },
-              { emoji: "🎁", label: "Explore free resources", sub: "Deals, freebies, and field trips near you", href: "/dashboard/resources" },
-              { emoji: "🖨️", label: "Print a certificate", sub: "Beautiful printables from your real data", href: "/dashboard/printables" },
-              { emoji: "👨‍👩‍👧", label: "Share with family", sub: "Give grandparents a window into your school", href: "/dashboard/settings?tab=family" },
-            ] as const).map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex items-center gap-3 px-4 py-3.5 hover:bg-[#faf8f4] transition-colors"
-              >
-                <span className="text-lg shrink-0">{item.emoji}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-[#2d2926]">{item.label}</p>
-                  <p className="text-xs text-[#9a8f85]">{item.sub}</p>
-                </div>
-                <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
-              </Link>
-            ))}
+      {!loading && (() => {
+        const ls = (k: string) => typeof window !== "undefined" && localStorage.getItem(k) === "1";
+        const gardenVisited = ls("rooted_visited_garden");
+        const yearbookVisited = ls("rooted_visited_yearbook");
+        const curriculumDismissed = ls("rooted_dismissed_curriculum");
+        const resourcesVisited = ls("rooted_visited_resources");
+        const sharingVisited = ls("rooted_visited_sharing");
+        const printablesVisited = ls("rooted_visited_printables");
+
+        // Hide all nudges once user has 3+ memories and visited garden + yearbook
+        if (totalMemories >= 3 && gardenVisited && yearbookVisited) return null;
+
+        const childName = children.length > 0 ? children[0].name : null;
+
+        type Nudge = { key: string; emoji: string; title: string; body: string; href: string; lsKey: string; dismiss?: { label: string; lsKey: string } };
+        let nudge: Nudge | null = null;
+
+        // Nudge 1 (memories === 0) is handled by the activation card above
+
+        if (!nudge && totalMemories >= 1 && !gardenVisited) {
+          nudge = {
+            key: "garden", emoji: "🌳",
+            title: childName ? `${childName}\u2019s tree just grew a leaf!` : "Your garden just grew a leaf!",
+            body: "Go see your garden grow \u2192",
+            href: "/dashboard/garden", lsKey: "rooted_visited_garden",
+          };
+        }
+        if (!nudge && gardenVisited && !yearbookVisited) {
+          nudge = {
+            key: "yearbook", emoji: "📖",
+            title: "Your yearbook already has something in it",
+            body: `${totalMemories} memor${totalMemories === 1 ? "y is" : "ies are"} building your family book automatically. Preview it \u2192`,
+            href: "/dashboard/memories/yearbook/read", lsKey: "rooted_visited_yearbook",
+          };
+        }
+        if (!nudge && yearbookVisited && !hasAnyLessons && !curriculumDismissed) {
+          nudge = {
+            key: "curriculum", emoji: "📚",
+            title: "Track your lessons in Plan",
+            body: "Auto-schedule your curriculum and see your pace. Or skip \u2014 memories work great on their own.",
+            href: "/dashboard/plan", lsKey: "rooted_dismissed_curriculum",
+            dismiss: { label: "Not for us \u2192", lsKey: "rooted_dismissed_curriculum" },
+          };
+        }
+        if (!nudge && yearbookVisited && (hasAnyLessons || curriculumDismissed) && !resourcesVisited) {
+          nudge = {
+            key: "resources", emoji: "🎁",
+            title: "Explore free resources",
+            body: "Deals, freebies, and field trips for homeschool families.",
+            href: "/dashboard/resources", lsKey: "rooted_visited_resources",
+          };
+        }
+        if (!nudge && resourcesVisited && !sharingVisited) {
+          nudge = {
+            key: "sharing", emoji: "👨\u200D👩\u200D👧",
+            title: "Share with family",
+            body: "Give loved ones a free portal to see your kids\u2019 memories and milestones.",
+            href: "/dashboard/settings?tab=family", lsKey: "rooted_visited_sharing",
+          };
+        }
+        if (!nudge && sharingVisited && !printablesVisited) {
+          nudge = {
+            key: "printables", emoji: "🖨️",
+            title: "Print a certificate",
+            body: "Certificates, ID cards, and lesson planners from your real data.",
+            href: "/dashboard/printables", lsKey: "rooted_visited_printables",
+          };
+        }
+
+        if (!nudge) return null;
+
+        const n = nudge;
+        return (
+          <div key={n.key} className="bg-white border border-[#e8e2d9] rounded-2xl p-5 relative">
             <button
               type="button"
-              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
-              className="flex items-center gap-3 px-4 py-3.5 hover:bg-[#faf8f4] transition-colors w-full text-left"
+              onClick={() => { localStorage.setItem(n.lsKey, "1"); forceUpdate(prev => prev + 1); }}
+              className="absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-xs"
+              aria-label="Dismiss"
             >
-              <span className="text-lg shrink-0">📷</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[#2d2926]">Capture a memory</p>
-                <p className="text-xs text-[#9a8f85]">Photos, wins, books, field trips — everything</p>
-              </div>
-              <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
+              ✕
             </button>
+            <div className="flex items-start gap-4">
+              <span className="text-3xl shrink-0 mt-0.5">{n.emoji}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-[#2d2926] mb-1">{n.title}</p>
+                <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">{n.body}</p>
+                <Link
+                  href={n.href}
+                  onClick={() => localStorage.setItem(n.lsKey, "1")}
+                  className="inline-block text-sm font-medium text-[var(--g-brand)] hover:text-[var(--g-deep)] transition-colors"
+                >
+                  Let&apos;s go &rarr;
+                </Link>
+                {n.dismiss && (
+                  <button
+                    type="button"
+                    onClick={() => { localStorage.setItem(n.dismiss!.lsKey, "1"); forceUpdate(prev => prev + 1); }}
+                    className="block text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-1.5"
+                  >
+                    {n.dismiss.label}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           CAME BACK STATE — soft amber nudge if lessons unchecked after 2pm
@@ -2376,7 +2443,7 @@ export default function TodayPage() {
       {/* ═══════════════════════════════════════════════════════════
           YEARBOOK TEASER — free users with at least 1 memory
          ═══════════════════════════════════════════════════════════ */}
-      {(!planType || planType === "free" || previewFree) && (
+      {(!planType || planType === "free" || previewFree) && totalMemories > 0 && (
         <div className="bg-[var(--g-brand)] rounded-2xl px-5 py-4 text-white">
           <p className="text-sm font-medium flex items-center gap-2">
             🔒 Your family yearbook is taking shape 🌿

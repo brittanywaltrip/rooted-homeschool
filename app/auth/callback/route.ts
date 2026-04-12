@@ -31,6 +31,17 @@ export async function GET(request: Request) {
 
     try {
       await supabase.auth.exchangeCodeForSession(code)
+
+      // Password recovery flow — redirect to set-new-password page
+      const type = requestUrl.searchParams.get('type')
+      if (type === 'recovery') {
+        const redirectResponse = NextResponse.redirect(new URL('/reset-password', requestUrl.origin))
+        supabaseResponse.cookies.getAll().forEach(cookie => {
+          redirectResponse.cookies.set(cookie.name, cookie.value)
+        })
+        return redirectResponse
+      }
+
       const { data: { user } } = await supabase.auth.getUser()
 
       if (user) {
@@ -41,7 +52,6 @@ export async function GET(request: Request) {
           .single()
 
         if (!profile) {
-          // Create a minimal profile row so onboarding can update it
           await supabaseAdmin.from('profiles').upsert({ id: user.id }, { onConflict: 'id' })
         }
 

@@ -572,7 +572,7 @@ export default function PrintablesPage() {
   const [subjectChild, setSubjectChild] = useState("");
   const [subjectName, setSubjectName] = useState("");
 
-  useEffect(() => { document.title = "Printables — Rooted"; }, []);
+  useEffect(() => { document.title = "Printables — Rooted"; localStorage.setItem("rooted_visited_printables", "1"); }, []);
 
   useEffect(() => {
     async function load() {

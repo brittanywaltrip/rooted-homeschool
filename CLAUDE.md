@@ -53,35 +53,25 @@ NEVER show hello.rootedapp@gmail.com to users.
 - Stripe Founding price ID: price_1TCVWDLP14EaoUlTNwZFGS8A
 - Stripe Standard price ID: price_1TCVWgLP14EaoUlT25totKGW
 
-## Dashboard nav (what's in the sidebar/bottom nav)
-Today, Plan, Garden, Memories, Printables, Resources, Settings
-- Settings sub-tabs: Our Family, Our Kids, Account, Partners
-
 ## Features BUILT (can mention to users)
 - Lesson tracking (Today page)
-- Plan page with Finish Line curriculum pacing (Pro only)
-- Family garden (emoji trees, animated, 10 growth stages)
+- Family garden (emoji trees, animated)
 - Memories (photo grid, unified memories table)
-- Yearbook reader (/dashboard/memories/yearbook) — Family Book only, no print yet
+- Yearbook setup (/dashboard/yearbook) — preview only, no print yet
 - Resources (Free Picks, Easy Wins, state info)
-- Progress reports PDF (Pro only)
+- Progress reports PDF
 - AI Family Update (1/month free, unlimited paid)
 - Floating camera FAB (everywhere in dashboard)
 - Getting started checklist (new users)
 - Affiliate/partner system
-- Share with Family / grandparent portal (/family/[token])
-- Kids view (/child) — child-safe garden visualization
-
-## Hidden features (built but intentionally not in nav)
-- Family Update (/dashboard/family-update) — kept for future use, not in nav
-- /dashboard/yearbook now redirects to /dashboard/memories/yearbook
 
 ## Features NOT built (never mention to users)
 - High school transcripts
 - AI Graduation Letter
+- Kid Mode (hidden)
 - Co-teacher full login (view-only only)
 - Print yearbook service (preview only)
-- Individual Books yearbook option (removed — Family Book only)
+- Grandparent shareable view
 
 ## Key UX decisions (don't undo these)
 - Curriculum is OPTIONAL — equal-weight skip button
@@ -134,23 +124,145 @@ plan_type is NULL (not 'free') for all free users — this is intentional. Treat
 - No handle_new_user trigger — profile creation is in app code (auth callback)
 
 ## Known issues
-- 214 ghost accounts — users in auth.users with no profile row, caused by Google auth bug. Backfill script at scripts/backfill-missing-profiles.ts, admin endpoint at /api/admin/backfill-profiles.
-- Physical mailing address: 732 S 6th Street, STE N, Las Vegas, NV 89101 — added to lib/email-footer.ts code-generated emails. Still needs to be manually added to all 18 Resend templates in the dashboard.
-
-## Cleaned up
-- Ghost pages removed (preserved in git history): challenges, growth, how-it-works, insights, journey, progress, graduation, demo — 2,328 lines of dead code from previous app version
-
-## Fixed (April 11, 2026)
-- Google auth: was broken (PKCE flow mismatch — browser used implicit flow, server expected PKCE code). Fixed by: createBrowserClient from @supabase/ssr for OAuth calls (lib/supabase-browser.ts), flowType: 'pkce' in lib/supabase.ts, NEXT_PUBLIC_SUPABASE_URL in auth callback.
-- CAN-SPAM: added unsubscribeUrl to weekly-summary, trial-warning, and family-digest cron emails.
-- Logo: replaced old square emoji icon with rooted-logo-nav.png wordmark on FAQ, Privacy, Terms, Contact, Login, Signup pages.
-- Resend email templates: all now use wordmark logo; welcome templates updated with "Add curriculum" nav fix (was "Add Subject").
-- Consolidated duplicate reengagement cron (removed old /api/cron/re-engagement route).
-- first_name backfill: ran SQL in production to populate NULL first_name profiles from Google OAuth metadata (auth.users.raw_user_meta_data).
+- Google auth button hidden on main — SUPABASE_URL env var fix deployed, needs testing with fresh Gmail
+- CAN-SPAM: rooted-family-digest, rooted-weekly-summary, rooted-trial-warning missing unsubscribe links
+- Logo: Tour/FAQ/Privacy/Terms/Contact still use old square icon (fix in CC session 2)
 
 ## Cron jobs
-4 jobs in vercel.json.
+3 jobs in vercel.json — see file for current state after session 4 cleanup.
 - /api/cron/reengagement: daily 2PM UTC — 3-email drip sequence for inactive users
 - /api/cron/check-links: weekly Monday 9AM UTC — validate resource links
 - /api/cron/weekly-summary: weekly Monday 3PM UTC — family weekly summary emails
-- /api/cron/year-in-review: May 1st 2PM UTC — annual summary for paying customers only
+
+## App Feature Map
+
+### TODAY — /dashboard
+Daily home base. Shows lessons, last captured memory,
+Today's Story. New users (0 memories + 0 lessons) see
+single activation card + contextual nudge trail.
+Upgrade banner hidden until 3+ memories AND 48hrs old.
+
+### PLAN — /dashboard/plan
+Curriculum planning + lesson scheduling. Contains:
+- Week/Month calendar with day selector
+- Lesson checklist (tap to complete)
+- Course Progress / Finish Line pacing (PAID) —
+  set total lessons, school days, target date.
+  Rooted auto-schedules. Missed lessons
+  auto-reschedule. Breaks pause and resume lessons.
+- Progress Report (visible to all, DOWNLOAD paid) —
+  shows total school hours + individual lesson log.
+  Filter by child and time period. Only hours report
+  in the app. NOT a separate page.
+- Breaks & Vacations — add school breaks
+
+### GARDEN — /dashboard/garden
+Visual garden where each child has a tree. Every
+memory captured and lesson completed grows a leaf.
+10 growth stages for parents, 5 for kids.
+Kids view at /child — simplified, animated.
+
+### MEMORIES — /dashboard/memories
+All memory types: Photo, Win, Book, Field Trip,
+Drawing. Filter by type, child, favorites, search.
+Free: last 30 days visible, 50 photo limit.
+Paid: all memories, unlimited photos.
+Empty state (0 memories): warm invitation, NO locks
+or upgrade messaging.
+Connects to yearbook automatically.
+
+### YEARBOOK READER — /dashboard/memories/yearbook/read
+Auto-generated family yearbook. Builds itself from
+memories. 100% client-side, zero API cost.
+7 sections: Memories, Books, Field Trips, Drawings,
+Wins, Lessons, Family.
+Free: first 4 spreads. Paid: all spreads.
+NEVER say "unlock" — use "View full yearbook".
+Gear icon → Customize page.
+
+### YEARBOOK CUSTOMIZE — /dashboard/memories/yearbook/edit
+Single page for all yearbook settings + content.
+Section toggles, cover photo upload, family name,
+school year, letter from home, child interviews.
+Save button → redirects to reader.
+
+### PRINTABLES — /dashboard/printables
+DOWNLOADS not just printing. Auto-filled from real
+profile data. 3 styles: The Garden, The Heritage,
+The Artisan (applies to all printables).
+
+Student Achievement Certificates (per child):
+Reading Achievement, Weekly Win, Learning Streak,
+First Day of School, Bookworm Award, Explorer Award,
+Artist Award, Daily Champion.
+
+For the Educator Certificates (for parent):
+You Started, Memory Capturer, Read Together, First
+Field Trip, One Whole Week, One Whole Month, 100 Days
+Strong, Memory Keeper, Story Keeper, You Did That,
+Founding Homeschooler.
+
+Graduation & Subject Completion:
+- Graduation Certificate (grade level selector K-12)
+- Subject Completion Certificate (child + subject name)
+- Custom Certificate (any recipient, title, accomplishment)
+
+ID Cards (require photo upload to download):
+- Parent Homeschool Administrator ID Card
+- Student ID Card (one per child)
+- Both: 3.5" x 2", option for card back,
+  "Made with Rooted" toggle
+
+### RESOURCES — /dashboard/resources
+Curated homeschool resources. NOT location-specific
+(do NOT say "near you").
+Sections: Today's Easy Win (daily activity idea),
+This Week's Free Picks, Browse Everything.
+Categories: Curriculum, Online Classes, Science
+(experiments), Field Trips (virtual + in-person),
+Printables (external links), Discounts, Virtual Tours,
+By State, Saved.
+Resources are bookmarkable. External links open in
+new tab.
+
+### SETTINGS — /dashboard/settings
+4 tabs:
+- Our Family: family photo, name/email/state,
+  Share with Family (invite portal — viewers can
+  like + comment on memories), School Year reset,
+  Spread the word, Gift Rooted
+- Our Kids: children list, edit/add/archive,
+  Kid view link per child
+- Account: subscription status, upgrade CTA,
+  reset password, export data, delete account,
+  admin links (admin only), sign out
+- Partners: affiliate dashboard (if user is affiliate)
+
+### SHARE WITH FAMILY — /family/[token]
+Grandparent/family viewer portal. Free 90-day trial,
+unlimited for paid. Viewers can like + comment on
+memories. Parents can mark individual memories private.
+
+### KIDS VIEW — /child
+Simplified animated garden for kids. 5 growth stages.
+Access via Settings → Our Kids → "Kid view".
+
+### FREE vs PAID SUMMARY
+Free: memories (30 days), 50 photos, full garden,
+first 4 yearbook spreads, full plan, full resources,
+full printables, 90-day family sharing trial.
+Paid ($39/yr Founding Family): all memories,
+unlimited photos, full yearbook, Finish Line pacing,
+Progress Report download, unlimited family sharing.
+
+### COPY RULES — NEVER GET THESE WRONG
+- NEVER say "transcripts" — not built yet
+- NEVER say "unlock your yearbook" — say "View full yearbook"
+- NEVER show upgrade/lock messaging to 0-memory users
+- NEVER say "near you" for resources — not all location-based
+- NEVER say "updated weekly" for resources unless confirmed automated
+- Headers use --g-brand (#2D5A3D) NOT --g-deep (#1a2c22)
+- Today page has its own hardcoded header (not PageHero)
+- Printables has DOWNLOADS not just printing
+- Progress Report is on the Plan page, not separate
+- ID cards require photo to download

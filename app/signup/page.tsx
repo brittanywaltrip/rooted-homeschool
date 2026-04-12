@@ -58,17 +58,20 @@ export default function SignupPage() {
       return;
     }
 
-    // Explicitly upsert name into profiles so Settings page can read it
-    const userId = data?.user?.id;
-    if (userId) {
-      await supabase.from("profiles").upsert(
-        {
-          id: userId,
+    // Save name to profiles via server-side API (bypasses RLS)
+    const session = data?.session;
+    if (session?.access_token) {
+      await fetch("/api/profile/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
           first_name: capFirst,
           last_name: capLast,
-        },
-        { onConflict: "id" }
-      );
+        }),
+      });
     }
 
     router.push("/onboarding");
