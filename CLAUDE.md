@@ -133,3 +133,136 @@ plan_type is NULL (not 'free') for all free users — this is intentional. Treat
 - /api/cron/reengagement: daily 2PM UTC — 3-email drip sequence for inactive users
 - /api/cron/check-links: weekly Monday 9AM UTC — validate resource links
 - /api/cron/weekly-summary: weekly Monday 3PM UTC — family weekly summary emails
+
+## App Feature Map
+
+### TODAY — /dashboard
+Daily home base. Shows lessons, last captured memory,
+Today's Story. New users (0 memories + 0 lessons) see
+single activation card + contextual nudge trail.
+Upgrade banner hidden until 3+ memories AND 48hrs old.
+
+### PLAN — /dashboard/plan
+Curriculum planning + lesson scheduling. Contains:
+- Week/Month calendar with day selector
+- Lesson checklist (tap to complete)
+- Course Progress / Finish Line pacing (PAID) —
+  set total lessons, school days, target date.
+  Rooted auto-schedules. Missed lessons
+  auto-reschedule. Breaks pause and resume lessons.
+- Progress Report (visible to all, DOWNLOAD paid) —
+  shows total school hours + individual lesson log.
+  Filter by child and time period. Only hours report
+  in the app. NOT a separate page.
+- Breaks & Vacations — add school breaks
+
+### GARDEN — /dashboard/garden
+Visual garden where each child has a tree. Every
+memory captured and lesson completed grows a leaf.
+10 growth stages for parents, 5 for kids.
+Kids view at /child — simplified, animated.
+
+### MEMORIES — /dashboard/memories
+All memory types: Photo, Win, Book, Field Trip,
+Drawing. Filter by type, child, favorites, search.
+Free: last 30 days visible, 50 photo limit.
+Paid: all memories, unlimited photos.
+Empty state (0 memories): warm invitation, NO locks
+or upgrade messaging.
+Connects to yearbook automatically.
+
+### YEARBOOK READER — /dashboard/memories/yearbook/read
+Auto-generated family yearbook. Builds itself from
+memories. 100% client-side, zero API cost.
+7 sections: Memories, Books, Field Trips, Drawings,
+Wins, Lessons, Family.
+Free: first 4 spreads. Paid: all spreads.
+NEVER say "unlock" — use "View full yearbook".
+Gear icon → Customize page.
+
+### YEARBOOK CUSTOMIZE — /dashboard/memories/yearbook/edit
+Single page for all yearbook settings + content.
+Section toggles, cover photo upload, family name,
+school year, letter from home, child interviews.
+Save button → redirects to reader.
+
+### PRINTABLES — /dashboard/printables
+DOWNLOADS not just printing. Auto-filled from real
+profile data. 3 styles: The Garden, The Heritage,
+The Artisan (applies to all printables).
+
+Student Achievement Certificates (per child):
+Reading Achievement, Weekly Win, Learning Streak,
+First Day of School, Bookworm Award, Explorer Award,
+Artist Award, Daily Champion.
+
+For the Educator Certificates (for parent):
+You Started, Memory Capturer, Read Together, First
+Field Trip, One Whole Week, One Whole Month, 100 Days
+Strong, Memory Keeper, Story Keeper, You Did That,
+Founding Homeschooler.
+
+Graduation & Subject Completion:
+- Graduation Certificate (grade level selector K-12)
+- Subject Completion Certificate (child + subject name)
+- Custom Certificate (any recipient, title, accomplishment)
+
+ID Cards (require photo upload to download):
+- Parent Homeschool Administrator ID Card
+- Student ID Card (one per child)
+- Both: 3.5" x 2", option for card back,
+  "Made with Rooted" toggle
+
+### RESOURCES — /dashboard/resources
+Curated homeschool resources. NOT location-specific
+(do NOT say "near you").
+Sections: Today's Easy Win (daily activity idea),
+This Week's Free Picks, Browse Everything.
+Categories: Curriculum, Online Classes, Science
+(experiments), Field Trips (virtual + in-person),
+Printables (external links), Discounts, Virtual Tours,
+By State, Saved.
+Resources are bookmarkable. External links open in
+new tab.
+
+### SETTINGS — /dashboard/settings
+4 tabs:
+- Our Family: family photo, name/email/state,
+  Share with Family (invite portal — viewers can
+  like + comment on memories), School Year reset,
+  Spread the word, Gift Rooted
+- Our Kids: children list, edit/add/archive,
+  Kid view link per child
+- Account: subscription status, upgrade CTA,
+  reset password, export data, delete account,
+  admin links (admin only), sign out
+- Partners: affiliate dashboard (if user is affiliate)
+
+### SHARE WITH FAMILY — /family/[token]
+Grandparent/family viewer portal. Free 90-day trial,
+unlimited for paid. Viewers can like + comment on
+memories. Parents can mark individual memories private.
+
+### KIDS VIEW — /child
+Simplified animated garden for kids. 5 growth stages.
+Access via Settings → Our Kids → "Kid view".
+
+### FREE vs PAID SUMMARY
+Free: memories (30 days), 50 photos, full garden,
+first 4 yearbook spreads, full plan, full resources,
+full printables, 90-day family sharing trial.
+Paid ($39/yr Founding Family): all memories,
+unlimited photos, full yearbook, Finish Line pacing,
+Progress Report download, unlimited family sharing.
+
+### COPY RULES — NEVER GET THESE WRONG
+- NEVER say "transcripts" — not built yet
+- NEVER say "unlock your yearbook" — say "View full yearbook"
+- NEVER show upgrade/lock messaging to 0-memory users
+- NEVER say "near you" for resources — not all location-based
+- NEVER say "updated weekly" for resources unless confirmed automated
+- Headers use --g-brand (#2D5A3D) NOT --g-deep (#1a2c22)
+- Today page has its own hardcoded header (not PageHero)
+- Printables has DOWNLOADS not just printing
+- Progress Report is on the Plan page, not separate
+- ID cards require photo to download
