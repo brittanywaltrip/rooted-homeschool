@@ -498,6 +498,8 @@ export default function TodayPage() {
   const loadDataBusy = useRef(false);
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
+  const [firstMemoryToast, setFirstMemoryToast] = useState<string | null>(null);
+  const prevTotalMemoriesRef = useRef<number | null>(null);
   const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editDeleting, setEditDeleting] = useState(false);
@@ -980,6 +982,20 @@ export default function TodayPage() {
     return () => window.removeEventListener("rooted:children-updated", handler);
   }, [loadData]);
 
+  // ── First memory magic moment ──────────────────────────────────────────────
+  useEffect(() => {
+    if (loading) return;
+    const prev = prevTotalMemoriesRef.current;
+    prevTotalMemoriesRef.current = totalMemories;
+    if (prev === 0 && totalMemories === 1 && !localStorage.getItem("rooted_first_memory_celebrated")) {
+      localStorage.setItem("rooted_first_memory_celebrated", "1");
+      const childName = children.length > 0 ? children[0].name : null;
+      setFirstMemoryToast(
+        childName ? `${childName}'s tree just grew its first leaf!` : "Your garden just grew its first leaf!"
+      );
+      setTimeout(() => setFirstMemoryToast(null), 4000);
+    }
+  }, [totalMemories, loading, children]);
 
   async function refreshTodayStory() {
     if (!effectiveUserId) return;
@@ -2157,6 +2173,51 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* ═══════════════════════════════════════════════════════════
+          DISCOVER ROOTED — quiet exploration trail for new users
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && totalMemories === 0 && !hasAnyLessons && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
+            Explore everything Rooted can do
+          </p>
+          <div className="bg-white border border-[#e8e2d9] rounded-2xl divide-y divide-[#f0ede8] overflow-hidden">
+            {([
+              { emoji: "🌳", label: "Watch your garden grow", sub: "Every memory and lesson grows a leaf", href: "/dashboard/garden" },
+              { emoji: "📖", label: "Preview your yearbook", sub: "It builds itself from your memories", href: "/dashboard/memories/yearbook/read" },
+              { emoji: "📚", label: "Set up your curriculum", sub: "Auto-schedule lessons and track pace", href: "/dashboard/plan" },
+              { emoji: "🎁", label: "Explore free resources", sub: "Deals, freebies, and field trips near you", href: "/dashboard/resources" },
+              { emoji: "🖨️", label: "Print a certificate", sub: "Beautiful printables from your real data", href: "/dashboard/printables" },
+              { emoji: "👨‍👩‍👧", label: "Share with family", sub: "Give grandparents a window into your school", href: "/dashboard/settings?tab=family" },
+            ] as const).map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-3 px-4 py-3.5 hover:bg-[#faf8f4] transition-colors"
+              >
+                <span className="text-lg shrink-0">{item.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[#2d2926]">{item.label}</p>
+                  <p className="text-xs text-[#9a8f85]">{item.sub}</p>
+                </div>
+                <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
+              </Link>
+            ))}
+            <button
+              type="button"
+              onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
+              className="flex items-center gap-3 px-4 py-3.5 hover:bg-[#faf8f4] transition-colors w-full text-left"
+            >
+              <span className="text-lg shrink-0">📷</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-[#2d2926]">Capture a memory</p>
+                <p className="text-xs text-[#9a8f85]">Photos, wins, books, field trips — everything</p>
+              </div>
+              <span className="text-[#c8bfb5] text-sm shrink-0">›</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           CAME BACK STATE — soft amber nudge if lessons unchecked after 2pm
@@ -2921,6 +2982,19 @@ export default function TodayPage() {
                 Edit →
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── First memory magic moment toast ─────────────── */}
+      {firstMemoryToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] toast-slide-up">
+          <div className="bg-[var(--g-brand)] text-white px-6 py-3.5 rounded-full shadow-lg flex items-center gap-3">
+            <span className="text-lg">🌿</span>
+            <div>
+              <p className="text-sm font-semibold">{firstMemoryToast}</p>
+              <p className="text-xs text-white/70">Every memory and lesson grows it more.</p>
+            </div>
           </div>
         </div>
       )}

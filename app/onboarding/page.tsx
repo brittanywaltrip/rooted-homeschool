@@ -58,10 +58,10 @@ function StepShell({
         <img
           src="/rooted-logo-white.png"
           alt="Rooted"
-          className="h-12 w-auto mb-10 opacity-90"
+          className="w-40 h-auto mb-10 opacity-90"
           onError={(e) => {
             (e.target as HTMLImageElement).src = "/rooted-logo-nav.png";
-            (e.target as HTMLImageElement).className = "h-12 w-auto mb-10 opacity-90 brightness-0 invert";
+            (e.target as HTMLImageElement).className = "w-40 h-auto mb-10 opacity-90 brightness-0 invert";
           }}
         />
       )}
@@ -363,7 +363,7 @@ export default function OnboardingPage() {
             type="text"
             value={displayName}
             onChange={(e) => { setDisplayName(e.target.value); setError(""); }}
-            placeholder="e.g. The Johnson Family"
+            placeholder={lastName.trim() ? `The ${lastName.trim().charAt(0).toUpperCase() + lastName.trim().slice(1)} Family` : "e.g. The Johnson Family"}
             autoFocus
             className="w-full px-5 py-4 rounded-2xl bg-white/15 border border-white/20 text-white text-lg placeholder-white/40 focus:outline-none focus:border-white/50 focus:bg-white/20 transition mb-2"
           />
@@ -467,7 +467,7 @@ export default function OnboardingPage() {
             Add a family photo
           </h1>
           <p className="text-white/60 text-center text-sm mb-10">
-            Makes Rooted feel like yours — shows in your app header.
+            Makes Rooted feel like yours — shows in your app header and yearbook cover.
           </p>
 
           <input
