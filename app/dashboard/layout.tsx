@@ -28,7 +28,7 @@ const mobileBottomNav = [
   { label: "Garden",      href: "/dashboard/garden",       icon: Leaf     },
   { label: "Memories",    href: "/dashboard/memories",     icon: Camera   },
   { label: "Printables",  href: "/dashboard/printables",   icon: Printer  },
-  { label: "More",        href: "/dashboard/settings",     icon: Menu     },
+  { label: "More",        href: "/dashboard/more",         icon: Menu     },
 ];
 
 function NavLink({
