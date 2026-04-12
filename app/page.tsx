@@ -216,7 +216,7 @@ export default function Home() {
         {/* Animated photo background */}
         <div
           className="absolute inset-0 bg-cover bg-center hero-zoom"
-          style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1448375240586-882707db888b?w=1600&q=90)' }}
+          style={{ backgroundImage: 'url(/landing-hero.jpg)' }}
         />
 
         {/* Dark green overlay */}
@@ -1158,6 +1158,7 @@ export default function Home() {
                 © {new Date().getFullYear()} Rooted
               </p>
               <p className="text-xs text-[#c8bfb5]">Made with care for learning families</p>
+              <span className="text-xs text-[#b5aca4] block mt-1">Photo by Lukasz Szmigiel / Unsplash</span>
             </div>
           </div>
 
