@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -9,6 +9,14 @@ import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 type View = "login" | "forgot" | "forgot-sent";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [view,     setView]     = useState<View>(searchParams.get("reset") === "true" ? "forgot" : "login");
