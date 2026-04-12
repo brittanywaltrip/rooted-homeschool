@@ -3,7 +3,6 @@
 import Link from "next/link";
 import HashRedirect from "./components/HashRedirect";
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
 
 // ─── App mockup components ──────────────────────────────────────────────────
 
@@ -92,62 +91,6 @@ function PrintablesMockup() {
         </div>
       </div>
     </div>
-  );
-}
-
-// ─── Waitlist form (Supabase logic unchanged) ─────────────────────────────────
-
-function WaitlistForm() {
-  const [email,     setEmail]     = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [loading,   setLoading]   = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setLoading(true);
-    try {
-      await supabase.from("app_events").insert({
-        type: "waitlist_signup",
-        payload: { email: email.trim(), timestamp: new Date().toISOString() },
-      });
-    } catch {
-      // Silently continue — confirmation still shown to user
-    }
-    setLoading(false);
-    setSubmitted(true);
-  }
-
-  if (submitted) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-4">
-        <div className="w-14 h-14 rounded-full bg-[#e8f0e9] flex items-center justify-center text-2xl">🌱</div>
-        <p className="font-semibold text-[#2d2926]">You&apos;re on the list!</p>
-        <p className="text-sm text-[#7a6f65] text-center max-w-xs">
-          We&apos;ll email <strong>{email}</strong> when founding family pricing is available.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2 w-full max-w-md mx-auto">
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="your@email.com"
-        required
-        className="flex-1 px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
-      />
-      <button
-        type="submit"
-        disabled={loading}
-        className="bg-[#5c7f63] hover:bg-[#3d5c42] disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-xl transition-colors text-sm whitespace-nowrap shadow-sm"
-      >
-        {loading ? "Saving…" : "Join Waitlist"}
-      </button>
-    </form>
   );
 }
 
@@ -285,8 +228,8 @@ export default function Home() {
         {/* Content */}
         <div className="relative z-10 flex flex-col items-center max-w-3xl">
           <h1 className="anim-fade-in-up delay-150 leading-[1.08] mb-6 text-white" style={{ fontFamily: "var(--font-display)", textShadow: "0 2px 32px rgba(0,0,0,0.4)", letterSpacing: "-0.02em" }}>
-            <span className="block text-3xl sm:text-4xl lg:text-5xl font-bold text-white/80">The homeschool years go fast.</span>
-            <span className="block text-4xl sm:text-5xl lg:text-[5rem] font-bold mt-2 text-white">Rooted helps you hold onto what matters.</span>
+            <span className="block text-3xl sm:text-4xl lg:text-5xl font-medium text-white/80">The homeschool years go fast.</span>
+            <span className="block text-4xl sm:text-5xl lg:text-[5rem] font-medium mt-2 text-white">Rooted helps you hold onto what matters.</span>
           </h1>
 
           <p className="anim-fade-in-up delay-300 text-lg sm:text-xl text-white/80 mb-10 leading-relaxed max-w-[34rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)", letterSpacing: "0.01em" }}>
@@ -294,7 +237,7 @@ export default function Home() {
           </p>
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
-            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#2d5a3d] hover:bg-white/90 font-bold px-8 py-4 rounded-full transition-all text-base shadow-lg">
+            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#2d5a3d] hover:bg-white/90 font-medium px-8 py-4 rounded-full transition-all text-base shadow-lg">
               Get Started Free →
             </Link>
             <Link href="/tour" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/10 font-semibold px-8 py-4 rounded-full transition-all text-base border border-white/35" style={{ backdropFilter: "blur(12px)" }}>
@@ -303,7 +246,7 @@ export default function Home() {
           </div>
 
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
-            <span>🌿</span> Trusted by 600+ homeschool families
+            <span>🌿</span> Trusted by 700+ homeschool families
           </p>
         </div>
 
@@ -319,7 +262,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
-              { number: "600+",    label: "Families Growing with Rooted", icon: "🌱" },
+              { number: "700+",    label: "Families Growing with Rooted", icon: "🌱" },
               { number: "7",       label: "Features, Everything in One Place", icon: "🎨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
               { number: "No Canva", label: "Beautiful Printables",  icon: "🖨️" },
@@ -327,7 +270,7 @@ export default function Home() {
               <div key={label} className="py-9 px-4 text-center">
                 <div className="text-xl mb-2">{icon}</div>
                 <div
-                  className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-1 leading-none"
+                  className="text-2xl sm:text-3xl font-medium text-[#2d2926] mb-1 leading-none"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   {number}
@@ -376,7 +319,7 @@ export default function Home() {
             See it in action
           </p>
           <h2
-            className="text-3xl sm:text-4xl font-bold text-[#2d2926]"
+            className="text-3xl sm:text-4xl font-medium text-[#2d2926]"
             style={{ fontFamily: "var(--font-display)" }}
           >
             Built for how you actually homeschool
@@ -410,7 +353,7 @@ export default function Home() {
               <div className="mockup-inner rounded-t-xl overflow-hidden">{mockup}</div>
               <div className="text-center px-4 pb-5">
                 <h3
-                  className="text-sm font-bold text-[#2d2926] mb-1.5"
+                  className="text-sm font-medium text-[#2d2926] mb-1.5"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   {title}
@@ -436,7 +379,7 @@ export default function Home() {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Capture every moment</p>
-            <h3 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+            <h3 className="text-2xl sm:text-3xl font-medium text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
               The little things become the <em className="not-italic text-[#5c7f63]">big things.</em>
             </h3>
             <p className="text-[#7a6f65] leading-relaxed mb-6">
@@ -452,7 +395,7 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           <div className="order-2 lg:order-1">
             <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Plan with ease</p>
-            <h3 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+            <h3 className="text-2xl sm:text-3xl font-medium text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
               Know exactly what&apos;s next — <em className="not-italic text-[#5c7f63]">without the stress.</em>
             </h3>
             <p className="text-[#7a6f65] leading-relaxed mb-6">
@@ -484,7 +427,7 @@ export default function Home() {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Watch them grow</p>
-            <h3 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+            <h3 className="text-2xl sm:text-3xl font-medium text-[#2d2926] mb-4 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
               See how far they&apos;ve come — <em className="not-italic text-[#5c7f63]">beautifully.</em>
             </h3>
             <p className="text-[#7a6f65] leading-relaxed mb-6">
@@ -505,7 +448,7 @@ export default function Home() {
               Everything you need
             </p>
             <h2
-              className="text-3xl sm:text-4xl font-bold text-[#2d2926]"
+              className="text-3xl sm:text-4xl font-medium text-[#2d2926]"
               style={{ fontFamily: "var(--font-display)" }}
             >
               Everything you need to homeschool with confidence
@@ -571,7 +514,7 @@ export default function Home() {
               >
                 <div className="text-3xl mb-3">{f.emoji}</div>
                 <h3
-                  className="font-bold text-[#2d2926] mb-2 text-base"
+                  className="font-medium text-[#2d2926] mb-2 text-base"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   {f.title}
@@ -595,7 +538,7 @@ export default function Home() {
                 The part moms love most
               </p>
               <h2
-                className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
+                className="text-3xl sm:text-4xl font-medium text-[#2d2926] mb-5 leading-snug"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 The little things?{" "}
@@ -648,7 +591,7 @@ export default function Home() {
                     </div>
                   </div>
                   <div className="bg-[#fef9f0] border border-[#f0d090] rounded-2xl p-3">
-                    <p className="text-[10px] font-bold text-[#8b6f47] uppercase tracking-widest mb-1.5">✍️ She said...</p>
+                    <p className="text-[10px] font-medium text-[#8b6f47] uppercase tracking-widest mb-1.5">✍️ She said...</p>
                     <p className="text-xs text-[#2d2926] italic leading-relaxed">&ldquo;Mom, I think I actually love fractions now.&rdquo;</p>
                     <p className="text-[10px] text-[#b5aca4] mt-2">Emma · March 17</p>
                   </div>
@@ -686,14 +629,14 @@ export default function Home() {
                     <div className="w-2 h-2 rounded-full bg-[#8b6f47]" />
                     <span className="text-xs font-semibold text-[#2d2926]">Progress Report</span>
                   </div>
-                  <div className="flex items-center gap-1.5 bg-[#5c7f63] text-white text-[10px] font-bold px-2.5 py-1 rounded-lg">
+                  <div className="flex items-center gap-1.5 bg-[#5c7f63] text-white text-[10px] font-medium px-2.5 py-1 rounded-lg">
                     🖨️ Print
                   </div>
                 </div>
                 <div className="p-5 space-y-4">
                   <div>
                     <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Zoe Parker · 2025–2026</p>
-                    <p className="text-sm font-bold text-[#2d2926] mt-0.5">Annual Progress Report</p>
+                    <p className="text-sm font-medium text-[#2d2926] mt-0.5">Annual Progress Report</p>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
                     {[
@@ -703,7 +646,7 @@ export default function Home() {
                       { label: "Subjects", value: "4" },
                     ].map(({ label, value }) => (
                       <div key={label} className="text-center bg-[#f8f5f0] rounded-xl py-2.5">
-                        <p className="text-sm font-bold text-[#2d2926]">{value}</p>
+                        <p className="text-sm font-medium text-[#2d2926]">{value}</p>
                         <p className="text-[8px] text-[#7a6f65]">{label}</p>
                       </div>
                     ))}
@@ -736,7 +679,7 @@ export default function Home() {
                 Your family&apos;s story, beautifully documented
               </p>
               <h2
-                className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
+                className="text-3xl sm:text-4xl font-medium text-[#2d2926] mb-5 leading-snug"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 See how far they&apos;ve come.
@@ -777,7 +720,7 @@ export default function Home() {
               Share with family
             </p>
             <h2
-              className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
+              className="text-3xl sm:text-4xl font-medium text-[#2d2926] mb-5 leading-snug"
               style={{ fontFamily: "var(--font-display)" }}
             >
               The people who love your kids will love this too.
@@ -820,7 +763,7 @@ export default function Home() {
             Simple, honest pricing
           </p>
           <h2
-            className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-4"
+            className="text-3xl sm:text-4xl font-medium text-[#2d2926] mb-4"
             style={{ fontFamily: "var(--font-display)" }}
           >
             Start free. Grow with Rooted.
@@ -836,10 +779,10 @@ export default function Home() {
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Free Forever</p>
+            <p className="text-xs font-medium uppercase tracking-widest text-[#b5aca4] mb-3">Free Forever</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
-                className="text-4xl font-bold text-[#2d2926]"
+                className="text-4xl font-medium text-[#2d2926]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 $0
@@ -853,7 +796,7 @@ export default function Home() {
                 "Daily lesson tracking",
                 "Family garden & badges",
                 "Curated resources",
-                "Yearbook preview (first 25 memories)",
+                "Yearbook preview — last 30 days of memories",
                 "1 progress summary per year (view only)",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
@@ -873,15 +816,15 @@ export default function Home() {
           {/* Founding Family */}
           <div className="relative bg-gradient-to-br from-[#eaf6ec] via-[#d6ecd9] to-[#c4e2ca] rounded-2xl p-6 text-center flex flex-col founding-glow">
             {/* Shimmer badge */}
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap founding-shimmer-badge text-white text-[11px] font-bold px-5 py-1.5 rounded-full shadow-md">
+            <div className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap founding-shimmer-badge text-white text-[11px] font-medium px-5 py-1.5 rounded-full shadow-md">
               🌱 Best Value — Founding Price
             </div>
-            <p className="text-xs font-bold uppercase tracking-widest text-[#5c7f63] mb-3 mt-2">
+            <p className="text-xs font-medium uppercase tracking-widest text-[#5c7f63] mb-3 mt-2">
               Founding Family
             </p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
-                className="text-4xl font-bold text-[#2d2926]"
+                className="text-4xl font-medium text-[#2d2926]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 $39
@@ -906,14 +849,14 @@ export default function Home() {
                 "Lifetime founding price 🎁",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#2d2926]">
-                  <span className="text-[#5c7f63] mt-0.5 shrink-0 text-xs font-bold">✓</span>
+                  <span className="text-[#5c7f63] mt-0.5 shrink-0 text-xs font-medium">✓</span>
                   {f}
                 </li>
               ))}
             </ul>
             <Link
               href="/signup"
-              className="block w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-3.5 rounded-xl transition-colors text-sm shadow-sm"
+              className="block w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-medium py-3.5 rounded-xl transition-colors text-sm shadow-sm"
             >
               Claim Founding Price →
             </Link>
@@ -927,10 +870,10 @@ export default function Home() {
 
           {/* Standard */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Standard</p>
+            <p className="text-xs font-medium uppercase tracking-widest text-[#b5aca4] mb-3">Standard</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
-                className="text-4xl font-bold text-[#2d2926]"
+                className="text-4xl font-medium text-[#2d2926]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 $59
@@ -966,10 +909,10 @@ export default function Home() {
 
           {/* Monthly */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Monthly</p>
+            <p className="text-xs font-medium uppercase tracking-widest text-[#b5aca4] mb-3">Monthly</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
-                className="text-4xl font-bold text-[#2d2926]"
+                className="text-4xl font-medium text-[#2d2926]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 $6.99
@@ -1011,7 +954,7 @@ export default function Home() {
               <tr className="bg-[#f8f7f4] border-b border-[#e8e2d9]">
                 <th className="text-left px-4 py-3 font-semibold text-[#7a6f65]">Feature</th>
                 <th className="text-center px-4 py-3 font-semibold text-[#b5aca4]">Free</th>
-                <th className="text-center px-4 py-3 font-bold text-[#5c7f63] bg-[#f0f7f0]">Founding</th>
+                <th className="text-center px-4 py-3 font-medium text-[#5c7f63] bg-[#f0f7f0]">Founding</th>
                 <th className="text-center px-4 py-3 font-semibold text-[#7a6f65]">Standard</th>
               </tr>
             </thead>
@@ -1066,7 +1009,7 @@ export default function Home() {
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">From the founder</p>
-            <h2 className="text-xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
+            <h2 className="text-xl font-medium text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
               Built by a homeschool mom, for homeschool families.
             </h2>
             <p className="text-[#7a6f65] leading-relaxed text-sm mb-4">
@@ -1118,7 +1061,7 @@ export default function Home() {
           <div className="relative z-10">
             <div className="text-5xl mb-5">🌱</div>
             <h2
-              className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3"
+              className="text-2xl sm:text-3xl font-medium text-[#2d2926] mb-3"
               style={{ fontFamily: "var(--font-display)" }}
             >
               Start your homeschool journey today
@@ -1140,17 +1083,17 @@ export default function Home() {
       <section className="bg-[#e8f0ea] px-6 sm:px-8 py-20">
         <div className="max-w-2xl mx-auto text-center">
           <h2
-            className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-4 italic"
+            className="text-3xl sm:text-4xl font-medium text-[#2d2926] mb-4 italic"
             style={{ fontFamily: "var(--font-display)" }}
           >
             Ready to get rooted?
           </h2>
           <p className="text-[#7a6f65] text-base mb-8">
-            Join 600+ homeschool families. Free to start.
+            Join 700+ homeschool families. Free to start.
           </p>
           <Link
             href="/signup"
-            className="inline-flex items-center gap-2 bg-[#2d5a3d] hover:bg-[#3d5c42] text-white font-bold px-8 py-4 rounded-full transition-colors text-base shadow-lg"
+            className="inline-flex items-center gap-2 bg-[#2d5a3d] hover:bg-[#3d5c42] text-white font-medium px-8 py-4 rounded-full transition-colors text-base shadow-lg"
           >
             Start for Free →
           </Link>
@@ -1172,7 +1115,7 @@ export default function Home() {
                   🌿
                 </div>
                 <span
-                  className="font-bold text-[#2d2926] text-base"
+                  className="font-medium text-[#2d2926] text-base"
                   style={{ fontFamily: "var(--font-display)" }}
                 >
                   Rooted
