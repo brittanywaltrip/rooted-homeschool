@@ -164,6 +164,9 @@ export default function OnboardingPage() {
   // Skip tracking
   const [skipStep1, setSkipStep1] = useState(false);
   const [skipStep2, setSkipStep2] = useState(false);
+  const [skipStep3, setSkipStep3] = useState(false);
+  const [skipStep4, setSkipStep4] = useState(false);
+  const [skipStep5, setSkipStep5] = useState(false);
   const [bothSkipped, setBothSkipped] = useState(false);
   const [celebrationReady, setCelebrationReady] = useState(false);
   const celebrationReadyRef = useRef(false);
@@ -177,11 +180,19 @@ export default function OnboardingPage() {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { router.replace("/login"); return; }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("display_name, first_name, last_name, onboarded, state")
-        .eq("id", user.id)
-        .maybeSingle();
+      const [{ data: profile }, { data: existingChildren }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("display_name, first_name, last_name, onboarded, state, family_photo_url")
+          .eq("id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("children")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("archived", false)
+          .limit(1),
+      ]);
 
       if ((profile as { onboarded?: boolean | null } | null)?.onboarded === true && !celebrationReadyRef.current) {
         router.replace("/dashboard");
@@ -205,15 +216,29 @@ export default function OnboardingPage() {
       const avatar = user.user_metadata?.avatar_url || user.user_metadata?.picture;
       if (avatar) setGoogleAvatarUrl(avatar);
 
+      // Determine which steps to skip based on existing data
       const skip1 = !!fn;
       const skip2 = !!dn; // only skip if display_name was already saved in DB
+      const skip3 = !!(profile as { state?: string } | null)?.state;
+      const skip4 = !!(profile as { family_photo_url?: string } | null)?.family_photo_url;
+      const skip5 = (existingChildren?.length ?? 0) > 0;
       setSkipStep1(skip1);
       setSkipStep2(skip2);
+      setSkipStep3(skip3);
+      setSkipStep4(skip4);
+      setSkipStep5(skip5);
       setBothSkipped(skip1 && skip2);
 
+      // Land on the first step not yet completed
+      // Steps: 0=name, 1=family name, 2=state, 3=photo, 4=children, 5=celebration
+      const skips = [skip1, skip2, skip3, skip4, skip5];
       let startStep = 0;
-      if (skip1) startStep = 1;
-      if (skip1 && skip2) startStep = 2;
+      for (let i = 0; i < skips.length; i++) {
+        if (skips[i]) startStep = i + 1;
+        else break;
+      }
+      // If all steps completed, go to celebration
+      if (startStep > 4) startStep = 5;
       setStep(startStep);
 
       setReady(true);
@@ -233,10 +258,18 @@ export default function OnboardingPage() {
   const visibleSteps = [
     ...(!skipStep1 ? [0] : []),
     ...(!skipStep2 ? [1] : []),
-    2, 3, 4, 5,
+    ...(!skipStep3 ? [2] : []),
+    ...(!skipStep4 ? [3] : []),
+    ...(!skipStep5 ? [4] : []),
+    5,
   ];
   const totalDots = visibleSteps.length;
   const currentDot = visibleSteps.indexOf(step);
+
+  function prevVisibleStep(current: number): number | null {
+    const idx = visibleSteps.indexOf(current);
+    return idx > 0 ? visibleSteps[idx - 1] : null;
+  }
 
   // ── Step handlers ──────────────────────────────────────────────────────
 
@@ -481,7 +514,7 @@ export default function OnboardingPage() {
 
   // ─── STEP 3 — State ───────────────────────────────────────────────────
 
-  if (step === 2) {
+  if (step === 2 && !skipStep3) {
     return (
       <StepShell>
         <div className={fadeClass}>
@@ -500,7 +533,7 @@ export default function OnboardingPage() {
             Where are you homeschooling?
           </h1>
           <p className="text-white/60 text-center text-sm mb-10">
-            We use this to show local resources and field trips near you.
+            Every state does homeschooling differently — this helps us personalize Rooted for your family.
           </p>
 
           <select
@@ -531,8 +564,8 @@ export default function OnboardingPage() {
             Skip for now →
           </button>
 
-          {(!skipStep1 || !skipStep2) && (
-            <button onClick={() => goTo(skipStep1 ? 1 : 0)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors mt-2">
+          {prevVisibleStep(2) !== null && (
+            <button onClick={() => goTo(prevVisibleStep(2)!)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors mt-2">
               ← Back
             </button>
           )}
@@ -543,7 +576,7 @@ export default function OnboardingPage() {
 
   // ─── STEP 4 — Family Photo ──────────────────────────────────────────────
 
-  if (step === 3) {
+  if (step === 3 && !skipStep4) {
     return (
       <StepShell>
         <div className={fadeClass}>
@@ -677,9 +710,11 @@ export default function OnboardingPage() {
             Skip for now →
           </button>
 
-          <button onClick={() => goTo(2)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors mt-2">
-            ← Back
-          </button>
+          {prevVisibleStep(3) !== null && (
+            <button onClick={() => goTo(prevVisibleStep(3)!)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors mt-2">
+              ← Back
+            </button>
+          )}
         </div>
       </StepShell>
     );
@@ -687,7 +722,7 @@ export default function OnboardingPage() {
 
   // ─── STEP 5 — Children ─────────────────────────────────────────────────
 
-  if (step === 4) {
+  if (step === 4 && !skipStep5) {
     function updateRow(idx: number, patch: Partial<{ name: string; color: string }>) {
       setChildRows(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r));
       setError("");
@@ -779,9 +814,11 @@ export default function OnboardingPage() {
             {saving ? "Saving..." : "Continue →"}
           </button>
 
-          <button onClick={() => goTo(3)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors">
-            ← Back
-          </button>
+          {prevVisibleStep(4) !== null && (
+            <button onClick={() => goTo(prevVisibleStep(4)!)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors">
+              ← Back
+            </button>
+          )}
         </div>
       </StepShell>
     );
