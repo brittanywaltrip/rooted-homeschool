@@ -639,7 +639,7 @@ export default function ResourcesPage() {
         </div>
 
         {/* ── Filter pills ──────────────────────────────────────── */}
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-1 px-1 pr-4" style={{ scrollbarWidth: "none" }}>
+        <div className="flex gap-2 flex-wrap pb-1">
           {BROWSE_CATS.map((cat) => (
             <button
               key={cat.id}
