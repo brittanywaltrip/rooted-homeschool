@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Pencil, Trash2, Check, X, Plus, GripVertical, Camera, Sprout } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useProfile } from "@/lib/profile-context";
+import { posthog } from "@/lib/posthog";
 
 function getCurrentSchoolYearLabel(): string {
   const now = new Date();
@@ -342,6 +343,7 @@ export default function SettingsPage() {
         setInviteError(json.error ?? "Failed to send invite");
       } else {
         setInviteSent(true);
+        posthog.capture('family_invite_sent');
         setFamilyInviteEmail("");
         setFamilyInviteName("");
         setTimeout(() => setInviteSent(false), 3000);

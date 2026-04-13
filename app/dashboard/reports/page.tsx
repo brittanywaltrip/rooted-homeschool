@@ -5,6 +5,7 @@ import Link from "next/link";
 import { FileText, Printer, Calendar, Clock, BookOpen, CheckSquare } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { posthog } from "@/lib/posthog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -204,7 +205,7 @@ export default function ReportsPage() {
   const [dateTo,        setDateTo]        = useState(toDateStr(new Date()));
   const [showPreview,   setShowPreview]   = useState(false);
 
-  useEffect(() => { document.title = "Hours & Attendance Log \u00b7 Rooted"; localStorage.setItem("rooted_visited_reports", "1"); }, []);
+  useEffect(() => { document.title = "Hours & Attendance Log \u00b7 Rooted"; localStorage.setItem("rooted_visited_reports", "1"); posthog.capture('page_viewed', { page: 'reports' }); }, []);
 
   useEffect(() => {
     if (!effectiveUserId) return;
@@ -381,7 +382,7 @@ export default function ReportsPage() {
             {showPreview ? "Hide Preview" : "Preview Log"}
           </button>
           <button
-            onClick={() => { setShowPreview(true); setTimeout(() => window.print(), 300); }}
+            onClick={() => { posthog.capture('plan_pdf_downloaded', { user_plan: isPro ? 'paid' : 'free' }); setShowPreview(true); setTimeout(() => window.print(), 300); }}
             className="flex-1 flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium py-3 rounded-xl transition-colors"
           >
             <Printer size={16} />

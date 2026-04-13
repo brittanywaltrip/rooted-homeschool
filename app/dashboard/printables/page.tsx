@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import { AWARD_META } from "@/lib/certificate-templates";
+import { posthog } from "@/lib/posthog";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -495,6 +496,7 @@ function IDCardEditor({
 async function downloadCertificate(type: string, style: StyleId, data: Record<string, string>, filename?: string) {
   const { drawCertificatePDF } = await import("@/lib/certificate-canvas");
   await drawCertificatePDF(type, style, data, filename);
+  posthog.capture('certificate_downloaded', { type });
 }
 
 // ─── Award card component ────────────────────────────────────────────────────
@@ -572,7 +574,7 @@ export default function PrintablesPage() {
   const [subjectChild, setSubjectChild] = useState("");
   const [subjectName, setSubjectName] = useState("");
 
-  useEffect(() => { document.title = "Printables — Rooted"; localStorage.setItem("rooted_visited_printables", "1"); }, []);
+  useEffect(() => { document.title = "Printables — Rooted"; localStorage.setItem("rooted_visited_printables", "1"); posthog.capture('page_viewed', { page: 'printables' }); }, []);
 
   useEffect(() => {
     async function load() {

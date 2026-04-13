@@ -228,7 +228,7 @@ export default function YearbookReadPage() {
     return `${contentType}:${childId ?? "null"}:${questionKey ?? "null"}`;
   }
 
-  useEffect(() => { localStorage.setItem("rooted_visited_yearbook", "1"); }, []);
+  useEffect(() => { localStorage.setItem("rooted_visited_yearbook", "1"); posthog.capture('page_viewed', { page: 'yearbook' }); }, []);
 
   // ── Load data ───────────────────────────────────────────────────────────────
 

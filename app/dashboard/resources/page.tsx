@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
+import { posthog } from "@/lib/posthog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -344,7 +345,7 @@ export default function ResourcesPage() {
 
   const stateRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  useEffect(() => { document.title = "Resources \u00b7 Rooted"; localStorage.setItem("rooted_visited_resources", "1"); }, []);
+  useEffect(() => { document.title = "Resources \u00b7 Rooted"; localStorage.setItem("rooted_visited_resources", "1"); posthog.capture('page_viewed', { page: 'resources' }); }, []);
   useEffect(() => { localStorage.setItem("rooted_visited_resources", "true"); }, []);
 
   // Load DB resources (including created_at and is_free_pick)

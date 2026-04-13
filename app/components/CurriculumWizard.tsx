@@ -5,6 +5,7 @@ import { X, BookOpen } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { posthog } from "@/lib/posthog";
 
 function titleCase(str: string): string {
   return str.trim().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -101,6 +102,8 @@ export default function CurriculumWizard({
 
   // ── Children ──────────────────────────────────────────────────────────────
   const [children, setChildren] = useState<Child[]>([]);
+
+  useEffect(() => { posthog.capture('curriculum_wizard_opened', { mode }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!effectiveUserId) return;
@@ -373,6 +376,7 @@ export default function CurriculumWizard({
       console.warn(`[CurriculumWizard] partial save: only ${actual}/${rows.length} lessons for goal ${goalId}`);
     }
 
+    posthog.capture('curriculum_created', { lessons: actual, curriculum: saveName });
     setGenCount(actual);
     setGenerating(false);
     setDone(true);
