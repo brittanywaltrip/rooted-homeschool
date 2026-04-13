@@ -446,6 +446,11 @@ export default function TodayPage() {
   const [showLogModal,      setShowLogModal]      = useState(false);
   const [bookTitle,         setBookTitle]         = useState("");
   const [bookChild,         setBookChild]         = useState("");
+  const [bookAuthor,        setBookAuthor]        = useState("");
+  const [bookPages,         setBookPages]         = useState("");
+  const [bookPhotoFile,     setBookPhotoFile]     = useState<File | null>(null);
+  const [bookPhotoPreview,  setBookPhotoPreview]  = useState<string | null>(null);
+  const bookPhotoRef = useRef<HTMLInputElement>(null);
   const [savingBook,        setSavingBook]        = useState(false);
 
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -1684,16 +1689,39 @@ export default function TodayPage() {
     setSavingBook(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingBook(false); return; }
+
+    // Upload cover photo if provided
+    let photoUrl: string | null = null;
+    if (bookPhotoFile) {
+      const compressed = await compressImage(bookPhotoFile);
+      const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+        photoUrl = urlData.publicUrl;
+      }
+    }
+
+    // Build caption from author + pages
+    const captionParts: string[] = [];
+    if (bookAuthor.trim()) captionParts.push(`Author: ${bookAuthor.trim()}`);
+    if (bookPages.trim()) captionParts.push(`Pages: ${bookPages.trim()}`);
+    const caption = captionParts.length > 0 ? captionParts.join(" | ") : null;
+
     const nowB = new Date().toISOString();
     const { data: inserted, error: bookErr } = await supabase.from("memories").insert({
       user_id: user.id, type: "book", title: bookTitle.trim(),
+      caption,
+      photo_url: photoUrl,
       child_id: bookChild || null, date: today, include_in_book: true,
       created_at: nowB, updated_at: nowB,
     }).select("id").single();
     if (bookErr) { console.error("[Rooted] Book save failed:", bookErr.message); setSavingBook(false); showCaptureToast("Save failed — try again", null); return; }
     console.log("[Rooted] Saved:", "book", inserted);
     if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
-    setBookTitle(""); setBookChild(""); setSavingBook(false); setShowBookModal(false);
+    setBookTitle(""); setBookChild(""); setBookAuthor(""); setBookPages("");
+    setBookPhotoFile(null); setBookPhotoPreview(null);
+    setSavingBook(false); setShowBookModal(false);
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book");
     await loadData();
     checkAndAwardBadges(user.id);
@@ -3019,16 +3047,53 @@ export default function TodayPage() {
                 <input value={bookTitle} onChange={(e) => setBookTitle(e.target.value)} placeholder="e.g. Charlotte's Web" autoFocus
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
               </div>
-              {children.length > 0 && (
+              {/* Author */}
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Author (optional)</label>
+                <input value={bookAuthor} onChange={(e) => setBookAuthor(e.target.value)} placeholder="e.g. E.B. White"
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              </div>
+              {/* Pages + Child in a row */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who read it?</label>
-                  <select value={bookChild} onChange={(e) => setBookChild(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
-                    <option value="">Everyone / unassigned</option>
-                    {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Pages (optional)</label>
+                  <input value={bookPages} onChange={(e) => setBookPages(e.target.value)} type="number" min="1" placeholder="e.g. 192"
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
                 </div>
-              )}
+                {children.length > 0 && (
+                  <div>
+                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who read it?</label>
+                    <select value={bookChild} onChange={(e) => setBookChild(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
+                      <option value="">Everyone</option>
+                      {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+              {/* Cover photo */}
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Cover photo (optional)</label>
+                <input ref={bookPhotoRef} type="file" accept="image/*" className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (e.target) e.target.value = "";
+                    if (f) { setBookPhotoFile(f); setBookPhotoPreview(URL.createObjectURL(f)); }
+                  }}
+                />
+                {bookPhotoPreview ? (
+                  <div className="relative w-20 h-28 rounded-xl overflow-hidden border border-[#e8e2d9]">
+                    <img src={bookPhotoPreview} alt="Cover" className="w-full h-full object-cover" />
+                    <button type="button" onClick={() => { setBookPhotoFile(null); setBookPhotoPreview(null); }}
+                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/40 flex items-center justify-center text-white text-[10px]">✕</button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => bookPhotoRef.current?.click()}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-[#d8d2c9] bg-[#faf9f7] hover:border-[#5c7f63] text-xs text-[#7a6f65] transition-colors">
+                    📷 Add cover photo
+                  </button>
+                )}
+              </div>
               <p className="text-xs text-[#7a6f65] bg-[#e8f0e9] rounded-xl px-3 py-2">
                 🍃 This book will add a leaf to {bookChild ? children.find((c) => c.id === bookChild)?.name + "&apos;s" : "the"} garden tree.
               </p>
