@@ -274,8 +274,46 @@ function TodayLessonCard({
           }`}>
             {lesson.title || (lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "Untitled")}
           </p>
-          {lesson.completed && (lesson.minutes_spent != null || lesson.hours != null) && (
-            <span className="text-[11px] text-[#b5aca4]">· {lesson.minutes_spent != null ? `${lesson.minutes_spent} min` : lesson.hours != null && lesson.hours > 0 ? `${Math.round(lesson.hours * 60)} min` : ""}</span>
+          {lesson.completed && (() => {
+            const mins = lesson.minutes_spent ?? (lesson.hours != null && lesson.hours > 0 ? Math.round(lesson.hours * 60) : null);
+            return (
+              <button
+                type="button"
+                data-no-toggle
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const input = e.currentTarget.nextElementSibling as HTMLInputElement | null;
+                  if (input) { input.style.display = "inline-block"; input.focus(); e.currentTarget.style.display = "none"; }
+                }}
+                className="text-[11px] text-[#b5aca4] hover:text-[#5c7f63] transition-colors shrink-0"
+              >
+                · {mins != null ? `${mins} min` : "add time"}
+              </button>
+            );
+          })()}
+          {lesson.completed && (
+            <input
+              type="number"
+              data-no-toggle
+              defaultValue={lesson.minutes_spent ?? (lesson.hours != null && lesson.hours > 0 ? Math.round(lesson.hours * 60) : "")}
+              placeholder="min"
+              min="0"
+              max="480"
+              style={{ display: "none" }}
+              className="w-14 text-[11px] text-[#2d2926] bg-[#f0ede8] border border-[#e8e2d9] rounded-lg px-1.5 py-0.5 text-center focus:outline-none focus:border-[#5c7f63] shrink-0"
+              onClick={(e) => e.stopPropagation()}
+              onBlur={async (e) => {
+                const val = parseInt(e.target.value) || 0;
+                e.target.style.display = "none";
+                const btn = e.target.previousElementSibling as HTMLElement | null;
+                if (btn) btn.style.display = "";
+                if (val > 0) {
+                  await supabase.from("lessons").update({ minutes_spent: val }).eq("id", lesson.id);
+                  setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, minutes_spent: val } : l));
+                }
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+            />
           )}
         </div>
       </div>
