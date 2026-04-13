@@ -948,12 +948,6 @@ export default function YearbookReadPage() {
   const safePage = Math.min(currentPage, maxPage);
   const spreadIndex = Math.floor(safePage / 2);
 
-  // Free user preview: show first 4 spreads (cover + letter + year-in-numbers + first child chapter ≈ 25 memories)
-  const FREE_PREVIEW_SPREADS = 4;
-  const isFreeUser = !profile.plan_type || profile.plan_type === "free";
-  const isGated = isFreeUser && spreadIndex >= FREE_PREVIEW_SPREADS;
-  const isGatedMobile = isFreeUser && safePage >= FREE_PREVIEW_SPREADS * 2;
-
   // ── Navigation helpers ──────────────────────────────────────────────────────
 
   const goNext = useCallback(() => {
@@ -1071,33 +1065,7 @@ export default function YearbookReadPage() {
 
               {/* Page content */}
               <div className="flex-1 min-h-0 overflow-hidden relative">
-                {isGatedMobile ? (
-                  <>
-                    <div className="absolute inset-0 blur-md opacity-40 pointer-events-none">
-                      {pages[safePage]?.content}
-                    </div>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center z-10">
-                      <div className="w-12 h-12 rounded-full bg-[var(--g-brand)]/10 flex items-center justify-center mb-4">
-                        <span className="text-2xl">🌿</span>
-                      </div>
-                      <h3 className="text-lg font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
-                        Your full yearbook awaits
-                      </h3>
-                      <p className="text-xs text-[#7a6f65] mb-5 max-w-xs">
-                        You&apos;re previewing your yearbook. Upgrade to see every page.
-                      </p>
-                      <Link
-                        href="/upgrade"
-                        onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_reader_gate' })}
-                        className="inline-block bg-[var(--g-brand)] text-white font-semibold text-sm px-6 py-3 rounded-full hover:bg-[var(--g-deep)] transition-colors"
-                      >
-                        Upgrade — $39/yr →
-                      </Link>
-                    </div>
-                  </>
-                ) : (
-                  pages[safePage]?.content
-                )}
+                {pages[safePage]?.content}
               </div>
 
               {/* Page progress */}
@@ -1172,37 +1140,9 @@ export default function YearbookReadPage() {
               className="flex rounded-lg overflow-hidden"
               style={{ width: 800, height: 560, boxShadow: "0 4px 30px rgba(0,0,0,0.15)", background: "#FAFAF7" }}
             >
-              {isGated ? (
-                <div className="relative w-full h-full flex">
-                  <div className="w-1/2 h-full blur-md opacity-40 pointer-events-none">{spreads[spreadIndex]?.leftContent}</div>
-                  <Spine />
-                  <div className="w-1/2 h-full blur-md opacity-40 pointer-events-none">{spreads[spreadIndex]?.rightContent}</div>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center z-10">
-                    <div className="w-14 h-14 rounded-full bg-[var(--g-brand)]/10 flex items-center justify-center mb-4">
-                      <span className="text-3xl">🌿</span>
-                    </div>
-                    <h3 className="text-xl font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
-                      Your full yearbook awaits
-                    </h3>
-                    <p className="text-sm text-[#7a6f65] mb-5 max-w-sm">
-                      You&apos;re previewing your yearbook. Upgrade to see every page.
-                    </p>
-                    <Link
-                      href="/upgrade"
-                      onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_reader_gate' })}
-                      className="inline-block bg-[var(--g-brand)] text-white font-semibold text-sm px-6 py-3 rounded-full hover:bg-[var(--g-deep)] transition-colors"
-                    >
-                      View full yearbook — $39/yr →
-                    </Link>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="w-1/2 h-full">{spreads[spreadIndex]?.leftContent}</div>
-                  <Spine />
-                  <div className="w-1/2 h-full">{spreads[spreadIndex]?.rightContent}</div>
-                </>
-              )}
+              <div className="w-1/2 h-full">{spreads[spreadIndex]?.leftContent}</div>
+              <Spine />
+              <div className="w-1/2 h-full">{spreads[spreadIndex]?.rightContent}</div>
             </motion.div>
           </AnimatePresence>
 
