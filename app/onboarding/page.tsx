@@ -124,7 +124,9 @@ export default function OnboardingPage() {
 
       setFirstName(fn);
       setLastName(ln);
-      setDisplayName(dn);
+      // If no display_name saved yet but we have a last name, pre-fill the family name
+      const effectiveDn = dn || (ln ? `The ${ln.charAt(0).toUpperCase() + ln.slice(1)} Family` : "");
+      setDisplayName(effectiveDn);
       if (profile?.state) setSelectedState(profile.state);
 
       // Google avatar — offer as family photo option
@@ -132,7 +134,7 @@ export default function OnboardingPage() {
       if (avatar) setGoogleAvatarUrl(avatar);
 
       const skip1 = !!fn;
-      const skip2 = !!dn;
+      const skip2 = !!dn; // only skip if display_name was already saved in DB
       setSkipStep1(skip1);
       setSkipStep2(skip2);
       setBothSkipped(skip1 && skip2);
