@@ -304,25 +304,6 @@ export default function YearbookPage() {
 
       <div className="max-w-3xl mx-auto px-4 pt-5 pb-20">
 
-        {/* ── Free user banner ────────────────────────────────── */}
-        {!isPro && !isPartner && (
-          <div className="bg-[#faf6ec] border border-[#c0dd97] rounded-2xl p-4 mb-4 flex items-start gap-3">
-            <span className="text-[24px]">📖</span>
-            <div>
-              <p className="text-[13px] font-semibold text-[#2d2926]">Your yearbook shows the last 30 days</p>
-              <p className="text-[12px] text-[#7a6f65] mt-1 leading-relaxed">
-                You&apos;re on the free plan. Upgrade to capture your whole school year — every win, photo, and memory, from August through June.
-              </p>
-              <Link
-                href="/dashboard/settings?tab=billing"
-                className="mt-2 inline-block text-[12px] font-semibold text-[var(--g-deep)] underline underline-offset-2"
-              >
-                View your full yearbook →
-              </Link>
-            </div>
-          </div>
-        )}
-
         {/* ── Edit link ────────────────────────────────────────── */}
         <div className="flex justify-end mb-4">
           <Link
