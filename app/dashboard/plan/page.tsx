@@ -655,9 +655,11 @@ export default function PlanPage() {
       const match = CURRICULUM_RE.exec(l.title);
       if (!match) continue;
       const cName = match[1];
-      const key = `${cName}||${l.child_id ?? ""}`;
+      const key = l.curriculum_goal_id ?? `${cName}||${l.child_id ?? ""}`;
       if (!map.has(key)) {
-        const goal = curriculumGoals.find((g) => g.curriculum_name === cName && g.child_id === l.child_id);
+        const goal = l.curriculum_goal_id
+          ? curriculumGoals.find((g) => g.id === l.curriculum_goal_id)
+          : curriculumGoals.find((g) => g.curriculum_name === cName && g.child_id === l.child_id);
         map.set(key, { key, curricName: cName, childId: l.child_id, subjectName: l.subjects?.name ?? null, totalCount: 0, remainingCount: 0, lessonIds: [], goalId: goal?.id ?? null, goalData: goal ?? null });
       }
       const g = map.get(key)!;
