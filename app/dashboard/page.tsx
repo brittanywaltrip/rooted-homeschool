@@ -986,7 +986,13 @@ export default function TodayPage() {
         };
 
         const newAwards = await checkAndGrantAwards(effectiveUserId, appData);
-        if (newAwards.length > 0) {
+
+        // Suppress banner for brand-new users (< 5 min since account creation)
+        // Awards still get granted silently — just don't flash the banner on first visit
+        const accountAge = Date.now() - new Date(user.created_at).getTime();
+        const FIVE_MINUTES = 5 * 60 * 1000;
+
+        if (newAwards.length > 0 && accountAge > FIVE_MINUTES) {
           const first = newAwards[0];
           const meta = AWARD_META[first.award_type as keyof typeof AWARD_META];
           setAchievementBanner({

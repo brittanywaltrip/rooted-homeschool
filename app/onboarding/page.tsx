@@ -98,10 +98,13 @@ export default function OnboardingPage() {
   const [bothSkipped, setBothSkipped] = useState(false);
   const [celebrationReady, setCelebrationReady] = useState(false);
   const celebrationReadyRef = useRef(false);
+  const authCheckDone = useRef(false);
 
   // ── Auth + profile check ────────────────────────────────────────────────
 
   useEffect(() => {
+    if (authCheckDone.current) return;
+    authCheckDone.current = true;
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) { router.replace("/login"); return; }
 
