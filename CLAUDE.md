@@ -134,6 +134,14 @@ plan_type is NULL (not 'free') for all free users — this is intentional. Treat
 - /api/cron/check-links: weekly Monday 9AM UTC — validate resource links
 - /api/cron/weekly-summary: weekly Monday 3PM UTC — family weekly summary emails
 
+## Auth Rules — Never Break These
+- The app is served at BOTH rootedhomeschoolapp.com and www.rootedhomeschoolapp.com
+- NEVER use window.location.origin for Supabase redirectTo — it will return www and break auth
+- ALWAYS hardcode: redirectTo: 'https://www.rootedhomeschoolapp.com/reset-password' (or whichever path)
+- The Supabase allowlist must have BOTH https://rootedhomeschoolapp.com/** AND https://www.rootedhomeschoolapp.com/**
+- flowType must stay 'implicit' — never change it back to 'pkce' for password reset
+- After any auth change, test password reset end-to-end before shipping
+
 ## App Feature Map
 
 ### TODAY — /dashboard
