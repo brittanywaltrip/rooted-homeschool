@@ -73,68 +73,70 @@ function StepShell({
 
 // ─── Celebration ──────────────────────────────────────────────────────────────
 
-function CelebrationStep({ displayName, onContinue }: { displayName: string; onContinue: () => void }) {
+function CelebrationStep({
+  displayName,
+  childNames,
+  onContinue,
+}: {
+  displayName: string;
+  childNames: string[];
+  onContinue: () => void;
+}) {
   const confettiFired = useRef(false);
 
   useEffect(() => {
     if (confettiFired.current) return;
     confettiFired.current = true;
-    (async () => {
+    const timer = setTimeout(async () => {
       const confetti = (await import("canvas-confetti")).default;
-      const colors = ["#3e6643", "#c9a96e", "#ffffff"];
-      // Left burst
-      confetti({ particleCount: 60, angle: 60, spread: 55, origin: { x: 0, y: 0.6 }, colors });
-      // Right burst
-      confetti({ particleCount: 60, angle: 120, spread: 55, origin: { x: 1, y: 0.6 }, colors });
-      // Center burst after short delay
-      setTimeout(() => {
-        confetti({ particleCount: 40, angle: 90, spread: 70, origin: { x: 0.5, y: 0.5 }, colors, startVelocity: 30 });
-      }, 400);
-    })();
+      confetti({
+        particleCount: 120,
+        spread: 80,
+        origin: { y: 0.4 },
+        colors: ["#ffffff", "#c9a96e", "#e8f0e9", "#5c8a4f", "#a7c4aa"],
+      });
+    }, 300);
+    return () => clearTimeout(timer);
   }, []);
 
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-6 py-12"
-      style={{ background: "radial-gradient(ellipse at center, #ffffff 0%, #fefcf9 60%, #faf8f4 100%)" }}
-    >
+    <div className="min-h-screen bg-[#3e6643] flex flex-col items-center justify-center px-6 py-12">
       <div className="w-full max-w-sm flex flex-col items-center text-center">
-        {/* Rooted wordmark logo with scale-in animation */}
-        <div className="mb-8 animate-[scaleIn_0.6s_ease-out_both]">
-          <img src="/rooted-logo-nav.png" alt="Rooted" style={{ width: 200 }} />
-        </div>
+        <img src="/rooted-logo-white.png" alt="rooted." className="h-10 mx-auto mb-6 opacity-90" />
 
-        <h1
-          className="text-3xl font-bold text-[#2d2926] mb-2 leading-snug"
+        <p className="text-5xl mb-5">🌿</p>
+
+        <p className="text-white/55 text-base mb-1">Welcome to Rooted</p>
+        <h2
+          className="text-white text-3xl font-bold mb-2"
           style={{ fontFamily: "var(--font-display)" }}
         >
-          {displayName ? `Welcome to Rooted, ${displayName}!` : "Welcome to Rooted!"}
-        </h1>
-        <p
-          className="text-lg text-[#7a6f65] mb-4"
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          Your garden is ready.
-        </p>
-        <p className="text-[#7a6f65] text-base leading-relaxed mb-10 max-w-xs">
-          Every lesson, every memory, every milestone — Rooted holds onto it all.
-        </p>
+          {displayName ? `${displayName}!` : "Your family!"}
+        </h2>
+        <p className="text-white/50 text-base mb-8">Your garden is ready.</p>
+
+        {childNames.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-5 mb-2">
+            {childNames.map((name) => (
+              <div key={name} className="flex flex-col items-center gap-1">
+                <span className="text-xl">🌱</span>
+                <span className="text-[10px] font-semibold text-white/75 uppercase tracking-wider">
+                  {name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="w-9 h-px bg-white/15 mx-auto my-6" />
 
         <button
           onClick={onContinue}
-          className="w-full py-4 rounded-2xl font-semibold text-base text-white transition-all hover:opacity-90 active:scale-[0.98]"
-          style={{ background: "var(--g-brand)" }}
+          className="bg-white text-[#2D5A3D] font-semibold rounded-xl py-3.5 px-12 shadow-lg transition-all hover:opacity-90 active:scale-[0.98]"
         >
           Let&apos;s grow →
         </button>
       </div>
-
-      <style jsx>{`
-        @keyframes scaleIn {
-          0% { transform: scale(0.3); opacity: 0; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-      `}</style>
     </div>
   );
 }
@@ -827,7 +829,13 @@ export default function OnboardingPage() {
   // ─── STEP 6 — Celebration ─────────────────────────────────────────────
 
   if (step === 5) {
-    return <CelebrationStep displayName={displayName} onContinue={() => router.push("/dashboard")} />;
+    return (
+      <CelebrationStep
+        displayName={displayName}
+        childNames={childRows.filter(r => r.name.trim()).map(r => r.name.trim())}
+        onContinue={() => router.push("/dashboard")}
+      />
+    );
   }
 
   return null;
