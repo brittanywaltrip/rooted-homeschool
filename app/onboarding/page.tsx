@@ -70,6 +70,81 @@ function StepShell({
   );
 }
 
+// ─── Celebration ──────────────────────────────────────────────────────────────
+
+function CelebrationStep({ firstName, onContinue }: { firstName: string; onContinue: () => void }) {
+  const confettiFired = useRef(false);
+
+  useEffect(() => {
+    if (confettiFired.current) return;
+    confettiFired.current = true;
+    (async () => {
+      const confetti = (await import("canvas-confetti")).default;
+      const colors = ["#3e6643", "#c9a96e", "#ffffff"];
+      // Left burst
+      confetti({ particleCount: 60, angle: 60, spread: 55, origin: { x: 0, y: 0.6 }, colors });
+      // Right burst
+      confetti({ particleCount: 60, angle: 120, spread: 55, origin: { x: 1, y: 0.6 }, colors });
+      // Center burst after short delay
+      setTimeout(() => {
+        confetti({ particleCount: 40, angle: 90, spread: 70, origin: { x: 0.5, y: 0.5 }, colors, startVelocity: 30 });
+      }, 400);
+    })();
+  }, []);
+
+  return (
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-6 py-12"
+      style={{ background: "radial-gradient(ellipse at center, #ffffff 0%, #fefcf9 60%, #faf8f4 100%)" }}
+    >
+      <div className="w-full max-w-sm flex flex-col items-center text-center">
+        {/* Leaf icon with scale-in animation */}
+        <div className="mb-3 animate-[scaleIn_0.6s_ease-out_both]">
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M32 8C32 8 18 16 14 30C10 44 20 56 32 56C44 56 54 44 50 30C46 16 32 8 32 8Z" fill="#3e6643" opacity="0.9" />
+            <path d="M32 16V48" stroke="#faf8f4" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
+            <path d="M32 24C28 28 22 30 22 30" stroke="#faf8f4" strokeWidth="1.5" strokeLinecap="round" opacity="0.4" />
+            <path d="M32 32C36 36 42 37 42 37" stroke="#faf8f4" strokeWidth="1.5" strokeLinecap="round" opacity="0.4" />
+          </svg>
+        </div>
+
+        {/* Wordmark */}
+        <p
+          className="text-lg text-[#2d5a3d] mb-8 tracking-wide"
+          style={{ fontFamily: "var(--font-display)", fontWeight: 400 }}
+        >
+          rooted.
+        </p>
+
+        <h1
+          className="text-3xl font-bold text-[#2d2926] mb-4 leading-snug"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          Your garden is ready{firstName ? `, ${firstName}` : ""}!
+        </h1>
+        <p className="text-[#7a6f65] text-base leading-relaxed mb-10 max-w-xs">
+          Every lesson, every memory, every milestone — Rooted holds onto it all.
+        </p>
+
+        <button
+          onClick={onContinue}
+          className="w-full py-4 rounded-2xl font-semibold text-base text-white transition-all hover:opacity-90 active:scale-[0.98]"
+          style={{ background: "var(--g-brand)" }}
+        >
+          Let&apos;s grow →
+        </button>
+      </div>
+
+      <style jsx>{`
+        @keyframes scaleIn {
+          0% { transform: scale(0.3); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function OnboardingPage() {
@@ -613,14 +688,6 @@ export default function OnboardingPage() {
   // ─── STEP 5 — Children ─────────────────────────────────────────────────
 
   if (step === 4) {
-    const filled = childRows.filter(r => r.name.trim());
-    const filledCount = filled.length;
-    const ctaLabel = filledCount === 0
-      ? "Add your children to my garden →"
-      : filledCount === 1
-        ? `Add ${filled[0].name.trim()} to my garden →`
-        : `Add ${filledCount} children to my garden →`;
-
     function updateRow(idx: number, patch: Partial<{ name: string; color: string }>) {
       setChildRows(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r));
       setError("");
@@ -696,10 +763,7 @@ export default function OnboardingPage() {
             <button
               type="button"
               onClick={addRow}
-              className="w-full text-center text-sm font-medium mb-6 py-2 transition-colors"
-              style={{ color: "rgba(255,255,255,0.5)" }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.7)")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.5)")}
+              className="w-full text-center text-base font-medium mb-6 py-3 border border-white/20 rounded-2xl transition-colors text-white/70 hover:text-white hover:bg-white/10"
             >
               + Add another child
             </button>
@@ -712,7 +776,7 @@ export default function OnboardingPage() {
             disabled={saving}
             className="w-full py-4 rounded-2xl bg-white text-[var(--g-brand)] font-semibold text-base transition-all hover:bg-white/90 active:scale-[0.98] disabled:opacity-60 mb-4"
           >
-            {saving ? "Adding..." : ctaLabel}
+            {saving ? "Saving..." : "Continue →"}
           </button>
 
           <button onClick={() => goTo(3)} className="w-full text-center text-sm text-white/40 hover:text-white/60 transition-colors">
@@ -726,30 +790,7 @@ export default function OnboardingPage() {
   // ─── STEP 6 — Celebration ─────────────────────────────────────────────
 
   if (step === 5) {
-    return (
-      <StepShell green={false}>
-        <div className={`${fadeClass} flex flex-col items-center text-center`}>
-          <div className="text-7xl mb-6 animate-bounce" style={{ animationDuration: "2s" }}>🌿</div>
-          <h1
-            className="text-3xl font-bold text-[#2d2926] mb-4 leading-snug"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            Your garden is ready{firstName ? `, ${firstName}` : ""}!
-          </h1>
-          <p className="text-[#7a6f65] text-base leading-relaxed mb-10 max-w-xs">
-            Every lesson, every memory, every milestone — Rooted holds onto it all.
-          </p>
-
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="w-full py-4 rounded-2xl font-semibold text-base text-white transition-all hover:opacity-90 active:scale-[0.98]"
-            style={{ background: "var(--g-brand)" }}
-          >
-            Capture your first memory →
-          </button>
-        </div>
-      </StepShell>
-    );
+    return <CelebrationStep firstName={firstName} onContinue={() => router.push("/dashboard")} />;
   }
 
   return null;
