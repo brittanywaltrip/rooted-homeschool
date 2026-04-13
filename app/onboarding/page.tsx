@@ -552,10 +552,10 @@ export default function OnboardingPage() {
             className="text-3xl font-bold text-white text-center mb-3 leading-snug"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            Add a family photo
+            {displayName ? `Add a photo, ${displayName}!` : "Add a family photo"}
           </h1>
           <p className="text-white/60 text-center text-sm mb-10">
-            Makes Rooted feel like yours — shows in your app header and yearbook cover.
+            This shows in your app header and yearbook cover.
           </p>
 
           <input
