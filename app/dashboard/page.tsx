@@ -185,7 +185,7 @@ function FloatingLeaves({ active }: { active: boolean }) {
 type Particle = { id: number; x: number; y: number; color: string; delay: number };
 
 function TodayLessonCard({
-  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, isPartner,
+  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, onMinutesUpdate, isPartner,
 }: {
   lesson:    Lesson;
   childObj:  Child | undefined;
@@ -193,6 +193,7 @@ function TodayLessonCard({
   onEdit:    (lesson: Lesson) => void;
   onDelete:  (id: string) => void;
   onReschedule: (lesson: Lesson) => void;
+  onMinutesUpdate: (id: string, minutes: number) => void;
   isPartner: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -309,7 +310,7 @@ function TodayLessonCard({
                 if (btn) btn.style.display = "";
                 if (val > 0) {
                   await supabase.from("lessons").update({ minutes_spent: val }).eq("id", lesson.id);
-                  setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, minutes_spent: val } : l));
+                  onMinutesUpdate(lesson.id, val);
                 }
               }}
               onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -526,6 +527,11 @@ export default function TodayPage() {
   const drawingFileRef = useRef<HTMLInputElement>(null);
   const [showCaptureMenu, setShowCaptureMenu] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
+  const [showExtraLessons, setShowExtraLessons] = useState(false);
+  type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; subjects: { name: string; color: string | null } | null };
+  const [upcomingLessons, setUpcomingLessons] = useState<UpcomingLesson[]>([]);
+  const [extraChecked, setExtraChecked] = useState<Set<string>>(new Set());
+  const [savingExtra, setSavingExtra] = useState(false);
   const [ftTitle, setFtTitle] = useState("");
   const [ftNote, setFtNote] = useState("");
   const [ftChild, setFtChild] = useState("");
@@ -1183,6 +1189,104 @@ export default function TodayPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) checkAndAwardBadges(user.id);
     }
+  }
+
+  // ── Extra lessons (log ahead) ──────────────────────────────────────────────
+
+  async function openExtraLessons() {
+    if (!effectiveUserId) return;
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 14);
+    const futureStr = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, "0")}-${String(futureDate.getDate()).padStart(2, "0")}`;
+    const { data } = await supabase
+      .from("lessons")
+      .select("id, title, child_id, scheduled_date, curriculum_goal_id, subjects(name, color)")
+      .eq("user_id", effectiveUserId)
+      .eq("completed", false)
+      .gt("scheduled_date", today)
+      .lte("scheduled_date", futureStr)
+      .order("scheduled_date");
+    setUpcomingLessons((data as unknown as UpcomingLesson[]) ?? []);
+    setExtraChecked(new Set());
+    setShowExtraLessons(true);
+  }
+
+  async function confirmExtraLessons() {
+    if (extraChecked.size === 0) return;
+    setSavingExtra(true);
+
+    for (const lessonId of extraChecked) {
+      const lesson = upcomingLessons.find(l => l.id === lessonId);
+      if (!lesson) continue;
+
+      // Get default minutes from curriculum goal
+      let mins = 30;
+      if (lesson.curriculum_goal_id) {
+        const { data: goalRow } = await supabase
+          .from("curriculum_goals")
+          .select("default_minutes, school_days")
+          .eq("id", lesson.curriculum_goal_id)
+          .single();
+        if (goalRow) mins = (goalRow as { default_minutes?: number }).default_minutes ?? 30;
+
+        // Complete the lesson with today's date
+        await supabase.from("lessons").update({
+          completed: true,
+          date: today,
+          minutes_spent: mins,
+        }).eq("id", lessonId);
+
+        // Shift subsequent incomplete lessons back
+        const schoolDaysArr = (goalRow as { school_days?: string[] })?.school_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
+        const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+        const schoolDayNums = new Set(schoolDaysArr.map(d => dayMap[d]));
+
+        const { data: remaining } = await supabase
+          .from("lessons")
+          .select("id, scheduled_date")
+          .eq("curriculum_goal_id", lesson.curriculum_goal_id)
+          .eq("completed", false)
+          .gt("scheduled_date", today)
+          .order("scheduled_date");
+
+        if (remaining && remaining.length > 0) {
+          // Calculate how many school days early this was done
+          const scheduledDate = new Date(lesson.scheduled_date + "T12:00:00");
+          const todayDate = new Date(today + "T12:00:00");
+          let daysEarly = 0;
+          const countCursor = new Date(todayDate);
+          while (countCursor < scheduledDate) {
+            countCursor.setDate(countCursor.getDate() + 1);
+            if (schoolDayNums.has(countCursor.getDay())) daysEarly++;
+          }
+
+          if (daysEarly > 0) {
+            for (const r of remaining as { id: string; scheduled_date: string }[]) {
+              const orig = new Date(r.scheduled_date + "T12:00:00");
+              let shifted = new Date(orig);
+              let toShift = daysEarly;
+              while (toShift > 0) {
+                shifted.setDate(shifted.getDate() - 1);
+                if (schoolDayNums.has(shifted.getDay())) toShift--;
+              }
+              const newDate = `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, "0")}-${String(shifted.getDate()).padStart(2, "0")}`;
+              await supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", r.id);
+            }
+          }
+        }
+      } else {
+        // No curriculum goal — just mark complete with today's date
+        await supabase.from("lessons").update({
+          completed: true,
+          date: today,
+          minutes_spent: mins,
+        }).eq("id", lessonId);
+      }
+    }
+
+    setSavingExtra(false);
+    setShowExtraLessons(false);
+    loadData();
   }
 
   function openEdit(lesson: Lesson) {
@@ -1889,7 +1993,7 @@ export default function TodayPage() {
                     <TodayLessonCard
                       key={lesson.id} lesson={lesson}
                       childObj={card.id === "__unassigned" ? undefined : childObj}
-                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} isPartner={isPartner}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} onMinutesUpdate={(id, mins) => setLessons(prev => prev.map(l => l.id === id ? { ...l, minutes_spent: mins } : l))} isPartner={isPartner}
                     />
                   ))}
                 </div>
@@ -1998,7 +2102,7 @@ export default function TodayPage() {
                     <TodayLessonCard
                       key={lesson.id} lesson={lesson}
                       childObj={expandedChild === "__unassigned" ? undefined : childObj}
-                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} isPartner={isPartner}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} onMinutesUpdate={(id, mins) => setLessons(prev => prev.map(l => l.id === id ? { ...l, minutes_spent: mins } : l))} isPartner={isPartner}
                     />
                   ))}
                   {/* Extra lesson button — only when all scheduled lessons done */}
@@ -2048,6 +2152,17 @@ export default function TodayPage() {
         const display = totalMins >= 60 ? `${Math.floor(totalMins / 60)}h ${totalMins % 60 > 0 ? `${totalMins % 60}m` : ""}` : `${totalMins} min`;
         return <p className="text-xs text-[#b5aca4] px-1 -mt-2">Today: {display} logged</p>;
       })()}
+
+      {/* ── Log extra lessons link ──────────────────────────────── */}
+      {hasAnyLessons && (
+        <button
+          type="button"
+          onClick={openExtraLessons}
+          className="text-xs font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors px-1 -mt-1"
+        >
+          + Log extra lessons
+        </button>
+      )}
 
       {/* ── Empty state: no lessons today ──────────────────────── */}
       {children.length > 0 && hasAnyLessons && lessons.length === 0 && (
@@ -2716,6 +2831,78 @@ export default function TodayPage() {
                   <p className="text-sm font-semibold text-[#2d2926]">Field trip or project</p>
                   <p className="text-xs text-[#7a6f65]">Document something they did</p>
                 </div>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Extra lessons modal ────────────────────────────── */}
+      {showExtraLessons && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowExtraLessons(false)} />
+          <div className="fixed inset-x-0 bottom-0 z-50 bg-[#fefcf9] rounded-t-2xl border-t border-[#e8e2d9] shadow-xl max-h-[75vh] flex flex-col" style={{ maxWidth: 480, margin: "0 auto" }}>
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-[#f0ede8]">
+              <h2 className="text-base font-bold text-[#2d2926]">Log extra lessons</h2>
+              <button onClick={() => setShowExtraLessons(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-lg">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {upcomingLessons.length === 0 ? (
+                <p className="text-sm text-[#7a6f65] text-center py-8">No upcoming lessons in the next 14 days.</p>
+              ) : (() => {
+                // Group by child then show lessons
+                const grouped = new Map<string, UpcomingLesson[]>();
+                for (const l of upcomingLessons) {
+                  const key = l.child_id ?? "__none__";
+                  if (!grouped.has(key)) grouped.set(key, []);
+                  grouped.get(key)!.push(l);
+                }
+                return Array.from(grouped.entries()).map(([childId, childLessons]) => {
+                  const child = children.find(c => c.id === childId);
+                  return (
+                    <div key={childId} className="mb-5">
+                      {child && <p className="text-xs font-semibold uppercase tracking-widest text-[#9a8f85] mb-2">{child.name}</p>}
+                      <div className="space-y-1">
+                        {childLessons.map(l => (
+                          <button
+                            key={l.id}
+                            type="button"
+                            onClick={() => setExtraChecked(prev => { const n = new Set(prev); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n; })}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${
+                              extraChecked.has(l.id) ? "bg-[#e8f0e9] border border-[#c8ddb8]" : "bg-white border border-[#f0ede8] hover:border-[#e8e2d9]"
+                            }`}
+                          >
+                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
+                              extraChecked.has(l.id) ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5]"
+                            }`}>
+                              {extraChecked.has(l.id) && <span className="text-white text-[10px] font-bold">✓</span>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              {l.subjects && (
+                                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full mr-1" style={{ backgroundColor: l.subjects.color ? `${l.subjects.color}20` : "#e8f0e9", color: l.subjects.color ?? "#5c7f63" }}>
+                                  {l.subjects.name}
+                                </span>
+                              )}
+                              <span className="text-sm text-[#2d2926]">{l.title}</span>
+                            </div>
+                            <span className="text-[10px] text-[#b5aca4] shrink-0">
+                              {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+            <div className="px-5 py-4 border-t border-[#f0ede8]">
+              <button
+                onClick={confirmExtraLessons}
+                disabled={extraChecked.size === 0 || savingExtra}
+                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white text-sm font-semibold transition-colors"
+              >
+                {savingExtra ? "Saving..." : extraChecked.size === 0 ? "Select lessons to log" : `Log ${extraChecked.size} lesson${extraChecked.size !== 1 ? "s" : ""} as done`}
               </button>
             </div>
           </div>
