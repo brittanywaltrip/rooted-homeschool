@@ -453,6 +453,11 @@ export default function TodayPage() {
   const bookPhotoRef = useRef<HTMLInputElement>(null);
   const [savingBook,        setSavingBook]        = useState(false);
 
+  const [isPro,            setIsPro]            = useState(false);
+  const [planType,         setPlanType]         = useState<string | null>(null);
+  const [yearbookCount,    setYearbookCount]    = useState(0);
+  const [upgradeDismissed, setUpgradeDismissed] = useState(false);
+
   const [bannerDismissed, setBannerDismissed] = useState(false);
   useEffect(() => { document.title = "Today \u00b7 Rooted"; posthog.capture('page_viewed', { page: 'today', user_plan: isPro ? 'paid' : 'free' }); }, [isPro]);
 
@@ -461,10 +466,6 @@ export default function TodayPage() {
   }, []);
 
   const [nudgeTick,   setNudgeTick]   = useState(false);
-  const [isPro,            setIsPro]            = useState(false);
-  const [planType,         setPlanType]         = useState<string | null>(null);
-  const [yearbookCount,    setYearbookCount]    = useState(0);
-  const [upgradeDismissed, setUpgradeDismissed] = useState(false);
   useEffect(() => {
     if (localStorage.getItem("rooted_setup_nudge_dismissed") === "1") setNudgeTick(true);
     const udDate = localStorage.getItem("rooted_upgrade_dismissed");
