@@ -73,7 +73,7 @@ function StepShell({
 
 // ─── Celebration ──────────────────────────────────────────────────────────────
 
-function CelebrationStep({ firstName, onContinue }: { firstName: string; onContinue: () => void }) {
+function CelebrationStep({ displayName, onContinue }: { displayName: string; onContinue: () => void }) {
   const confettiFired = useRef(false);
 
   useEffect(() => {
@@ -99,30 +99,23 @@ function CelebrationStep({ firstName, onContinue }: { firstName: string; onConti
       style={{ background: "radial-gradient(ellipse at center, #ffffff 0%, #fefcf9 60%, #faf8f4 100%)" }}
     >
       <div className="w-full max-w-sm flex flex-col items-center text-center">
-        {/* Leaf icon with scale-in animation */}
-        <div className="mb-3 animate-[scaleIn_0.6s_ease-out_both]">
-          <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M32 8C32 8 18 16 14 30C10 44 20 56 32 56C44 56 54 44 50 30C46 16 32 8 32 8Z" fill="#3e6643" opacity="0.9" />
-            <path d="M32 16V48" stroke="#faf8f4" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
-            <path d="M32 24C28 28 22 30 22 30" stroke="#faf8f4" strokeWidth="1.5" strokeLinecap="round" opacity="0.4" />
-            <path d="M32 32C36 36 42 37 42 37" stroke="#faf8f4" strokeWidth="1.5" strokeLinecap="round" opacity="0.4" />
-          </svg>
+        {/* Rooted wordmark logo with scale-in animation */}
+        <div className="mb-8 animate-[scaleIn_0.6s_ease-out_both]">
+          <img src="/rooted-logo-nav.png" alt="Rooted" style={{ width: 200 }} />
         </div>
 
-        {/* Wordmark */}
-        <p
-          className="text-lg text-[#2d5a3d] mb-8 tracking-wide"
-          style={{ fontFamily: "var(--font-display)", fontWeight: 400 }}
-        >
-          rooted.
-        </p>
-
         <h1
-          className="text-3xl font-bold text-[#2d2926] mb-4 leading-snug"
+          className="text-3xl font-bold text-[#2d2926] mb-2 leading-snug"
           style={{ fontFamily: "var(--font-display)" }}
         >
-          Your garden is ready{firstName ? `, ${firstName}` : ""}!
+          {displayName ? `Welcome to Rooted, ${displayName}!` : "Welcome to Rooted!"}
         </h1>
+        <p
+          className="text-lg text-[#7a6f65] mb-4"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          Your garden is ready.
+        </p>
         <p className="text-[#7a6f65] text-base leading-relaxed mb-10 max-w-xs">
           Every lesson, every memory, every milestone — Rooted holds onto it all.
         </p>
@@ -791,7 +784,7 @@ export default function OnboardingPage() {
   // ─── STEP 6 — Celebration ─────────────────────────────────────────────
 
   if (step === 5) {
-    return <CelebrationStep firstName={firstName} onContinue={() => router.push("/dashboard")} />;
+    return <CelebrationStep displayName={displayName} onContinue={() => router.push("/dashboard")} />;
   }
 
   return null;
