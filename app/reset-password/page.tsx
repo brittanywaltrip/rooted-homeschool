@@ -20,39 +20,44 @@ export default function ResetPasswordPage() {
   // Supabase redirects here with ?code= for PKCE recovery flow.
   // Exchange the code for a session, then clean the URL.
   useEffect(() => {
-    // PASSWORD_RECOVERY listener as fallback
+    let settled = false;
+    const settle = (ok: boolean) => { if (!settled) { settled = true; ok ? setReady(true) : setTokenErr(true); } };
+
+    // 1. Listen for PASSWORD_RECOVERY event (implicit flow auto-processes hash)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setReady(true);
+      if (event === "PASSWORD_RECOVERY") settle(true);
     });
 
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
+    // 2. Try hash fragment: #access_token=...&type=recovery (implicit flow)
+    const hash = window.location.hash.slice(1);
+    const hashParams = new URLSearchParams(hash);
+    const accessToken = hashParams.get("access_token");
+    const refreshToken = hashParams.get("refresh_token") ?? "";
+    const type = hashParams.get("type");
 
-    if (code) {
-      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
-        if (error) {
-          console.error("Reset password code exchange error:", error);
-          setTokenErr(true);
-        } else {
-          setReady(true);
-          window.history.replaceState({}, "", "/reset-password");
-        }
-      });
-    } else {
-      // No code — check if session already exists
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) setReady(true);
-        else {
-          setTimeout(async () => {
-            const { data: { session: retrySession } } = await supabase.auth.getSession();
-            if (retrySession) setReady(true);
-            else setTokenErr(true);
-          }, 1500);
-        }
-      });
+    if (accessToken && type === "recovery") {
+      supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ error }) => settle(!error));
+      return () => subscription.unsubscribe();
     }
 
-    return () => subscription.unsubscribe();
+    // 3. Fallback: try ?code= param (PKCE flow, may work if same browser session)
+    const code = new URLSearchParams(window.location.search).get("code");
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code)
+        .then(({ error }) => { settle(!error); if (!error) window.history.replaceState({}, "", "/reset-password"); });
+      return () => subscription.unsubscribe();
+    }
+
+    // 4. Check existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) settle(true);
+    });
+
+    // 5. Timeout — if nothing worked after 2s, show error
+    const timer = setTimeout(() => settle(false), 2000);
+
+    return () => { subscription.unsubscribe(); clearTimeout(timer); };
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
