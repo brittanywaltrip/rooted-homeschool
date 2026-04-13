@@ -188,7 +188,12 @@ export default function CurriculumWizard({
   const step2Valid       = curricName.trim().length > 0 && totalLessons.trim().length > 0 && totalNum > 0 && otherSubjValid;
   const step3Valid       = schoolDays.some(Boolean) && perDayNum > 0 && !!startDate;
 
-  const startDateObj = startDate ? new Date(startDate + "T00:00:00") : todayMidnight;
+  // Parse start date using local parts to avoid timezone shift
+  const startDateObj = (() => {
+    if (!startDate) return todayMidnight;
+    const [y, m, d] = startDate.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  })();
 
   function calcFinishDate(perDay?: number): string {
     const pd = perDay ?? perDayNum;
@@ -319,6 +324,10 @@ export default function CurriculumWizard({
     const { error: dedupErr } = await dedupQ;
     if (dedupErr) console.error("[CurriculumWizard] dedup guard failed:", dedupErr);
 
+    if (!subjectId && effectiveSub) {
+      console.warn(`[CurriculumWizard] subject "${effectiveSub}" selected but subject_id is null — badges won't show`);
+    }
+
     const inserts = rows.map(({ date, n }) => ({
       user_id: user.id,
       child_id: childId || null,
@@ -352,12 +361,16 @@ export default function CurriculumWizard({
       .eq("curriculum_goal_id", goalId);
 
     const actual = savedCount ?? 0;
-    console.log(`[CurriculumWizard] ${actual}/${rows.length} lessons verified for goal ${goalId}`);
+    console.log(`[CurriculumWizard] ${actual}/${rows.length} lessons verified for goal ${goalId} (subject_id: ${subjectId ?? "none"})`);
 
     if (actual === 0) {
       setGenerating(false);
-      setError("Lessons couldn't be saved. Please try again or contact support.");
+      setError("Something went wrong saving your lessons. Please try again.");
       return;
+    }
+
+    if (actual < rows.length) {
+      console.warn(`[CurriculumWizard] partial save: only ${actual}/${rows.length} lessons for goal ${goalId}`);
     }
 
     setGenCount(actual);
