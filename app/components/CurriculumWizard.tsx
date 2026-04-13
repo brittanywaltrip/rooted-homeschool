@@ -345,8 +345,22 @@ export default function CurriculumWizard({
       totalInserted += batch.length;
     }
 
-    console.log(`[CurriculumWizard] ${totalInserted} lessons created for goal ${goalId}`);
-    setGenCount(rows.length);
+    // Verify lessons actually saved
+    const { count: savedCount } = await supabase
+      .from("lessons")
+      .select("id", { count: "exact", head: true })
+      .eq("curriculum_goal_id", goalId);
+
+    const actual = savedCount ?? 0;
+    console.log(`[CurriculumWizard] ${actual}/${rows.length} lessons verified for goal ${goalId}`);
+
+    if (actual === 0) {
+      setGenerating(false);
+      setError("Lessons couldn't be saved. Please try again or contact support.");
+      return;
+    }
+
+    setGenCount(actual);
     setGenerating(false);
     setDone(true);
     onSaved();
