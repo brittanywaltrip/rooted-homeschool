@@ -225,6 +225,10 @@ export default function PlanPage() {
   const [expandedCurricMenu, setExpandedCurricMenu] = useState<string | null>(null);
   const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
 
+  // ── Edit time state ─────────────────────────────────────────────────────
+  const [editTimeId, setEditTimeId] = useState<string | null>(null);
+  const [editTimeValue, setEditTimeValue] = useState("");
+
   // ── Reschedule state (Plan page) ─────────────────────────────────────────
   const [planRescheduleLesson, setPlanRescheduleLesson] = useState<Lesson | null>(null);
   const [planReschedulePicker, setPlanReschedulePicker] = useState(false);
@@ -362,6 +366,25 @@ export default function PlanPage() {
       return { ...l, title: editTitle.trim(), subjects: editSubject.trim() ? { name: editSubject.trim(), color: l.subjects?.color ?? null } : null, hours: editHours ? parseFloat(editHours) : null, child_id: editChildId || l.child_id };
     }));
     setSavingEdit(false); setEditingLesson(null);
+  }
+
+  // ── Save edited time ───────────────────────────────────────────────────────
+
+  async function saveEditTime() {
+    if (!editTimeId) return;
+    const mins = parseInt(editTimeValue) || 0;
+    const value = mins > 0 ? mins : null;
+    setLessons((prev) => prev.map((l) => l.id === editTimeId ? { ...l, minutes_spent: value } : l));
+    setMonthLessons((prev) => prev.map((l) => l.id === editTimeId ? { ...l, minutes_spent: value } : l));
+    await supabase.from("lessons").update({ minutes_spent: value }).eq("id", editTimeId);
+    setEditTimeId(null);
+  }
+
+  function openEditTime(lesson: Lesson) {
+    const goal = lesson.curriculum_goal_id ? curriculumGoals.find(g => g.id === lesson.curriculum_goal_id) : null;
+    const prefill = lesson.minutes_spent ?? goal?.default_minutes ?? 30;
+    setEditTimeId(lesson.id);
+    setEditTimeValue(String(prefill));
   }
 
   // ── Delete single lesson ───────────────────────────────────────────────────
@@ -1279,23 +1302,50 @@ export default function PlanPage() {
                           }}>
                             {lesson.title}
                           </p>
-                          {lesson.completed && lesson.minutes_spent != null && (
-                            <span style={{ fontSize: 10, color: "#b5aca4" }}>· {lesson.minutes_spent} min</span>
-                          )}
                         </div>
                         {lesson.subjects && (
                           <p style={{ fontSize: 10, color: "#bbb", margin: "1px 0 0" }}>{lesson.subjects.name}</p>
                         )}
                       </div>
-                      {/* Reschedule link for past uncompleted lessons */}
-                      {isSelectedPast && !lesson.completed && !isPartner && (
-                        <button
-                          onClick={() => openPlanReschedule(lesson)}
-                          style={{ fontSize: 10, fontWeight: 600, color: "#7a4a1a", background: "none", border: "none", cursor: "pointer", padding: 0, whiteSpace: "nowrap", flexShrink: 0 }}
-                        >
-                          Reschedule
-                        </button>
-                      )}
+                      {/* Edit time inline */}
+                      {!isPartner && editTimeId === lesson.id ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            value={editTimeValue}
+                            onChange={(e) => setEditTimeValue(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") saveEditTime(); if (e.key === "Escape") setEditTimeId(null); }}
+                            autoFocus
+                            style={{ width: 48, fontSize: 12, textAlign: "center", border: "1px solid #c8bfb5", borderRadius: 6, padding: "3px 4px", background: "white", color: "#2d2926" }}
+                          />
+                          <span style={{ fontSize: 10, color: "#9a8f85" }}>min</span>
+                          <button
+                            onClick={saveEditTime}
+                            style={{ fontSize: 10, fontWeight: 600, color: "var(--g-brand)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      ) : !isPartner ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                          <button
+                            onClick={() => openEditTime(lesson)}
+                            style={{ fontSize: 10, color: "#b5aca4", background: "none", border: "none", cursor: "pointer", padding: 0, whiteSpace: "nowrap" }}
+                          >
+                            {lesson.minutes_spent != null ? `${lesson.minutes_spent} min ✎` : "⏱ Time"}
+                          </button>
+                          {/* Reschedule link for past uncompleted lessons */}
+                          {isSelectedPast && !lesson.completed && (
+                            <button
+                              onClick={() => openPlanReschedule(lesson)}
+                              style={{ fontSize: 10, fontWeight: 600, color: "#7a4a1a", background: "none", border: "none", cursor: "pointer", padding: 0, whiteSpace: "nowrap" }}
+                            >
+                              Reschedule
+                            </button>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
