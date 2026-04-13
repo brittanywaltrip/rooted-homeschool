@@ -2526,6 +2526,20 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* ── Photo limit nudge — free users with 45+ photos, once per session ── */}
+      {(!planType || planType === "free") && totalPhotos >= 45 && totalPhotos < 50 && (() => {
+        if (typeof window !== "undefined" && sessionStorage.getItem("rooted_photo_limit_shown")) return null;
+        if (typeof window !== "undefined") sessionStorage.setItem("rooted_photo_limit_shown", "1");
+        return (
+          <Link
+            href="/upgrade"
+            className="block bg-[#faf6f0] border border-[#e8e2d9] rounded-xl px-4 py-3 text-sm text-[#7a6f65] hover:bg-[#f5f0e8] transition-colors"
+          >
+            You&apos;re almost at your 50 photo limit — upgrade to keep capturing memories →
+          </Link>
+        );
+      })()}
+
       {/* ═══════════════════════════════════════════════════════════
           TODAY'S STORY — all memories logged today
          ═══════════════════════════════════════════════════════════ */}
@@ -2776,6 +2790,31 @@ export default function TodayPage() {
             >
               Open in Memories →
             </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ── Discard confirmation ──────────────────────────── */}
+      {discardConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center" onClick={() => setDiscardConfirm(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-[#fefcf9] rounded-2xl p-6 mx-6 max-w-xs shadow-xl text-center" onClick={(e) => e.stopPropagation()}>
+            <p className="text-base font-medium text-[#2d2926] mb-1">Discard this memory?</p>
+            <p className="text-sm text-[#7a6f65] mb-5">Your changes will be lost.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDiscardConfirm(null)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-[#e8e2d9] text-[#2d2926] hover:bg-[#f0ede8] transition-colors"
+              >
+                Keep editing
+              </button>
+              <button
+                onClick={discardConfirm}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition-colors"
+              >
+                Discard
+              </button>
+            </div>
           </div>
         </div>
       )}
