@@ -2774,7 +2774,7 @@ export default function TodayPage() {
             )}
             {/* Time spent (optional) */}
             <div className="flex items-center gap-2">
-              <label className="text-xs text-[#7a6f65] shrink-0">Time spent (optional)</label>
+              <label className="text-xs text-[#7a6f65] shrink-0">Time spent — logged in your Hours &amp; Attendance Log</label>
               <input type="number" min="1" max="999" value={ftMinutes} onChange={(e) => setFtMinutes(e.target.value)}
                 placeholder="e.g. 45"
                 className="w-20 px-2.5 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] text-center" />
@@ -3432,7 +3432,7 @@ export default function TodayPage() {
 
               {/* Time spent (optional) */}
               <div className="flex items-center gap-2">
-                <label className="text-xs text-[#7a6f65] shrink-0">Time spent (optional)</label>
+                <label className="text-xs text-[#7a6f65] shrink-0">Time spent — logged in your Hours &amp; Attendance Log</label>
                 <input type="number" min="1" max="999" value={winMinutes} onChange={(e) => setWinMinutes(e.target.value)}
                   placeholder="e.g. 45"
                   className="w-20 px-2.5 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] text-center" />

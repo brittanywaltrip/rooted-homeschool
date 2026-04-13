@@ -17,6 +17,7 @@ type Lesson   = {
 };
 type Attendance = { id: string; child_id: string; day: string; present: boolean };
 type BookEvent  = { payload: { title?: string; child_id?: string; date?: string } };
+type MemoryActivity = { child_id: string | null; type: string; date: string; duration_minutes: number | null };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,12 +31,13 @@ function schoolYearStart() {
 // ─── Print Report Component ───────────────────────────────────────────────────
 
 function PrintReport({
-  child, dateFrom, dateTo, lessons, attendance, books, subjects,
+  child, dateFrom, dateTo, lessons, attendance, books, subjects, activities,
 }: {
   child: Child | null;
   dateFrom: string; dateTo: string;
   lessons: Lesson[]; attendance: Attendance[];
   books: BookEvent[]; subjects: Subject[];
+  activities: MemoryActivity[];
 }) {
   const filteredLessons = lessons.filter((l) => {
     const d = l.date ?? l.scheduled_date;
@@ -54,7 +56,13 @@ function PrintReport({
   });
 
   const completedLessons = filteredLessons.filter((l) => l.completed);
-  const totalHours = completedLessons.reduce((sum, l) => sum + (l.hours ?? 0), 0);
+  const filteredActivities = activities.filter((a) => {
+    if (child && a.child_id !== child.id) return false;
+    return a.date >= dateFrom && a.date <= dateTo && a.duration_minutes;
+  });
+  const lessonHours = completedLessons.reduce((sum, l) => sum + (l.hours ?? 0), 0);
+  const activityHours = filteredActivities.reduce((sum, a) => sum + ((a.duration_minutes ?? 0) / 60), 0);
+  const totalHours = lessonHours + activityHours;
 
   // Group by subject
   const subjectMap: Record<string, { name: string; color: string | null; count: number; hours: number }> = {};
@@ -84,7 +92,7 @@ function PrintReport({
             <span className="font-bold text-[#5c7f63]">Rooted</span>
           </div>
           <h2 className="text-xl font-bold text-[#2d2926]">
-            {child ? `${child.name}'s ` : ""}Progress Report
+            {child ? `${child.name}'s ` : ""}Hours &amp; Attendance Log
           </h2>
           <p className="text-sm text-[#7a6f65]">{fromLabel} – {toLabel}</p>
         </div>
@@ -187,6 +195,7 @@ export default function ReportsPage() {
   const [lessons,    setLessons]    = useState<Lesson[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [books,      setBooks]      = useState<BookEvent[]>([]);
+  const [activities, setActivities] = useState<MemoryActivity[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [isPro,      setIsPro]      = useState<boolean | null>(null);
 
@@ -195,7 +204,7 @@ export default function ReportsPage() {
   const [dateTo,        setDateTo]        = useState(toDateStr(new Date()));
   const [showPreview,   setShowPreview]   = useState(false);
 
-  useEffect(() => { document.title = "Reports \u00b7 Rooted"; localStorage.setItem("rooted_visited_reports", "1"); }, []);
+  useEffect(() => { document.title = "Hours & Attendance Log \u00b7 Rooted"; localStorage.setItem("rooted_visited_reports", "1"); }, []);
 
   useEffect(() => {
     if (!effectiveUserId) return;
@@ -206,6 +215,7 @@ export default function ReportsPage() {
         { data: lessons_ },
         { data: att },
         { data: bookEvts },
+        { data: memActivities },
         { data: profile },
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
@@ -213,6 +223,7 @@ export default function ReportsPage() {
         supabase.from("lessons").select("id, child_id, subject_id, title, date, scheduled_date, completed, hours").eq("user_id", effectiveUserId),
         supabase.from("attendance").select("id, child_id, day, present").eq("user_id", effectiveUserId),
         supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+        supabase.from("memories").select("child_id, type, date, duration_minutes").eq("user_id", effectiveUserId).not("duration_minutes", "is", null).in("type", ["field_trip", "project", "activity", "win"]),
         supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
       ]);
 
@@ -221,6 +232,7 @@ export default function ReportsPage() {
       setLessons((lessons_ as unknown as Lesson[]) ?? []);
       setAttendance((att as unknown as Attendance[]) ?? []);
       setBooks((bookEvts as unknown as BookEvent[]) ?? []);
+      setActivities((memActivities as unknown as MemoryActivity[]) ?? []);
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setLoading(false);
     }
@@ -235,7 +247,12 @@ export default function ReportsPage() {
     return d && d >= dateFrom && d <= dateTo && (selectedChild === "all" || l.child_id === selectedChild);
   });
   const completedCount      = filteredLessons.filter((l) => l.completed).length;
-  const totalHours          = filteredLessons.filter((l) => l.completed).reduce((s, l) => s + (l.hours ?? 0), 0);
+  const lessonHoursQuick    = filteredLessons.filter((l) => l.completed).reduce((s, l) => s + (l.hours ?? 0), 0);
+  const activityHoursQuick  = activities.filter((a) => {
+    if (selectedChild !== "all" && a.child_id !== selectedChild) return false;
+    return a.date >= dateFrom && a.date <= dateTo;
+  }).reduce((s, a) => s + ((a.duration_minutes ?? 0) / 60), 0);
+  const totalHours          = lessonHoursQuick + activityHoursQuick;
   const filteredBooksCount  = books.filter((b) => {
     const d = b.payload.date ?? "";
     if (!d || d < dateFrom || d > dateTo) return false;
@@ -290,8 +307,8 @@ export default function ReportsPage() {
             <div className="max-w-sm w-full px-4">
               <UpgradePrompt
                 inline
-                feature="Progress Reports"
-                valueProp="Generate printable progress reports with lessons, hours, attendance, and books — ready for your state records."
+                feature="Hours & Attendance Log"
+                valueProp="Generate printable logs with hours, attendance, subjects, and books — ready for your state records."
               />
             </div>
           </div>
@@ -307,9 +324,9 @@ export default function ReportsPage() {
         <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">
           For Your Family Records
         </p>
-        <h1 className="text-2xl font-bold text-[#2d2926]">Reports 📋</h1>
+        <h1 className="text-2xl font-bold text-[#2d2926]">Hours &amp; Attendance Log 📋</h1>
         <p className="text-sm text-[#7a6f65] mt-1">
-          Professional, printable reports for states that require homeschool documentation.
+          Hours logged · Subjects covered · Days completed
         </p>
       </div>
 
@@ -409,7 +426,7 @@ export default function ReportsPage() {
           className="flex-1 flex items-center justify-center gap-2 bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] text-[#2d2926] text-sm font-medium py-3 rounded-xl transition-colors"
         >
           <FileText size={16} className="text-[#5c7f63]" />
-          {showPreview ? "Hide Preview" : "Preview Report"}
+          {showPreview ? "Hide Preview" : "Preview Log"}
         </button>
         <button
           onClick={() => { setShowPreview(true); setTimeout(() => window.print(), 300); }}
@@ -430,6 +447,7 @@ export default function ReportsPage() {
           attendance={attendance}
           books={books}
           subjects={subjects}
+          activities={activities}
         />
       )}
 
