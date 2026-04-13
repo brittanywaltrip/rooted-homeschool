@@ -6,6 +6,10 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 
+function titleCase(str: string): string {
+  return str.trim().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Child = { id: string; name: string; color: string | null };
@@ -249,12 +253,13 @@ export default function CurriculumWizard({
     }
 
     // Save curriculum_goal
+    const saveName = titleCase(curricName);
     const { data: goalData, error: goalErr } = await supabase
       .from("curriculum_goals")
       .insert({
         user_id: user.id,
         child_id: childId || null,
-        curriculum_name: curricName.trim(),
+        curriculum_name: saveName,
         subject_label: effectiveSub || null,
         total_lessons: totalNum,
         current_lesson: startNum - 1,
@@ -298,20 +303,23 @@ export default function CurriculumWizard({
       return;
     }
 
-    // Dedup guard
-    await supabase
+    // Dedup guard — remove uncompleted lessons with same name pattern
+    let dedupQ = supabase
       .from("lessons")
       .delete()
       .eq("user_id", user.id)
-      .eq("child_id", childId || null)
-      .ilike("title", `${curricName.trim()} — Lesson%`)
+      .ilike("title", `${saveName} — Lesson%`)
       .eq("completed", false);
+    if (childId) dedupQ = dedupQ.eq("child_id", childId);
+    else dedupQ = dedupQ.is("child_id", null);
+    const { error: dedupErr } = await dedupQ;
+    if (dedupErr) console.error("[CurriculumWizard] dedup guard failed:", dedupErr);
 
     const inserts = rows.map(({ date, n }) => ({
       user_id: user.id,
       child_id: childId || null,
       subject_id: subjectId,
-      title: `${curricName.trim()} — Lesson ${n}`,
+      title: `${saveName} — Lesson ${n}`,
       date,
       scheduled_date: date,
       completed: false,
@@ -320,15 +328,20 @@ export default function CurriculumWizard({
       lesson_number: n,
     }));
 
+    let totalInserted = 0;
     for (let i = 0; i < inserts.length; i += 100) {
-      const { error: insertErr } = await supabase.from("lessons").insert(inserts.slice(i, i + 100));
+      const batch = inserts.slice(i, i + 100);
+      const { error: insertErr } = await supabase.from("lessons").insert(batch);
       if (insertErr) {
+        console.error(`[CurriculumWizard] lesson insert batch ${i}-${i + batch.length} failed:`, insertErr);
         setGenerating(false);
-        setError(`Failed to save lessons: ${insertErr.message}`);
+        setError(`Failed to save lessons (batch ${Math.floor(i / 100) + 1}): ${insertErr.message}`);
         return;
       }
+      totalInserted += batch.length;
     }
 
+    console.log(`[CurriculumWizard] ${totalInserted} lessons created for goal ${goalId}`);
     setGenCount(rows.length);
     setGenerating(false);
     setDone(true);
@@ -346,10 +359,11 @@ export default function CurriculumWizard({
     const todayStr = toDateStr(todayMidnight);
     let activeGoalId = editData.goalId;
 
+    const saveName = titleCase(curricName);
     if (activeGoalId) {
       // Update existing goal
       const updatePayload = {
-        curriculum_name: curricName.trim(),
+        curriculum_name: saveName,
         subject_label: effectiveSub || null,
         total_lessons: totalNum,
         current_lesson: parseInt(startLesson) || 0,
@@ -371,7 +385,7 @@ export default function CurriculumWizard({
         .insert({
           user_id: user.id,
           child_id: editData.childId || null,
-          curriculum_name: curricName.trim(),
+          curriculum_name: saveName,
           subject_label: effectiveSub || null,
           total_lessons: totalNum,
           current_lesson: parseInt(startLesson) || 0,
