@@ -141,7 +141,7 @@ function UpgradePageInner() {
             Your family&apos;s story deserves to be kept forever.
           </h1>
           <p className="text-[#7a6f65] leading-relaxed max-w-md mx-auto text-base">
-            Upgrade for unlimited memories, your full family yearbook, and shareable links for the people you love.
+            Unlimited photos + PDF exports + founding price locked forever.
           </p>
         </div>
 
@@ -247,10 +247,9 @@ function UpgradePageInner() {
             <ul className="space-y-2 mb-6 flex-1">
               {[
                 'Everything in Free, plus:',
-                'Unlimited memories — complete timeline forever',
-                'Full family yearbook — read, personalize & download',
-                'Share with family (grandparent portal)',
-                'Downloadable progress reports',
+                'Unlimited photos — no 50 photo cap',
+                'Hours & Attendance Log — download & print PDF',
+                'Unlimited AI Year in Review summaries',
                 'Priority support from Brittany',
                 'Founding price locked forever 🎁',
               ].map((label) => (

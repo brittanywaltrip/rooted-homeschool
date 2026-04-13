@@ -9,6 +9,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  console.log("[trial-warning] Trial system removed — cron disabled");
+  return NextResponse.json({ message: "Trial system removed — cron disabled", sent: 0 });
+
+  // Legacy code below — trial system removed April 2026
   const now = new Date();
   const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
   let sent = 0;

@@ -17,7 +17,7 @@ const sections = [
       },
       {
         q: "Is Rooted free?",
-        a: "Yes — Rooted is free to start, no credit card needed. Free families get lesson tracking, the garden, curated resources, and memories for the last 30 days. Upgrade to Founding Family ($39/yr) for unlimited everything including yearbook PDF download.",
+        a: "Yes — Rooted is free to use, no credit card needed. Everything — lessons, memories, garden, yearbook, curriculum planning, Hours & Attendance Log, and family sharing. The only limit on the free plan is 50 photos total. Upgrade to Founding Family ($39/yr) for unlimited photos and PDF exports.",
       },
       {
         q: "How do I set up my curriculum?",
@@ -120,7 +120,7 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "The free plan includes unlimited lesson logging, unlimited children, your family's Garden, and curated resources. You also get 50 photos, your last 30 days of memories, and a yearbook preview. A paid plan includes unlimited photos, your full memory history, yearbook PDF download, progress reports, and curriculum pacing.",
+        a: "Everything — lessons, memories, garden, yearbook, curriculum planning, Hours & Attendance Log, and family sharing. The only limit on the free plan is 50 photos total. A paid plan gives you unlimited photos and downloadable PDF exports.",
       },
       {
         q: "What is the Founding Family price?",
@@ -188,7 +188,7 @@ const sections = [
       },
       {
         q: "Do free users get a yearbook?",
-        a: "Free users can build a yearbook, but it only shows memories from the last 30 days (the same limit as the rest of the free plan). Upgrading to a paid plan gives you your full school year. Your yearbook text — the letter, child interviews, and future notes — is always saved regardless of plan.",
+        a: "Yes — free users get the full yearbook with all their memories. The yearbook builds itself automatically from your captured memories. Your yearbook text — the letter, child interviews, and future notes — is always saved regardless of plan.",
       },
       {
         q: "Are my archived yearbooks saved if I cancel my subscription?",

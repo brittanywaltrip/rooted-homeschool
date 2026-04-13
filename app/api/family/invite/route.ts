@@ -37,7 +37,6 @@ export async function POST(req: NextRequest) {
 
     let token: string;
     const now = new Date().toISOString();
-    const trialEnd = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
 
     if (existing) {
       if (existing.is_active && !isResend) {
@@ -53,10 +52,9 @@ export async function POST(req: NextRequest) {
         viewer_name: cleanName,
       };
 
-      // Reset trial on reactivation (not on simple resend)
+      // Clear any legacy trial data on reactivation
       if (!existing.is_active) {
-        updates.trial_started_at = now;
-        updates.trial_ends_at = trialEnd;
+        updates.trial_ends_at = null;
         updates.trial_warning_sent_at = null;
       }
 
@@ -76,7 +74,7 @@ export async function POST(req: NextRequest) {
           viewer_name: cleanName,
           is_active: true,
           trial_started_at: now,
-          trial_ends_at: trialEnd,
+          trial_ends_at: null,
         })
         .select("token")
         .single();
@@ -200,13 +198,12 @@ export async function PUT(req: NextRequest) {
         .eq("user_id", ownerUserId);
     } else if (action === "reactivate") {
       const now = new Date().toISOString();
-      const trialEnd = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
       await supabaseAdmin
         .from("family_invites")
         .update({
           is_active: true,
           trial_started_at: now,
-          trial_ends_at: trialEnd,
+          trial_ends_at: null,
           trial_warning_sent_at: null,
         })
         .eq("id", inviteId)

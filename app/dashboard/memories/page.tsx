@@ -266,8 +266,7 @@ export default function MemoriesPage() {
     setIsPro(userIsPro);
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
 
-    const thirtyDaysAgoDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const dateFloor = userIsPro ? "2020-01-01" : `${thirtyDaysAgoDate.getFullYear()}-${String(thirtyDaysAgoDate.getMonth() + 1).padStart(2, "0")}-${String(thirtyDaysAgoDate.getDate()).padStart(2, "0")}`;
+    const dateFloor = "2020-01-01";
 
     const [{ data: kids }, { data: memRows }, { data: reflData }] = await Promise.all([
       supabase
@@ -896,26 +895,6 @@ export default function MemoriesPage() {
         </div>
       )}
 
-      {/* Memory counter awareness banner — only show when user has memories */}
-      {(!planType || planType === "free" || previewFree) && !loading && memories.length > 0 && (
-        <div className="bg-[#e8f0e8] border border-[#c8d8c8] rounded-2xl px-4 py-3">
-          <p className="text-sm text-[var(--g-brand)]">
-            You have <strong>{memories.length}</strong> memories captured 🌱{" "}
-            <Link href="/upgrade" onClick={() => posthog.capture('upgrade_clicked', { source: 'memory_banner' })} className="underline font-medium text-[var(--g-brand)] hover:text-[var(--g-deep)]">
-              Upgrade for unlimited memories and full yearbook →
-            </Link>
-          </p>
-        </div>
-      )}
-
-      {/* Free user upgrade banner — only show when user has memories */}
-      {!isPro && !loading && memories.length > 0 && (
-        <UpgradePrompt
-          inline
-          feature="Full Memory History"
-          valueProp="You're seeing your last 30 days. Upgrade to keep every photo, book, and milestone — your full family story, always."
-        />
-      )}
 
       {/* ── Reflections section (when filter = all, show recent) ── */}
       {filter === "all" && !searchQuery && reflections.length > 0 && (
