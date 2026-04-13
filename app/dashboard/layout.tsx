@@ -503,7 +503,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         {!partnerCtx.isPartner && !fabUrl && (
           <button onClick={openFabPicker}
             className="fixed bottom-28 right-4 md:bottom-6 md:right-6 z-50 w-14 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 shadow-lg active:scale-90 transition-all hover:shadow-xl"
-            style={{ backgroundColor: "var(--g-brand)" }} aria-label="Quick photo">
+            style={{ backgroundColor: "var(--g-brand)" }} aria-label="Quick photo" data-fab-trigger>
             <Camera size={20} className="text-white" strokeWidth={2.2} />
             <span className="text-white leading-none" style={{ fontSize: 9 }}>Quick photo</span>
           </button>

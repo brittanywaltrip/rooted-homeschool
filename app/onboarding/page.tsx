@@ -736,7 +736,7 @@ export default function OnboardingPage() {
           </p>
 
           <button
-            onClick={() => router.push("/dashboard/memories?new=true")}
+            onClick={() => router.push("/dashboard")}
             className="w-full py-4 rounded-2xl font-semibold text-base text-white transition-all hover:opacity-90 active:scale-[0.98]"
             style={{ background: "var(--g-brand)" }}
           >
