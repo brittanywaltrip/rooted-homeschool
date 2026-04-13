@@ -1479,32 +1479,38 @@ export default function PlanPage() {
                         <div>
                           {(() => {
                             if (lessonsRemaining <= 0) return <span style={{ fontSize: 11, color: "var(--g-brand)" }}>✓ Complete</span>;
-                            const startDate = goal?.created_at ? new Date(goal.created_at) : null;
-                            if (!startDate) return <span style={{ fontSize: 11, color: "#aaa" }}>Log more to see pace</span>;
-                            const daysSinceCreated = Math.max(1, (Date.now() - startDate.getTime()) / 86400000);
-                            const weeksActive = Math.max(1, daysSinceCreated / 7);
-                            const weeklyPace = currentLesson / weeksActive;
-                            if (weeklyPace < 0.5) return <span style={{ fontSize: 11, color: "#aaa" }}>Log more to see pace</span>;
-                            const daysToFinish = (lessonsRemaining / weeklyPace) * 7;
-                            const projectedFinish = new Date(Date.now() + daysToFinish * 86400000);
+
                             const thisYear = new Date().getFullYear();
                             const fmtDate = (d: Date) => {
                               const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
                               if (d.getFullYear() !== thisYear) opts.year = "numeric";
                               return d.toLocaleDateString("en-US", opts);
                             };
-                            const projectedLabel = fmtDate(projectedFinish);
+
+                            // Find the last scheduled incomplete lesson for this curriculum
+                            const incompleteDates = allLessons
+                              .filter(l => l.curriculum_goal_id === group.goalId && !l.completed && l.scheduled_date)
+                              .map(l => l.scheduled_date!)
+                              .sort();
+                            const lastScheduled = incompleteDates.length > 0 ? new Date(incompleteDates[incompleteDates.length - 1] + "T00:00:00") : null;
                             const targetDate = goal?.target_date ? new Date(goal.target_date + "T00:00:00") : null;
 
+                            const parts: React.ReactNode[] = [];
+
                             if (targetDate) {
-                              const diffDays = Math.round((projectedFinish.getTime() - targetDate.getTime()) / 86400000);
-                              if (diffDays > 14) {
-                                return <span style={{ fontSize: 11, color: "#8a6d00" }}>Behind pace · projected {projectedLabel}</span>;
-                              }
-                              return <span style={{ fontSize: 11, color: "var(--g-brand)" }}>✓ On track · finishes {projectedLabel}</span>;
+                              parts.push(<span key="goal" style={{ fontSize: 11, color: "#9a8f85" }}>Goal: {fmtDate(targetDate)}</span>);
                             }
 
-                            return <span style={{ fontSize: 11, color: "#aaa" }}>Projected finish: {projectedLabel}</span>;
+                            if (lastScheduled) {
+                              if (targetDate && lastScheduled > targetDate) {
+                                parts.push(<span key="proj" style={{ fontSize: 11, color: "#8a6d00" }}> · Behind — finishes {fmtDate(lastScheduled)}</span>);
+                              } else {
+                                parts.push(<span key="proj" style={{ fontSize: 11, color: "var(--g-brand)" }}> · On track to finish {fmtDate(lastScheduled)}</span>);
+                              }
+                            }
+
+                            if (parts.length === 0) return <span style={{ fontSize: 11, color: "#aaa" }}>Set a target date to track pace</span>;
+                            return <span>{parts}</span>;
                           })()}
                         </div>
 
