@@ -1722,7 +1722,7 @@ export default function TodayPage() {
     setBookTitle(""); setBookChild(""); setBookAuthor(""); setBookPages("");
     setBookPhotoFile(null); setBookPhotoPreview(null);
     setSavingBook(false); setShowBookModal(false);
-    showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book");
+    showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
     await loadData();
     checkAndAwardBadges(user.id);
   }
@@ -1752,17 +1752,20 @@ export default function TodayPage() {
     console.log("[Rooted] Saved:", "drawing", inserted);
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
-    showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing");
+    showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing", drawingChild || null);
     await loadData();
     checkAndAwardBadges(user.id);
   }
 
   // ── Capture toast + edit sheet helpers ────────────────────────────────────
 
-  function showCaptureToast(message: string, memoryId: string | null, memoryType?: string) {
+  function showCaptureToast(message: string, memoryId: string | null, memoryType?: string, childId?: string | null) {
     setCaptureToast({ message, memoryId });
     setTimeout(() => setCaptureToast(null), 4000);
-    if (memoryId) posthog.capture('memory_captured', { type: memoryType ?? 'unknown' });
+    if (memoryId) {
+      posthog.capture('memory_captured', { type: memoryType ?? 'unknown' });
+      triggerGardenAnimation(childId ?? undefined);
+    }
   }
 
   function openEditSheet(id: string, title: string, caption: string, childId: string, type: string) {
@@ -2706,7 +2709,7 @@ export default function TodayPage() {
                 if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); showCaptureToast("Save failed — try again", null); return; }
                 console.log("[Rooted] Saved:", memType, ins);
                 const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
-                showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null, memType);
+                showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null, memType, null);
                 captureTypeRef.current = "photo"; // reset
                 setTotalMemories(prev => prev + 1);
                 await loadData();
@@ -2983,7 +2986,7 @@ export default function TodayPage() {
                     if (ftErr) { console.error("[Rooted] Field trip save failed:", ftErr.message); setFtSaving(false); showCaptureToast("Save failed — try again", null); return; }
                     console.log("[Rooted] Saved:", ftType, ins);
                     const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
-                    showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null, ftType);
+                    showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null, ftType, ftChild || null);
                     checkAndAwardBadges(user.id);
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
@@ -3185,7 +3188,7 @@ export default function TodayPage() {
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
           <div className="bg-[var(--g-deep)] text-white text-sm font-medium px-5 py-3 rounded-xl shadow-lg flex items-center gap-2 whitespace-nowrap animate-bounce-once">
             <span>🌿</span>
-            <span>{gardenToast.name} earned a leaf! {gardenToast.leaves} total</span>
+            <span>{gardenToast.name === "Your garden" ? "Your garden just grew a leaf!" : `${gardenToast.name}'s tree just grew a leaf!`}</span>
           </div>
         </div>
       )}
@@ -3695,7 +3698,7 @@ export default function TodayPage() {
                     console.log("[Rooted] Saved:", winType, ins);
                     setTotalMemories(prev => prev + 1);
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
-                    showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null, winType);
+                    showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null, winType, winChild || null);
                     checkAndAwardBadges(user.id);
                     setSavingWin(false);
                     setWinText("");
