@@ -90,6 +90,7 @@ export default function OnboardingPage() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoUploaded, setPhotoUploaded] = useState(false);
   const photoRef = useRef<HTMLInputElement>(null);
+  const [googleAvatarUrl, setGoogleAvatarUrl] = useState<string | null>(null);
 
   // Skip tracking
   const [skipStep1, setSkipStep1] = useState(false);
@@ -125,6 +126,10 @@ export default function OnboardingPage() {
       setLastName(ln);
       setDisplayName(dn);
       if (profile?.state) setSelectedState(profile.state);
+
+      // Google avatar — offer as family photo option
+      const avatar = user.user_metadata?.avatar_url || user.user_metadata?.picture;
+      if (avatar) setGoogleAvatarUrl(avatar);
 
       const skip1 = !!fn;
       const skip2 = !!dn;
@@ -513,6 +518,17 @@ export default function OnboardingPage() {
                   </div>
                 )}
               </div>
+            ) : googleAvatarUrl ? (
+              <div className="relative">
+                <img
+                  src={googleAvatarUrl}
+                  alt="Your Google photo"
+                  className="w-40 h-40 rounded-full object-cover border-4 border-white/30 opacity-60"
+                />
+                <div className="absolute inset-0 rounded-full flex items-center justify-center">
+                  <span className="text-xs text-white font-medium bg-black/40 px-3 py-1 rounded-full">Your Google photo</span>
+                </div>
+              </div>
             ) : (
               <button
                 type="button"
@@ -541,12 +557,38 @@ export default function OnboardingPage() {
                   Uploading...
                 </button>
               ) : !photoPreview ? (
-                <button
-                  onClick={() => photoRef.current?.click()}
-                  className="w-full py-4 rounded-2xl bg-white text-[var(--g-brand)] font-semibold text-base transition-all hover:bg-white/90 active:scale-[0.98] mb-3"
-                >
-                  Choose a photo
-                </button>
+                <>
+                  {googleAvatarUrl && (
+                    <button
+                      onClick={async () => {
+                        setSaving(true);
+                        const token = (await supabase.auth.getSession()).data.session?.access_token ?? "";
+                        await fetch("/api/profile/update", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ family_photo_url: googleAvatarUrl }),
+                        });
+                        setPhotoPreview(googleAvatarUrl);
+                        setPhotoUploaded(true);
+                        setSaving(false);
+                      }}
+                      disabled={saving}
+                      className="w-full py-4 rounded-2xl bg-white text-[var(--g-brand)] font-semibold text-base transition-all hover:bg-white/90 active:scale-[0.98] disabled:opacity-60 mb-3"
+                    >
+                      {saving ? "Saving..." : "Use my Google photo"}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => photoRef.current?.click()}
+                    className={`w-full py-4 rounded-2xl font-semibold text-base transition-all active:scale-[0.98] mb-3 ${
+                      googleAvatarUrl
+                        ? "bg-white/15 text-white border border-white/20 hover:bg-white/25"
+                        : "bg-white text-[var(--g-brand)] hover:bg-white/90"
+                    }`}
+                  >
+                    {googleAvatarUrl ? "Upload a different photo" : "Choose a photo"}
+                  </button>
+                </>
               ) : null}
             </>
           )}

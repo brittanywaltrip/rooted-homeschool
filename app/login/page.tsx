@@ -23,7 +23,7 @@ function LoginContent() {
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [resetEmail, setResetEmail] = useState("");
-  const [error,    setError]    = useState("");
+  const [error,    setError]    = useState(searchParams.get("error") || "");
   const [loading,  setLoading]  = useState(false);
   const passwordReset = searchParams.get("passwordReset") === "true";
 
@@ -116,10 +116,6 @@ function LoginContent() {
               <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Welcome back</h1>
               <p className="text-sm text-[#7a6f65] mb-5">Good to see you again.</p>
 
-              {/* Google auth temporarily hidden — re-enable when
-                  www cookie domain testing is complete */}
-              {false && (
-              <>
               <button
                 type="button"
                 onClick={async () => {
@@ -140,8 +136,6 @@ function LoginContent() {
                 <span className="text-xs text-[#b5aca4]">or</span>
                 <div className="flex-1 h-px bg-[#e8e2d9]" />
               </div>
-              </>
-              )}
 
               <form onSubmit={handleLogin} className="flex flex-col gap-4">
                 <div>
