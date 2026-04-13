@@ -2521,7 +2521,6 @@ export default function TodayPage() {
 
         {/* Yearbook nudge — once per week, links to yearbook for paid, upgrade for free */}
         {yearbookCount > 0 && (() => {
-          const isFreeUser = !planType || planType === "free" || previewFree;
           const lastShown = typeof window !== "undefined" ? localStorage.getItem("yearbook_nudge_shown") : null;
           const now = new Date();
           const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
@@ -2531,12 +2530,7 @@ export default function TodayPage() {
             <button
               onClick={() => {
                 localStorage.setItem("yearbook_nudge_shown", weekKey);
-                if (isFreeUser) {
-                  posthog.capture('upgrade_clicked', { source: 'today_story_yearbook' });
-                  router.push("/upgrade");
-                } else {
-                  router.push("/dashboard/memories/yearbook");
-                }
+                router.push("/dashboard/memories/yearbook");
               }}
               className="w-full bg-[#faf6f0] border border-[#c0dd97] rounded-xl p-3 flex items-center gap-3 cursor-pointer mb-3 text-left hover:bg-[#f5f0e8] transition-colors"
             >
@@ -2546,7 +2540,7 @@ export default function TodayPage() {
                   Your yearbook has {yearbookCount} memor{yearbookCount === 1 ? "y" : "ies"} so far this year
                 </p>
                 <p className="text-[11px] text-[#9a8f85]">
-                  {isFreeUser ? "View your family yearbook →" : "Tap to open your family yearbook →"}
+                  Tap to open your family yearbook →
                 </p>
               </div>
             </button>
@@ -2620,32 +2614,6 @@ export default function TodayPage() {
           </Link>
         )}
       </div>
-
-      {/* ═══════════════════════════════════════════════════════════
-          YEARBOOK TEASER — free users with at least 1 memory
-         ═══════════════════════════════════════════════════════════ */}
-      {(!planType || planType === "free" || previewFree) && totalMemories > 0 && (
-        <div className="bg-[var(--g-brand)] rounded-2xl px-5 py-4 text-white">
-          <p className="text-sm font-medium flex items-center gap-2">
-            🔒 Your family yearbook is taking shape 🌿
-          </p>
-          <p className="text-xs text-white/75 mt-1">
-            {(() => {
-              const diff = Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000);
-              if (diff < 0) return "Upgrade to Founding Family for your full yearbook";
-              if (diff === 0) return "Last chance — upgrade today for your full yearbook";
-              return `Upgrade to Founding Family for your full yearbook — ${diff} day${diff !== 1 ? "s" : ""} left`;
-            })()}
-          </p>
-          <Link
-            href="/upgrade"
-            onClick={() => posthog.capture('upgrade_clicked', { source: 'yearbook_teaser' })}
-            className="inline-block mt-3 px-4 py-2 bg-white text-[var(--g-brand)] text-xs font-medium rounded-full hover:bg-white/90 transition-colors"
-          >
-            View my yearbook →
-          </Link>
-        </div>
-      )}
 
       {/* ═══════════════════════════════════════════════════════════
           ON THIS DAY — purple card, show only for Tier 1 or 2 matches (1+ year)
