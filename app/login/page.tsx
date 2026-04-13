@@ -49,7 +49,7 @@ function LoginContent() {
     setError("");
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: 'https://www.rootedhomeschoolapp.com/reset-password',
     });
     setLoading(false);
     if (error) setError(error.message);
