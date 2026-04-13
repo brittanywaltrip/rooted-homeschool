@@ -2260,32 +2260,31 @@ export default function TodayPage() {
          ═══════════════════════════════════════════════════════════ */}
       {!loading && totalMemories === 0 && !hasAnyLessons && (
         <div className="bg-white border border-[#e8e2d9] rounded-2xl p-8 text-center">
-          <span className="text-4xl block mb-4">🌱</span>
-          <p className="text-base font-medium text-[#2d2926] mb-1">
-            {children.length > 0 ? `${children[0].name}'s first seed is planted.` : "Your first seed is planted."}
-          </p>
-          <p className="text-sm text-[#7a6f65] mb-6">
-            Capture a memory to watch it grow.
+          <div className="w-16 h-16 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-5">
+            <span className="text-3xl">📸</span>
+          </div>
+          <h2
+            className="text-xl font-bold text-[#2d2926] mb-2"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            Capture your first memory
+          </h2>
+          <p className="text-sm text-[#7a6f65] max-w-[280px] mx-auto text-center mb-6">
+            A photo, a book they read, a win, a field trip — anything worth remembering.
           </p>
           <button
             type="button"
-            onClick={() => { captureTypeRef.current = "photo"; captureFileRef.current?.click(); }}
-            className="w-full py-3.5 rounded-2xl text-white font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98]"
-            style={{ background: "var(--g-brand)" }}
+            onClick={() => {
+              const fab = document.querySelector<HTMLButtonElement>("[data-fab-trigger]");
+              if (fab) fab.click();
+            }}
+            className="w-full bg-[var(--g-brand)] text-white rounded-xl py-3.5 font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98]"
           >
-            + Capture your first memory
+            + Capture a memory
           </button>
-          <div className="border-t border-[#f0ede8] mt-6 pt-4">
-            <p className="text-xs text-[#b5aca4] mb-3">Also here when you&apos;re ready:</p>
-            <div className="flex flex-col items-center gap-2">
-              <Link href="/dashboard/plan" className="text-xs text-[#9a8f85] hover:text-[#7a6f65] transition-colors">
-                📚 Set up curriculum →
-              </Link>
-              <Link href="/dashboard/memories/yearbook/read" className="text-xs text-[#9a8f85] hover:text-[#7a6f65] transition-colors">
-                📖 View your yearbook →
-              </Link>
-            </div>
-          </div>
+          <p className="text-[11px] text-[#b5aca4] text-center mt-3">
+            This is how your garden, yearbook, and timeline all start growing.
+          </p>
         </div>
       )}
 
