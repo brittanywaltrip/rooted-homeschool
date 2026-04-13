@@ -185,7 +185,7 @@ function FloatingLeaves({ active }: { active: boolean }) {
 type Particle = { id: number; x: number; y: number; color: string; delay: number };
 
 function TodayLessonCard({
-  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, isPartner,
+  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, onMinutesUpdate, isPartner,
 }: {
   lesson:    Lesson;
   childObj:  Child | undefined;
@@ -193,6 +193,7 @@ function TodayLessonCard({
   onEdit:    (lesson: Lesson) => void;
   onDelete:  (id: string) => void;
   onReschedule: (lesson: Lesson) => void;
+  onMinutesUpdate: (id: string, minutes: number) => void;
   isPartner: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -309,7 +310,7 @@ function TodayLessonCard({
                 if (btn) btn.style.display = "";
                 if (val > 0) {
                   await supabase.from("lessons").update({ minutes_spent: val }).eq("id", lesson.id);
-                  setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, minutes_spent: val } : l));
+                  onMinutesUpdate(lesson.id, val);
                 }
               }}
               onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -1889,7 +1890,7 @@ export default function TodayPage() {
                     <TodayLessonCard
                       key={lesson.id} lesson={lesson}
                       childObj={card.id === "__unassigned" ? undefined : childObj}
-                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} isPartner={isPartner}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} onMinutesUpdate={(id, mins) => setLessons(prev => prev.map(l => l.id === id ? { ...l, minutes_spent: mins } : l))} isPartner={isPartner}
                     />
                   ))}
                 </div>
@@ -1998,7 +1999,7 @@ export default function TodayPage() {
                     <TodayLessonCard
                       key={lesson.id} lesson={lesson}
                       childObj={expandedChild === "__unassigned" ? undefined : childObj}
-                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} isPartner={isPartner}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} onMinutesUpdate={(id, mins) => setLessons(prev => prev.map(l => l.id === id ? { ...l, minutes_spent: mins } : l))} isPartner={isPartner}
                     />
                   ))}
                   {/* Extra lesson button — only when all scheduled lessons done */}
