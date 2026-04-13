@@ -517,6 +517,7 @@ export default function TodayPage() {
   const [familyPhotoUrl,         setFamilyPhotoUrl]         = useState<string | null>(null);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [totalMemories, setTotalMemories] = useState(0);
+  const [totalPhotos, setTotalPhotos] = useState(0);
   const [achievementBanner, setAchievementBanner] = useState<{ label: string; childName?: string; isEducator: boolean; extra: number } | null>(null);
   const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
   const [lastMemory, setLastMemory] = useState<{ id: string; type: string; title: string | null; date: string; child_id: string | null; photo_url: string | null } | null>(null);
@@ -561,6 +562,7 @@ export default function TodayPage() {
   const [isListening, setIsListening] = useState(false);
   const [winMinutes, setWinMinutes] = useState("");
   const [ftMinutes, setFtMinutes] = useState("");
+  const [discardConfirm, setDiscardConfirm] = useState<(() => void) | null>(null);
   const [timePill, setTimePill] = useState<{ lessonId: string; minutes: number } | null>(null);
   const [timePillEdit, setTimePillEdit] = useState(false);
   const [timePillValue, setTimePillValue] = useState("");
@@ -834,6 +836,14 @@ export default function TodayPage() {
       .eq("user_id", effectiveUserId)
       .gte("date", syStart);
     setTotalMemories(memCountData?.length ?? 0);
+
+    // ── Photo count for limit nudge ──────────────────────────────────
+    const { data: photoCountData } = await supabase
+      .from("memories")
+      .select("id")
+      .eq("user_id", effectiveUserId)
+      .in("type", ["photo", "drawing"]);
+    setTotalPhotos(photoCountData?.length ?? 0);
 
     // ── Yearbook bookmark count for nudge card ────────────────────────
     const { data: ybCountData } = await supabase
@@ -2911,7 +2921,10 @@ export default function TodayPage() {
       {/* ── Field trip / project sheet ────────────────────── */}
       {showFieldTripSheet && (
         <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); }} />
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => {
+            if (ftTitle.trim() || ftNote.trim()) { setDiscardConfirm(() => () => { setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild(""); setDiscardConfirm(null); }); return; }
+            setShowFieldTripSheet(false); setFtTitle(""); setFtNote(""); setFtChild("");
+          }} />
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
@@ -3005,7 +3018,10 @@ export default function TodayPage() {
       {/* ── Book sheet ────────────────────────────────────── */}
       {showBookModal && (
         <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowBookModal(false)} />
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => {
+            if (bookTitle.trim() || bookAuthor.trim()) { setDiscardConfirm(() => () => { setShowBookModal(false); setBookTitle(""); setBookAuthor(""); setBookChild(""); setDiscardConfirm(null); }); return; }
+            setShowBookModal(false); setBookTitle(""); setBookAuthor(""); setBookChild("");
+          }} />
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
@@ -3230,7 +3246,10 @@ export default function TodayPage() {
       {/* ── Log a Drawing Sheet ──────────────────────────── */}
       {showDrawingSheet && (
         <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowDrawingSheet(false); setDrawingFile(null); setDrawingPreview(null); }} />
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => {
+            if (drawingTitle.trim() || drawingFile) { setDiscardConfirm(() => () => { setShowDrawingSheet(false); setDrawingFile(null); setDrawingPreview(null); setDrawingTitle(""); setDrawingChild(""); setDiscardConfirm(null); }); return; }
+            setShowDrawingSheet(false); setDrawingFile(null); setDrawingPreview(null); setDrawingTitle(""); setDrawingChild("");
+          }} />
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">
@@ -3584,7 +3603,10 @@ export default function TodayPage() {
       {/* ── Log a Win Sheet ──────────────────────────── */}
       {showWinSheet && (
         <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => { setShowWinSheet(false); setWinText(""); setWinChild(""); setWinMinutes(""); }} />
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => {
+            if (winText.trim()) { setDiscardConfirm(() => () => { setShowWinSheet(false); setWinText(""); setWinChild(""); setWinMinutes(""); setDiscardConfirm(null); }); return; }
+            setShowWinSheet(false); setWinText(""); setWinChild(""); setWinMinutes("");
+          }} />
           <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="px-5 pb-5 space-y-4">

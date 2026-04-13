@@ -430,41 +430,7 @@ export default function FamilyViewPage() {
         </div>
       </header>
 
-      {/* ─── Trial-ended overlay ───────────────────────────────────────── */}
-      {trialEnded && !momPaid && (
-        <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center">
-          {/* Blurred memories behind */}
-          <div className="absolute inset-0 bg-[#f8f7f4]" style={{ filter: "blur(8px)", opacity: 0.7 }} />
-          <div className="relative z-10 bg-[#fefcf9] w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4">
-            <div className="text-center space-y-2">
-              <p className="text-3xl">🌿</p>
-              <h2 className="text-lg font-medium text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-                Your free preview of {familyName}&apos;s journey has ended.
-              </h2>
-              {childPills.length > 0 && (
-                <p className="text-sm text-[#7a6f65]">
-                  Want to keep following {childPills.join(" and ")}&apos;s story? You can gift them a full year of Rooted.
-                </p>
-              )}
-            </div>
-            <button
-              onClick={handleGift} disabled={giftLoading}
-              className="w-full py-3.5 rounded-xl text-sm font-medium text-white disabled:opacity-50 transition-all"
-              style={{ backgroundColor: "var(--g-brand)" }}
-            >
-              {giftLoading ? "Loading..." : "Gift them a year — $59 →"}
-            </button>
-            <div className="text-center">
-              <p className="text-xs text-[#7a6f65] mb-1">Or share this page with someone who&apos;d love to give this gift.</p>
-              <button onClick={copyGiftLink} className="text-xs text-[#5c7f63] font-medium underline">
-                {copiedLink ? "Copied!" : "Copy link"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Memory Feed ───────────────────────────────────────────────── */}
+      {/* ─���─ Memory Feed ───────────────────────────────────────────────── */}
       <div className="max-w-[480px] mx-auto px-4 pt-5 space-y-4">
         {memories.length === 0 ? (
           <div className="py-16 text-center">
@@ -592,11 +558,6 @@ export default function FamilyViewPage() {
           <p className="text-xs text-[#7a6f65]">
             You&apos;re following {familyName}&apos;s journey 🌿
           </p>
-          {!trialEnded && !momPaid && trialEndFormatted && (
-            <p className="text-[10px] text-[#b5aca4] mt-0.5">
-              Free preview · through {trialEndFormatted}
-            </p>
-          )}
         </div>
       </div>
 

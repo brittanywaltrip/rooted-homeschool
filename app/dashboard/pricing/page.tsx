@@ -13,11 +13,12 @@ const features: FeatureRow[] = [
   { label: "Daily lesson logging",           free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Garden & growing trees",         free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Unlimited children",             free: "✓",              founding: "✓",            standard: "✓"           },
-  { label: "Photo memories & book log",      free: "50 photos · 30 days", founding: "✓ Unlimited", standard: "✓ Unlimited" },
-  { label: "Full memory history",            free: "—",              founding: "✓",            standard: "✓"           },
+  { label: "Photo memories & book log",      free: "Up to 50 photos",    founding: "✓ Unlimited", standard: "✓ Unlimited" },
+  { label: "Full memory history",            free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "AI Year in Review",              free: "1 / year",       founding: "✓ Unlimited",  standard: "✓ Unlimited" },
-  { label: "Progress reports",   free: "—",              founding: "✓",            standard: "✓"           },
-  { label: "Finish Line curriculum pacing",  free: "—",              founding: "✓",            standard: "✓"           },
+  { label: "Hours & Attendance Log",         free: "View only",      founding: "✓ Download & print", standard: "✓ Download & print" },
+  { label: "Finish Line curriculum pacing",  free: "✓",              founding: "✓",            standard: "✓"           },
+  { label: "Family sharing portal",          free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Priority support",               free: "—",              founding: "✓",            standard: "—"           },
   { label: "Founding price locked forever",  free: "—",              founding: "Forever 🎁",   standard: "—",          foundingOnly: true },
 ];
@@ -71,7 +72,7 @@ export default function DashboardPricingPage() {
         </p>
         <h1 className="text-2xl font-bold text-[#2d2926]">Choose your plan 🌿</h1>
         <p className="text-sm text-[#7a6f65] mt-1">
-          Rooted is free to start. Upgrade for AI features and curriculum pacing.
+          Rooted is free to use. Upgrade for unlimited photos and PDF exports.
         </p>
       </div>
 
@@ -114,7 +115,7 @@ export default function DashboardPricingPage() {
             <span className="text-3xl font-bold text-[#2d2926]">$0</span>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Lesson logging", "Garden", "Unlimited children", "50 photos", "Memories — last 30 days", "1 AI Year in Review / year"].map(f => (
+            {["Lesson logging", "Garden", "Unlimited children", "Up to 50 photos", "Full memory history", "Yearbook", "Family sharing", "Hours & Attendance Log (view)"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}

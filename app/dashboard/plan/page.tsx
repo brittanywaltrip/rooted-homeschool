@@ -693,6 +693,15 @@ export default function PlanPage() {
     return Array.from(map.values()).sort((a, b) => a.curricName.localeCompare(b.curricName));
   })();
 
+  // Expand all curriculum groups by default on first load
+  const curricKeysRef = useRef(false);
+  useEffect(() => {
+    if (!curricKeysRef.current && curricGroups.length > 0) {
+      curricKeysRef.current = true;
+      setExpandedCourses(new Set(curricGroups.map(g => g.key)));
+    }
+  }, [curricGroups]);
+
   // Catch-up: uncompleted lessons before today this week
   const pastIncompleteLessons = lessons.filter(l => {
     const d = l.scheduled_date ?? l.date;
