@@ -2,8 +2,57 @@
 
 import Link from "next/link";
 import HashRedirect from "./components/HashRedirect";
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+
+// ─── Affiliate referral name map ────────────────────────────────────────────
+
+const AFFILIATE_NAMES: Record<string, string> = {
+  AMBER: "Amber",
+  ABBA: "Abba",
+  KENDRA: "Kendra",
+  SABBATH: "Sabbath",
+};
+
+function ReferralBanner() {
+  const searchParams = useSearchParams();
+  const [visible, setVisible] = useState(false);
+  const [code, setCode] = useState("");
+
+  useEffect(() => {
+    const ref = searchParams.get("ref");
+    if (!ref) return;
+    const upper = ref.toUpperCase();
+    setCode(upper);
+    setVisible(true);
+    try { localStorage.setItem("rooted_referral_code", upper); } catch {}
+  }, [searchParams]);
+
+  if (!visible) return null;
+
+  const name = AFFILIATE_NAMES[code];
+
+  return (
+    <div
+      className="w-full flex items-center justify-center gap-3 px-4 py-2.5 text-sm text-white relative"
+      style={{ backgroundColor: "#2D5A3D", zIndex: 100 }}
+    >
+      <span>
+        {name
+          ? `You're using ${name}'s link — use code ${code} at checkout for 15% off 🌿`
+          : `Use code ${code} at checkout for 15% off 🌿`}
+      </span>
+      <button
+        onClick={() => setVisible(false)}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/70 hover:text-white transition-colors text-lg leading-none"
+        aria-label="Dismiss"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
 
 // ─── App mockup components ──────────────────────────────────────────────────
 
@@ -154,6 +203,14 @@ function WaitlistForm() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <HomeInner />
+    </Suspense>
+  );
+}
+
+function HomeInner() {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -164,6 +221,9 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#f8f7f4] text-[#2d2926] overflow-x-hidden">
+
+      {/* ── Referral banner ────────────────────────────────────────────────── */}
+      <ReferralBanner />
 
       {/* ── Inline animations & utilities ──────────────────────────────────── */}
       <style>{`

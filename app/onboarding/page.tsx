@@ -260,7 +260,10 @@ export default function OnboardingPage() {
     const token = (await supabase.auth.getSession()).data.session?.access_token ?? "";
 
     let referredBy: string | undefined;
-    try { const ref = localStorage.getItem("rooted_ref"); if (ref) referredBy = ref.toUpperCase(); } catch {}
+    try {
+      const ref = localStorage.getItem("rooted_referral_code") || localStorage.getItem("rooted_ref");
+      if (ref) referredBy = ref.toUpperCase();
+    } catch {}
 
     await fetch("/api/profile/update", {
       method: "POST",
@@ -271,6 +274,12 @@ export default function OnboardingPage() {
         ...(referredBy ? { referred_by: referredBy } : {}),
       }),
     });
+
+    // Clear referral codes after successful save
+    try {
+      localStorage.removeItem("rooted_referral_code");
+      localStorage.removeItem("rooted_ref");
+    } catch {}
   }, []);
 
   // ── Complete onboarding when celebration step renders ────────────────
