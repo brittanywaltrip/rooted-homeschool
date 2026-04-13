@@ -102,11 +102,11 @@ function CelebrationStep({
   return (
     <div className="min-h-screen bg-[#3e6643] flex flex-col items-center justify-center px-6 py-12">
       <div className="w-full max-w-sm flex flex-col items-center text-center">
-        <img src="/rooted-logo-white.png" alt="rooted." className="h-10 mx-auto mb-6 opacity-90" />
+        <img src="/rooted-logo-white.png" alt="rooted." className="h-16 mx-auto mb-6 opacity-90" />
 
         <p className="text-5xl mb-5">🌿</p>
 
-        <p className="text-white/55 text-base mb-1">Welcome to Rooted</p>
+        <p className="text-white/55 text-base mb-1" style={{ fontFamily: "var(--font-display)" }}>Welcome to Rooted</p>
         <h2
           className="text-white text-3xl font-bold mb-2"
           style={{ fontFamily: "var(--font-display)" }}
