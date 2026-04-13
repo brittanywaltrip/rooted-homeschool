@@ -185,7 +185,7 @@ function UpgradePageInner() {
               <p className="text-sm text-[#7a6f65]">Get started</p>
             </div>
             <ul className="space-y-2 mb-6 flex-1">
-              {['All memory types (photos, books, wins, drawings, field trips)', 'Up to 50 photos', 'Daily lesson tracking', 'Family garden & badges', 'Curated resources', 'Yearbook preview (first 4 spreads)', '1 progress summary per year (view only)'].map(f => (
+              {['All memory types (photos, books, wins, drawings, field trips)', 'Up to 50 photos', 'Daily lesson tracking', 'Family garden & badges', 'Curated resources', 'Yearbook preview (first 4 spreads)'].map(f => (
                 <li key={f} className="flex items-center gap-2 text-sm text-[#7a6f65]">
                   <span className="text-[#c8bfb5] shrink-0">✓</span>{f}
                 </li>
@@ -249,7 +249,7 @@ function UpgradePageInner() {
                 'Everything in Free, plus:',
                 'Unlimited photos — no 50 photo cap',
                 'Hours & Attendance Log — download & print PDF',
-                'Unlimited AI Year in Review summaries',
+                'Full yearbook — all spreads, PDF export',
                 'Priority support from Brittany',
                 'Founding price locked forever 🎁',
               ].map((label) => (
