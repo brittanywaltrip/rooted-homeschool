@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-type View = "form" | "success";
+type View = "form";
 
 export default function ResetPasswordPage() {
   const router  = useRouter();
@@ -75,10 +75,15 @@ export default function ResetPasswordPage() {
 
     setLoading(true);
     const { error } = await supabase.auth.updateUser({ password });
-    setLoading(false);
 
-    if (error) setError(error.message);
-    else setView("success");
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+      return;
+    }
+
+    await supabase.auth.signOut();
+    router.push("/login?passwordReset=true");
   }
 
   return (
@@ -89,25 +94,6 @@ export default function ResetPasswordPage() {
       </Link>
 
       <div className="w-full max-w-sm bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl shadow-sm p-8">
-
-        {/* ── Success ───────────────────────────────────────────────────── */}
-        {view === "success" && (
-          <div className="text-center py-2">
-            <div className="w-14 h-14 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-4">
-              <span className="text-2xl">✅</span>
-            </div>
-            <h1 className="text-xl font-bold text-[#2d2926] mb-2">Password updated!</h1>
-            <p className="text-sm text-[#7a6f65] mb-6">
-              Your password has been changed. You&apos;re now logged in.
-            </p>
-            <button
-              onClick={() => router.push("/dashboard")}
-              className="w-full bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-medium py-3 rounded-xl transition-colors text-sm"
-            >
-              Go to Dashboard
-            </button>
-          </div>
-        )}
 
         {/* ── Invalid / expired link ─────────────────────────────────────── */}
         {view === "form" && tokenErr && (

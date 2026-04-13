@@ -25,6 +25,7 @@ function LoginContent() {
   const [resetEmail, setResetEmail] = useState("");
   const [error,    setError]    = useState("");
   const [loading,  setLoading]  = useState(false);
+  const passwordReset = searchParams.get("passwordReset") === "true";
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -107,6 +108,11 @@ function LoginContent() {
           {/* ── Login form ─────────────────────────────────────────────── */}
           {view === "login" && (
             <>
+              {passwordReset && (
+                <div className="bg-[#e8f0e9] border border-[#c8ddb8] rounded-xl px-4 py-3 mb-5 text-center">
+                  <p className="text-sm font-medium text-[#2d5a3d]">Password updated! Log in with your new password.</p>
+                </div>
+              )}
               <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Welcome back</h1>
               <p className="text-sm text-[#7a6f65] mb-5">Good to see you again.</p>
 
