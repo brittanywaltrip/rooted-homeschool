@@ -7,6 +7,7 @@ import { usePartner } from "@/lib/partner-context";
 import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/GardenScene";
 import PageHero from "@/app/components/PageHero";
 import { checkAndAwardBadges, checkFoundingBadge, ACTIVITY_BADGES } from "@/lib/badges";
+import { posthog } from "@/lib/posthog";
 
 function treeEmoji(leaves: number): string {
   const s = getStageFromLeaves(leaves);
@@ -225,7 +226,7 @@ export default function GardenPage() {
   const todayStr = toDateStr(new Date());
   const activeVacation = vacationBlocks.find((b) => todayStr >= b.start_date && todayStr <= b.end_date) ?? null;
 
-  useEffect(() => { document.title = "Garden \u00b7 Rooted"; localStorage.setItem("rooted_visited_garden", "1"); }, []);
+  useEffect(() => { document.title = "Garden \u00b7 Rooted"; localStorage.setItem("rooted_visited_garden", "1"); posthog.capture('page_viewed', { page: 'garden' }); }, []);
 
   useEffect(() => {
     if (!effectiveUserId) return;

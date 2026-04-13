@@ -198,7 +198,7 @@ export default function PlanPage() {
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const isFreeUser = !planType || planType === "free" || previewFree;
 
-  useEffect(() => { document.title = "Plan · Rooted"; }, []);
+  useEffect(() => { document.title = "Plan · Rooted"; posthog.capture('page_viewed', { page: 'plan' }); }, []);
 
   useEffect(() => {
     if (searchParams.get("openWizard") === "true") {

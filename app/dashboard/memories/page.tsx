@@ -249,7 +249,7 @@ export default function MemoriesPage() {
   const [reflectionDeleteConfirm, setReflectionDeleteConfirm] = useState(false);
   const [savingReflection, setSavingReflection] = useState(false);
 
-  useEffect(() => { document.title = "Memories \u00b7 Rooted"; }, []);
+  useEffect(() => { document.title = "Memories \u00b7 Rooted"; posthog.capture('page_viewed', { page: 'memories' }); }, []);
 
   // ── Load data ───────────────────────────────────────────────────────────────
 

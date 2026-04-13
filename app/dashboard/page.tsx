@@ -454,7 +454,7 @@ export default function TodayPage() {
   const [savingBook,        setSavingBook]        = useState(false);
 
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  useEffect(() => { document.title = "Today \u00b7 Rooted"; }, []);
+  useEffect(() => { document.title = "Today \u00b7 Rooted"; posthog.capture('page_viewed', { page: 'today', user_plan: isPro ? 'paid' : 'free' }); }, [isPro]);
 
   useEffect(() => {
     if (sessionStorage.getItem("setup-banner-dismissed") === "1") setBannerDismissed(true);
@@ -1224,6 +1224,7 @@ export default function TodayPage() {
     setUpcomingLessons((data as unknown as UpcomingLesson[]) ?? []);
     setExtraChecked(new Set());
     setShowExtraLessons(true);
+    posthog.capture('log_extra_lessons_opened', { user_plan: isPro ? 'paid' : 'free' });
   }
 
   async function confirmExtraLessons() {
@@ -1566,6 +1567,7 @@ export default function TodayPage() {
     // Remove from Today view
     setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
     setRescheduleLesson(null);
+    posthog.capture('lesson_rescheduled', { user_plan: isPro ? 'paid' : 'free' });
     const label = targetDate === localDateStr(new Date(new Date().setDate(new Date().getDate() + 1))) ? "Moved to tomorrow" : "Lesson rescheduled";
     showRescheduleUndo(`${label}! Undo?`, [{ lessonId: rescheduleLesson.id, date: originalDate }]);
   }
@@ -1732,6 +1734,7 @@ export default function TodayPage() {
     setBookTitle(""); setBookChild(""); setBookAuthor(""); setBookPages("");
     setBookPhotoFile(null); setBookPhotoPreview(null);
     setSavingBook(false); setShowBookModal(false);
+    posthog.capture('book_logged', { user_plan: isPro ? 'paid' : 'free' });
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
     await loadData();
     checkAndAwardBadges(user.id);
@@ -3038,6 +3041,7 @@ export default function TodayPage() {
                     if (ftErr) { console.error("[Rooted] Field trip save failed:", ftErr.message); setFtSaving(false); showCaptureToast("Save failed — try again", null); return; }
                     console.log("[Rooted] Saved:", ftType, ins);
                     const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
+                    posthog.capture('field_trip_logged', { type: ftType, user_plan: isPro ? 'paid' : 'free' });
                     showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null, ftType, ftChild || null);
                     checkAndAwardBadges(user.id);
                   }
@@ -3758,6 +3762,7 @@ export default function TodayPage() {
                     }
                     console.log("[Rooted] Saved:", winType, ins);
                     setTotalMemories(prev => prev + 1);
+                    posthog.capture('win_logged', { type: winType, user_plan: isPro ? 'paid' : 'free' });
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
                     showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null, winType, winChild || null);
                     checkAndAwardBadges(user.id);
