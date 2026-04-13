@@ -7,6 +7,7 @@ import { Pencil, Trash2, Check, X, Plus, GripVertical, Camera, Sprout } from "lu
 import { supabase } from "@/lib/supabase";
 import { useProfile } from "@/lib/profile-context";
 import { posthog } from "@/lib/posthog";
+import { capitalizeName, capitalizeChildNames } from "@/lib/utils";
 
 function getCurrentSchoolYearLabel(): string {
   const now = new Date();
@@ -281,7 +282,7 @@ export default function SettingsPage() {
       .eq("archived", false)
       .order("sort_order");
 
-    setChildren(kids ?? []);
+    setChildren(capitalizeChildNames(kids ?? []));
     setLoadingChildren(false);
 
     // Load affiliate data if exists
@@ -720,7 +721,7 @@ export default function SettingsPage() {
       .from("children")
       .insert({
         user_id:    user.id,
-        name:       newName.trim(),
+        name:       capitalizeName(newName),
         color:      newColor,
         archived:   false,
         sort_order: maxOrder + 1,
@@ -758,7 +759,7 @@ export default function SettingsPage() {
   }
 
   async function saveEdit(id: string) {
-    const updatedName = editName.trim();
+    const updatedName = capitalizeName(editName);
     if (!updatedName) return;
     const updatedColor = editColor;
 

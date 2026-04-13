@@ -7,6 +7,7 @@ import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import { AWARD_META } from "@/lib/certificate-templates";
 import { posthog } from "@/lib/posthog";
+import { capitalizeChildNames } from "@/lib/utils";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -637,7 +638,7 @@ export default function PrintablesPage() {
         leaves: leafMap[k.id] || 0,
         streak: computeStreak(childDatesMap[k.id] || new Set()),
       }));
-      setChildren(kidsArr);
+      setChildren(capitalizeChildNames(kidsArr));
       if (kidsArr[0]) { setGradChild(kidsArr[0].id); setSubjectChild(kidsArr[0].id); }
 
       const cardMap: Record<string, CardFields> = {};

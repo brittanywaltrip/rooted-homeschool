@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { capitalizeChildNames } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -148,7 +149,7 @@ export default function CalendarPage() {
         .order("start_date"),
     ]);
 
-    setChildren(kids ?? []);
+    setChildren(capitalizeChildNames(kids ?? []));
     setLessons([
       ...((bySched as unknown as Lesson[]) ?? []),
       ...((byDate as unknown as Lesson[]) ?? []),

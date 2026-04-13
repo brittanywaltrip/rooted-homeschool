@@ -8,6 +8,7 @@ import { STAGE_INFO, LEAF_THRESHOLDS, getStageFromLeaves } from "@/components/Ga
 import PageHero from "@/app/components/PageHero";
 import { checkAndAwardBadges, checkFoundingBadge, ACTIVITY_BADGES } from "@/lib/badges";
 import { posthog } from "@/lib/posthog";
+import { capitalizeChildNames } from "@/lib/utils";
 
 function treeEmoji(leaves: number): string {
   const s = getStageFromLeaves(leaves);
@@ -239,7 +240,7 @@ export default function GardenPage() {
         .order("sort_order");
 
       const kids_ = kids ?? [];
-      setChildren(kids_);
+      setChildren(capitalizeChildNames(kids_));
       if (kids_.length > 0) setSelectedId(kids_[0].id);
 
       const [{ data: completed }, { data: activityEvents }, { data: memoryRows }, { data: vacBlocks }, { data: profile }] = await Promise.all([

@@ -10,6 +10,7 @@ import PageHero from "@/app/components/PageHero";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
 import Toast from "@/components/Toast";
 import { posthog } from "@/lib/posthog";
+import { capitalizeChildNames } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -264,7 +265,7 @@ export default function PlanPage() {
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
     setProfileSchoolDays((profile as { school_days?: string[] } | null)?.school_days ?? []);
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
-    setChildren(kids ?? []);
+    setChildren(capitalizeChildNames(kids ?? []));
     setSubjects((subs as Subject[]) ?? []);
     setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
     setLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { capitalizeChildNames } from "@/lib/utils";
 import { compressImage } from "@/lib/compress-image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -228,7 +229,7 @@ export default function YearbookEditPage() {
       ]);
 
       const childList = (kids ?? []) as Child[];
-      setChildren(childList);
+      setChildren(capitalizeChildNames(childList));
       setQuoteMemories((quotes ?? []) as MemoryRow[]);
       setBookmarkedMemories((bookmarked ?? []) as MemoryRow[]);
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
+import { capitalizeName } from '@/lib/utils'
 
 export async function POST(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
       .map((c: { name: string; color: string; avatar_url?: string }, i: number) => {
         const row: Record<string, unknown> = {
           user_id:    user.id,
-          name:       c.name.trim(),
+          name:       capitalizeName(c.name),
           color:      c.color,
           sort_order: i + 1,
           archived:   false,

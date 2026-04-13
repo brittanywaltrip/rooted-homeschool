@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSwipeable } from "react-swipeable";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { capitalizeChildNames } from "@/lib/utils";
 import Link from "next/link";
 import {
   buildYearInNumbersSpread,
@@ -280,7 +281,7 @@ export default function YearbookReadPage() {
       ]);
 
       setMemories((mems ?? []) as MemoryRow[]);
-      setChildren((kids ?? []) as Child[]);
+      setChildren(capitalizeChildNames((kids ?? []) as Child[]));
 
       const cMap: Record<string, string> = {};
       for (const r of (ybRows ?? []) as YearbookContentRow[]) {

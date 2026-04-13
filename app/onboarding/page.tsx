@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Camera, Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
+import { capitalizeName } from "@/lib/utils";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -298,7 +299,7 @@ export default function OnboardingPage() {
         .from("children")
         .insert({
           user_id: userId,
-          name: filled[i].name.trim(),
+          name: capitalizeName(filled[i].name),
           color: filled[i].color,
           sort_order: i + 1,
           archived: false,

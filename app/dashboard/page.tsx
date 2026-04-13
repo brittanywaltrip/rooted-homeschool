@@ -12,6 +12,7 @@ import { checkAndAwardBadges } from "@/lib/badges";
 import { compressImage } from "@/lib/compress-image";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
+import { capitalizeChildNames } from "@/lib/utils";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -735,7 +736,7 @@ export default function TodayPage() {
     const { data: childrenData } = await supabase
       .from("children").select("id, name, color, birthday")
       .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order");
-    setChildren(childrenData ?? []);
+    setChildren(capitalizeChildNames(childrenData ?? []));
 
     const [{ data: lessonsData }, { data: allLessonsData }] = await Promise.all([
       supabase

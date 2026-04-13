@@ -12,6 +12,7 @@ import { BadgeNotificationListener } from "@/components/BadgeNotification";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { compressImage } from "@/lib/compress-image";
 import { DashboardLayoutProvider, useDashboardLayout } from "@/lib/dashboard-layout-context";
+import { capitalizeChildNames } from "@/lib/utils";
 
 const navItems = [
   { label: "Today",     href: "/dashboard",           icon: Sun      },
@@ -213,7 +214,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     const { data } = await supabase
       .from("children").select("id, name, color")
       .eq("user_id", partnerCtx.effectiveUserId).eq("archived", false).order("sort_order");
-    setFabKids((data as FabChild[]) ?? []);
+    setFabKids(capitalizeChildNames((data as FabChild[]) ?? []));
   }, [partnerCtx.effectiveUserId, partnerCtx.isPartner]);
   useEffect(() => { if (!checking) loadFabKids(); }, [checking, loadFabKids]);
 

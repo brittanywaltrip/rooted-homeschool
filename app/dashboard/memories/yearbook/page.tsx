@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { capitalizeChildNames } from "@/lib/utils";
 import PageHero from "@/app/components/PageHero";
 import YearbookBookmark from "@/app/components/YearbookBookmark";
 
@@ -119,7 +120,7 @@ export default function YearbookPage() {
 
     setMemories((mems ?? []) as MemoryRow[]);
     const childList = (kids ?? []) as Child[];
-    setChildren(childList);
+    setChildren(capitalizeChildNames(childList));
 
     // Compute filled count
     const rows = (ybContent ?? []) as YearbookContentRow[];

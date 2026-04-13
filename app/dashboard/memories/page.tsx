@@ -12,6 +12,7 @@ import UpgradePrompt from "@/components/UpgradePrompt";
 import MilestonePrompt from "@/components/MilestonePrompt";
 import { compressImage } from "@/lib/compress-image";
 import { posthog } from "@/lib/posthog";
+import { capitalizeChildNames } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -289,7 +290,7 @@ export default function MemoriesPage() {
         .order("date", { ascending: false }),
     ]);
 
-    setChildren(kids ?? []);
+    setChildren(capitalizeChildNames(kids ?? []));
     setReflections((reflData as unknown as Reflection[]) ?? []);
 
     // If memories table has data, use it. Otherwise fall back to app_events.

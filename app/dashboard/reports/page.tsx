@@ -6,6 +6,7 @@ import { FileText, Printer, Calendar, Clock, BookOpen, CheckSquare } from "lucid
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
+import { capitalizeChildNames } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -228,7 +229,7 @@ export default function ReportsPage() {
         supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
       ]);
 
-      setChildren(kids ?? []);
+      setChildren(capitalizeChildNames(kids ?? []));
       setSubjects(subjs ?? []);
       setLessons((lessons_ as unknown as Lesson[]) ?? []);
       setAttendance((att as unknown as Attendance[]) ?? []);
