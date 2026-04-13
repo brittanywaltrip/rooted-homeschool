@@ -163,6 +163,7 @@ export default function CurriculumWizard({
   const [lessonsPerDay, setLessonsPerDay] = useState("1");
   const [defaultMinutes, setDefaultMinutes] = useState("30");
   const [targetDate, setTargetDate] = useState(editData?.targetDate ?? "");
+  const [startDate, setStartDate] = useState(() => toDateStr(new Date()));
 
   // Track curricula saved so far for the current child (for "Added so far" pills)
   const [savedForThisChild, setSavedForThisChild] = useState<Array<{ name: string; lessons: string }>>([]);
@@ -185,14 +186,16 @@ export default function CurriculumWizard({
   const perDayNum        = parseInt(lessonsPerDay) || 1;
   const otherSubjValid   = subject !== "Other" || customSubject.trim().length > 0;
   const step2Valid       = curricName.trim().length > 0 && totalLessons.trim().length > 0 && totalNum > 0 && otherSubjValid;
-  const step3Valid       = schoolDays.some(Boolean) && perDayNum > 0;
+  const step3Valid       = schoolDays.some(Boolean) && perDayNum > 0 && !!startDate;
+
+  const startDateObj = startDate ? new Date(startDate + "T00:00:00") : todayMidnight;
 
   function calcFinishDate(perDay?: number): string {
     const pd = perDay ?? perDayNum;
     if (remaining === 0 || pd <= 0 || !schoolDays.some(Boolean)) return "";
     const daysNeeded = Math.ceil(remaining / pd);
     let cnt = 0;
-    const cursor = new Date(todayMidnight);
+    const cursor = new Date(startDateObj);
     let safety = 0;
     while (cnt < daysNeeded && safety < 3650) {
       const dayIdx = (cursor.getDay() + 6) % 7;
@@ -206,10 +209,10 @@ export default function CurriculumWizard({
   function calcRequiredPerDay(): number | null {
     if (!targetDate || !schoolDays.some(Boolean)) return null;
     const goal = new Date(targetDate + "T00:00:00");
-    if (isNaN(goal.getTime()) || goal < todayMidnight) return null;
+    if (isNaN(goal.getTime()) || goal < startDateObj) return null;
     if (remaining === 0) return null;
     let schoolDayCount = 0;
-    const cursor = new Date(todayMidnight);
+    const cursor = new Date(startDateObj);
     let safety = 0;
     while (cursor <= goal && safety < 3650) {
       const dayIdx = (cursor.getDay() + 6) % 7;
@@ -264,6 +267,7 @@ export default function CurriculumWizard({
         total_lessons: totalNum,
         current_lesson: startNum - 1,
         target_date: targetDate || null,
+        start_date: startDate || null,
         school_days: booleanToDays(schoolDays),
         default_minutes: parseInt(defaultMinutes) || 30,
         updated_at: new Date().toISOString(),
@@ -280,10 +284,10 @@ export default function CurriculumWizard({
       .eq("user_id", user.id);
     const vacBlockList = (vacBlocks ?? []) as { start_date: string; end_date: string }[];
 
-    // Build schedule
+    // Build schedule from user-selected start date
     const rows: { date: string; n: number }[] = [];
     let lessonNum = startNum;
-    const cursor = new Date(todayMidnight);
+    const cursor = new Date(startDateObj);
     let safety = 0;
     while (lessonNum <= totalNum && safety < 3650) {
       const dayIdx = (cursor.getDay() + 6) % 7;
@@ -368,6 +372,7 @@ export default function CurriculumWizard({
         total_lessons: totalNum,
         current_lesson: parseInt(startLesson) || 0,
         target_date: targetDate || null,
+        start_date: startDate || null,
         school_days: booleanToDays(schoolDays),
         default_minutes: parseInt(defaultMinutes) || 30,
         updated_at: new Date().toISOString(),
@@ -390,6 +395,7 @@ export default function CurriculumWizard({
           total_lessons: totalNum,
           current_lesson: parseInt(startLesson) || 0,
           target_date: targetDate || null,
+          start_date: startDate || null,
           school_days: booleanToDays(schoolDays),
           default_minutes: parseInt(defaultMinutes) || 30,
           updated_at: new Date().toISOString(),
@@ -467,7 +473,7 @@ export default function CurriculumWizard({
 
     if (futureLessons.length > 0) {
       const updates: { id: string; date: string }[] = [];
-      const cursor = new Date(todayMidnight);
+      const cursor = new Date(startDateObj);
       for (const lesson of futureLessons) {
         let safety = 0;
         while (safety < 3650) {
@@ -885,6 +891,15 @@ export default function CurriculumWizard({
                   {label}
                 </button>
               ))}
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">
+                Start date
+              </label>
+              <input value={startDate} onChange={(e) => setStartDate(e.target.value)} type="date"
+                max={toDateStr((() => { const d = new Date(); d.setFullYear(d.getFullYear() + 2); return d; })())}
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
             </div>
 
             <div>
