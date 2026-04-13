@@ -27,11 +27,12 @@ export async function GET(req: NextRequest) {
     .gte("trial_ends_at", now.toISOString())
     .lte("trial_ends_at", threeDaysFromNow);
 
-  if (!invites || invites.length === 0) {
+  const safeInvites = invites ?? [];
+  if (safeInvites.length === 0) {
     return NextResponse.json({ sent: 0 });
   }
 
-  for (const inv of invites) {
+  for (const inv of safeInvites) {
     if (!inv.email) continue;
 
     // Check if mom is paid — if paid, no warning needed
