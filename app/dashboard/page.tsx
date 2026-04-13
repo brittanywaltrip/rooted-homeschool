@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { compressImage } from "@/lib/compress-image";
+import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
 // PageHero removed — replaced by Book Cover Card
 
@@ -419,6 +420,7 @@ export default function TodayPage() {
   const router = useRouter();
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const { isPartner, effectiveUserId } = usePartner();
+  const { setHideFab } = useDashboardLayout();
 
   // Family activity notifications
   const [familyNotifs, setFamilyNotifs] = useState<FamilyNotification[]>([]);
@@ -573,6 +575,12 @@ export default function TodayPage() {
     lessons: { title: string; childId: string | null; subjectName: string | null }[];
   } | null>(null);
   const [upcomingDays,           setUpcomingDays]           = useState<{ date: string; count: number }[]>([]);
+
+  // ── Hide FAB when new-user empty state is showing ─────────────────────────
+  useEffect(() => {
+    setHideFab(!loading && totalMemories === 0 && !hasAnyLessons);
+    return () => setHideFab(false);
+  }, [loading, totalMemories, hasAnyLessons, setHideFab]);
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 

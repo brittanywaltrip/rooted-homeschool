@@ -11,6 +11,7 @@ import { ProfileProvider, useProfile } from "@/lib/profile-context";
 import { BadgeNotificationListener } from "@/components/BadgeNotification";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { compressImage } from "@/lib/compress-image";
+import { DashboardLayoutProvider, useDashboardLayout } from "@/lib/dashboard-layout-context";
 
 const navItems = [
   { label: "Today",     href: "/dashboard",           icon: Sun      },
@@ -66,7 +67,9 @@ function nameInitial(name: string): string {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <ProfileProvider>
-      <DashboardLayoutInner>{children}</DashboardLayoutInner>
+      <DashboardLayoutProvider>
+        <DashboardLayoutInner>{children}</DashboardLayoutInner>
+      </DashboardLayoutProvider>
     </ProfileProvider>
   );
 }
@@ -77,6 +80,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
   const { displayName: profileName, familyPhotoUrl: ctxPhotoUrl } = useProfile();
+  const { hideFab } = useDashboardLayout();
   const [checking,  setChecking]  = useState(true);
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [isAdmin,   setIsAdmin]   = useState(false);
@@ -500,7 +504,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
 
         {/* ── Floating Camera FAB ────────────────────────────────── */}
-        {!partnerCtx.isPartner && !fabUrl && (
+        {!partnerCtx.isPartner && !fabUrl && !hideFab && (
           <button onClick={openFabPicker}
             className="fixed bottom-28 right-4 md:bottom-6 md:right-6 z-50 w-14 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 shadow-lg active:scale-90 transition-all hover:shadow-xl"
             style={{ backgroundColor: "var(--g-brand)" }} aria-label="Quick photo" data-fab-trigger>
