@@ -100,19 +100,52 @@ function lastDayOfMonth(year: number, month: number, dayOfWeek: number): number 
   return last;
 }
 
+/** Compute Easter Sunday via the Anonymous Gregorian algorithm */
+function computeEaster(year: number): { month: number; day: number } {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31) - 1; // 0-indexed
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return { month, day };
+}
+
 function getUSHolidays(year: number): Record<string, string> {
   const fmt = (m: number, d: number) => `${year}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const easter = computeEaster(year);
   return {
-    [fmt(0, 1)]: "New Year\u2019s Day",
-    [fmt(0, nthDayOfMonth(year, 0, 1, 3))]: "MLK Day",
-    [fmt(1, nthDayOfMonth(year, 1, 1, 3))]: "Presidents\u2019 Day",
-    [fmt(4, lastDayOfMonth(year, 4, 1))]: "Memorial Day",
-    [fmt(6, 4)]: "Independence Day",
-    [fmt(8, nthDayOfMonth(year, 8, 1, 1))]: "Labor Day",
-    [fmt(9, nthDayOfMonth(year, 9, 1, 2))]: "Columbus Day",
-    [fmt(10, 11)]: "Veterans Day",
-    [fmt(10, nthDayOfMonth(year, 10, 4, 4))]: "Thanksgiving",
-    [fmt(11, 25)]: "Christmas",
+    // Fixed-date holidays
+    [fmt(0, 1)]:   "\uD83C\uDF89 New Year\u2019s Day",
+    [fmt(1, 2)]:   "\uD83E\uDDAB Groundhog Day",
+    [fmt(1, 14)]:  "\uD83D\uDC95 Valentine\u2019s Day",
+    [fmt(2, 17)]:  "\u2618\uFE0F St. Patrick\u2019s Day",
+    [fmt(3, 22)]:  "\uD83C\uDF0E Earth Day",
+    [fmt(4, 5)]:   "\uD83C\uDF8A Cinco de Mayo",
+    [fmt(5, 19)]:  "\u270A Juneteenth",
+    [fmt(6, 4)]:   "\uD83C\uDDFA\uD83C\uDDF8 4th of July",
+    [fmt(9, 31)]:  "\uD83C\uDF83 Halloween",
+    [fmt(10, 11)]: "\uD83C\uDDFA\uD83C\uDDF8 Veterans Day",
+    [fmt(11, 25)]: "\uD83C\uDF84 Christmas",
+    [fmt(11, 31)]: "\uD83C\uDF86 New Year\u2019s Eve",
+
+    // Dynamically computed moving holidays
+    [fmt(0, nthDayOfMonth(year, 0, 1, 3))]:  "\u270A MLK Day",
+    [fmt(1, nthDayOfMonth(year, 1, 1, 3))]:  "\uD83C\uDDFA\uD83C\uDDF8 Presidents\u2019 Day",
+    [fmt(easter.month, easter.day)]:          "\uD83D\uDC23 Easter",
+    [fmt(4, nthDayOfMonth(year, 4, 0, 2))]:  "\uD83D\uDC90 Mother\u2019s Day",
+    [fmt(4, lastDayOfMonth(year, 4, 1))]:     "\uD83C\uDDFA\uD83C\uDDF8 Memorial Day",
+    [fmt(5, nthDayOfMonth(year, 5, 0, 3))]:  "\uD83D\uDC54 Father\u2019s Day",
+    [fmt(8, nthDayOfMonth(year, 8, 1, 1))]:  "\uD83D\uDCDA Labor Day",
+    [fmt(10, nthDayOfMonth(year, 10, 4, 4))]: "\uD83E\uDD83 Thanksgiving",
   };
 }
 
@@ -1228,6 +1261,9 @@ export default function PlanPage() {
             </button>
           </div>
 
+          {/* Instruction hint */}
+          <p style={{ fontSize: 12, color: "#8B7E74", textAlign: "center", marginBottom: 8 }}>Tap any day to see details</p>
+
           {/* Day-of-week headers */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, marginBottom: 4 }}>
             {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
@@ -1311,8 +1347,8 @@ export default function PlanPage() {
                   if (isVacation) {
                     bg = "#fef3e0";
                     border = "0.5px solid #f0c878";
-                  } else if (holiday && totalItems === 0) {
-                    bg = "#f5f5fa";
+                  } else if (holiday) {
+                    bg = totalItems >= 1 ? "#f0f7f2" : "#fef9f0";
                   } else if (totalItems >= 5) {
                     bg = "#fef9ee";
                   } else if (totalItems >= 3) {
@@ -1368,7 +1404,7 @@ export default function PlanPage() {
                             </span>
                           ) : null}
                           {holiday && !isVacation && (
-                            <span style={{ fontSize: 6, color: "#8B7E74", fontStyle: "italic", lineHeight: 1, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{holiday}</span>
+                            <span style={{ fontSize: 9, lineHeight: 1, textAlign: "center" }}>{holiday.split(" ")[0]}</span>
                           )}
                         </div>
                       </button>
@@ -1453,12 +1489,12 @@ export default function PlanPage() {
       </div>
 
       {/* ══════════════════════════════════════════════════
-          SECTION — YOUR COURSES
+          SECTION — CURRICULUM
       ══════════════════════════════════════════════════ */}
       {!isPartner && !loading && (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
-            Course Progress
+            Curriculum
           </p>
           {curricGroups.length === 0 && (
             <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center mb-2">
