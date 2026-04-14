@@ -3406,67 +3406,40 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* ── Capture menu bottom sheet ───────────────────── */}
+      {/* ── Capture menu bottom sheet — 3×2 grid ─────────── */}
       {showCaptureMenu && (
         <>
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowCaptureMenu(false)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-xl" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="flex items-center justify-between px-5 pb-2">
-              <h2 className="font-bold text-[#2d2926] text-sm">Capture a memory</h2>
-              <button onClick={() => setShowCaptureMenu(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+              <h2 className="text-[18px] font-bold text-[#2D2A26]">Capture a memory</h2>
+              <button onClick={() => setShowCaptureMenu(false)} className="w-8 h-8 rounded-full bg-[#f2f0ec] flex items-center justify-center text-[#8B7E74] hover:bg-[#e8e5e0] text-sm transition-colors">✕</button>
             </div>
-            <div className="px-4 pb-6 space-y-1">
-              <button
-                onClick={() => { setShowCaptureMenu(false); captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); }}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
-              >
-                <span className="text-2xl">📸</span>
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Photo</p>
-                  <p className="text-xs text-[#7a6f65]">Snap something to remember</p>
-                </div>
-              </button>
-              <button
-                onClick={() => { setShowCaptureMenu(false); setShowDrawingSheet(true); }}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
-              >
-                <span className="text-2xl">🎨</span>
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Drawing or artwork</p>
-                  <p className="text-xs text-[#7a6f65]">Keep one before it gets lost</p>
-                </div>
-              </button>
-              <button
-                onClick={() => { setShowCaptureMenu(false); setShowWinSheet(true); }}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
-              >
-                <span className="text-2xl">✍️</span>
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Win or moment</p>
-                  <p className="text-xs text-[#7a6f65]">Type or speak it out loud</p>
-                </div>
-              </button>
-              <button
-                onClick={() => { setShowCaptureMenu(false); setShowBookModal(true); }}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
-              >
-                <span className="text-2xl">📖</span>
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Book</p>
-                  <p className="text-xs text-[#7a6f65]">Log what they&apos;re reading</p>
-                </div>
-              </button>
-              <button
-                onClick={() => { setShowCaptureMenu(false); setShowFieldTripSheet(true); }}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
-              >
-                <span className="text-2xl">🌿</span>
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Field trip or project</p>
-                  <p className="text-xs text-[#7a6f65]">Document something they did</p>
-                </div>
-              </button>
+            {/* Leaf banner */}
+            <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mx-4 mb-2">
+              <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Every memory earns a leaf for your garden!</span>
+            </div>
+            {/* 3×2 grid */}
+            <div className="grid grid-cols-3 gap-2.5 px-4 pb-6">
+              {([
+                { emoji: "📸", label: "Photo",      sub: "Snap a moment",      action: () => { setShowCaptureMenu(false); captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); } },
+                { emoji: "🎨", label: "Drawing",    sub: "Save their art",     action: () => { setShowCaptureMenu(false); setShowDrawingSheet(true); } },
+                { emoji: "🏆", label: "Win",        sub: "Celebrate a win",    action: () => { setShowCaptureMenu(false); setShowWinSheet(true); } },
+                { emoji: "📖", label: "Book",       sub: "Log a read",         action: () => { setShowCaptureMenu(false); setShowBookModal(true); } },
+                { emoji: "🗺️", label: "Field Trip", sub: "We went somewhere",  action: () => { setShowCaptureMenu(false); setFtType("field_trip"); setShowFieldTripSheet(true); } },
+                { emoji: "🔨", label: "Project",    sub: "We made something",  action: () => { setShowCaptureMenu(false); setFtType("project"); setShowFieldTripSheet(true); } },
+              ] as const).map(tile => (
+                <button
+                  key={tile.label}
+                  onClick={tile.action}
+                  className="flex flex-col items-center justify-center py-5 px-2.5 rounded-2xl border-[1.5px] border-[#e8e5e0] bg-[#fafaf8] hover:border-[#2D5A3D] hover:bg-[#f0f7f2] transition-colors text-center"
+                >
+                  <span className="text-[28px] mb-1.5">{tile.emoji}</span>
+                  <span className="text-[13px] font-semibold text-[#2D2A26]">{tile.label}</span>
+                  <span className="text-[10px] text-[#8B7E74]">{tile.sub}</span>
+                </button>
+              ))}
             </div>
           </div>
         </>
@@ -3633,9 +3606,13 @@ export default function TodayPage() {
                   setFtTitle(""); setFtNote(""); setFtChild(""); setFtMinutes("");
                   await loadData();
                 }}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors">
-                {ftSaving ? "Saving…" : "Save"}
+                className="flex-1 py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors">
+                {ftSaving ? "Saving…" : ftType === "project" ? "Save Project 🌿" : "Save Field Trip 🌿"}
               </button>
+            </div>
+            {/* Leaf hint */}
+            <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mt-3">
+              <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
             </div>
             </div>
           </div>
@@ -3708,12 +3685,12 @@ export default function TodayPage() {
                   </button>
                 )}
               </div>
-              <p className="text-xs text-[#5c7f63] italic text-center">
-                🌿 Earn a leaf for your garden!
-              </p>
+              <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center">
+                <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
+              </div>
               <button onClick={saveBook} disabled={savingBook || !bookTitle.trim()}
-                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
-                {savingBook ? "Saving…" : "Log Book 🍃"}
+                className="w-full py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors">
+                {savingBook ? "Saving…" : "Log Book 🌿"}
               </button>
             </div>
           </div>
@@ -3928,12 +3905,12 @@ export default function TodayPage() {
                   </select>
                 </div>
               )}
-              <p className="text-xs text-[#5c7f63] italic text-center">
-                🌿 Earn a leaf for your garden!
-              </p>
+              <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center">
+                <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
+              </div>
               <button onClick={saveDrawing} disabled={savingDrawing || !drawingTitle.trim()}
-                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
-                {savingDrawing ? "Saving…" : "Save Drawing 🎨"}
+                className="w-full py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors">
+                {savingDrawing ? "Saving…" : "Save Drawing 🌿"}
               </button>
             </div>
           </div>
@@ -4366,10 +4343,13 @@ export default function TodayPage() {
                   }
                 }}
                 disabled={savingWin || !winText.trim()}
-                className="w-full py-3 rounded-xl bg-[var(--g-brand)] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                className="w-full py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors"
               >
-                {savingWin ? "Saving..." : "Save"}
+                {savingWin ? "Saving..." : "Save Win 🌿"}
               </button>
+              <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mt-3">
+                <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
+              </div>
             </div>
           </div>
         </>
