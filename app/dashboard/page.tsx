@@ -2430,7 +2430,7 @@ export default function TodayPage() {
 
         const n = nudge;
         return (
-          <div key={n.key} className="bg-white border border-[#e8e2d9] rounded-2xl p-5 relative">
+          <div key={n.key} className="bg-white border border-[#e8e2d9] rounded-2xl p-6 text-center relative">
             <button
               type="button"
               onClick={() => { localStorage.setItem(n.lsKey, "1"); forceUpdate(prev => prev + 1); }}
@@ -2439,31 +2439,27 @@ export default function TodayPage() {
             >
               ✕
             </button>
-            <div className="flex items-start gap-4">
-              <div className="w-11 h-11 rounded-full bg-[#e8f0e9] flex items-center justify-center shrink-0">
-                <span className="text-xl">{n.emoji}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[15px] font-semibold text-[#1a2c22] mb-1">{n.title}</p>
-                <p className="text-[13px] text-[#7a6f65] leading-relaxed mb-3">{n.body}</p>
-                <Link
-                  href={n.href}
-                  onClick={() => localStorage.setItem(n.lsKey, "1")}
-                  className="inline-block text-[14px] font-semibold text-[#2D5A3D] hover:text-[var(--g-deep)] transition-colors"
-                >
-                  Let&apos;s go &rarr;
-                </Link>
-                {n.dismiss && (
-                  <button
-                    type="button"
-                    onClick={() => { localStorage.setItem(n.dismiss!.lsKey, "1"); forceUpdate(prev => prev + 1); }}
-                    className="block text-[13px] text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-1.5"
-                  >
-                    {n.dismiss.label}
-                  </button>
-                )}
-              </div>
+            <div className="w-14 h-14 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-4">
+              <span className="text-2xl">{n.emoji}</span>
             </div>
+            <p className="text-[18px] font-semibold text-[#1a2c22] mb-1" style={{ fontFamily: "var(--font-display)" }}>{n.title}</p>
+            <p className="text-[13px] text-[#7a6f65] leading-relaxed max-w-[280px] mx-auto mb-5">{n.body}</p>
+            <Link
+              href={n.href}
+              onClick={() => localStorage.setItem(n.lsKey, "1")}
+              className="block w-full bg-[#2D5A3D] text-white rounded-xl py-3.5 font-semibold text-[15px] hover:opacity-90 transition-colors"
+            >
+              Let&apos;s go &rarr;
+            </Link>
+            {n.dismiss && (
+              <button
+                type="button"
+                onClick={() => { localStorage.setItem(n.dismiss!.lsKey, "1"); forceUpdate(prev => prev + 1); }}
+                className="text-[12px] text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-3"
+              >
+                {n.dismiss.label}
+              </button>
+            )}
           </div>
         );
       })()}
