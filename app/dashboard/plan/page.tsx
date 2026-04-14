@@ -1290,11 +1290,12 @@ export default function PlanPage() {
               let border = "none";
               let opacity = 1;
 
-              if (isVacation) {
+              if (isToday) {
+                bg = "#2D5A3D";
+                if (isVacation) border = "2px solid #f0c878";
+              } else if (isVacation) {
                 bg = "#fff8f0";
                 border = "0.5px solid #f0c878";
-              } else if (isToday) {
-                bg = "#2D5A3D";
               } else if (isSelected) {
                 bg = "#f4faf0";
                 border = "1.5px solid var(--g-brand)";
@@ -2264,7 +2265,7 @@ export default function PlanPage() {
           userId={effectiveUserId}
           activeYearName={schoolYears.active?.name}
           onClose={() => setShowCreateYear(false)}
-          onCreated={() => { schoolYears.reload(); }}
+          onCreated={() => { schoolYears.reload(); setYearView("next"); }}
         />
       )}
       {showActivityModal && (
