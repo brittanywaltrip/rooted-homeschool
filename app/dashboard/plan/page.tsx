@@ -317,6 +317,25 @@ export default function PlanPage() {
     }
   }
 
+  // Jump calendar to the relevant school year's start date when switching tabs
+  useEffect(() => {
+    if (yearView === "next" && schoolYears.upcoming?.start_date) {
+      const startDate = new Date(schoolYears.upcoming.start_date + "T00:00:00");
+      setWeekStart(getMondayOf(startDate));
+      const monthOf = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      monthOf.setHours(0, 0, 0, 0);
+      setMonthStart(monthOf);
+      setSelectedDay(schoolYears.upcoming.start_date);
+    } else if (yearView === "this") {
+      const now = new Date();
+      setWeekStart(getMondayOf(now));
+      const monthOf = new Date(now.getFullYear(), now.getMonth(), 1);
+      monthOf.setHours(0, 0, 0, 0);
+      setMonthStart(monthOf);
+      setSelectedDay(toDateStr(now));
+    }
+  }, [yearView, schoolYears.upcoming?.start_date]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => { document.title = "Plan · Rooted"; posthog.capture('page_viewed', { page: 'plan' }); }, []);
 
   useEffect(() => {
