@@ -548,6 +548,7 @@ export default function TodayPage() {
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
   const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
+  const [schoolStartTime,        setSchoolStartTime]        = useState<string | null>(null);
   // memoryMoment removed — replaced by onThisDayMemory and lastMemory
   const [lightboxMemory, setLightboxMemory] = useState<{ id: string; title: string; photo_url: string | null; date: string; type: string } | null>(null);
   const [streak,                 setStreak]                 = useState(0);
@@ -715,7 +716,7 @@ export default function TodayPage() {
     try {
 
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("profiles").select("is_pro, plan_type").eq("id", effectiveUserId).single(),
     ]);
@@ -733,6 +734,7 @@ export default function TodayPage() {
     // Check if today is a school day
     const schoolDays: string[] = (profile as { school_days?: string[] } | null)?.school_days ?? [];
     setSchoolDaysArr(schoolDays);
+    setSchoolStartTime((profile as { school_start_time?: string } | null)?.school_start_time ?? null);
     if (schoolDays.length > 0) {
       const todayDayName = new Date().toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       setIsSchoolDay(schoolDays.includes(todayDayName));
@@ -2306,69 +2308,11 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          CAPTURE CARD — unified for new and existing users
+          SCHEDULE — label + card
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && !isPartner && (
-        <div className="bg-white border border-[#e8e2d9] rounded-2xl p-8 text-center">
-          <div className="w-16 h-16 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-5">
-            <span className="text-3xl">📸</span>
-          </div>
-          <h2
-            className="text-xl font-bold text-[#2d2926] mb-2"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            {totalMemories === 0 ? "Capture your first memory" : "Capture a memory today"}
-          </h2>
-          <p className="text-sm text-[#7a6f65] max-w-[280px] mx-auto text-center mb-6">
-            {totalMemories === 0
-              ? "A photo, a book they read, a win, a field trip — anything worth remembering."
-              : "A drawing, a funny moment, a book they finished, a field trip — the little things add up."}
-          </p>
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-            style={{ background: "var(--g-brand)" }}
-          >
-            ✚ Capture a memory
-          </button>
-          {totalMemories === 0 && (
-            <p className="text-[11px] text-[#b5aca4] text-center mt-3">
-              This is how your garden, yearbook, and timeline all start growing.
-            </p>
-          )}
-        </div>
+      {(hasAnyLessons || todayActivities.length > 0) && (
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] px-0.5 -mb-1">Today&apos;s Schedule</p>
       )}
-
-      {/* ═══════════════════════════════════════════════════════════
-          YEARBOOK NUDGE — once per week
-         ═══════════════════════════════════════════════════════════ */}
-      {yearbookCount > 0 && (() => {
-        const lastShown = typeof window !== "undefined" ? localStorage.getItem("yearbook_nudge_shown") : null;
-        const now = new Date();
-        const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
-        const weekKey = weekStart.toISOString().slice(0, 10);
-        if (lastShown === weekKey) return null;
-        return (
-          <button
-            onClick={() => {
-              localStorage.setItem("yearbook_nudge_shown", weekKey);
-              router.push("/dashboard/memories/yearbook");
-            }}
-            className="w-full bg-[#faf6f0] border border-[#c0dd97] rounded-xl p-3 flex items-center gap-3 cursor-pointer text-left hover:bg-[#f5f0e8] transition-colors"
-          >
-            <span className="text-[20px]">📖</span>
-            <div>
-              <p className="text-[12px] text-[#5c7f63] font-medium">
-                Your yearbook has {yearbookCount} memor{yearbookCount === 1 ? "y" : "ies"} so far this year
-              </p>
-              <p className="text-[11px] text-[#9a8f85]">
-                Tap to open your family yearbook →
-              </p>
-            </div>
-          </button>
-        );
-      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           SCHEDULE CARD — checklist or timeline + activities
@@ -2419,13 +2363,9 @@ export default function TodayPage() {
         };
 
         return (
-          <div className="bg-white border border-[#e8e2d9] rounded-2xl overflow-hidden">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between px-5 pt-4 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-base">📚</span>
-                <span className="text-[15px] font-semibold text-[#2d2926]">Today&apos;s Schedule</span>
-              </div>
+            <div className="flex items-center justify-end px-5 pt-3 pb-2">
               <div className="flex items-center gap-2">
                 {useTimeline && !isPartner && (
                   <button
@@ -2577,69 +2517,87 @@ export default function TodayPage() {
               </div>
             )}
 
-            {/* ── CHECKLIST VIEW (no times set) ─────────────────── */}
-            {!useTimeline && combinedTotal > 0 && !combinedAllDone && (
-              <div className="px-4 pb-3">
-                {items.map((item, idx) => {
-                  const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
-                  return (
-                    <button
-                      key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
-                      type="button"
-                      onClick={() => {
-                        if (isPartner) return;
-                        if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
-                        else toggleActivity(item.activity);
-                      }}
-                      className={`w-full flex items-center gap-3 py-3 px-1 text-left transition-colors ${idx < items.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
-                    >
-                      {/* Checkbox */}
-                      <div
-                        className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                          isDone ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
-                        }`}
+            {/* ── CHECKLIST VIEW ─────────────────────────────────── */}
+            {!useTimeline && combinedTotal > 0 && !combinedAllDone && (() => {
+              // Auto-flow times when school_start_time is set
+              const showTimes = !!schoolStartTime;
+              let runningMins = 0;
+              if (showTimes && schoolStartTime) {
+                const [hh, mm] = schoolStartTime.split(":").map(Number);
+                runningMins = (hh || 0) * 60 + (mm || 0);
+              }
+              const fmtTime = (mins: number) => {
+                const h = Math.floor(mins / 60) % 12 || 12;
+                const m = mins % 60;
+                const ap = mins < 720 ? "am" : "pm";
+                return m > 0 ? `${h}:${String(m).padStart(2, "0")} ${ap}` : `${h} ${ap}`;
+              };
+
+              return (
+                <div className="px-4 pb-3">
+                  {items.map((item, idx) => {
+                    const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
+                    const durMins = item.kind === "lesson"
+                      ? (item.lesson.minutes_spent ?? 30)
+                      : (item.activity.duration_minutes ?? 60);
+                    const itemTime = showTimes ? fmtTime(runningMins) : null;
+                    if (showTimes) runningMins += durMins;
+
+                    return (
+                      <button
+                        key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
+                        type="button"
+                        onClick={() => {
+                          if (isPartner) return;
+                          if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
+                          else toggleActivity(item.activity);
+                        }}
+                        className={`w-full flex items-center gap-2 py-3 px-1 text-left transition-colors ${idx < items.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
                       >
-                        {isDone && (
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
+                        {/* Time column */}
+                        {showTimes && (
+                          <span className="text-[#8B7E74] text-xs w-12 text-right shrink-0">{itemTime}</span>
                         )}
-                      </div>
-                      {/* Item info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                            {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
-                            {item.kind === "lesson" ? item.lesson.title : item.activity.name}
-                          </p>
-                          {item.kind === "activity" && (
-                            <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
+                        {/* Checkbox */}
+                        <div
+                          className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
+                            isDone ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
+                          }`}
+                        >
+                          {isDone && (
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                              <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
                           )}
                         </div>
-                        <p className="text-[11px] text-[#7a6f65] truncate">
-                          {item.kind === "lesson"
-                            ? (item.lesson.subjects?.name || "")
-                            : [formatDuration(item.activity.duration_minutes), ...item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean)].join(" · ")
-                          }
-                        </p>
-                      </div>
-                      {/* Child tag */}
-                      {item.kind === "lesson" && (() => {
-                        const child = children.find(c => c.id === item.lesson.child_id);
-                        return child && uniqueChildIds.size > 1 ? (
-                          <span
-                            className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
-                            style={{ backgroundColor: `${child.color ?? "#5c7f63"}20`, color: child.color ?? "#5c7f63" }}
-                          >
-                            {child.name}
-                          </span>
-                        ) : null;
-                      })()}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+                        {/* Item info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                              {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
+                              {item.kind === "lesson" ? item.lesson.title : item.activity.name}
+                            </p>
+                            {item.kind === "activity" && (
+                              <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[#7a6f65] truncate">
+                            {item.kind === "lesson"
+                              ? (item.lesson.subjects?.name || "")
+                              : item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean).join(", ")
+                            }
+                          </p>
+                        </div>
+                        {/* Duration right-aligned */}
+                        <span className="text-[11px] text-[#8B7E74] shrink-0">
+                          {durMins >= 60 ? `${Math.floor(durMins / 60)} hr${durMins % 60 > 0 ? ` ${durMins % 60}m` : ""}` : `${durMins} min`}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             {/* STATE: All done */}
             {combinedTotal > 0 && combinedAllDone && (
@@ -2851,6 +2809,43 @@ export default function TodayPage() {
       })()}
 
       {/* ═══════════════════════════════════════════════════════════
+          CAPTURE BUTTON — compact for returning users, big for new
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && !isPartner && (
+        totalMemories === 0 ? (
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-6 text-center">
+            <div className="w-14 h-14 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-4">
+              <span className="text-2xl">📸</span>
+            </div>
+            <h2 className="text-lg font-bold text-[#2D2A26] mb-1" style={{ fontFamily: "var(--font-display)" }}>
+              Capture your first memory
+            </h2>
+            <p className="text-[13px] text-[#5C5346] max-w-[260px] mx-auto mb-5">
+              A photo, a book they read, a win, a field trip — anything worth remembering.
+            </p>
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+              className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
+            >
+              ✚ Capture a memory
+            </button>
+            <p className="text-[11px] text-[#8B7E74] mt-3">
+              This is how your garden, yearbook, and timeline all start growing.
+            </p>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+            className="w-full py-3 rounded-xl text-center font-medium text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
+          >
+            ✚ Capture a memory
+          </button>
+        )
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
           CONTEXTUAL ONBOARDING — one warm nudge card at a time
          ═══════════════════════════════════════════════════════════ */}
       {!loading && (() => {
@@ -3024,10 +3019,10 @@ export default function TodayPage() {
           TODAY'S STORY — all memories logged today
          ═══════════════════════════════════════════════════════════ */}
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Today&apos;s Story</p>
 
         {todayStory.length > 0 ? (
-          <div className="bg-white border border-[#e8e2d9] rounded-[14px] overflow-hidden divide-y divide-[#f0ede8]">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
             {todayStory.map((m) => {
               const typeIcons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🏆", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
               const typeBgs: Record<string, string> = { win: "#f0e8f4", quote: "#f0e8f4", book: "#fef8ee", drawing: "#e8f0f8", field_trip: "#e8f5ea", project: "#e8f5ea" };
@@ -3081,7 +3076,7 @@ export default function TodayPage() {
             })}
           </div>
         ) : (
-          <div className="bg-white border border-[#e8e2d9] rounded-[14px] py-8 text-center">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl py-8 text-center">
             <span className="text-3xl">{totalMemories === 0 ? "📷" : "🌿"}</span>
             <p className="text-[13px] font-medium text-[#2d2926] mt-2">
               {totalMemories === 0 ? "Today\u2019s Story" : "Nothing captured yet today"}
@@ -3099,6 +3094,33 @@ export default function TodayPage() {
           </Link>
         )}
       </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          YEARBOOK NUDGE — slim card, once per week
+         ═══════════════════════════════════════════════════════════ */}
+      {yearbookCount > 0 && (() => {
+        const lastShown = typeof window !== "undefined" ? localStorage.getItem("yearbook_nudge_shown") : null;
+        const now2 = new Date();
+        const ws = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate() - now2.getDay());
+        const wk = ws.toISOString().slice(0, 10);
+        if (lastShown === wk) return null;
+        return (
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Yearbook</p>
+            <button
+              onClick={() => { localStorage.setItem("yearbook_nudge_shown", wk); router.push("/dashboard/memories/yearbook"); }}
+              className="w-full bg-white border border-[#e8e5e0] rounded-2xl p-4 flex items-center gap-3 text-left hover:bg-[#faf9f7] transition-colors"
+            >
+              <span className="text-xl">📗</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-[#2D2A26]">{yearbookCount} memor{yearbookCount === 1 ? "y" : "ies"} so far this year</p>
+                <p className="text-[11px] text-[#8B7E74]">Tap to open your family yearbook →</p>
+              </div>
+              <span className="text-[#8B7E74] text-sm">›</span>
+            </button>
+          </div>
+        );
+      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           ON THIS DAY — purple card, show only for Tier 1 or 2 matches (1+ year)
