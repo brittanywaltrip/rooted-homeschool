@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
+import { onLogAction } from "@/app/lib/onLogAction";
 
 function titleCase(str: string): string {
   return str.trim().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -26,6 +27,7 @@ export type CurriculumWizardEditData = {
   schoolDays: string[];      // ['Mon', 'Tue', ...]
   isBackfilled?: boolean;
   startAtLesson?: number;
+  lessonStartTime?: string | null;
 };
 
 interface Props {
@@ -193,6 +195,7 @@ export default function CurriculumWizard({
   const [isCustomMinutes, setIsCustomMinutes] = useState(false);
   const [targetDate, setTargetDate] = useState(editData?.targetDate ?? "");
   const [startDate, setStartDate] = useState(() => toDateStr(new Date()));
+  const [lessonStartTime, setLessonStartTime] = useState(editData?.lessonStartTime ?? "");
 
   // Track curricula saved so far for the current child (for "Added so far" pills)
   const [savedForThisChild, setSavedForThisChild] = useState<Array<{ name: string; lessons: string }>>([]);
@@ -230,10 +233,13 @@ export default function CurriculumWizard({
     if (mode !== "edit" || !editData?.goalId) return;
     supabase
       .from("curriculum_goals")
-      .select("is_backfilled, start_at_lesson")
+      .select("is_backfilled, start_at_lesson, scheduled_start_time")
       .eq("id", editData.goalId)
       .single()
       .then(({ data }) => {
+        if (data?.scheduled_start_time && !lessonStartTime) {
+          setLessonStartTime(data.scheduled_start_time);
+        }
         if (data?.is_backfilled) {
           setBackfillEnabled(true);
           // Count existing backfill entries
@@ -384,6 +390,7 @@ export default function CurriculumWizard({
         start_date: startDate || null,
         school_days: booleanToDays(schoolDays),
         default_minutes: parseInt(defaultMinutes) || 30,
+        scheduled_start_time: lessonStartTime || null,
         updated_at: new Date().toISOString(),
       })
       .select("id")
@@ -577,6 +584,12 @@ export default function CurriculumWizard({
 
     posthog.capture('curriculum_created', { lessons: actual, backfilled: backfillInserted, curriculum: saveName });
     setGenCount(actual + backfillInserted);
+
+    // Fire streak + badge check once for the whole batch (fire-and-forget)
+    if (backfillInserted > 0 || actual > 0) {
+      onLogAction({ userId: user.id, childId: childId || undefined, actionType: "lesson" });
+    }
+
     setGenerating(false);
     setDone(true);
     onSaved();
@@ -605,6 +618,7 @@ export default function CurriculumWizard({
         start_date: startDate || null,
         school_days: booleanToDays(schoolDays),
         default_minutes: parseInt(defaultMinutes) || 30,
+        scheduled_start_time: lessonStartTime || null,
         updated_at: new Date().toISOString(),
       };
       const { error: updateErr } = await supabase
@@ -628,6 +642,7 @@ export default function CurriculumWizard({
           start_date: startDate || null,
           school_days: booleanToDays(schoolDays),
           default_minutes: parseInt(defaultMinutes) || 30,
+          scheduled_start_time: lessonStartTime || null,
           updated_at: new Date().toISOString(),
         })
         .select("id")
@@ -799,6 +814,9 @@ export default function CurriculumWizard({
           is_backfilled: true,
           start_at_lesson: parseInt(startLesson) || 1,
         }).eq("id", activeGoalId);
+
+        // Fire streak + badge check once for the backfill batch
+        onLogAction({ userId: user.id, childId: editData.childId || undefined, actionType: "lesson" });
       }
     }
 
@@ -903,6 +921,7 @@ export default function CurriculumWizard({
     setBackfillEnabled(false); setBackfillMode("per_lesson");
     setBackfillLessonsDone(""); setBackfillTotalHours("");
     setBackfillStartPeriod("3m"); setBackfillCustomDate("");
+    setLessonStartTime("");
     setGenerating(false); setDone(false); setGenCount(0); setError(null);
     setChildId(savedChildId); setStep(2);
   }
@@ -1241,6 +1260,15 @@ export default function CurriculumWizard({
 
             <div>
               <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">
+                Lesson time <span className="normal-case font-normal text-[#b5aca4]">(optional)</span>
+              </label>
+              <input value={lessonStartTime} onChange={(e) => setLessonStartTime(e.target.value)} type="time"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              <p className="text-[11px] text-[#8B7E74] mt-1">When does this subject usually happen? Shows on your daily schedule.</p>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">
                 Finish Line Date <span className="normal-case font-normal text-[#b5aca4]">(optional)</span>
               </label>
               <input value={targetDate} onChange={(e) => setTargetDate(e.target.value)} type="date"
@@ -1281,36 +1309,46 @@ export default function CurriculumWizard({
               </div>
             )}
 
-            {/* ── Backfill toggle card ──────────────────────── */}
-            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5">
-              <div className="flex items-start gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[14px] font-medium text-[#2D2A26] leading-relaxed">
-                    Need to log the lessons and activities you completed before Rooted? Don&apos;t worry, we got you!
+            {/* ── Backfill checkbox ──────────────────────────── */}
+            <div className="flex items-start gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (backfillEnabled && mode === "edit" && editBackfillCount > 0) {
+                    setBackfillRemoveConfirm(true);
+                  } else {
+                    setBackfillEnabled(!backfillEnabled);
+                  }
+                }}
+                className="shrink-0 mt-0.5 w-5 h-5 rounded border-[1.5px] flex items-center justify-center transition-colors"
+                style={{
+                  backgroundColor: backfillEnabled ? "#2D5A3D" : "transparent",
+                  borderColor: backfillEnabled ? "#2D5A3D" : "#e8e5e0",
+                }}
+              >
+                {backfillEnabled && (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </button>
+              <div className="flex-1 min-w-0">
+                <label className="text-[13px] text-[#5C5346] cursor-pointer" onClick={() => {
+                  if (backfillEnabled && mode === "edit" && editBackfillCount > 0) {
+                    setBackfillRemoveConfirm(true);
+                  } else {
+                    setBackfillEnabled(!backfillEnabled);
+                  }
+                }}>
+                  I&apos;ve already started this curriculum (log my completed lessons too)
+                </label>
+                {backfillEnabled && (
+                  <p className="text-[11px] text-[#8B7E74] mt-1">
+                    {mode === "edit" && editBackfillCount > 0
+                      ? `Pre-Rooted data already imported (${editBackfillCount} entries). Uncheck to remove it.`
+                      : "We\u2019ll ask about your progress on the next step"}
                   </p>
-                  {mode === "edit" && backfillEnabled && editBackfillCount > 0 && (
-                    <p className="text-xs text-[#8B7E74] mt-2 italic">
-                      Pre-Rooted data already imported ({editBackfillCount} entries). Toggle off to remove it.
-                    </p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (backfillEnabled && mode === "edit" && editBackfillCount > 0) {
-                      setBackfillRemoveConfirm(true);
-                    } else {
-                      setBackfillEnabled(!backfillEnabled);
-                    }
-                  }}
-                  className="shrink-0 relative rounded-full transition-colors duration-200 mt-1"
-                  style={{ width: 48, height: 26, backgroundColor: backfillEnabled ? "#2D5A3D" : "#d5d0ca" }}
-                >
-                  <span
-                    className="absolute top-[3px] rounded-full bg-white shadow transition-transform duration-200"
-                    style={{ width: 20, height: 20, transform: backfillEnabled ? "translateX(25px)" : "translateX(3px)" }}
-                  />
-                </button>
+                )}
               </div>
             </div>
 
@@ -1464,6 +1502,19 @@ export default function CurriculumWizard({
                         </div>
                       </div>
                     )}
+
+                    {/* Option to decline after confirming */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBackfillLessonsDone("0");
+                        setBackfillEnabled(false);
+                        setStep(confirmStep as 5);
+                      }}
+                      className="mt-3 text-[12px] text-[#8B7E74] hover:text-[#5C5346] transition-colors"
+                    >
+                      No thanks, start fresh instead
+                    </button>
                   </>
                 )}
               </div>
@@ -1513,6 +1564,7 @@ export default function CurriculumWizard({
                     { label: "Per day",     value: `${lessonsPerDay} lesson${perDayNum !== 1 ? "s" : ""}` },
                     ...(finishDate && mode === "create" ? [{ label: "Finishes around", value: finishDate }] : []),
                     ...(targetDate ? [{ label: "Finish line date", value: new Date(targetDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) }] : []),
+                    ...(lessonStartTime ? [{ label: "Lesson time", value: (() => { const [h, m] = lessonStartTime.split(":").map(Number); const ampm = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`; })() }] : []),
                   ].map(({ label, value }) => (
                     <div key={label} className="flex items-baseline justify-between gap-3">
                       <span className="text-xs font-semibold uppercase tracking-wide text-[#b5aca4] shrink-0">{label}</span>
@@ -1523,8 +1575,21 @@ export default function CurriculumWizard({
 
                 {/* Backfill summary card */}
                 {backfillEnabled && backfillLessonsNum > 0 && (
-                  <div className="bg-[#fdf8ef] border border-[#f0e6d0] rounded-2xl p-4 space-y-2">
-                    <p className="text-sm font-medium text-[#2d2926]">📦 Pre-Rooted Import</p>
+                  <div className="bg-[#fdf8ef] border border-[#f0e6d0] rounded-2xl p-4 space-y-2 relative">
+                    <div className="flex items-start justify-between">
+                      <p className="text-sm font-medium text-[#2d2926]">📦 Pre-Rooted Import</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBackfillEnabled(false);
+                          setBackfillLessonsDone("0");
+                        }}
+                        className="text-[14px] text-[#8B7E74] hover:text-[#5C5346] transition-colors leading-none"
+                        title="Remove backfill"
+                      >
+                        ✕
+                      </button>
+                    </div>
                     <div className="space-y-1">
                       {[
                         { label: "Total hours", value: backfillMode === "per_lesson"

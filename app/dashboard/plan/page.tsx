@@ -13,6 +13,7 @@ import Toast from "@/components/Toast";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
+import { onLogAction } from "@/app/lib/onLogAction";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ type CurriculumGoal = {
   school_days: string[] | null;
   created_at: string | null;
   default_minutes?: number | null;
+  scheduled_start_time?: string | null;
 };
 type Lesson  = {
   id: string;
@@ -314,6 +316,12 @@ export default function PlanPage() {
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
   const [planToastMsg, setPlanToastMsg] = useState<string | null>(null);
 
+  // ── Backfill editing ─────────────────────────────────────────────────────
+  const [expandedBackfill, setExpandedBackfill] = useState<string | null>(null);
+  const [backfillLessons, setBackfillLessons] = useState<Record<string, { id: string; title: string; date: string; lesson_number: number; minutes_spent: number | null }[]>>({});
+  const [backfillEdits, setBackfillEdits] = useState<Record<string, number>>({});
+  const [savingBackfillId, setSavingBackfillId] = useState<string | null>(null);
+
   // ── Plan tip banner ───────────────────────────────────────────────────────
   const [onboarded,    setOnboarded]    = useState(false);
 
@@ -354,6 +362,25 @@ export default function PlanPage() {
   });
   const isCurrentWeek = toDateStr(weekStart) === toDateStr(getMondayOf(new Date()));
 
+  // ── Load backfill lessons for a goal ────────────────────────────────────────
+  const loadBackfillLessons = useCallback(async (goalId: string) => {
+    const { data } = await supabase
+      .from("lessons")
+      .select("id, title, date, lesson_number, minutes_spent")
+      .eq("curriculum_goal_id", goalId)
+      .eq("is_backfill", true)
+      .order("lesson_number");
+    if (data) {
+      setBackfillLessons(prev => ({ ...prev, [goalId]: data as { id: string; title: string; date: string; lesson_number: number; minutes_spent: number | null }[] }));
+    }
+  }, []);
+
+  const saveBackfillHours = useCallback(async (lessonId: string, minutes: number) => {
+    setSavingBackfillId(lessonId);
+    await supabase.from("lessons").update({ minutes_spent: minutes, hours: minutes / 60 }).eq("id", lessonId);
+    setSavingBackfillId(null);
+  }, []);
+
   // ── Load week view ─────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -366,7 +393,7 @@ export default function PlanPage() {
       supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, school_year_id").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id").eq("user_id", effectiveUserId).order("created_at"),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
@@ -457,6 +484,11 @@ export default function PlanPage() {
     setLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     setMonthLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
+    // Fire streak + badge check on completion (not on uncheck)
+    if (!current && effectiveUserId) {
+      const lesson = lessons.find(l => l.id === id);
+      onLogAction({ userId: effectiveUserId, childId: lesson?.child_id ?? undefined, actionType: "lesson" });
+    }
   }
 
   // ── Edit lesson ───────────────────────────────────────────────────────────
@@ -1680,6 +1712,7 @@ export default function PlanPage() {
                               currentLesson: group.goalData?.current_lesson ?? completedFromRows,
                               targetDate: group.goalData?.target_date ?? "",
                               schoolDays: group.goalData?.school_days ?? [],
+                              lessonStartTime: group.goalData?.scheduled_start_time ?? null,
                             });
                           }}
                           style={{ fontSize: 11, color: "var(--g-brand)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
@@ -1687,6 +1720,83 @@ export default function PlanPage() {
                           Edit →
                         </button>
                       </div>
+
+                      {/* Backfilled lessons (editable) */}
+                      {group.goalId && (() => {
+                        const goalId = group.goalId!;
+                        const bfCount = allLessons.filter(l => l.curriculum_goal_id === goalId && (l as unknown as { is_backfill?: boolean }).is_backfill).length;
+                        if (bfCount === 0) return null;
+                        const isOpen = expandedBackfill === goalId;
+                        const bfLessons = backfillLessons[goalId] ?? [];
+
+                        return (
+                          <div style={{ marginTop: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isOpen) {
+                                  setExpandedBackfill(null);
+                                } else {
+                                  setExpandedBackfill(goalId);
+                                  if (!backfillLessons[goalId]) loadBackfillLessons(goalId);
+                                }
+                              }}
+                              style={{ fontSize: 11, color: "#8B7E74", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4 }}
+                            >
+                              <span style={{ fontSize: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                              Backfilled lessons ({bfCount})
+                            </button>
+                            {isOpen && bfLessons.length > 0 && (
+                              <div style={{ marginTop: 6, maxHeight: 200, overflowY: "auto" }}>
+                                {bfLessons.map((bl) => {
+                                  const editKey = bl.id;
+                                  const currentMin = backfillEdits[editKey] ?? bl.minutes_spent ?? 30;
+                                  const displayDate = new Date(bl.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                                  return (
+                                    <div key={bl.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "3px 0", fontSize: 11 }}>
+                                      <span style={{ color: "#9a8f85", minWidth: 52 }}>{displayDate}</span>
+                                      <span style={{ color: "#2d2926", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                        Lesson {bl.lesson_number}
+                                      </span>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          max="480"
+                                          value={currentMin}
+                                          onChange={(e) => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            setBackfillEdits(prev => ({ ...prev, [editKey]: val }));
+                                          }}
+                                          onBlur={() => {
+                                            if (currentMin !== (bl.minutes_spent ?? 30)) {
+                                              saveBackfillHours(bl.id, currentMin);
+                                              setBackfillLessons(prev => ({
+                                                ...prev,
+                                                [goalId]: (prev[goalId] ?? []).map(l => l.id === bl.id ? { ...l, minutes_spent: currentMin } : l),
+                                              }));
+                                            }
+                                          }}
+                                          style={{
+                                            width: 44, padding: "2px 4px", borderRadius: 6,
+                                            border: "1px solid #e8e5e0", fontSize: 11, textAlign: "center",
+                                            color: "#2d2926", background: "white",
+                                          }}
+                                        />
+                                        <span style={{ color: "#9a8f85", fontSize: 10 }}>min</span>
+                                        {savingBackfillId === bl.id && <span style={{ color: "#5c7f63", fontSize: 10 }}>...</span>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {isOpen && bfLessons.length === 0 && (
+                              <p style={{ fontSize: 10, color: "#b5aca4", marginTop: 4 }}>Loading...</p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
