@@ -2256,38 +2256,38 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          NEW USER STATE — single focused activation card
+          CAPTURE CARD — unified for new and existing users
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && totalMemories === 0 && !hasAnyLessons && (
-        <>
-          <div className="bg-white border border-[#e8e2d9] rounded-2xl p-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-5">
-              <span className="text-3xl">📸</span>
-            </div>
-            <h2
-              className="text-xl font-bold text-[#2d2926] mb-2"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              Capture your first memory
-            </h2>
-            <p className="text-sm text-[#7a6f65] max-w-[280px] mx-auto text-center mb-2">
-              A photo, a book they read, a win, a field trip — anything worth remembering.
-            </p>
-            <p className="text-[11px] text-[#b5aca4] text-center">
+      {!loading && !isPartner && (
+        <div className="bg-white border border-[#e8e2d9] rounded-2xl p-8 text-center">
+          <div className="w-16 h-16 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-5">
+            <span className="text-3xl">📸</span>
+          </div>
+          <h2
+            className="text-xl font-bold text-[#2d2926] mb-2"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            {totalMemories === 0 ? "Capture your first memory" : "Capture a memory today"}
+          </h2>
+          <p className="text-sm text-[#7a6f65] max-w-[280px] mx-auto text-center mb-6">
+            {totalMemories === 0
+              ? "A photo, a book they read, a win, a field trip — anything worth remembering."
+              : "A drawing, a funny moment, a book they finished, a field trip — the little things add up."}
+          </p>
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+            style={{ background: "var(--g-brand)" }}
+          >
+            ✚ Capture a memory
+          </button>
+          {totalMemories === 0 && (
+            <p className="text-[11px] text-[#b5aca4] text-center mt-3">
               This is how your garden, yearbook, and timeline all start growing.
             </p>
-          </div>
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-              style={{ background: "var(--g-brand)" }}
-            >
-              ✚ Capture a memory
-            </button>
-          </div>
-        </>
+          )}
+        </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════
@@ -2711,22 +2711,10 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          CAPTURE BUTTON + FILE INPUT
+          FILE INPUT — always rendered for capture flow
          ═══════════════════════════════════════════════════════════ */}
       {!isPartner && (
         <>
-          {totalMemories > 0 && (
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-                style={{ background: "var(--g-brand)" }}
-              >
-                ✚ Capture a memory
-              </button>
-            </div>
-          )}
           <input
             ref={captureFileRef}
             type="file"
