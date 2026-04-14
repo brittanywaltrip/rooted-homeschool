@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { onLogAction } from "@/app/lib/onLogAction";
 
 type Child = { id: string; name: string; color: string | null };
 type Subject = { id: string; name: string; color: string | null };
@@ -172,6 +173,14 @@ export default function LogActivityModal({
           end_date:   breakEnd,
         });
         if (err) throw err;
+      }
+
+      // Fire streak + badge check (fire-and-forget, skip for breaks/reflections)
+      if (mode && !["break", "reflection"].includes(mode)) {
+        const actionMap: Record<string, "lesson" | "book" | "project" | "memory"> = {
+          lesson: "lesson", book: "book", project: "project", photo: "memory",
+        };
+        onLogAction({ userId: user.id, childId: childId || undefined, actionType: actionMap[mode] ?? "memory" });
       }
 
       setSaving(false);

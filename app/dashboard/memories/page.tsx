@@ -694,7 +694,7 @@ export default function MemoriesPage() {
       {memories.length > 0 && (
         <Link
           href="/dashboard/memories/yearbook"
-          className="bg-[#faf6f0] border border-[#c0dd97] rounded-2xl p-3 flex items-center gap-3 hover:border-[#5c7f63] transition-colors"
+          className="bg-white border border-[#e8e5e0] rounded-2xl p-3 flex items-center gap-3 hover:border-[#5c7f63] transition-colors"
         >
           <span className="text-[20px]">📖</span>
           <div>
@@ -719,8 +719,8 @@ export default function MemoriesPage() {
             onClick={() => setFilter(filter === key ? "all" : key)}
             className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
               filter === key
-                ? "bg-[#5c7f63] text-white"
-                : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+                ? "bg-[#2D5A3D] text-white"
+                : "bg-white border border-[#e8e5e0] text-[#7a6f65] hover:border-[#5c7f63]"
             }`}
           >
             {label}
@@ -749,8 +749,8 @@ export default function MemoriesPage() {
               onClick={() => setFilter(filter === key ? "all" : key)}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 filter === key
-                  ? "bg-[#5c7f63] text-white"
-                  : "bg-white border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
+                  ? "bg-[#2D5A3D] text-white"
+                  : "bg-white border border-[#e8e5e0] text-[#7a6f65] hover:border-[#5c7f63]"
               }`}
             >
               {label}
@@ -900,13 +900,13 @@ export default function MemoriesPage() {
       {/* ── Reflections section (when filter = all, show recent) ── */}
       {filter === "all" && !searchQuery && reflections.length > 0 && (
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-2">📝 Reflections</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2">📝 Reflections</p>
           <div className="space-y-2">
             {reflections.slice(0, 3).map((r) => (
               <button
                 key={r.id}
                 onClick={() => openReflection(r)}
-                className="w-full bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-3.5 text-left hover:bg-[#faf8f5] transition-colors"
+                className="w-full bg-white border border-[#e8e5e0] rounded-2xl p-3.5 text-left hover:bg-[#faf8f5] transition-colors"
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[11px] font-semibold text-[#5c7f63]">
@@ -923,7 +923,7 @@ export default function MemoriesPage() {
 
       {/* ── Memory grid ──────────────────────────────────────── */}
       {loadError ? (
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+        <div className="bg-white border border-[#e8e5e0] rounded-2xl p-10 flex flex-col items-center text-center">
           <span className="text-4xl mb-3">🌿</span>
           <p className="font-medium text-[#2d2926] mb-1">Something went wrong loading your memories</p>
           <p className="text-sm text-[#7a6f65] max-w-xs mb-4">Pull to refresh or try again.</p>
@@ -940,7 +940,7 @@ export default function MemoriesPage() {
         </div>
       ) : filtered.length === 0 ? (
         searchQuery.trim() ? (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-10 flex flex-col items-center text-center">
             <span className="text-4xl mb-3">📸</span>
             <p className="font-medium text-[#2d2926] mb-1">No memories found for &lsquo;{searchQuery}&rsquo; 📸</p>
             <p className="text-sm text-[#7a6f65] max-w-xs mb-4">
@@ -954,7 +954,7 @@ export default function MemoriesPage() {
             </Link>
           </div>
         ) : (filter !== "all" && memories.length > 0) ? (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-10 flex flex-col items-center text-center">
             <span className="text-4xl mb-3">🔍</span>
             <p className="font-medium text-[#2d2926] mb-1">No memories match this filter</p>
             <button
@@ -965,7 +965,7 @@ export default function MemoriesPage() {
             </button>
           </div>
         ) : (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-10 flex flex-col items-center text-center">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-10 flex flex-col items-center text-center">
             <span className="text-6xl mb-5">🌿</span>
             <h2
               className="text-xl font-medium text-[#2d2926] mb-2"
@@ -973,28 +973,28 @@ export default function MemoriesPage() {
             >
               Your family story starts here
             </h2>
-            <p className="text-sm text-[#7a6f65] max-w-sm mb-8 leading-relaxed">
-              Every photo, win, book read, and field trip lives here — and builds your yearbook automatically as you go.
+            <p className="text-sm text-[#7a6f65] max-w-sm mb-1 leading-relaxed">
+              Photos, drawings, wins, books, field trips — everything worth remembering.
             </p>
-            <button
-              onClick={() => {
-                const fab = document.querySelector<HTMLButtonElement>('[data-fab-trigger]');
-                if (fab) fab.click();
-              }}
-              className="w-full max-w-xs py-3.5 rounded-full bg-[var(--g-brand)] text-white font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98] mb-3"
+            <p className="text-sm text-[#7a6f65] max-w-sm mb-8 leading-relaxed">
+              Every memory earns a leaf for your garden 🌿
+            </p>
+            <Link
+              href="/dashboard?capture=1"
+              className="block w-full max-w-xs py-3.5 rounded-xl bg-[#2D5A3D] text-white font-semibold text-sm text-center transition-all hover:opacity-90 active:scale-[0.98] mb-3"
             >
               +  Capture your first memory
-            </button>
+            </Link>
             <Link
               href="/dashboard/memories/yearbook/read"
-              className="w-full max-w-xs py-3 rounded-full border-2 border-[var(--g-brand)] text-[var(--g-brand)] font-medium text-sm text-center hover:bg-[#e8f0e9] transition-colors block"
+              className="w-full max-w-xs py-3 rounded-xl bg-white border border-[#e8e5e0] text-[var(--g-brand)] font-medium text-sm text-center hover:bg-[#e8f0e9] transition-colors block"
             >
               Preview your yearbook →
             </Link>
           </div>
         )
       ) : (
-        <div className="grid grid-cols-3 gap-[2px] rounded-2xl overflow-hidden">
+        <div className="grid grid-cols-3 gap-1 rounded-2xl overflow-hidden">
           {(() => {
             let lastMonth = "";
             let photoIdx = 0;
@@ -1005,13 +1005,13 @@ export default function MemoriesPage() {
               return (
                 <>{showHeader && (
                   <div key={`h-${month}`} className="col-span-3 bg-[#faf8f4] py-2 px-1">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65]">{formatMonth(m.date)}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74]">{formatMonth(m.date)}</p>
                   </div>
                 )}
                 <button
                   key={m.id}
                   data-memory-id={m.id}
-                  className={`group relative aspect-square bg-[#f0ede8] focus:outline-none text-left overflow-hidden${highlightId === m.id ? " ring-2 ring-green-400 animate-pulse" : ""}`}
+                  className={`group relative aspect-square bg-[#f0ede8] focus:outline-none text-left overflow-hidden rounded-lg${highlightId === m.id ? " ring-2 ring-green-400 animate-pulse" : ""}`}
                   onClick={() => { setSelectedMemory(m); setLightboxDeleteConfirm(false); }}
                 >
                   {/* Photo or type tile */}
@@ -1019,33 +1019,22 @@ export default function MemoriesPage() {
                     <img src={m.photo_url} alt={m.title ?? "Memory"} loading={photoIdx++ < 6 ? "eager" : "lazy"} className="w-full h-full object-cover" />
                   ) : (
                     (() => {
-                      const tileConfig: Record<string, { gradient: string; textColor: string; subtextColor: string }> = {
-                        book:       { gradient: "linear-gradient(135deg, #F5E6C8 0%, #E8C87A 100%)", textColor: "#4a2e0a", subtextColor: "#7a5c2e" },
-                        win:        { gradient: "linear-gradient(135deg, #FDE8A0 0%, #F5C842 100%)", textColor: "#4a3200", subtextColor: "#7a5c1a" },
-                        drawing:    { gradient: "linear-gradient(135deg, #E8D5F5 0%, #C9A8E8 100%)", textColor: "#3d1f5c", subtextColor: "#6b4a8a" },
-                        quote:      { gradient: "linear-gradient(135deg, #F0E4F8 0%, #D4B8E8 100%)", textColor: "#3d1f5c", subtextColor: "#6b4a8a" },
-                        project:    { gradient: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)", textColor: "#1a3d1e", subtextColor: "#2d5a32" },
-                        field_trip: { gradient: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)", textColor: "#1a3d1e", subtextColor: "#2d5a32" },
-                        activity:   { gradient: "linear-gradient(135deg, #C8E6C8 0%, #7BAE7F 100%)", textColor: "#1a3d1e", subtextColor: "#2d5a32" },
+                      const tileGradientClass: Record<string, string> = {
+                        win:        "bg-gradient-to-br from-[#fff8e1] to-[#ffecb3]",
+                        quote:      "bg-gradient-to-br from-[#fff8e1] to-[#ffecb3]",
+                        book:       "bg-gradient-to-br from-[#e8f5e9] to-[#c8e6c9]",
+                        field_trip: "bg-gradient-to-br from-[#e3f2fd] to-[#bbdefb]",
+                        project:    "bg-gradient-to-br from-[#e3f2fd] to-[#bbdefb]",
+                        activity:   "bg-gradient-to-br from-[#e3f2fd] to-[#bbdefb]",
+                        drawing:    "bg-gradient-to-br from-[#f3e5f5] to-[#e1bee7]",
                       };
-                      const cfg = tileConfig[m.type] ?? tileConfig.project;
+                      const gradClass = tileGradientClass[m.type] ?? tileGradientClass.project;
                       const emoji = TYPE_EMOJI[m.type] ?? "📷";
                       const title = m.title ?? TYPE_LABEL[m.type] ?? "Memory";
                       return (
-                        <div className="w-full h-full relative overflow-hidden" style={{ background: cfg.gradient }}>
-                          {/* Subtle dot texture */}
-                          <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(circle, currentColor 0.5px, transparent 0.5px)", backgroundSize: "8px 8px", opacity: 0.06 }} />
-                          {/* Centered emoji */}
-                          <div className="absolute inset-0 flex items-center justify-center pb-6">
-                            <span className="text-5xl drop-shadow-sm">{emoji}</span>
-                          </div>
-                          {/* Bottom gradient overlay + text */}
-                          <div className="absolute inset-x-0 bottom-0 h-[45%]" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.35) 0%, transparent 100%)" }}>
-                            <div className="absolute bottom-0 inset-x-0 px-2 pb-2">
-                              <p className="text-[11px] font-semibold text-white text-center line-clamp-2 drop-shadow-sm">{title}</p>
-                              {m.caption && <p className="text-[10px] text-white/75 text-center line-clamp-1 mt-0.5">{m.caption}</p>}
-                            </div>
-                          </div>
+                        <div className={`w-full h-full relative overflow-hidden flex flex-col items-center justify-center ${gradClass}`}>
+                          <span className="text-[32px]">{emoji}</span>
+                          <p className="text-[11px] font-medium text-center line-clamp-2 px-1.5 mt-1 text-[#2d2926]/80">{title}</p>
                         </div>
                       );
                     })()
@@ -1110,7 +1099,7 @@ export default function MemoriesPage() {
           onClick={() => { setSelectedMemory(null); setMenuId(null); setLightboxDeleteConfirm(false); if (yearbookTipVisible) dismissYearbookTip(); }}
         >
           <div
-            className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-3xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Hero: photo or styled tile */}
@@ -1245,7 +1234,7 @@ export default function MemoriesPage() {
                 <div className="flex gap-2 pt-1 items-center">
                   <button
                     onClick={() => openEdit(selectedMemory)}
-                    className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2.5 rounded-xl border border-[#e8e5e0] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors flex items-center justify-center gap-1.5"
                   >
                     <Pencil size={14} /> Edit
                   </button>
@@ -1302,7 +1291,7 @@ export default function MemoriesPage() {
       {/* ── Edit Modal ─────────────────────────────────────── */}
       {editing && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-[#2d2926]">Edit Memory</h2>
               <button onClick={() => setEditing(null)} className="text-[#b5aca4] hover:text-[#7a6f65]">
@@ -1416,7 +1405,7 @@ export default function MemoriesPage() {
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => setEditing(null)}
-                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e5e0] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
               >
                 Cancel
               </button>
@@ -1435,7 +1424,7 @@ export default function MemoriesPage() {
       {/* ── Delete confirm ─────────────────────────────────── */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4 text-center">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4 text-center">
             <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mx-auto">
               <Trash2 size={24} className="text-red-400" />
             </div>
@@ -1450,7 +1439,7 @@ export default function MemoriesPage() {
               <button
                 onClick={() => setDeleteTarget(null)}
                 disabled={deleting}
-                className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                className="flex-1 py-2.5 rounded-xl border border-[#e8e5e0] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
               >
                 Cancel
               </button>
@@ -1469,7 +1458,7 @@ export default function MemoriesPage() {
       {/* ── Reflection View Modal ──────────────────────────── */}
       {viewingReflection && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold text-[#5c7f63] mb-0.5">
@@ -1512,7 +1501,7 @@ export default function MemoriesPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setEditingReflection(false)}
-                    className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                    className="flex-1 py-2.5 rounded-xl border border-[#e8e5e0] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
                   >
                     Cancel
                   </button>
@@ -1532,7 +1521,7 @@ export default function MemoriesPage() {
                 </p>
                 <button
                   onClick={() => { setEditingReflection(true); setReflectionEditText(viewingReflection.reflection); }}
-                  className="w-full py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                  className="w-full py-2.5 rounded-xl border border-[#e8e5e0] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
                 >
                   ✏️ Edit
                 </button>
@@ -1549,7 +1538,7 @@ export default function MemoriesPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => setReflectionDeleteConfirm(false)}
-                        className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                        className="flex-1 py-2.5 rounded-xl border border-[#e8e5e0] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
                       >
                         Cancel
                       </button>

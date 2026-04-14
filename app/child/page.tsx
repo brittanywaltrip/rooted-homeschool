@@ -28,14 +28,16 @@ function getStageIndex(leaves: number) {
 }
 
 const BADGES = [
-  { id: "first_leaf",  emoji: "⭐", label: "First Leaf",  check: (l: number) => l >= 1  },
-  { id: "sprout",      emoji: "🌱", label: "Sprouting!",  check: (l: number) => l >= 5  },
-  { id: "ten",         emoji: "🍃", label: "10 Leaves",   check: (l: number) => l >= 10 },
-  { id: "sapling",     emoji: "🌿", label: "Sapling",     check: (l: number) => l >= 15 },
-  { id: "twenty_five", emoji: "🏅", label: "25 Leaves",   check: (l: number) => l >= 25 },
-  { id: "growing",     emoji: "🌳", label: "Growing!",    check: (l: number) => l >= 30 },
-  { id: "fifty",       emoji: "🏆", label: "50 Leaves",   check: (l: number) => l >= 50 },
-  { id: "century",     emoji: "💯", label: "100 Leaves",  check: (l: number) => l >= 100 },
+  { id: "first_leaf",  emoji: "⭐",  label: "First Leaf!",   check: (l: number) => l >= 1  },
+  { id: "sprout",      emoji: "🌱",  label: "Sprout",        check: (l: number) => l >= 25 },
+  { id: "growing",     emoji: "🌿",  label: "Flourishing",   check: (l: number) => l >= 100 },
+  { id: "mighty_oak",  emoji: "🌳",  label: "Mighty Oak",    check: (l: number) => l >= 500 },
+  { id: "snapshot",    emoji: "📸",  label: "Snapshot",       check: (l: number) => l >= 5  },
+  { id: "bookmark",    emoji: "🔖",  label: "Bookmark",       check: (l: number) => l >= 5  },
+  { id: "spark",       emoji: "🕯️", label: "Spark",          check: (l: number) => l >= 3  },
+  { id: "caterpillar", emoji: "🐛",  label: "Caterpillar",    check: (l: number) => l >= 5  },
+  { id: "footprints",  emoji: "🐾",  label: "Footprints",     check: (l: number) => l >= 10 },
+  { id: "rough_stone", emoji: "🪨",  label: "Rough Stone",    check: (l: number) => l >= 15 },
 ];
 
 const CHEERS = [

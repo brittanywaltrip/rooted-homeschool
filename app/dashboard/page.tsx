@@ -9,10 +9,12 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
+import { onLogAction } from "@/app/lib/onLogAction";
 import { compressImage } from "@/lib/compress-image";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -458,6 +460,7 @@ export default function TodayPage() {
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const { isPartner, effectiveUserId } = usePartner();
   const { setHideFab } = useDashboardLayout();
+  const { earnLeaf } = useLeafAnimationContext();
 
   // Family activity notifications
   const [familyNotifs, setFamilyNotifs] = useState<FamilyNotification[]>([]);
@@ -548,6 +551,7 @@ export default function TodayPage() {
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
   const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
+  const [schoolStartTime,        setSchoolStartTime]        = useState<string | null>(null);
   // memoryMoment removed — replaced by onThisDayMemory and lastMemory
   const [lightboxMemory, setLightboxMemory] = useState<{ id: string; title: string; photo_url: string | null; date: string; type: string } | null>(null);
   const [streak,                 setStreak]                 = useState(0);
@@ -581,7 +585,7 @@ export default function TodayPage() {
   const [ftTitle, setFtTitle] = useState("");
   const [ftNote, setFtNote] = useState("");
   const [ftChild, setFtChild] = useState("");
-  const [ftType, setFtType] = useState<"field_trip" | "project" | "activity">("field_trip");
+  const [ftType, setFtType] = useState<"field_trip" | "project">("field_trip");
   const [ftSaving, setFtSaving] = useState(false);
   const captureFileRef = useRef<HTMLInputElement>(null);
   const captureTypeRef = useRef<"photo" | "drawing">("photo");
@@ -627,6 +631,17 @@ export default function TodayPage() {
     lessons: { title: string; childId: string | null; subjectName: string | null }[];
   } | null>(null);
   const [upcomingDays,           setUpcomingDays]           = useState<{ date: string; count: number }[]>([]);
+
+  // ── Open capture menu from URL param (used by other pages) ─────────────────
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.search.includes("capture=1")) {
+      setShowCaptureMenu(true);
+      // Clean up URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete("capture");
+      window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }, []);
 
   // ── Hide FAB when new-user empty state is showing ─────────────────────────
   useEffect(() => {
@@ -715,7 +730,7 @@ export default function TodayPage() {
     try {
 
     const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("profiles").select("is_pro, plan_type").eq("id", effectiveUserId).single(),
     ]);
@@ -733,6 +748,7 @@ export default function TodayPage() {
     // Check if today is a school day
     const schoolDays: string[] = (profile as { school_days?: string[] } | null)?.school_days ?? [];
     setSchoolDaysArr(schoolDays);
+    setSchoolStartTime((profile as { school_start_time?: string } | null)?.school_start_time ?? null);
     if (schoolDays.length > 0) {
       const todayDayName = new Date().toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       setIsSchoolDay(schoolDays.includes(todayDayName));
@@ -1219,6 +1235,10 @@ export default function TodayPage() {
           setTodayActivities(prev => prev.map(a => a.id === activity.id ? { ...a, log_id: (logRow as { id: string }).id } : a));
         }
       }
+      earnLeaf();
+      // Fire streak + badge check for activity completion
+      const firstChildId = activity.child_ids?.[0];
+      onLogAction({ userId: user.id, childId: firstChildId ?? undefined, actionType: "activity" });
     } else {
       if (activity.log_id) {
         await supabase.from("activity_logs").update({ completed: false, completed_at: null }).eq("id", activity.log_id);
@@ -1323,6 +1343,7 @@ export default function TodayPage() {
     setCelebrating(true);
     setTimeout(() => setCelebrating(false), 1600);
     triggerGardenAnimation(lesson.child_id ?? undefined);
+    earnLeaf();
 
     // Child done toast
     const updatedLessons = lessons.map(l => l.id === lesson.id ? { ...l, completed: true } : l);
@@ -1364,6 +1385,7 @@ export default function TodayPage() {
     }
 
     checkAndAwardBadges(effectiveUserId);
+    onLogAction({ userId: effectiveUserId, childId: lesson.child_id ?? undefined, actionType: "lesson" });
   }
 
   function closeCheckOffModal() {
@@ -1399,6 +1421,7 @@ export default function TodayPage() {
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 1600);
       triggerGardenAnimation(lesson?.child_id ?? undefined);
+      earnLeaf();
 
       // Tier 2: child done toast at 300ms
       const childId = lesson?.child_id;
@@ -1493,10 +1516,13 @@ export default function TodayPage() {
     }
     await refreshLeafCounts();
 
-    // Check for new activity badges (fire-and-forget, notification via global listener)
+    // Check for new activity badges + streaks + creative badges (fire-and-forget)
     if (!current) {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) checkAndAwardBadges(user.id);
+      if (user) {
+        checkAndAwardBadges(user.id);
+        onLogAction({ userId: user.id, childId: lesson?.child_id ?? undefined, actionType: "lesson" });
+      }
     }
   }
 
@@ -2032,6 +2058,7 @@ export default function TodayPage() {
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
     await loadData();
     checkAndAwardBadges(user.id);
+    onLogAction({ userId: user.id, childId: bookChild || undefined, actionType: "book" });
   }
 
   async function saveDrawing() {
@@ -2062,6 +2089,7 @@ export default function TodayPage() {
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing", drawingChild || null);
     await loadData();
     checkAndAwardBadges(user.id);
+    onLogAction({ userId: user.id, childId: drawingChild || undefined, actionType: "drawing" });
   }
 
   // ── Capture toast + edit sheet helpers ────────────────────────────────────
@@ -2072,6 +2100,7 @@ export default function TodayPage() {
     if (memoryId) {
       posthog.capture('memory_captured', { type: memoryType ?? 'unknown' });
       triggerGardenAnimation(childId ?? undefined);
+      earnLeaf();
     }
   }
 
@@ -2306,69 +2335,11 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          CAPTURE CARD — unified for new and existing users
+          SCHEDULE — label + card
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && !isPartner && (
-        <div className="bg-white border border-[#e8e2d9] rounded-2xl p-8 text-center">
-          <div className="w-16 h-16 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-5">
-            <span className="text-3xl">📸</span>
-          </div>
-          <h2
-            className="text-xl font-bold text-[#2d2926] mb-2"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            {totalMemories === 0 ? "Capture your first memory" : "Capture a memory today"}
-          </h2>
-          <p className="text-sm text-[#7a6f65] max-w-[280px] mx-auto text-center mb-6">
-            {totalMemories === 0
-              ? "A photo, a book they read, a win, a field trip — anything worth remembering."
-              : "A drawing, a funny moment, a book they finished, a field trip — the little things add up."}
-          </p>
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-            style={{ background: "var(--g-brand)" }}
-          >
-            ✚ Capture a memory
-          </button>
-          {totalMemories === 0 && (
-            <p className="text-[11px] text-[#b5aca4] text-center mt-3">
-              This is how your garden, yearbook, and timeline all start growing.
-            </p>
-          )}
-        </div>
+      {(hasAnyLessons || todayActivities.length > 0) && (
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] px-0.5 -mb-1">Today&apos;s Schedule</p>
       )}
-
-      {/* ═══════════════════════════════════════════════════════════
-          YEARBOOK NUDGE — once per week
-         ═══════════════════════════════════════════════════════════ */}
-      {yearbookCount > 0 && (() => {
-        const lastShown = typeof window !== "undefined" ? localStorage.getItem("yearbook_nudge_shown") : null;
-        const now = new Date();
-        const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
-        const weekKey = weekStart.toISOString().slice(0, 10);
-        if (lastShown === weekKey) return null;
-        return (
-          <button
-            onClick={() => {
-              localStorage.setItem("yearbook_nudge_shown", weekKey);
-              router.push("/dashboard/memories/yearbook");
-            }}
-            className="w-full bg-[#faf6f0] border border-[#c0dd97] rounded-xl p-3 flex items-center gap-3 cursor-pointer text-left hover:bg-[#f5f0e8] transition-colors"
-          >
-            <span className="text-[20px]">📖</span>
-            <div>
-              <p className="text-[12px] text-[#5c7f63] font-medium">
-                Your yearbook has {yearbookCount} memor{yearbookCount === 1 ? "y" : "ies"} so far this year
-              </p>
-              <p className="text-[11px] text-[#9a8f85]">
-                Tap to open your family yearbook →
-              </p>
-            </div>
-          </button>
-        );
-      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           SCHEDULE CARD — checklist or timeline + activities
@@ -2419,13 +2390,9 @@ export default function TodayPage() {
         };
 
         return (
-          <div className="bg-white border border-[#e8e2d9] rounded-2xl overflow-hidden">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between px-5 pt-4 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-base">📚</span>
-                <span className="text-[15px] font-semibold text-[#2d2926]">Today&apos;s Schedule</span>
-              </div>
+            <div className="flex items-center justify-end px-5 pt-3 pb-2">
               <div className="flex items-center gap-2">
                 {useTimeline && !isPartner && (
                   <button
@@ -2577,69 +2544,87 @@ export default function TodayPage() {
               </div>
             )}
 
-            {/* ── CHECKLIST VIEW (no times set) ─────────────────── */}
-            {!useTimeline && combinedTotal > 0 && !combinedAllDone && (
-              <div className="px-4 pb-3">
-                {items.map((item, idx) => {
-                  const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
-                  return (
-                    <button
-                      key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
-                      type="button"
-                      onClick={() => {
-                        if (isPartner) return;
-                        if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
-                        else toggleActivity(item.activity);
-                      }}
-                      className={`w-full flex items-center gap-3 py-3 px-1 text-left transition-colors ${idx < items.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
-                    >
-                      {/* Checkbox */}
-                      <div
-                        className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                          isDone ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
-                        }`}
+            {/* ── CHECKLIST VIEW ─────────────────────────────────── */}
+            {!useTimeline && combinedTotal > 0 && !combinedAllDone && (() => {
+              // Auto-flow times when school_start_time is set
+              const showTimes = !!schoolStartTime;
+              let runningMins = 0;
+              if (showTimes && schoolStartTime) {
+                const [hh, mm] = schoolStartTime.split(":").map(Number);
+                runningMins = (hh || 0) * 60 + (mm || 0);
+              }
+              const fmtTime = (mins: number) => {
+                const h = Math.floor(mins / 60) % 12 || 12;
+                const m = mins % 60;
+                const ap = mins < 720 ? "am" : "pm";
+                return m > 0 ? `${h}:${String(m).padStart(2, "0")} ${ap}` : `${h} ${ap}`;
+              };
+
+              return (
+                <div className="px-4 pb-3">
+                  {items.map((item, idx) => {
+                    const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
+                    const durMins = item.kind === "lesson"
+                      ? (item.lesson.minutes_spent ?? 30)
+                      : (item.activity.duration_minutes ?? 60);
+                    const itemTime = showTimes ? fmtTime(runningMins) : null;
+                    if (showTimes) runningMins += durMins;
+
+                    return (
+                      <button
+                        key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
+                        type="button"
+                        onClick={() => {
+                          if (isPartner) return;
+                          if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
+                          else toggleActivity(item.activity);
+                        }}
+                        className={`w-full flex items-center gap-2 py-3 px-1 text-left transition-colors ${idx < items.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
                       >
-                        {isDone && (
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
+                        {/* Time column */}
+                        {showTimes && (
+                          <span className="text-[#8B7E74] text-xs w-12 text-right shrink-0">{itemTime}</span>
                         )}
-                      </div>
-                      {/* Item info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                            {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
-                            {item.kind === "lesson" ? item.lesson.title : item.activity.name}
-                          </p>
-                          {item.kind === "activity" && (
-                            <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
+                        {/* Checkbox */}
+                        <div
+                          className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
+                            isDone ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
+                          }`}
+                        >
+                          {isDone && (
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                              <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
                           )}
                         </div>
-                        <p className="text-[11px] text-[#7a6f65] truncate">
-                          {item.kind === "lesson"
-                            ? (item.lesson.subjects?.name || "")
-                            : [formatDuration(item.activity.duration_minutes), ...item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean)].join(" · ")
-                          }
-                        </p>
-                      </div>
-                      {/* Child tag */}
-                      {item.kind === "lesson" && (() => {
-                        const child = children.find(c => c.id === item.lesson.child_id);
-                        return child && uniqueChildIds.size > 1 ? (
-                          <span
-                            className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
-                            style={{ backgroundColor: `${child.color ?? "#5c7f63"}20`, color: child.color ?? "#5c7f63" }}
-                          >
-                            {child.name}
-                          </span>
-                        ) : null;
-                      })()}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+                        {/* Item info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                              {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
+                              {item.kind === "lesson" ? item.lesson.title : item.activity.name}
+                            </p>
+                            {item.kind === "activity" && (
+                              <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[#7a6f65] truncate">
+                            {item.kind === "lesson"
+                              ? (item.lesson.subjects?.name || "")
+                              : item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean).join(", ")
+                            }
+                          </p>
+                        </div>
+                        {/* Duration right-aligned */}
+                        <span className="text-[11px] text-[#8B7E74] shrink-0">
+                          {durMins >= 60 ? `${Math.floor(durMins / 60)} hr${durMins % 60 > 0 ? ` ${durMins % 60}m` : ""}` : `${durMins} min`}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             {/* STATE: All done */}
             {combinedTotal > 0 && combinedAllDone && (
@@ -2851,6 +2836,43 @@ export default function TodayPage() {
       })()}
 
       {/* ═══════════════════════════════════════════════════════════
+          CAPTURE BUTTON — compact for returning users, big for new
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && !isPartner && (
+        totalMemories === 0 ? (
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-6 text-center">
+            <div className="w-14 h-14 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-4">
+              <span className="text-2xl">📸</span>
+            </div>
+            <h2 className="text-lg font-bold text-[#2D2A26] mb-1" style={{ fontFamily: "var(--font-display)" }}>
+              Capture your first memory
+            </h2>
+            <p className="text-[13px] text-[#5C5346] max-w-[260px] mx-auto mb-5">
+              A photo, a book they read, a win, a field trip — anything worth remembering.
+            </p>
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+              className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
+            >
+              ✚ Capture a memory
+            </button>
+            <p className="text-[11px] text-[#8B7E74] mt-3">
+              This is how your garden, yearbook, and timeline all start growing.
+            </p>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+            className="w-full py-3 rounded-xl text-center font-medium text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
+          >
+            ✚ Capture a memory
+          </button>
+        )
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
           CONTEXTUAL ONBOARDING — one warm nudge card at a time
          ═══════════════════════════════════════════════════════════ */}
       {!loading && (() => {
@@ -3024,10 +3046,10 @@ export default function TodayPage() {
           TODAY'S STORY — all memories logged today
          ═══════════════════════════════════════════════════════════ */}
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Today&apos;s Story</p>
 
         {todayStory.length > 0 ? (
-          <div className="bg-white border border-[#e8e2d9] rounded-[14px] overflow-hidden divide-y divide-[#f0ede8]">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
             {todayStory.map((m) => {
               const typeIcons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🏆", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
               const typeBgs: Record<string, string> = { win: "#f0e8f4", quote: "#f0e8f4", book: "#fef8ee", drawing: "#e8f0f8", field_trip: "#e8f5ea", project: "#e8f5ea" };
@@ -3081,7 +3103,7 @@ export default function TodayPage() {
             })}
           </div>
         ) : (
-          <div className="bg-white border border-[#e8e2d9] rounded-[14px] py-8 text-center">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl py-8 text-center">
             <span className="text-3xl">{totalMemories === 0 ? "📷" : "🌿"}</span>
             <p className="text-[13px] font-medium text-[#2d2926] mt-2">
               {totalMemories === 0 ? "Today\u2019s Story" : "Nothing captured yet today"}
@@ -3099,6 +3121,33 @@ export default function TodayPage() {
           </Link>
         )}
       </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          YEARBOOK NUDGE — slim card, once per week
+         ═══════════════════════════════════════════════════════════ */}
+      {yearbookCount > 0 && (() => {
+        const lastShown = typeof window !== "undefined" ? localStorage.getItem("yearbook_nudge_shown") : null;
+        const now2 = new Date();
+        const ws = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate() - now2.getDay());
+        const wk = ws.toISOString().slice(0, 10);
+        if (lastShown === wk) return null;
+        return (
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Yearbook</p>
+            <button
+              onClick={() => { localStorage.setItem("yearbook_nudge_shown", wk); router.push("/dashboard/memories/yearbook"); }}
+              className="w-full bg-white border border-[#e8e5e0] rounded-2xl p-4 flex items-center gap-3 text-left hover:bg-[#faf9f7] transition-colors"
+            >
+              <span className="text-xl">📗</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-[#2D2A26]">{yearbookCount} memor{yearbookCount === 1 ? "y" : "ies"} so far this year</p>
+                <p className="text-[11px] text-[#8B7E74]">Tap to open your family yearbook →</p>
+              </div>
+              <span className="text-[#8B7E74] text-sm">›</span>
+            </button>
+          </div>
+        );
+      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           ON THIS DAY — purple card, show only for Tier 1 or 2 matches (1+ year)
@@ -3378,67 +3427,40 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* ── Capture menu bottom sheet ───────────────────── */}
+      {/* ── Capture menu bottom sheet — 3×2 grid ─────────── */}
       {showCaptureMenu && (
         <>
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowCaptureMenu(false)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+          <div className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-xl" style={{ maxWidth: 420, margin: "0 auto", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="flex items-center justify-between px-5 pb-2">
-              <h2 className="font-bold text-[#2d2926] text-sm">Capture a memory</h2>
-              <button onClick={() => setShowCaptureMenu(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+              <h2 className="text-[18px] font-bold text-[#2D2A26]">Capture a memory</h2>
+              <button onClick={() => setShowCaptureMenu(false)} className="w-8 h-8 rounded-full bg-[#f2f0ec] flex items-center justify-center text-[#8B7E74] hover:bg-[#e8e5e0] text-sm transition-colors">✕</button>
             </div>
-            <div className="px-4 pb-6 space-y-1">
-              <button
-                onClick={() => { setShowCaptureMenu(false); captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); }}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
-              >
-                <span className="text-2xl">📸</span>
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Photo</p>
-                  <p className="text-xs text-[#7a6f65]">Snap something to remember</p>
-                </div>
-              </button>
-              <button
-                onClick={() => { setShowCaptureMenu(false); setShowDrawingSheet(true); }}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
-              >
-                <span className="text-2xl">🎨</span>
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Drawing or artwork</p>
-                  <p className="text-xs text-[#7a6f65]">Keep one before it gets lost</p>
-                </div>
-              </button>
-              <button
-                onClick={() => { setShowCaptureMenu(false); setShowWinSheet(true); }}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
-              >
-                <span className="text-2xl">✍️</span>
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Win or moment</p>
-                  <p className="text-xs text-[#7a6f65]">Type or speak it out loud</p>
-                </div>
-              </button>
-              <button
-                onClick={() => { setShowCaptureMenu(false); setShowBookModal(true); }}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
-              >
-                <span className="text-2xl">📖</span>
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Book</p>
-                  <p className="text-xs text-[#7a6f65]">Log what they&apos;re reading</p>
-                </div>
-              </button>
-              <button
-                onClick={() => { setShowCaptureMenu(false); setShowFieldTripSheet(true); }}
-                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-[#f0ede8] transition-colors text-left"
-              >
-                <span className="text-2xl">🌿</span>
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Field trip or project</p>
-                  <p className="text-xs text-[#7a6f65]">Document something they did</p>
-                </div>
-              </button>
+            {/* Leaf banner */}
+            <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mx-4 mb-2">
+              <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Every memory earns a leaf for your garden!</span>
+            </div>
+            {/* 3×2 grid */}
+            <div className="grid grid-cols-3 gap-2.5 px-4 pb-6">
+              {([
+                { emoji: "📸", label: "Photo",      sub: "Snap a moment",      action: () => { setShowCaptureMenu(false); captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); } },
+                { emoji: "🎨", label: "Drawing",    sub: "Save their art",     action: () => { setShowCaptureMenu(false); setShowDrawingSheet(true); } },
+                { emoji: "🏆", label: "Win",        sub: "Celebrate a win",    action: () => { setShowCaptureMenu(false); setShowWinSheet(true); } },
+                { emoji: "📖", label: "Book",       sub: "Log a read",         action: () => { setShowCaptureMenu(false); setShowBookModal(true); } },
+                { emoji: "🗺️", label: "Field Trip", sub: "We went somewhere",  action: () => { setShowCaptureMenu(false); setFtType("field_trip"); setShowFieldTripSheet(true); } },
+                { emoji: "🔨", label: "Project",    sub: "We made something",  action: () => { setShowCaptureMenu(false); setFtType("project"); setShowFieldTripSheet(true); } },
+              ] as const).map(tile => (
+                <button
+                  key={tile.label}
+                  onClick={tile.action}
+                  className="flex flex-col items-center justify-center py-5 px-2.5 rounded-2xl border-[1.5px] border-[#e8e5e0] bg-[#fafaf8] hover:border-[#2D5A3D] hover:bg-[#f0f7f2] transition-colors text-center"
+                >
+                  <span className="text-[28px] mb-1.5">{tile.emoji}</span>
+                  <span className="text-[13px] font-semibold text-[#2D2A26]">{tile.label}</span>
+                  <span className="text-[10px] text-[#8B7E74]">{tile.sub}</span>
+                </button>
+              ))}
             </div>
           </div>
         </>
@@ -3543,7 +3565,7 @@ export default function TodayPage() {
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Type</label>
               <div className="flex gap-2">
-                {([["field_trip", "🗺️ Field trip"], ["project", "🔬 Project"], ["activity", "🎵 Activity"]] as const).map(([val, label]) => (
+                {([["field_trip", "🗺️ Field trip"], ["project", "🔬 Project"]] as const).map(([val, label]) => (
                   <button key={val} type="button" onClick={() => setFtType(val)}
                     className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-colors ${ftType === val ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}>
                     {label}
@@ -3596,18 +3618,23 @@ export default function TodayPage() {
                     }).select("id").single();
                     if (ftErr) { console.error("[Rooted] Field trip save failed:", ftErr.message); setFtSaving(false); showCaptureToast("Save failed — try again", null); return; }
                     console.log("[Rooted] Saved:", ftType, ins);
-                    const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
+                    const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿" };
                     posthog.capture('field_trip_logged', { type: ftType, user_plan: isPro ? 'paid' : 'free' });
                     showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null, ftType, ftChild || null);
                     checkAndAwardBadges(user.id);
+                    onLogAction({ userId: user.id, childId: ftChild || undefined, actionType: ftType as "field_trip" | "project" });
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild(""); setFtMinutes("");
                   await loadData();
                 }}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors">
-                {ftSaving ? "Saving…" : "Save"}
+                className="flex-1 py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors">
+                {ftSaving ? "Saving…" : ftType === "project" ? "Save Project 🌿" : "Save Field Trip 🌿"}
               </button>
+            </div>
+            {/* Leaf hint */}
+            <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mt-3">
+              <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
             </div>
             </div>
           </div>
@@ -3680,12 +3707,12 @@ export default function TodayPage() {
                   </button>
                 )}
               </div>
-              <p className="text-xs text-[#7a6f65] bg-[#e8f0e9] rounded-xl px-3 py-2">
-                🍃 This book will add a leaf to {bookChild ? children.find((c) => c.id === bookChild)?.name + "&apos;s" : "the"} garden tree.
-              </p>
+              <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center">
+                <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
+              </div>
               <button onClick={saveBook} disabled={savingBook || !bookTitle.trim()}
-                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
-                {savingBook ? "Saving…" : "Log Book 🍃"}
+                className="w-full py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors">
+                {savingBook ? "Saving…" : "Log Book 🌿"}
               </button>
             </div>
           </div>
@@ -3900,9 +3927,12 @@ export default function TodayPage() {
                   </select>
                 </div>
               )}
+              <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center">
+                <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
+              </div>
               <button onClick={saveDrawing} disabled={savingDrawing || !drawingTitle.trim()}
-                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
-                {savingDrawing ? "Saving…" : "Save Drawing 🎨"}
+                className="w-full py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors">
+                {savingDrawing ? "Saving…" : "Save Drawing 🌿"}
               </button>
             </div>
           </div>
@@ -4322,6 +4352,7 @@ export default function TodayPage() {
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
                     showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null, winType, winChild || null);
                     checkAndAwardBadges(user.id);
+                    onLogAction({ userId: user.id, childId: winChild || undefined, actionType: winType as "win" | "quote" });
                     setSavingWin(false);
                     setWinText("");
                     setWinChild("");
@@ -4335,10 +4366,13 @@ export default function TodayPage() {
                   }
                 }}
                 disabled={savingWin || !winText.trim()}
-                className="w-full py-3 rounded-xl bg-[var(--g-brand)] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                className="w-full py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors"
               >
-                {savingWin ? "Saving..." : "Save"}
+                {savingWin ? "Saving..." : "Save Win 🌿"}
               </button>
+              <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mt-3">
+                <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
+              </div>
             </div>
           </div>
         </>

@@ -3,15 +3,17 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, ChevronDown, Plus, X } from "lucide-react";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
 import ActivitySetupModal from "@/app/components/ActivitySetupModal";
+import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import Toast from "@/components/Toast";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { useSchoolYears } from "@/lib/useSchoolYears";
+import { onLogAction } from "@/app/lib/onLogAction";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +30,7 @@ type CurriculumGoal = {
   school_days: string[] | null;
   created_at: string | null;
   default_minutes?: number | null;
+  scheduled_start_time?: string | null;
 };
 type Lesson  = {
   id: string;
@@ -75,6 +78,87 @@ type Activity = {
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CURRICULUM_RE = /^(.+) — Lesson \d+$/;
+
+// ─── US Holidays ─────────────────────────────────────────────────────────────
+
+function nthDayOfMonth(year: number, month: number, dayOfWeek: number, nth: number): number {
+  let count = 0;
+  for (let d = 1; d <= 31; d++) {
+    const dt = new Date(year, month, d);
+    if (dt.getMonth() !== month) break;
+    if (dt.getDay() === dayOfWeek) {
+      count++;
+      if (count === nth) return d;
+    }
+  }
+  return 1;
+}
+
+function lastDayOfMonth(year: number, month: number, dayOfWeek: number): number {
+  let last = 1;
+  for (let d = 1; d <= 31; d++) {
+    const dt = new Date(year, month, d);
+    if (dt.getMonth() !== month) break;
+    if (dt.getDay() === dayOfWeek) last = d;
+  }
+  return last;
+}
+
+/** Compute Easter Sunday via the Anonymous Gregorian algorithm */
+function computeEaster(year: number): { month: number; day: number } {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31) - 1; // 0-indexed
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return { month, day };
+}
+
+function getUSHolidays(year: number): Record<string, string> {
+  const fmt = (m: number, d: number) => `${year}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const easter = computeEaster(year);
+  return {
+    // Fixed-date holidays
+    [fmt(0, 1)]:   "\uD83C\uDF89 New Year\u2019s Day",
+    [fmt(1, 2)]:   "\uD83E\uDDAB Groundhog Day",
+    [fmt(1, 14)]:  "\uD83D\uDC95 Valentine\u2019s Day",
+    [fmt(2, 17)]:  "\u2618\uFE0F St. Patrick\u2019s Day",
+    [fmt(3, 22)]:  "\uD83C\uDF0E Earth Day",
+    [fmt(4, 5)]:   "\uD83C\uDF8A Cinco de Mayo",
+    [fmt(5, 19)]:  "\u270A Juneteenth",
+    [fmt(6, 4)]:   "\uD83C\uDDFA\uD83C\uDDF8 4th of July",
+    [fmt(9, 31)]:  "\uD83C\uDF83 Halloween",
+    [fmt(10, 11)]: "\uD83C\uDDFA\uD83C\uDDF8 Veterans Day",
+    [fmt(11, 25)]: "\uD83C\uDF84 Christmas",
+    [fmt(11, 31)]: "\uD83C\uDF86 New Year\u2019s Eve",
+
+    // Dynamically computed moving holidays
+    [fmt(0, nthDayOfMonth(year, 0, 1, 3))]:  "\u270A MLK Day",
+    [fmt(1, nthDayOfMonth(year, 1, 1, 3))]:  "\uD83C\uDDFA\uD83C\uDDF8 Presidents\u2019 Day",
+    [fmt(easter.month, easter.day)]:          "\uD83D\uDC23 Easter",
+    [fmt(4, nthDayOfMonth(year, 4, 0, 2))]:  "\uD83D\uDC90 Mother\u2019s Day",
+    [fmt(4, lastDayOfMonth(year, 4, 1))]:     "\uD83C\uDDFA\uD83C\uDDF8 Memorial Day",
+    [fmt(5, nthDayOfMonth(year, 5, 0, 3))]:  "\uD83D\uDC54 Father\u2019s Day",
+    [fmt(8, nthDayOfMonth(year, 8, 1, 1))]:  "\uD83D\uDCDA Labor Day",
+    [fmt(10, nthDayOfMonth(year, 10, 4, 4))]: "\uD83E\uDD83 Thanksgiving",
+  };
+}
+
+function getSeasonalEmoji(month: number): string {
+  if (month >= 2 && month <= 4) return " \u{1F337}";   // Mar–May → flower
+  if (month >= 5 && month <= 7) return " \u2600\uFE0F"; // Jun–Aug → sun
+  if (month >= 8 && month <= 10) return " \u{1F342}";  // Sep–Nov → leaf
+  return " \u2744\uFE0F";                               // Dec–Feb → snowflake
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -212,6 +296,14 @@ export default function PlanPage() {
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const isFreeUser = !planType || planType === "free" || previewFree;
 
+  // ── School year support ─────────────────────────────────────────────────────
+  const schoolYears = useSchoolYears(effectiveUserId || null);
+  const [yearView, setYearView] = useState<"this" | "next">("this");
+  const [showCreateYear, setShowCreateYear] = useState(false);
+  const activeYearId = schoolYears.active?.id ?? null;
+  const upcomingYearId = schoolYears.upcoming?.id ?? null;
+  const viewingYearId = yearView === "next" ? upcomingYearId : activeYearId;
+
   useEffect(() => { document.title = "Plan · Rooted"; posthog.capture('page_viewed', { page: 'plan' }); }, []);
 
   useEffect(() => {
@@ -223,6 +315,12 @@ export default function PlanPage() {
   const [editWizardData,    setEditWizardData]    = useState<CurriculumWizardEditData | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
   const [planToastMsg, setPlanToastMsg] = useState<string | null>(null);
+
+  // ── Backfill editing ─────────────────────────────────────────────────────
+  const [expandedBackfill, setExpandedBackfill] = useState<string | null>(null);
+  const [backfillLessons, setBackfillLessons] = useState<Record<string, { id: string; title: string; date: string; lesson_number: number; minutes_spent: number | null }[]>>({});
+  const [backfillEdits, setBackfillEdits] = useState<Record<string, number>>({});
+  const [savingBackfillId, setSavingBackfillId] = useState<string | null>(null);
 
   // ── Plan tip banner ───────────────────────────────────────────────────────
   const [onboarded,    setOnboarded]    = useState(false);
@@ -243,6 +341,9 @@ export default function PlanPage() {
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
 
+  // ── Month day popover ─────────────────────────────────────────────────────
+  const [monthPopoverDay, setMonthPopoverDay] = useState<string | null>(null);
+
   // ── Edit time state ─────────────────────────────────────────────────────
   const [editTimeId, setEditTimeId] = useState<string | null>(null);
   const [editTimeValue, setEditTimeValue] = useState("");
@@ -257,9 +358,30 @@ export default function PlanPage() {
   const [planPickerConflictCount, setPlanPickerConflictCount] = useState(0);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
+    const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);
+    d.setHours(0, 0, 0, 0);
+    return d;
   });
   const isCurrentWeek = toDateStr(weekStart) === toDateStr(getMondayOf(new Date()));
+
+  // ── Load backfill lessons for a goal ────────────────────────────────────────
+  const loadBackfillLessons = useCallback(async (goalId: string) => {
+    const { data } = await supabase
+      .from("lessons")
+      .select("id, title, date, lesson_number, minutes_spent")
+      .eq("curriculum_goal_id", goalId)
+      .eq("is_backfill", true)
+      .order("lesson_number");
+    if (data) {
+      setBackfillLessons(prev => ({ ...prev, [goalId]: data as { id: string; title: string; date: string; lesson_number: number; minutes_spent: number | null }[] }));
+    }
+  }, []);
+
+  const saveBackfillHours = useCallback(async (lessonId: string, minutes: number) => {
+    setSavingBackfillId(lessonId);
+    await supabase.from("lessons").update({ minutes_spent: minutes, hours: minutes / 60 }).eq("id", lessonId);
+    setSavingBackfillId(null);
+  }, []);
 
   // ── Load week view ─────────────────────────────────────────────────────────
 
@@ -273,7 +395,7 @@ export default function PlanPage() {
       supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id").eq("user_id", effectiveUserId).order("created_at"),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
@@ -364,6 +486,11 @@ export default function PlanPage() {
     setLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     setMonthLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     await supabase.from("lessons").update({ completed: !current }).eq("id", id);
+    // Fire streak + badge check on completion (not on uncheck)
+    if (!current && effectiveUserId) {
+      const lesson = lessons.find(l => l.id === id);
+      onLogAction({ userId: effectiveUserId, childId: lesson?.child_id ?? undefined, actionType: "lesson" });
+    }
   }
 
   // ── Edit lesson ───────────────────────────────────────────────────────────
@@ -707,10 +834,30 @@ export default function PlanPage() {
     return monthLessonMap[selectedDay] ?? [];
   })();
 
-  // Curriculum groups from allLessons
+  // ── Year-scoped data ─────────────────────────────────────────────────────
+  const yearScopedGoals = curriculumGoals.filter(g => {
+    const gYearId = (g as unknown as { school_year_id?: string }).school_year_id;
+    if (yearView === "next") return gYearId === upcomingYearId;
+    return !gYearId || gYearId === activeYearId; // null = active year (pre-migration)
+  });
+  const yearScopedLessons = allLessons.filter(l => {
+    const goalId = l.curriculum_goal_id;
+    if (!goalId) return yearView === "this"; // unlinked lessons → this year
+    const goal = curriculumGoals.find(g => g.id === goalId);
+    const gYearId = (goal as unknown as { school_year_id?: string } | undefined)?.school_year_id;
+    if (yearView === "next") return gYearId === upcomingYearId;
+    return !gYearId || gYearId === activeYearId;
+  });
+  const yearScopedActivities = activities.filter(a => {
+    const aYearId = (a as unknown as { school_year_id?: string }).school_year_id;
+    if (yearView === "next") return aYearId === upcomingYearId;
+    return !aYearId || aYearId === activeYearId;
+  });
+
+  // Curriculum groups from allLessons (year-scoped)
   const curricGroups: CurriculumGroup[] = (() => {
     const map = new Map<string, CurriculumGroup>();
-    for (const l of allLessons) {
+    for (const l of yearScopedLessons) {
       const match = CURRICULUM_RE.exec(l.title);
       if (!match) continue;
       const cName = match[1];
@@ -990,27 +1137,48 @@ export default function PlanPage() {
     <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
     <div className="px-4 pt-5 pb-7 space-y-4 max-w-5xl" style={{ background: "#F8F7F4" }}>
 
-      {/* ── Total hours this year ─────────────────────────── */}
-      {!loading && allLessons.length > 0 && (() => {
-        const completedLessons = allLessons.filter(l => l.completed);
-        const totalMins = completedLessons.reduce((sum, l) => {
-          if (l.minutes_spent != null) return sum + l.minutes_spent;
-          if (l.hours != null && l.hours > 0) return sum + Math.round(l.hours * 60);
-          return sum + 30; // fallback default
-        }, 0);
-        const h = Math.floor(totalMins / 60);
-        const m = totalMins % 60;
-        return (
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl sm:rounded-2xl p-5 sm:p-5 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4]">Total hours this year</p>
-              <p className="text-2xl font-bold text-[#2d2926] mt-0.5">{h}h {m > 0 ? `${m}m` : ""}</p>
-              <p className="text-[10px] text-[#b5aca4] mt-0.5">Auto-tracked from {completedLessons.length} lessons ✓</p>
-            </div>
-            <span className="text-3xl">⏱</span>
+      {/* ── Year toggle (when upcoming year exists) ────────── */}
+      {!schoolYears.loading && schoolYears.upcoming && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => setYearView("this")}
+            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            style={{
+              background: yearView === "this" ? "#2D5A3D" : "white",
+              color: yearView === "this" ? "white" : "#8B7E74",
+              border: yearView === "this" ? "none" : "1px solid #e8e5e0",
+            }}
+          >
+            This Year
+          </button>
+          <button
+            onClick={() => setYearView("next")}
+            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            style={{
+              background: yearView === "next" ? "#2D5A3D" : "white",
+              color: yearView === "next" ? "white" : "#8B7E74",
+              border: yearView === "next" ? "none" : "1px solid #e8e5e0",
+            }}
+          >
+            Next Year
+          </button>
+        </div>
+      )}
+
+      {/* ── Plan Next Year prompt (no upcoming year yet) ──── */}
+      {!schoolYears.loading && schoolYears.active && !schoolYears.upcoming && yearView === "this" && (
+        <button
+          onClick={() => setShowCreateYear(true)}
+          className="w-full bg-white border border-[#e8e5e0] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
+        >
+          <span className="text-xl shrink-0">🌱</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-medium text-[#2D2A26]">Plan Next Year</p>
+            <p className="text-[11px] text-[#8B7E74] mt-0.5">Start setting up your curriculum for next year — your current year stays untouched.</p>
           </div>
-        );
-      })()}
+          <ChevronRight size={16} className="text-[#8B7E74] shrink-0 mt-0.5" />
+        </button>
+      )}
 
       {/* ── Catch-up banner ──────────────────────────────── */}
       {!loading && hasCatchUp && (
@@ -1029,23 +1197,21 @@ export default function PlanPage() {
         <div className="flex gap-2 p-4 pb-3">
           <button
             onClick={() => setViewMode("week")}
-            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-            style={{
-              background: viewMode === "week" ? "#2D5A3D" : "white",
-              color: viewMode === "week" ? "white" : "#7a6f65",
-              border: viewMode === "week" ? "1px solid #2D5A3D" : "1px solid #e8e5e0",
-            }}
+            className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+              viewMode === "week"
+                ? "bg-[#2D5A3D] text-white"
+                : "bg-[#F8F7F4] text-[#5C5346] border border-[#e8e5e0]"
+            }`}
           >
             Week
           </button>
           <button
             onClick={() => setViewMode("month")}
-            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-            style={{
-              background: viewMode === "month" ? "#2D5A3D" : "white",
-              color: viewMode === "month" ? "white" : "#7a6f65",
-              border: viewMode === "month" ? "1px solid #2D5A3D" : "1px solid #e8e5e0",
-            }}
+            className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+              viewMode === "month"
+                ? "bg-[#2D5A3D] text-white"
+                : "bg-[#F8F7F4] text-[#5C5346] border border-[#e8e5e0]"
+            }`}
           >
             Month
           </button>
@@ -1107,7 +1273,7 @@ export default function PlanPage() {
           </div>
 
           {/* 7-day strip */}
-          <div style={{ display: "flex", gap: 5 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 5 }}>
             {weekDays.map((day) => {
               const key = toDateStr(day);
               const isToday = key === todayStr;
@@ -1127,10 +1293,8 @@ export default function PlanPage() {
               if (isVacation) {
                 bg = "#fff8f0";
                 border = "0.5px solid #f0c878";
-              } else if (isToday && isSelected) {
-                bg = "var(--g-brand)";
               } else if (isToday) {
-                bg = "var(--g-brand)";
+                bg = "#2D5A3D";
               } else if (isSelected) {
                 bg = "#f4faf0";
                 border = "1.5px solid var(--g-brand)";
@@ -1138,16 +1302,16 @@ export default function PlanPage() {
                 bg = "white";
                 border = "0.5px solid #e8e0d4";
               }
-              if (isPast && hasLessons && !isSelected) opacity = 0.6;
+              if (isPast && hasLessons && !isSelected && !isToday) opacity = 0.6;
 
               return (
                 <button
                   key={key}
                   onClick={() => setSelectedDay(key)}
                   style={{
-                    flex: 1, borderRadius: 12, padding: "7px 4px", display: "flex", flexDirection: "column",
+                    borderRadius: 12, padding: "7px 4px", display: "flex", flexDirection: "column",
                     alignItems: "center", gap: 3, cursor: "pointer", background: bg, border,
-                    opacity, minWidth: 0,
+                    opacity,
                   }}
                 >
                   <span style={{
@@ -1188,22 +1352,22 @@ export default function PlanPage() {
       {viewMode === "month" && !loading && (
         <div className="px-4 pb-4">
           {/* Month navigation */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
-            <button onClick={prevMonth} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <button onClick={prevMonth} className="w-8 h-8 flex items-center justify-center text-[#5c7f63] hover:text-[#2D5A3D] transition-colors rounded-lg hover:bg-[#f0ede8]">
               <ChevronLeft size={18} />
             </button>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>
-              {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+            <span className="text-[15px] font-semibold text-[#2D2A26]">
+              {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}{getSeasonalEmoji(monthStart.getMonth())}
             </span>
-            <button onClick={nextMonth} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
+            <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center text-[#5c7f63] hover:text-[#2D5A3D] transition-colors rounded-lg hover:bg-[#f0ede8]">
               <ChevronRight size={18} />
             </button>
           </div>
 
           {/* Day-of-week headers */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, marginBottom: 4 }}>
+          <div className="grid grid-cols-7 gap-1 pb-2">
             {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-              <div key={i} style={{ textAlign: "center", fontSize: 9, textTransform: "uppercase", color: "#b5aca4", fontWeight: 600 }}>
+              <div key={i} className="text-center text-[11px] font-medium uppercase text-[#8B7E74]">
                 {d}
               </div>
             ))}
@@ -1214,7 +1378,6 @@ export default function PlanPage() {
             const year = monthStart.getFullYear();
             const month = monthStart.getMonth();
             const firstDay = new Date(year, month, 1);
-            // Sunday-based offset for S M T W T F S headers
             const startOffset = firstDay.getDay();
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const cells: (Date | null)[] = [
@@ -1223,68 +1386,181 @@ export default function PlanPage() {
             ];
             while (cells.length % 7 !== 0) cells.push(null);
 
+            const holidays = getUSHolidays(year);
+
+            // Count activities per day (based on which weekdays they're scheduled)
+            const activityCountForDay = (dateStr: string): number => {
+              const d = new Date(dateStr + "T12:00:00");
+              // activities.days uses 0=Mon, 1=Tue, ..., 6=Sun
+              const dayIdx = (d.getDay() + 6) % 7;
+              return activities.filter(a => a.is_active && a.days.includes(dayIdx)).length;
+            };
+
+            // Compute lightest week
+            const weekCounts: { start: Date; end: Date; count: number }[] = [];
+            {
+              // Find all Mondays in the month
+              const cursor = new Date(year, month, 1);
+              while (cursor.getMonth() === month) {
+                if (cursor.getDay() === 1) { // Monday
+                  const weekStart = new Date(cursor);
+                  const weekEnd = new Date(cursor);
+                  weekEnd.setDate(weekEnd.getDate() + 4); // Friday
+                  let count = 0;
+                  for (let dd = new Date(weekStart); dd <= weekEnd && dd.getMonth() === month; dd.setDate(dd.getDate() + 1)) {
+                    const k = toDateStr(dd);
+                    count += (monthLessonMap[k] ?? []).length + activityCountForDay(k);
+                  }
+                  weekCounts.push({ start: weekStart, end: weekEnd, count });
+                }
+                cursor.setDate(cursor.getDate() + 1);
+              }
+            }
+            const lightestWeek = weekCounts.length > 0 ? weekCounts.reduce((a, b) => a.count <= b.count ? a : b) : null;
+
+            // First day of each vacation block for label
+            const vacStartDates = new Set(vacationBlocks.map(b => b.start_date));
+
             return (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+              <>
+              <div className="grid grid-cols-7 gap-1">
                 {cells.map((day, idx) => {
-                  if (!day) return <div key={`empty-${idx}`} />;
+                  if (!day) return <div key={`empty-${idx}`} className="min-h-[48px]" />;
                   const key = toDateStr(day);
                   const isToday = key === todayStr;
                   const isPast = day < todayMidnight && !isToday;
                   const isSelected = key === selectedDay;
                   const isVacation = isDateInBlocks(key, vacationBlocks);
+                  const vacName = getVacationName(key, vacationBlocks);
                   const dayLessons = monthLessonMap[key] ?? [];
-                  const hasLessons = dayLessons.length > 0;
-                  const dayChildIds = [...new Set(dayLessons.map(l => l.child_id).filter(Boolean))];
-                  const dayChildren = dayChildIds.map(id => children.find(c => c.id === id)).filter(Boolean) as Child[];
+                  const lessonCount = dayLessons.length;
+                  const actCount = activityCountForDay(key);
+                  const totalItems = lessonCount + actCount;
+                  const holiday = holidays[key];
+                  const isPopoverOpen = monthPopoverDay === key;
+                  const isWeekend = day.getDay() === 0 || day.getDay() === 6;
 
-                  let bg = "transparent";
-                  let border = "none";
-
-                  if (isVacation) {
-                    bg = "#fff8f0";
-                    border = "0.5px solid #f0c878";
-                  } else if (isToday) {
-                    bg = "var(--g-brand)";
-                  } else if (isSelected) {
-                    bg = "#f4faf0";
-                    border = "1.5px solid var(--g-brand)";
-                  } else if (hasLessons) {
-                    bg = "white";
-                    border = "0.5px solid #e8e0d4";
+                  let cellBg = "";
+                  let cellBorder = "";
+                  if (isToday) {
+                    cellBg = "bg-[#2D5A3D]";
+                  } else if (isVacation) {
+                    cellBg = "bg-[#fef3e0]";
+                    cellBorder = "border border-[#f0c878]";
+                  } else if (holiday && totalItems === 0) {
+                    cellBg = "bg-[#fef9f0]";
+                  } else if (totalItems > 0) {
+                    cellBg = "bg-[#f0f7f2]";
+                  }
+                  if (isSelected && !isToday && !isVacation) {
+                    cellBorder = "ring-2 ring-[#2D5A3D] ring-inset";
                   }
 
                   return (
-                    <button
-                      key={key}
-                      onClick={() => setSelectedDay(key)}
-                      style={{
-                        aspectRatio: "1", borderRadius: 8, display: "flex", flexDirection: "column",
-                        alignItems: "center", justifyContent: "center", gap: 2, cursor: "pointer",
-                        background: bg, border, opacity: isPast ? 0.55 : 1, padding: 2,
-                      }}
-                    >
-                      <span style={{
-                        fontSize: 11, fontWeight: 700,
-                        color: isToday ? "white" : "#2d2926",
-                      }}>
-                        {day.getDate()}
-                      </span>
-                      <div style={{ display: "flex", gap: 2, minHeight: 4 }}>
-                        {isVacation ? (
-                          <span style={{ fontSize: 8 }}>🌴</span>
-                        ) : dayChildren.length > 0 ? (
-                          dayChildren.map(c => (
-                            <span key={c.id} style={{
-                              width: 4, height: 4, borderRadius: "50%", display: "inline-block",
-                              backgroundColor: isToday ? "rgba(255,255,255,0.5)" : (c.color ?? "#5c7f63"),
-                            }} />
-                          ))
-                        ) : null}
-                      </div>
-                    </button>
+                    <div key={key} className="relative">
+                      <button
+                        onClick={() => {
+                          setSelectedDay(key);
+                          setMonthPopoverDay(isPopoverOpen ? null : key);
+                        }}
+                        className={`w-full min-h-[48px] rounded-xl flex flex-col items-center justify-start py-2 px-1 cursor-pointer transition-colors ${cellBg} ${cellBorder}`}
+                        style={{ opacity: isPast ? 0.75 : 1 }}
+                      >
+                        {/* Date number */}
+                        <span className={`text-[15px] leading-none ${
+                          isToday ? "text-white font-semibold"
+                            : isWeekend && totalItems === 0 ? "text-[#8B7E74] font-medium"
+                            : isPast ? "text-[#5C5346] font-medium"
+                            : "text-[#2D2A26] font-semibold"
+                        }`}>
+                          {day.getDate()}
+                        </span>
+                        {/* Indicators */}
+                        <div className="flex items-center justify-center gap-0.5 mt-1 min-h-[10px]">
+                          {isVacation ? (
+                            <span className="text-[10px]">🌴</span>
+                          ) : totalItems > 0 && !isToday ? (
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#2D5A3D]" />
+                          ) : totalItems > 0 && isToday ? (
+                            <span className="w-1.5 h-1.5 rounded-full bg-white/60" />
+                          ) : holiday ? (
+                            <span className="text-[10px]">{holiday.split(" ")[0]}</span>
+                          ) : null}
+                        </div>
+                      </button>
+
+                      {/* Day popover */}
+                      {isPopoverOpen && (
+                        <>
+                          <div className="fixed inset-0 z-[60]" onClick={() => setMonthPopoverDay(null)} />
+                          <div
+                            className="absolute z-[61] bg-white border border-[#e8e5e0] rounded-xl shadow-lg p-3 w-52"
+                            style={{ top: "calc(100% + 4px)", left: "50%", transform: "translateX(-50%)" }}
+                          >
+                            <p className="text-xs font-semibold text-[#2d2926] mb-2">
+                              {day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                              {holiday && <span className="text-[#8B7E74] font-normal italic ml-1">· {holiday}</span>}
+                            </p>
+                            {isVacation && vacName && (
+                              <p className="text-xs text-[#7a5000] mb-1">🌴 {vacName}</p>
+                            )}
+                            {lessonCount === 0 && actCount === 0 && !isVacation && (
+                              <p className="text-[11px] text-[#b5aca4]">No lessons or activities</p>
+                            )}
+                            {lessonCount > 0 && (
+                              <div className="mb-1.5">
+                                {dayLessons.slice(0, 5).map((l) => {
+                                  const childName = l.child_id ? children.find(c => c.id === l.child_id)?.name : null;
+                                  return (
+                                    <p key={l.id} className="text-[11px] text-[#2d2926] truncate">
+                                      {childName && <span className="text-[#5c7f63]">{childName}: </span>}
+                                      {l.subjects?.name ?? l.title}
+                                    </p>
+                                  );
+                                })}
+                                {lessonCount > 5 && <p className="text-[10px] text-[#b5aca4]">+{lessonCount - 5} more</p>}
+                              </div>
+                            )}
+                            {actCount > 0 && (
+                              <div className="mb-1.5">
+                                {activities.filter(a => a.is_active && a.days.includes((day.getDay() + 6) % 7)).map(a => (
+                                  <p key={a.id} className="text-[11px] text-[#2d2926] truncate">{a.emoji} {a.name}</p>
+                                ))}
+                              </div>
+                            )}
+                            {!isVacation && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMonthPopoverDay(null);
+                                  setVacName("");
+                                  setVacStart(key);
+                                  setVacEnd(key);
+                                  setVacReschedule("leave");
+                                  setShowVacModal(true);
+                                }}
+                                className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
+                              >
+                                Mark as break →
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   );
                 })}
               </div>
+
+              {/* Lightest week hint */}
+              {lightestWeek && (
+                <div className="mt-3 bg-[#F8F7F4] rounded-xl p-3">
+                  <p className="text-sm text-[#5C5346]">
+                    {"\u{1F4A1}"} Lightest week: {lightestWeek.start.toLocaleDateString("en-US", { month: "short", day: "numeric" })}–{lightestWeek.end.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ({lightestWeek.count === 0 ? "nothing scheduled" : `${lightestWeek.count} item${lightestWeek.count !== 1 ? "s" : ""}`})
+                  </p>
+                </div>
+              )}
+              </>
             );
           })()}
         </div>
@@ -1293,199 +1569,12 @@ export default function PlanPage() {
       </div>
 
       {/* ══════════════════════════════════════════════════
-          SECTION 3 — DAY PANEL
-      ══════════════════════════════════════════════════ */}
-      {!loading && (
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
-          {selectedDay === todayStr
-            ? "Today\u2019s Lessons"
-            : `Lessons — ${selectedDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`}
-        </p>
-      )}
-      {!loading && (() => {
-        // Vacation day
-        if (isSelectedVacation) {
-          return (
-            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center">
-              <span style={{ fontSize: 22, opacity: 0.35 }}>🌴</span>
-              <p style={{ fontSize: 12, color: "#b5aca4", marginTop: 6 }}>{selectedVacName}</p>
-            </div>
-          );
-        }
-
-        // No lessons day
-        if (selectedDayTotal === 0) {
-          return (
-            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center">
-              <span style={{ fontSize: 22, opacity: 0.35 }}>🌿</span>
-              <p style={{ fontSize: 12, color: "#b5aca4", marginTop: 6 }}>
-                {isSelectedWeekend ? "Enjoy your day off!" : "No lessons scheduled"}
-              </p>
-            </div>
-          );
-        }
-
-        // Day with lessons
-        return (
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
-            {/* Header */}
-            <div className="px-5 pt-4 pb-3 border-b border-[#f0ece4]">
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>{selectedDateLabel}</span>
-            </div>
-
-            {/* Children groups */}
-            {lessonsByChild.map(({ child, lessons: childLessons }, groupIdx) => {
-              const childDone = childLessons.filter(l => l.completed).length;
-              const childTotal = childLessons.length;
-              const allDone = childDone === childTotal;
-              let statusText: string;
-              let statusColor: string;
-              if (allDone) { statusText = "✓ All done"; statusColor = "var(--g-brand)"; }
-              else if (childDone === 0) { statusText = `0 of ${childTotal}`; statusColor = "#8a6d00"; }
-              else { statusText = `${childDone} of ${childTotal} done`; statusColor = "#b5aca4"; }
-
-              return (
-                <div key={child?.id ?? "__none__"}>
-                  {/* Child header */}
-                  {child && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 13px 5px" }}>
-                      <span style={{
-                        width: 22, height: 22, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 10, fontWeight: 700, color: "white", flexShrink: 0,
-                        backgroundColor: child.color ?? "#5c7f63",
-                      }}>
-                        {child.name.charAt(0).toUpperCase()}
-                      </span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#2d2926", flex: 1 }}>{child.name}</span>
-                      <span style={{ fontSize: 11, color: statusColor, fontWeight: 500 }}>{statusText}</span>
-                    </div>
-                  )}
-
-                  {/* Lesson rows */}
-                  {childLessons.map((lesson, lessonIdx) => (
-                    <div
-                      key={lesson.id}
-                      style={{
-                        display: "flex", alignItems: "flex-start", gap: 8,
-                        paddingLeft: 43, paddingRight: 13, paddingTop: 7, paddingBottom: 7,
-                        borderTop: lessonIdx > 0 ? "0.5px solid #faf7f3" : undefined,
-                      }}
-                    >
-                      {/* Checkbox */}
-                      <button
-                        onClick={() => !isPartner && toggleLesson(lesson.id, lesson.completed)}
-                        style={{
-                          width: 18, height: 18, borderRadius: "50%", flexShrink: 0, marginTop: 1,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          border: lesson.completed ? "none" : "1.5px solid #ccc",
-                          background: lesson.completed ? "var(--g-brand)" : "transparent",
-                          cursor: isPartner ? "default" : "pointer",
-                        }}
-                      >
-                        {lesson.completed && (
-                          <svg viewBox="0 0 8 7" style={{ width: 9, height: 7 }}>
-                            <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </button>
-
-                      {/* Lesson text */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-                          <p style={{
-                            fontSize: 12, fontWeight: 500, margin: 0,
-                            textDecoration: lesson.completed ? "line-through" : "none",
-                            color: lesson.completed ? "#bbb" : "#2d2926",
-                          }}>
-                            {lesson.title}
-                          </p>
-                        </div>
-                        {lesson.subjects && (
-                          <p style={{ fontSize: 10, color: "#bbb", margin: "1px 0 0" }}>{lesson.subjects.name}</p>
-                        )}
-                      </div>
-                      {/* Edit time inline */}
-                      {!isPartner && editTimeId === lesson.id ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                          <input
-                            type="number"
-                            inputMode="numeric"
-                            value={editTimeValue}
-                            onChange={(e) => setEditTimeValue(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === "Enter") saveEditTime(); if (e.key === "Escape") setEditTimeId(null); }}
-                            autoFocus
-                            style={{ width: 48, fontSize: 12, textAlign: "center", border: "1px solid #c8bfb5", borderRadius: 6, padding: "3px 4px", background: "white", color: "#2d2926" }}
-                          />
-                          <span style={{ fontSize: 10, color: "#9a8f85" }}>min</span>
-                          <button
-                            onClick={saveEditTime}
-                            style={{ fontSize: 10, fontWeight: 600, color: "var(--g-brand)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                          >
-                            Save
-                          </button>
-                        </div>
-                      ) : !isPartner ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                          <button
-                            onClick={() => openEditTime(lesson)}
-                            style={{ fontSize: 10, color: "#b5aca4", background: "none", border: "none", cursor: "pointer", padding: 0, whiteSpace: "nowrap" }}
-                          >
-                            {lesson.minutes_spent != null ? `${lesson.minutes_spent} min ✎` : "⏱ Time"}
-                          </button>
-                          {/* Reschedule link for past uncompleted lessons */}
-                          {isSelectedPast && !lesson.completed && (
-                            <button
-                              onClick={() => openPlanReschedule(lesson)}
-                              style={{ fontSize: 10, fontWeight: 600, color: "#7a4a1a", background: "none", border: "none", cursor: "pointer", padding: 0, whiteSpace: "nowrap" }}
-                            >
-                              Reschedule
-                            </button>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-
-            {/* Day time total */}
-            {(() => {
-              const allDayLessons = lessonsByChild.flatMap(g => g.lessons);
-              const completed = allDayLessons.filter(l => l.completed);
-              if (completed.length === 0) return null;
-              const totalMins = completed.reduce((sum, l) => {
-                if (l.minutes_spent != null) return sum + l.minutes_spent;
-                if (l.hours != null && l.hours > 0) return sum + Math.round(l.hours * 60);
-                return sum + 30;
-              }, 0);
-              const display = totalMins >= 60 ? `${Math.floor(totalMins / 60)}h ${totalMins % 60 > 0 ? `${totalMins % 60}m` : ""}` : `${totalMins} min`;
-              return (
-                <div style={{ borderTop: "0.5px solid #f5f0e8", padding: "8px 13px" }}>
-                  <p style={{ fontSize: 11, color: "#b5aca4", margin: 0 }}>Total: {display}</p>
-                </div>
-              );
-            })()}
-
-            {/* Past-day note */}
-            {isSelectedPast && (
-              <div style={{ borderTop: "0.5px solid #f5f0e8", padding: "8px 13px" }}>
-                <p style={{ fontSize: 11, color: "#b5aca4", fontStyle: "italic", margin: 0 }}>
-                  Past lessons never expire — check off what you covered.
-                </p>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* ══════════════════════════════════════════════════
-          SECTION 4 — YOUR COURSES
+          SECTION — CURRICULUM
       ══════════════════════════════════════════════════ */}
       {!isPartner && !loading && (
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
-            Course Progress
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
+            Curriculum
           </p>
           {curricGroups.length === 0 && (
             <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center mb-2">
@@ -1510,7 +1599,7 @@ export default function PlanPage() {
               const lessonsRemaining = totalLessons - currentLesson;
 
               return (
-                <div key={group.key} className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden" style={{ borderLeftWidth: 3, borderLeftColor: child?.color ?? "#5c7f63" }}>
+                <div key={group.key} className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
                   {/* Header (tappable) */}
                   <button
                     onClick={() => setExpandedCourses(prev => {
@@ -1624,6 +1713,7 @@ export default function PlanPage() {
                               currentLesson: group.goalData?.current_lesson ?? completedFromRows,
                               targetDate: group.goalData?.target_date ?? "",
                               schoolDays: group.goalData?.school_days ?? [],
+                              lessonStartTime: group.goalData?.scheduled_start_time ?? null,
                             });
                           }}
                           style={{ fontSize: 11, color: "var(--g-brand)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
@@ -1631,6 +1721,83 @@ export default function PlanPage() {
                           Edit →
                         </button>
                       </div>
+
+                      {/* Backfilled lessons (editable) */}
+                      {group.goalId && (() => {
+                        const goalId = group.goalId!;
+                        const bfCount = allLessons.filter(l => l.curriculum_goal_id === goalId && (l as unknown as { is_backfill?: boolean }).is_backfill).length;
+                        if (bfCount === 0) return null;
+                        const isOpen = expandedBackfill === goalId;
+                        const bfLessons = backfillLessons[goalId] ?? [];
+
+                        return (
+                          <div style={{ marginTop: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isOpen) {
+                                  setExpandedBackfill(null);
+                                } else {
+                                  setExpandedBackfill(goalId);
+                                  if (!backfillLessons[goalId]) loadBackfillLessons(goalId);
+                                }
+                              }}
+                              style={{ fontSize: 11, color: "#8B7E74", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4 }}
+                            >
+                              <span style={{ fontSize: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                              Backfilled lessons ({bfCount})
+                            </button>
+                            {isOpen && bfLessons.length > 0 && (
+                              <div style={{ marginTop: 6, maxHeight: 200, overflowY: "auto" }}>
+                                {bfLessons.map((bl) => {
+                                  const editKey = bl.id;
+                                  const currentMin = backfillEdits[editKey] ?? bl.minutes_spent ?? 30;
+                                  const displayDate = new Date(bl.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                                  return (
+                                    <div key={bl.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "3px 0", fontSize: 11 }}>
+                                      <span style={{ color: "#9a8f85", minWidth: 52 }}>{displayDate}</span>
+                                      <span style={{ color: "#2d2926", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                        Lesson {bl.lesson_number}
+                                      </span>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          max="480"
+                                          value={currentMin}
+                                          onChange={(e) => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            setBackfillEdits(prev => ({ ...prev, [editKey]: val }));
+                                          }}
+                                          onBlur={() => {
+                                            if (currentMin !== (bl.minutes_spent ?? 30)) {
+                                              saveBackfillHours(bl.id, currentMin);
+                                              setBackfillLessons(prev => ({
+                                                ...prev,
+                                                [goalId]: (prev[goalId] ?? []).map(l => l.id === bl.id ? { ...l, minutes_spent: currentMin } : l),
+                                              }));
+                                            }
+                                          }}
+                                          style={{
+                                            width: 44, padding: "2px 4px", borderRadius: 6,
+                                            border: "1px solid #e8e5e0", fontSize: 11, textAlign: "center",
+                                            color: "#2d2926", background: "white",
+                                          }}
+                                        />
+                                        <span style={{ color: "#9a8f85", fontSize: 10 }}>min</span>
+                                        {savingBackfillId === bl.id && <span style={{ color: "#5c7f63", fontSize: 10 }}>...</span>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {isOpen && bfLessons.length === 0 && (
+                              <p style={{ fontSize: 10, color: "#b5aca4", marginTop: 4 }}>Loading...</p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -1653,15 +1820,43 @@ export default function PlanPage() {
               {"\u{1F4CB}"} Add activity
             </button>
           </div>
+
+          {/* Prompt cards */}
+          {!allLessons.some(l => (l as unknown as { is_backfill?: boolean }).is_backfill) && (
+            <button
+              onClick={() => setShowCreateWizard(true)}
+              className="w-full bg-[#F8F7F4] border border-[#e8e5e0] rounded-xl p-4 flex items-start gap-3 text-left hover:bg-[#f0ede8] transition-colors mt-3"
+            >
+              <span className="text-xl shrink-0">📚</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-[#5C5346]">Log your pre-Rooted lessons</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Need to log the lessons and activities you completed before Rooted? We got you.</p>
+              </div>
+              <ChevronRight size={16} className="text-[#b5aca4] shrink-0 mt-0.5" />
+            </button>
+          )}
+          {activities.length === 0 && (
+            <button
+              onClick={() => setShowActivityModal(true)}
+              className="w-full bg-[#F8F7F4] border border-[#e8e5e0] rounded-xl p-4 flex items-start gap-3 text-left hover:bg-[#f0ede8] transition-colors mt-2"
+            >
+              <span className="text-xl shrink-0">🎨</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-[#5C5346]">Track activities too?</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Art, music, PE, co-ops — add activities that count toward your hours →</p>
+              </div>
+              <ChevronRight size={16} className="text-[#b5aca4] shrink-0 mt-0.5" />
+            </button>
+          )}
         </div>
       )}
 
       {/* ══════════════════════════════════════════════════
           SECTION — ACTIVITIES
       ══════════════════════════════════════════════════ */}
-      {!isPartner && !loading && activities.length > 0 && (
+      {!isPartner && !loading && yearScopedActivities.length > 0 && (
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
             {"\u{1F4CB}"} Activities
           </p>
           <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
@@ -1742,23 +1937,91 @@ export default function PlanPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          SECTION 5 — PROGRESS REPORT
+          BREAKS & VACATIONS
       ══════════════════════════════════════════════════ */}
-      {!isPartner && !loading && (
+      {!isPartner && (
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
-            Progress Report
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
+            Breaks &amp; Vacations
+          </p>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
+            {vacationBlocks.length > 0 && (
+              <div className="divide-y divide-[#f0ede8]">
+                {vacationBlocks.map((block) => {
+                  const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  return (
+                    <div key={block.id} className="flex items-center justify-between px-5 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-sm">🌴</span>
+                        <span className="text-sm font-medium text-[#2d2926]">{block.name}</span>
+                        <span className="text-xs text-[#9a8e84]">{s} – {e}</span>
+                      </div>
+                      <button
+                        onClick={() => deleteVacationBlock(block.id)}
+                        className="text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {vacationBlocks.length === 0 && (
+              <div className="px-5 py-4 text-center">
+                <p className="text-sm text-[#b5aca4]">No breaks scheduled</p>
+              </div>
+            )}
+            <button
+              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+              className="w-full px-5 py-3 text-sm font-medium text-[#5c7f63] text-center hover:bg-[#faf9f7] transition-colors border-t border-[#f0ede8]"
+            >
+              + Add break or vacation
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          HOURS & PROGRESS REPORT (combined) — hidden in next year view
+      ══════════════════════════════════════════════════ */}
+      {!isPartner && !loading && yearView === "this" && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
+            Hours &amp; Progress Report
           </p>
           <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-bold text-[#2d2926]">📊 Progress Report</h3>
-                <p className="text-[11px] text-[#b5aca4] mt-0.5 leading-relaxed max-w-xs">
-                  A full record of your homeschool year — lessons, hours, books, and daily activity log — ready to download or share.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 mt-3">
+            {/* Hours summary */}
+            {allLessons.length > 0 && (() => {
+              const completedLessons = allLessons.filter(l => l.completed);
+              const totalMins = completedLessons.reduce((sum, l) => {
+                if (l.minutes_spent != null) return sum + l.minutes_spent;
+                if (l.hours != null && l.hours > 0) return sum + Math.round(l.hours * 60);
+                return sum + 30;
+              }, 0);
+              const h = Math.floor(totalMins / 60);
+              const m = totalMins % 60;
+              return (
+                <>
+                  <div className="mb-4">
+                    <p className="text-2xl font-bold text-[#2D2A26]">{h}h {m > 0 ? `${m}m` : ""}</p>
+                    <p className="text-[12px] text-[#8B7E74]">logged this year</p>
+                    <p className="text-[11px] text-[#8B7E74] mt-1">
+                      Curriculum: {h}h {m > 0 ? `${m}m` : ""} · Auto-tracked from {completedLessons.length} lessons
+                    </p>
+                  </div>
+                  <div className="border-t border-[#f0ede8] mb-4" />
+                </>
+              );
+            })()}
+
+            {/* Report section */}
+            <h3 className="text-sm font-bold text-[#2d2926]">📊 Progress Report</h3>
+            <p className="text-[11px] text-[#8B7E74] mt-0.5 leading-relaxed mb-3">
+              Lessons, hours, books, and daily activity log — ready to download or share.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
               <label className="text-[11px] text-[#7a6f65] shrink-0">For:</label>
               <select
                 value={reportChildId}
@@ -1775,38 +2038,20 @@ export default function PlanPage() {
                   <button key={r} onClick={() => setReportRange(r)}
                     className={`text-[11px] px-2 py-1 rounded-lg transition-colors ${
                       reportRange === r
-                        ? "bg-[#5c7f63] text-white font-semibold"
+                        ? "bg-[#2D5A3D] text-white font-semibold"
                         : "bg-[#f0ede8] text-[#7a6f65] hover:bg-[#e8e2d9]"
                     }`}>
                     {r === "full" ? "Full Year" : r === "custom" ? "Custom" : r.toUpperCase()}
                   </button>
                 ))}
               </div>
-              {isFreeUser ? (
-                <div className="ml-auto text-right">
-                  <button
-                    disabled
-                    className="flex items-center gap-1.5 text-xs font-semibold bg-[#b5aca4] text-white px-4 py-2 rounded-lg cursor-not-allowed opacity-60"
-                  >
-                    Download Report
-                  </button>
-                  <Link
-                    href="/upgrade"
-                    onClick={() => posthog.capture('upgrade_clicked', { source: 'progress_report' })}
-                    className="text-[10px] text-[#5c7f63] hover:underline mt-1 inline-block"
-                  >
-                    Upgrade to Founding Family to download →
-                  </Link>
-                </div>
-              ) : (
-                <button
-                  onClick={downloadReport}
-                  disabled={downloadingReport}
-                  className="flex items-center gap-1.5 text-xs font-semibold bg-[#2D5A3D] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors shrink-0 ml-auto"
-                >
-                  {downloadingReport ? "Generating…" : "Download Report"}
-                </button>
-              )}
+              <button
+                onClick={downloadReport}
+                disabled={downloadingReport}
+                className="flex items-center gap-1.5 text-xs font-semibold bg-[#2D5A3D] hover:opacity-90 disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors shrink-0 ml-auto"
+              >
+                {downloadingReport ? "Generating…" : "Download Report"}
+              </button>
             </div>
             {reportRange === "custom" && (
               <div className="flex items-center gap-2 mt-2">
@@ -1837,56 +2082,6 @@ export default function PlanPage() {
               />
               <span className="text-[11px] text-[#7a6f65]">Include activity hours</span>
             </label>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════
-          SECTION 6 — BREAKS & VACATIONS
-      ══════════════════════════════════════════════════ */}
-      {!isPartner && (
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
-            Breaks &amp; Vacations
-          </p>
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
-            {/* Vacation rows */}
-            {vacationBlocks.length > 0 && (
-              <div className="divide-y divide-[#f0ede8]">
-                {vacationBlocks.map((block) => {
-                  const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                  const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                  return (
-                    <div key={block.id} className="flex items-center justify-between px-5 py-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-sm">🌴</span>
-                        <span className="text-sm font-medium text-[#2d2926]">{block.name}</span>
-                        <span className="text-xs text-[#9a8e84]">{s} – {e}</span>
-                      </div>
-                      <button
-                        onClick={() => deleteVacationBlock(block.id)}
-                        className="text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {vacationBlocks.length === 0 && (
-              <div className="px-5 py-4 text-center">
-                <p className="text-sm text-[#b5aca4]">No breaks scheduled</p>
-              </div>
-            )}
-
-            {/* + Add break */}
-            <button
-              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
-              className="w-full px-5 py-3 text-sm font-medium text-[#5c7f63] text-center hover:bg-[#faf9f7] transition-colors border-t border-[#f0ede8]"
-            >
-              + Add break or vacation
-            </button>
           </div>
         </div>
       )}
@@ -2062,6 +2257,14 @@ export default function PlanPage() {
           mode="create"
           onClose={() => setShowCreateWizard(false)}
           onSaved={() => { loadData(); loadAllLessons(); }}
+        />
+      )}
+      {showCreateYear && effectiveUserId && (
+        <CreateSchoolYearModal
+          userId={effectiveUserId}
+          activeYearName={schoolYears.active?.name}
+          onClose={() => setShowCreateYear(false)}
+          onCreated={() => { schoolYears.reload(); }}
         />
       )}
       {showActivityModal && (
