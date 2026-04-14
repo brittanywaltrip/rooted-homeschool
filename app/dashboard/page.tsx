@@ -571,6 +571,13 @@ export default function TodayPage() {
   const [timePillEdit, setTimePillEdit] = useState(false);
   const [timePillValue, setTimePillValue] = useState("");
   const timePillTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Lesson check-off modal state
+  const [checkOffLesson, setCheckOffLesson] = useState<{ lesson: Lesson; defaultMinutes: number } | null>(null);
+  const [checkOffMinutes, setCheckOffMinutes] = useState(30);
+  const [checkOffCustom, setCheckOffCustom] = useState("");
+  const [checkOffShowCustom, setCheckOffShowCustom] = useState(false);
+  const [checkOffVisible, setCheckOffVisible] = useState(false);
   const [upcomingDay,            setUpcomingDay]            = useState<{
     date: string;
     lessons: { title: string; childId: string | null; subjectName: string | null }[];
@@ -1091,6 +1098,101 @@ export default function TodayPage() {
     const newLeaves = (leafCounts[childId ?? ""] ?? 0) + 1;
     setGardenToast({ name: child?.name ?? "Your garden", leaves: newLeaves });
     setTimeout(() => setGardenToast(null), 2500);
+  }
+
+  // Open time confirmation modal before completing a lesson
+  async function openCheckOffModal(id: string, current: boolean) {
+    // If unchecking (undoing), skip modal and toggle directly
+    if (current) {
+      toggleLesson(id, current);
+      return;
+    }
+    const lesson = lessons.find(l => l.id === id);
+    if (!lesson) return;
+    let defaultMins = 30;
+    if (lesson.curriculum_goal_id) {
+      const { data: goalRow } = await supabase
+        .from("curriculum_goals")
+        .select("default_minutes")
+        .eq("id", lesson.curriculum_goal_id)
+        .single();
+      defaultMins = (goalRow as { default_minutes?: number } | null)?.default_minutes ?? 30;
+    }
+    const pills = [15, 30, 45, 60];
+    const matchesPill = pills.includes(defaultMins);
+    setCheckOffMinutes(defaultMins);
+    setCheckOffCustom(matchesPill ? "" : String(defaultMins));
+    setCheckOffShowCustom(!matchesPill);
+    setCheckOffLesson({ lesson, defaultMinutes: defaultMins });
+    // Animate in
+    requestAnimationFrame(() => setCheckOffVisible(true));
+  }
+
+  async function confirmCheckOff(minutes: number) {
+    if (!checkOffLesson) return;
+    const { lesson } = checkOffLesson;
+    // Close modal
+    setCheckOffVisible(false);
+    setTimeout(() => setCheckOffLesson(null), 300);
+    // Save minutes_spent and hours alongside completion
+    await supabase.from("lessons").update({
+      completed: true,
+      minutes_spent: minutes,
+      hours: minutes / 60.0,
+    }).eq("id", lesson.id);
+    // Update local state
+    setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, completed: true, minutes_spent: minutes, hours: minutes / 60.0 } : l));
+    // Run all the post-completion effects (celebrations, toasts, goal advancement)
+    posthog.capture('lesson_completed');
+    setCelebrating(true);
+    setTimeout(() => setCelebrating(false), 1600);
+    triggerGardenAnimation(lesson.child_id ?? undefined);
+
+    // Child done toast
+    const updatedLessons = lessons.map(l => l.id === lesson.id ? { ...l, completed: true } : l);
+    if (lesson.child_id) {
+      const childLessons = updatedLessons.filter(l => l.child_id === lesson.child_id);
+      const childAllDone = childLessons.length > 0 && childLessons.every(l => l.completed);
+      if (childAllDone) {
+        const childName = children.find(c => c.id === lesson.child_id)?.name;
+        if (childName) {
+          setTimeout(() => {
+            if (childDoneTimerRef.current) clearTimeout(childDoneTimerRef.current);
+            setChildDoneToastOut(false);
+            setChildDoneToast(childName);
+            childDoneTimerRef.current = setTimeout(() => {
+              setChildDoneToastOut(true);
+              setTimeout(() => { setChildDoneToast(null); setChildDoneToastOut(false); }, 300);
+            }, 2500);
+          }, 300);
+        }
+      }
+    }
+
+    // All done banner
+    if (updatedLessons.length > 0 && updatedLessons.every(l => l.completed)) {
+      setTimeout(() => setAllDoneBanner(true), 800);
+    }
+
+    // Advance curriculum goal
+    if (lesson.curriculum_goal_id && lesson.lesson_number) {
+      const { data: goalRow } = await supabase
+        .from("curriculum_goals")
+        .select("current_lesson, total_lessons, curriculum_name, child_id")
+        .eq("id", lesson.curriculum_goal_id)
+        .single();
+      if (goalRow && goalRow.current_lesson < goalRow.total_lessons) {
+        const newLessonNum = goalRow.current_lesson + 1;
+        await supabase.from("curriculum_goals").update({ current_lesson: newLessonNum }).eq("id", lesson.curriculum_goal_id);
+      }
+    }
+
+    checkAndAwardBadges(effectiveUserId);
+  }
+
+  function closeCheckOffModal() {
+    setCheckOffVisible(false);
+    setTimeout(() => setCheckOffLesson(null), 300);
   }
 
   async function toggleLesson(id: string, current: boolean) {
@@ -2131,7 +2233,7 @@ export default function TodayPage() {
                     <button
                       key={lesson.id}
                       type="button"
-                      onClick={() => !isPartner && toggleLesson(lesson.id, lesson.completed)}
+                      onClick={() => !isPartner && openCheckOffModal(lesson.id, lesson.completed)}
                       className={`w-full flex items-center gap-3 py-3 px-1 text-left transition-colors ${idx < lessons.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
                     >
                       {/* Checkbox */}
@@ -2770,6 +2872,117 @@ export default function TodayPage() {
           </div>
         </div>
       )}
+
+      {/* ── Lesson check-off time confirmation ────────────── */}
+      {checkOffLesson && (() => {
+        const { lesson, defaultMinutes } = checkOffLesson;
+        const child = children.find(c => c.id === lesson.child_id);
+        const pills = [15, 30, 45, 60];
+        const selectedMins = checkOffShowCustom ? (parseInt(checkOffCustom, 10) || 0) : checkOffMinutes;
+        return (
+          <>
+            <div
+              className={`fixed inset-0 bg-black/30 z-50 transition-opacity duration-300 ${checkOffVisible ? "opacity-100" : "opacity-0"}`}
+              onClick={closeCheckOffModal}
+            />
+            <div
+              className={`fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl shadow-2xl transition-transform duration-300 ${checkOffVisible ? "translate-y-0" : "translate-y-full"}`}
+              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+            >
+              <div className="px-6 pb-9 pt-7">
+                {/* Handle bar */}
+                <div className="w-9 h-1 rounded-full bg-[#d5d0ca] mx-auto mb-5" />
+
+                {/* Checkmark */}
+                <p className="text-4xl text-center mb-3">✅</p>
+
+                {/* Lesson title */}
+                <p className="text-xl font-bold text-[#2d2926] text-center mb-1" style={{ fontFamily: "var(--font-display)" }}>
+                  {lesson.title}
+                </p>
+
+                {/* Child + date */}
+                <p className="text-sm text-[#7a6f65] text-center mb-5">
+                  {child?.name ?? ""}{child ? " · " : ""}{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </p>
+
+                {/* Duration label */}
+                <p className="text-xs uppercase tracking-wide text-[#7a6f65] font-semibold text-center mb-3">
+                  How long did this actually take?
+                </p>
+
+                {/* Duration pills */}
+                <div className="flex gap-2 justify-center mb-2">
+                  {pills.map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => { setCheckOffMinutes(m); setCheckOffShowCustom(false); }}
+                      className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
+                        !checkOffShowCustom && checkOffMinutes === m
+                          ? "bg-[#2D5A3D] text-white border-[#2D5A3D]"
+                          : "bg-white text-[#2d2926] border-[#e0ddd8] hover:border-[#c8c4be]"
+                      }`}
+                    >
+                      {m}m
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => { setCheckOffShowCustom(true); if (!checkOffCustom) setCheckOffCustom(String(defaultMinutes)); }}
+                    className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${
+                      checkOffShowCustom
+                        ? "bg-[#2D5A3D] text-white border-[#2D5A3D]"
+                        : "bg-white text-[#2d2926] border-[#e0ddd8] hover:border-[#c8c4be]"
+                    }`}
+                  >
+                    Other
+                  </button>
+                </div>
+
+                {/* Custom input */}
+                {checkOffShowCustom && (
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <input
+                      type="number"
+                      value={checkOffCustom}
+                      onChange={e => setCheckOffCustom(e.target.value)}
+                      placeholder="Minutes"
+                      className="w-24 text-center px-3 py-2 rounded-xl border border-[#e0ddd8] text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+                      autoFocus
+                    />
+                    <span className="text-sm text-[#7a6f65]">min</span>
+                  </div>
+                )}
+
+                {/* Helper text */}
+                <p className="text-xs text-[#5c7f63] text-center mb-5">
+                  {defaultMinutes} min is your default — change it if today was different
+                </p>
+
+                {/* Log it button */}
+                <button
+                  type="button"
+                  onClick={() => confirmCheckOff(selectedMins > 0 ? selectedMins : defaultMinutes)}
+                  disabled={checkOffShowCustom && selectedMins <= 0}
+                  className="w-full bg-[#2D5A3D] text-white rounded-xl py-3.5 font-semibold text-base transition-colors hover:opacity-90 disabled:opacity-50"
+                >
+                  Log it ✓
+                </button>
+
+                {/* Quick check off */}
+                <button
+                  type="button"
+                  onClick={() => confirmCheckOff(defaultMinutes)}
+                  className="block w-full text-xs text-[#b5aca4] hover:text-[#7a6f65] text-center mt-3 transition-colors"
+                >
+                  Just check off (use default time)
+                </button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* ── Capture menu bottom sheet ───────────────────── */}
       {showCaptureMenu && (
