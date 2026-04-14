@@ -102,25 +102,28 @@ function CelebrationStep({
   return (
     <div className="min-h-screen bg-[#3e6643] flex flex-col items-center justify-center px-6 py-12">
       <div className="w-full max-w-sm flex flex-col items-center text-center">
-        <img src="/rooted-logo-white.png" alt="rooted." className="h-16 mx-auto mb-6 opacity-90" />
+        <div className="mb-12">
+          <img src="/rooted-logo-white.png" alt="rooted." className="h-20 mx-auto mb-2 opacity-90" />
+          <p className="text-[13px] tracking-[3px] uppercase" style={{ color: "rgba(255,255,255,0.5)" }}>
+            capture. plan. remember.
+          </p>
+        </div>
 
-        <p className="text-5xl mb-5">🌿</p>
-
-        <p className="text-white/55 text-base mb-1" style={{ fontFamily: "var(--font-display)" }}>Welcome to Rooted</p>
+        <p className="text-[20px] tracking-wide mb-1" style={{ fontFamily: "var(--font-display)", color: "rgba(255,255,255,0.75)" }}>Welcome to Rooted</p>
         <h2
-          className="text-white text-3xl font-bold mb-2"
-          style={{ fontFamily: "var(--font-display)" }}
+          className="text-white font-bold mb-2"
+          style={{ fontFamily: "var(--font-display)", fontSize: "38px", lineHeight: "1.15" }}
         >
           {displayName ? `${displayName}!` : "Your family!"}
         </h2>
-        <p className="text-white/50 text-base mb-8">Your garden is ready.</p>
+        <p className="text-[18px] mb-12" style={{ color: "rgba(255,255,255,0.65)" }}>Your garden is ready.</p>
 
         {childNames.length > 0 && (
-          <div className="flex flex-wrap justify-center gap-5 mb-2">
+          <div className="flex flex-wrap justify-center gap-9 mb-14">
             {childNames.map((name) => (
               <div key={name} className="flex flex-col items-center gap-1">
-                <span className="text-xl">🌱</span>
-                <span className="text-[10px] font-semibold text-white/75 uppercase tracking-wider">
+                <span className="text-[32px]">🌱</span>
+                <span className="text-[12px] font-semibold uppercase tracking-[2px]" style={{ color: "rgba(255,255,255,0.8)" }}>
                   {name}
                 </span>
               </div>
@@ -132,7 +135,7 @@ function CelebrationStep({
 
         <button
           onClick={onContinue}
-          className="bg-white text-[#2D5A3D] font-semibold rounded-xl py-3.5 px-12 shadow-lg transition-all hover:opacity-90 active:scale-[0.98]"
+          className="bg-white text-[#2D5A3D] font-semibold rounded-2xl text-[18px] py-[18px] px-16 shadow-lg transition-all hover:opacity-90 active:scale-[0.98]"
         >
           Let&apos;s grow →
         </button>
