@@ -1000,13 +1000,14 @@ export default function PlanPage() {
         const h = Math.floor(totalMins / 60);
         const m = totalMins % 60;
         return (
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl sm:rounded-2xl p-5 sm:p-5 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4]">Total hours this year</p>
-              <p className="text-2xl font-bold text-[#2d2926] mt-0.5">{h}h {m > 0 ? `${m}m` : ""}</p>
-              <p className="text-[10px] text-[#b5aca4] mt-0.5">Auto-tracked from {completedLessons.length} lessons ✓</p>
+          <div className="bg-white border border-[#e8e5e0] rounded-xl py-3 px-4">
+            <div className="flex items-center justify-between">
+              <p className="text-[13px] text-[#7a6f65]">
+                Total Hours This Year: <span className="font-bold text-[#2d2926]">{h}h {m > 0 ? `${m}m` : ""}</span>
+              </p>
+              <span className="text-lg">⏱</span>
             </div>
-            <span className="text-3xl">⏱</span>
+            <p className="text-[10px] text-[#b5aca4] mt-0.5">Auto-tracked from {completedLessons.length} lessons ✓</p>
           </div>
         );
       })()}
@@ -1509,7 +1510,7 @@ export default function PlanPage() {
               const lessonsRemaining = totalLessons - currentLesson;
 
               return (
-                <div key={group.key} className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden" style={{ borderLeftWidth: 3, borderLeftColor: child?.color ?? "#5c7f63" }}>
+                <div key={group.key} className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
                   {/* Header (tappable) */}
                   <button
                     onClick={() => setExpandedCourses(prev => {
@@ -1652,6 +1653,34 @@ export default function PlanPage() {
               {"\u{1F4CB}"} Add activity
             </button>
           </div>
+
+          {/* Prompt cards */}
+          {!allLessons.some(l => (l as unknown as { is_backfill?: boolean }).is_backfill) && (
+            <button
+              onClick={() => setShowCreateWizard(true)}
+              className="w-full bg-[#F8F7F4] border border-[#e8e5e0] rounded-xl p-4 flex items-start gap-3 text-left hover:bg-[#f0ede8] transition-colors mt-3"
+            >
+              <span className="text-xl shrink-0">📚</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-[#5C5346]">Started before Rooted?</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Import your pre-Rooted hours so your progress report tells the whole story →</p>
+              </div>
+              <ChevronRight size={16} className="text-[#b5aca4] shrink-0 mt-0.5" />
+            </button>
+          )}
+          {activities.length === 0 && (
+            <button
+              onClick={() => setShowActivityModal(true)}
+              className="w-full bg-[#F8F7F4] border border-[#e8e5e0] rounded-xl p-4 flex items-start gap-3 text-left hover:bg-[#f0ede8] transition-colors mt-2"
+            >
+              <span className="text-xl shrink-0">🎨</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-medium text-[#5C5346]">Track activities too?</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Art, music, PE, co-ops — add activities that count toward your hours →</p>
+              </div>
+              <ChevronRight size={16} className="text-[#b5aca4] shrink-0 mt-0.5" />
+            </button>
+          )}
         </div>
       )}
 
