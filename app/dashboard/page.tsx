@@ -631,6 +631,17 @@ export default function TodayPage() {
   } | null>(null);
   const [upcomingDays,           setUpcomingDays]           = useState<{ date: string; count: number }[]>([]);
 
+  // ── Open capture menu from URL param (used by other pages) ─────────────────
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.search.includes("capture=1")) {
+      setShowCaptureMenu(true);
+      // Clean up URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete("capture");
+      window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }, []);
+
   // ── Hide FAB when new-user empty state is showing ─────────────────────────
   useEffect(() => {
     setHideFab(!loading && totalMemories === 0);

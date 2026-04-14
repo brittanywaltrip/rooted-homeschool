@@ -979,15 +979,12 @@ export default function MemoriesPage() {
             <p className="text-sm text-[#7a6f65] max-w-sm mb-8 leading-relaxed">
               Every memory earns a leaf for your garden 🌿
             </p>
-            <button
-              onClick={() => {
-                const fab = document.querySelector<HTMLButtonElement>('[data-fab-trigger]');
-                if (fab) fab.click();
-              }}
-              className="w-full max-w-xs py-3.5 rounded-xl bg-[#2D5A3D] text-white font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98] mb-3"
+            <Link
+              href="/dashboard?capture=1"
+              className="block w-full max-w-xs py-3.5 rounded-xl bg-[#2D5A3D] text-white font-semibold text-sm text-center transition-all hover:opacity-90 active:scale-[0.98] mb-3"
             >
               +  Capture your first memory
-            </button>
+            </Link>
             <Link
               href="/dashboard/memories/yearbook/read"
               className="w-full max-w-xs py-3 rounded-xl bg-white border border-[#e8e5e0] text-[var(--g-brand)] font-medium text-sm text-center hover:bg-[#e8f0e9] transition-colors block"
