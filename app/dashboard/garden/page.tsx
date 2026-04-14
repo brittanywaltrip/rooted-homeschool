@@ -802,14 +802,14 @@ export default function GardenPage() {
                 {/* Background line */}
                 <div
                   className="absolute h-0.5 bg-[#e8e2d9] rounded-full"
-                  style={{ top: 14, left: 14, right: 14, zIndex: 1 }}
+                  style={{ top: 18, left: 18, right: 18, zIndex: 1 }}
                 />
                 {/* Progress line */}
                 <div
                   className="absolute h-0.5 bg-[#2D5A3D] rounded-full transition-all duration-700"
                   style={{
-                    top: 14,
-                    left: 14,
+                    top: 18,
+                    left: 18,
                     width: `${Math.min((childStageIdx / (GROWTH_STAGES.length - 1)) * 100, 100)}%`,
                     zIndex: 1,
                   }}
@@ -820,7 +820,7 @@ export default function GardenPage() {
                   return (
                     <div key={stage.name} className="flex flex-col items-center flex-1 min-w-0">
                       <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs relative z-[2] ${
+                        className={`w-9 h-9 rounded-full flex items-center justify-center text-base relative z-[2] ${
                           isCurrent ? "ring-2 ring-[#2D5A3D] ring-offset-1" : ""
                         }`}
                         style={{
@@ -831,7 +831,7 @@ export default function GardenPage() {
                         {stage.emoji}
                       </div>
                       <span
-                        className={`text-[7px] font-semibold mt-0.5 text-center leading-tight ${
+                        className={`text-[9px] font-semibold mt-1 text-center leading-tight ${
                           isReached ? "text-[#2D5A3D]" : "text-[#b5aca4]"
                         }`}
                       >
