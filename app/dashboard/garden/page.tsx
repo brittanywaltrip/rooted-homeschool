@@ -388,6 +388,7 @@ export default function GardenPage() {
   } | null>(null);
   const [isAffiliate, setIsAffiliate]   = useState(false);
   const [celebrationData, setCelebrationData] = useState<{
+    childName: string;
     stage: typeof GROWTH_STAGES[number];
     prevStage: typeof GROWTH_STAGES[number] | null;
     leafCount: number;
@@ -481,19 +482,38 @@ export default function GardenPage() {
       setBooksCount(memRows.filter((m) => m.type === "book").length);
       setLeafCounts(counts);
 
-      // Growth stage celebration check (persists until dismissed)
-      const totalLeaves = Object.values(counts).reduce((s, n) => s + n, 0);
+      // Growth stage celebration check — per child
       const seenBadgesKey = `garden_badges_seen_${effectiveUserId}`;
       const seenBadges = new Set(JSON.parse(localStorage.getItem(seenBadgesKey) ?? "[]") as string[]);
       const badgeThresholds = GROWTH_STAGES.filter(s => s.min > 0).map(s => s.min);
-      const newThreshold = badgeThresholds.find(t => totalLeaves >= t && !seenBadges.has(`leaves_${t}`));
-      if (newThreshold) {
-        const allEarned = badgeThresholds.filter(t => totalLeaves >= t).map(t => `leaves_${t}`);
-        localStorage.setItem(seenBadgesKey, JSON.stringify(allEarned));
-        const stage = getGrowthStage(totalLeaves);
-        const prevStageIdx = getGrowthStageIndex(totalLeaves) - 1;
+
+      let celebrationChild: { name: string; leafCount: number; threshold: number } | null = null;
+      for (const kid of kids_) {
+        const kidLeaves = counts[kid.id] ?? 0;
+        const newThreshold = badgeThresholds.find(
+          t => kidLeaves >= t && !seenBadges.has(`leaves_${kid.id}_${t}`)
+        );
+        if (newThreshold) {
+          celebrationChild = { name: kid.name, leafCount: kidLeaves, threshold: newThreshold };
+          const allEarned = badgeThresholds
+            .filter(t => kidLeaves >= t)
+            .map(t => `leaves_${kid.id}_${t}`);
+          const updatedSeen = new Set([...seenBadges, ...allEarned]);
+          localStorage.setItem(seenBadgesKey, JSON.stringify([...updatedSeen]));
+          break;
+        }
+      }
+
+      if (celebrationChild) {
+        const stage = getGrowthStage(celebrationChild.leafCount);
+        const prevStageIdx = getGrowthStageIndex(celebrationChild.leafCount) - 1;
         const prevStage = prevStageIdx >= 0 ? GROWTH_STAGES[prevStageIdx] : null;
-        setCelebrationData({ stage, prevStage, leafCount: totalLeaves });
+        setCelebrationData({
+          childName: celebrationChild.name,
+          stage,
+          prevStage,
+          leafCount: celebrationChild.leafCount,
+        });
       }
 
       // Load badges
@@ -1104,10 +1124,10 @@ export default function GardenPage() {
                 <span>{celebrationData.stage.emoji}</span>
               </div>
               <h2 className="text-xl font-bold text-[#2D2A26] mb-2" style={{ fontFamily: "var(--font-display)" }}>
-                You reached {celebrationData.stage.name}!
+                {celebrationData.childName} reached {celebrationData.stage.name}!
               </h2>
               <p className="text-sm text-[#8B7E74] mb-6">
-                {celebrationData.leafCount} {celebrationData.leafCount === 1 ? "leaf" : "leaves"} earned from lessons, books &amp; memories
+                {celebrationData.leafCount} {celebrationData.leafCount === 1 ? "leaf" : "leaves"} earned by {celebrationData.childName}
               </p>
               <button
                 type="button"
