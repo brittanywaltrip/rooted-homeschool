@@ -1040,29 +1040,6 @@ export default function PlanPage() {
     <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
     <div className="px-4 pt-5 pb-7 space-y-4 max-w-5xl" style={{ background: "#F8F7F4" }}>
 
-      {/* ── Total hours this year ─────────────────────────── */}
-      {!loading && allLessons.length > 0 && (() => {
-        const completedLessons = allLessons.filter(l => l.completed);
-        const totalMins = completedLessons.reduce((sum, l) => {
-          if (l.minutes_spent != null) return sum + l.minutes_spent;
-          if (l.hours != null && l.hours > 0) return sum + Math.round(l.hours * 60);
-          return sum + 30; // fallback default
-        }, 0);
-        const h = Math.floor(totalMins / 60);
-        const m = totalMins % 60;
-        return (
-          <div className="bg-white border border-[#e8e5e0] rounded-xl py-3 px-4">
-            <div className="flex items-center justify-between">
-              <p className="text-[13px] text-[#7a6f65]">
-                Total Hours This Year: <span className="font-bold text-[#2d2926]">{h}h {m > 0 ? `${m}m` : ""}</span>
-              </p>
-              <span className="text-lg">⏱</span>
-            </div>
-            <p className="text-[10px] text-[#b5aca4] mt-0.5">Auto-tracked from {completedLessons.length} lessons ✓</p>
-          </div>
-        );
-      })()}
-
       {/* ── Catch-up banner ──────────────────────────────── */}
       {!loading && hasCatchUp && (
         <div style={{ background: "#FFFBF0", border: "0.5px solid #E8D58A", borderRadius: 12, padding: "11px 13px", display: "flex", gap: 10 }}>
@@ -1476,198 +1453,11 @@ export default function PlanPage() {
       </div>
 
       {/* ══════════════════════════════════════════════════
-          SECTION 3 — DAY PANEL
-      ══════════════════════════════════════════════════ */}
-      {!loading && (
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
-          {selectedDay === todayStr
-            ? "Today\u2019s Lessons"
-            : `Lessons — ${selectedDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`}
-        </p>
-      )}
-      {!loading && (() => {
-        // Vacation day
-        if (isSelectedVacation) {
-          return (
-            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center">
-              <span style={{ fontSize: 22, opacity: 0.35 }}>🌴</span>
-              <p style={{ fontSize: 12, color: "#b5aca4", marginTop: 6 }}>{selectedVacName}</p>
-            </div>
-          );
-        }
-
-        // No lessons day
-        if (selectedDayTotal === 0) {
-          return (
-            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center">
-              <span style={{ fontSize: 22, opacity: 0.35 }}>🌿</span>
-              <p style={{ fontSize: 12, color: "#b5aca4", marginTop: 6 }}>
-                {isSelectedWeekend ? "Enjoy your day off!" : "No lessons scheduled"}
-              </p>
-            </div>
-          );
-        }
-
-        // Day with lessons
-        return (
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
-            {/* Header */}
-            <div className="px-5 pt-4 pb-3 border-b border-[#f0ece4]">
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>{selectedDateLabel}</span>
-            </div>
-
-            {/* Children groups */}
-            {lessonsByChild.map(({ child, lessons: childLessons }, groupIdx) => {
-              const childDone = childLessons.filter(l => l.completed).length;
-              const childTotal = childLessons.length;
-              const allDone = childDone === childTotal;
-              let statusText: string;
-              let statusColor: string;
-              if (allDone) { statusText = "✓ All done"; statusColor = "var(--g-brand)"; }
-              else if (childDone === 0) { statusText = `0 of ${childTotal}`; statusColor = "#8a6d00"; }
-              else { statusText = `${childDone} of ${childTotal} done`; statusColor = "#b5aca4"; }
-
-              return (
-                <div key={child?.id ?? "__none__"}>
-                  {/* Child header */}
-                  {child && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 13px 5px" }}>
-                      <span style={{
-                        width: 22, height: 22, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 10, fontWeight: 700, color: "white", flexShrink: 0,
-                        backgroundColor: child.color ?? "#5c7f63",
-                      }}>
-                        {child.name.charAt(0).toUpperCase()}
-                      </span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#2d2926", flex: 1 }}>{child.name}</span>
-                      <span style={{ fontSize: 11, color: statusColor, fontWeight: 500 }}>{statusText}</span>
-                    </div>
-                  )}
-
-                  {/* Lesson rows */}
-                  {childLessons.map((lesson, lessonIdx) => (
-                    <div
-                      key={lesson.id}
-                      style={{
-                        display: "flex", alignItems: "flex-start", gap: 8,
-                        paddingLeft: 43, paddingRight: 13, paddingTop: 7, paddingBottom: 7,
-                        borderTop: lessonIdx > 0 ? "0.5px solid #faf7f3" : undefined,
-                      }}
-                    >
-                      {/* Checkbox */}
-                      <button
-                        onClick={() => !isPartner && toggleLesson(lesson.id, lesson.completed)}
-                        style={{
-                          width: 18, height: 18, borderRadius: "50%", flexShrink: 0, marginTop: 1,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          border: lesson.completed ? "none" : "1.5px solid #ccc",
-                          background: lesson.completed ? "var(--g-brand)" : "transparent",
-                          cursor: isPartner ? "default" : "pointer",
-                        }}
-                      >
-                        {lesson.completed && (
-                          <svg viewBox="0 0 8 7" style={{ width: 9, height: 7 }}>
-                            <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </button>
-
-                      {/* Lesson text */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-                          <p style={{
-                            fontSize: 12, fontWeight: 500, margin: 0,
-                            textDecoration: lesson.completed ? "line-through" : "none",
-                            color: lesson.completed ? "#bbb" : "#2d2926",
-                          }}>
-                            {lesson.title}
-                          </p>
-                        </div>
-                        {lesson.subjects && (
-                          <p style={{ fontSize: 10, color: "#bbb", margin: "1px 0 0" }}>{lesson.subjects.name}</p>
-                        )}
-                      </div>
-                      {/* Edit time inline */}
-                      {!isPartner && editTimeId === lesson.id ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                          <input
-                            type="number"
-                            inputMode="numeric"
-                            value={editTimeValue}
-                            onChange={(e) => setEditTimeValue(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === "Enter") saveEditTime(); if (e.key === "Escape") setEditTimeId(null); }}
-                            autoFocus
-                            style={{ width: 48, fontSize: 12, textAlign: "center", border: "1px solid #c8bfb5", borderRadius: 6, padding: "3px 4px", background: "white", color: "#2d2926" }}
-                          />
-                          <span style={{ fontSize: 10, color: "#9a8f85" }}>min</span>
-                          <button
-                            onClick={saveEditTime}
-                            style={{ fontSize: 10, fontWeight: 600, color: "var(--g-brand)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                          >
-                            Save
-                          </button>
-                        </div>
-                      ) : !isPartner ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                          <button
-                            onClick={() => openEditTime(lesson)}
-                            style={{ fontSize: 10, color: "#b5aca4", background: "none", border: "none", cursor: "pointer", padding: 0, whiteSpace: "nowrap" }}
-                          >
-                            {lesson.minutes_spent != null ? `${lesson.minutes_spent} min ✎` : "⏱ Time"}
-                          </button>
-                          {/* Reschedule link for past uncompleted lessons */}
-                          {isSelectedPast && !lesson.completed && (
-                            <button
-                              onClick={() => openPlanReschedule(lesson)}
-                              style={{ fontSize: 10, fontWeight: 600, color: "#7a4a1a", background: "none", border: "none", cursor: "pointer", padding: 0, whiteSpace: "nowrap" }}
-                            >
-                              Reschedule
-                            </button>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-
-            {/* Day time total */}
-            {(() => {
-              const allDayLessons = lessonsByChild.flatMap(g => g.lessons);
-              const completed = allDayLessons.filter(l => l.completed);
-              if (completed.length === 0) return null;
-              const totalMins = completed.reduce((sum, l) => {
-                if (l.minutes_spent != null) return sum + l.minutes_spent;
-                if (l.hours != null && l.hours > 0) return sum + Math.round(l.hours * 60);
-                return sum + 30;
-              }, 0);
-              const display = totalMins >= 60 ? `${Math.floor(totalMins / 60)}h ${totalMins % 60 > 0 ? `${totalMins % 60}m` : ""}` : `${totalMins} min`;
-              return (
-                <div style={{ borderTop: "0.5px solid #f5f0e8", padding: "8px 13px" }}>
-                  <p style={{ fontSize: 11, color: "#b5aca4", margin: 0 }}>Total: {display}</p>
-                </div>
-              );
-            })()}
-
-            {/* Past-day note */}
-            {isSelectedPast && (
-              <div style={{ borderTop: "0.5px solid #f5f0e8", padding: "8px 13px" }}>
-                <p style={{ fontSize: 11, color: "#b5aca4", fontStyle: "italic", margin: 0 }}>
-                  Past lessons never expire — check off what you covered.
-                </p>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* ══════════════════════════════════════════════════
-          SECTION 4 — YOUR COURSES
+          SECTION — YOUR COURSES
       ══════════════════════════════════════════════════ */}
       {!isPartner && !loading && (
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
             Course Progress
           </p>
           {curricGroups.length === 0 && (
@@ -1872,7 +1662,7 @@ export default function PlanPage() {
       ══════════════════════════════════════════════════ */}
       {!isPartner && !loading && activities.length > 0 && (
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
             {"\u{1F4CB}"} Activities
           </p>
           <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
@@ -1953,23 +1743,91 @@ export default function PlanPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          SECTION 5 — PROGRESS REPORT
+          BREAKS & VACATIONS
+      ══════════════════════════════════════════════════ */}
+      {!isPartner && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
+            Breaks &amp; Vacations
+          </p>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
+            {vacationBlocks.length > 0 && (
+              <div className="divide-y divide-[#f0ede8]">
+                {vacationBlocks.map((block) => {
+                  const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  return (
+                    <div key={block.id} className="flex items-center justify-between px-5 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-sm">🌴</span>
+                        <span className="text-sm font-medium text-[#2d2926]">{block.name}</span>
+                        <span className="text-xs text-[#9a8e84]">{s} – {e}</span>
+                      </div>
+                      <button
+                        onClick={() => deleteVacationBlock(block.id)}
+                        className="text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {vacationBlocks.length === 0 && (
+              <div className="px-5 py-4 text-center">
+                <p className="text-sm text-[#b5aca4]">No breaks scheduled</p>
+              </div>
+            )}
+            <button
+              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+              className="w-full px-5 py-3 text-sm font-medium text-[#5c7f63] text-center hover:bg-[#faf9f7] transition-colors border-t border-[#f0ede8]"
+            >
+              + Add break or vacation
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          HOURS & PROGRESS REPORT (combined)
       ══════════════════════════════════════════════════ */}
       {!isPartner && !loading && (
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
-            Progress Report
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
+            Hours &amp; Progress Report
           </p>
           <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-bold text-[#2d2926]">📊 Progress Report</h3>
-                <p className="text-[11px] text-[#b5aca4] mt-0.5 leading-relaxed max-w-xs">
-                  A full record of your homeschool year — lessons, hours, books, and daily activity log — ready to download or share.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 mt-3">
+            {/* Hours summary */}
+            {allLessons.length > 0 && (() => {
+              const completedLessons = allLessons.filter(l => l.completed);
+              const totalMins = completedLessons.reduce((sum, l) => {
+                if (l.minutes_spent != null) return sum + l.minutes_spent;
+                if (l.hours != null && l.hours > 0) return sum + Math.round(l.hours * 60);
+                return sum + 30;
+              }, 0);
+              const h = Math.floor(totalMins / 60);
+              const m = totalMins % 60;
+              return (
+                <>
+                  <div className="mb-4">
+                    <p className="text-2xl font-bold text-[#2D2A26]">{h}h {m > 0 ? `${m}m` : ""}</p>
+                    <p className="text-[12px] text-[#8B7E74]">logged this year</p>
+                    <p className="text-[11px] text-[#8B7E74] mt-1">
+                      Curriculum: {h}h {m > 0 ? `${m}m` : ""} · Auto-tracked from {completedLessons.length} lessons
+                    </p>
+                  </div>
+                  <div className="border-t border-[#f0ede8] mb-4" />
+                </>
+              );
+            })()}
+
+            {/* Report section */}
+            <h3 className="text-sm font-bold text-[#2d2926]">📊 Progress Report</h3>
+            <p className="text-[11px] text-[#8B7E74] mt-0.5 leading-relaxed mb-3">
+              Lessons, hours, books, and daily activity log — ready to download or share.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
               <label className="text-[11px] text-[#7a6f65] shrink-0">For:</label>
               <select
                 value={reportChildId}
@@ -1986,7 +1844,7 @@ export default function PlanPage() {
                   <button key={r} onClick={() => setReportRange(r)}
                     className={`text-[11px] px-2 py-1 rounded-lg transition-colors ${
                       reportRange === r
-                        ? "bg-[#5c7f63] text-white font-semibold"
+                        ? "bg-[#2D5A3D] text-white font-semibold"
                         : "bg-[#f0ede8] text-[#7a6f65] hover:bg-[#e8e2d9]"
                     }`}>
                     {r === "full" ? "Full Year" : r === "custom" ? "Custom" : r.toUpperCase()}
@@ -1996,7 +1854,7 @@ export default function PlanPage() {
               <button
                 onClick={downloadReport}
                 disabled={downloadingReport}
-                className="flex items-center gap-1.5 text-xs font-semibold bg-[#2D5A3D] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors shrink-0 ml-auto"
+                className="flex items-center gap-1.5 text-xs font-semibold bg-[#2D5A3D] hover:opacity-90 disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors shrink-0 ml-auto"
               >
                 {downloadingReport ? "Generating…" : "Download Report"}
               </button>
@@ -2030,56 +1888,6 @@ export default function PlanPage() {
               />
               <span className="text-[11px] text-[#7a6f65]">Include activity hours</span>
             </label>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════
-          SECTION 6 — BREAKS & VACATIONS
-      ══════════════════════════════════════════════════ */}
-      {!isPartner && (
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
-            Breaks &amp; Vacations
-          </p>
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
-            {/* Vacation rows */}
-            {vacationBlocks.length > 0 && (
-              <div className="divide-y divide-[#f0ede8]">
-                {vacationBlocks.map((block) => {
-                  const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                  const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                  return (
-                    <div key={block.id} className="flex items-center justify-between px-5 py-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-sm">🌴</span>
-                        <span className="text-sm font-medium text-[#2d2926]">{block.name}</span>
-                        <span className="text-xs text-[#9a8e84]">{s} – {e}</span>
-                      </div>
-                      <button
-                        onClick={() => deleteVacationBlock(block.id)}
-                        className="text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {vacationBlocks.length === 0 && (
-              <div className="px-5 py-4 text-center">
-                <p className="text-sm text-[#b5aca4]">No breaks scheduled</p>
-              </div>
-            )}
-
-            {/* + Add break */}
-            <button
-              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
-              className="w-full px-5 py-3 text-sm font-medium text-[#5c7f63] text-center hover:bg-[#faf9f7] transition-colors border-t border-[#f0ede8]"
-            >
-              + Add break or vacation
-            </button>
           </div>
         </div>
       )}
