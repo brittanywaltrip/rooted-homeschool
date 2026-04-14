@@ -2434,20 +2434,22 @@ export default function TodayPage() {
             <button
               type="button"
               onClick={() => { localStorage.setItem(n.lsKey, "1"); forceUpdate(prev => prev + 1); }}
-              className="absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-xs"
+              className="absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center text-[#d4d0ca] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-xs"
               aria-label="Dismiss"
             >
               ✕
             </button>
             <div className="flex items-start gap-4">
-              <span className="text-3xl shrink-0 mt-0.5">{n.emoji}</span>
+              <div className="w-11 h-11 rounded-full bg-[#e8f0e9] flex items-center justify-center shrink-0">
+                <span className="text-xl">{n.emoji}</span>
+              </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[#2d2926] mb-1">{n.title}</p>
-                <p className="text-xs text-[#7a6f65] leading-relaxed mb-3">{n.body}</p>
+                <p className="text-[15px] font-semibold text-[#1a2c22] mb-1">{n.title}</p>
+                <p className="text-[13px] text-[#7a6f65] leading-relaxed mb-3">{n.body}</p>
                 <Link
                   href={n.href}
                   onClick={() => localStorage.setItem(n.lsKey, "1")}
-                  className="inline-block text-sm font-medium text-[var(--g-brand)] hover:text-[var(--g-deep)] transition-colors"
+                  className="inline-block text-[14px] font-semibold text-[#2D5A3D] hover:text-[var(--g-deep)] transition-colors"
                 >
                   Let&apos;s go &rarr;
                 </Link>
@@ -2455,7 +2457,7 @@ export default function TodayPage() {
                   <button
                     type="button"
                     onClick={() => { localStorage.setItem(n.dismiss!.lsKey, "1"); forceUpdate(prev => prev + 1); }}
-                    className="block text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-1.5"
+                    className="block text-[13px] text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-1.5"
                   >
                     {n.dismiss.label}
                   </button>
@@ -2588,14 +2590,14 @@ export default function TodayPage() {
           </div>
         ) : (
           <div className="bg-white border border-[#e8e2d9] rounded-[14px] py-8 text-center">
-            <span className="text-3xl">{totalMemories === 0 ? "🌱" : "🌿"}</span>
+            <span className="text-3xl">{totalMemories === 0 ? "📷" : "🌿"}</span>
             <p className="text-[13px] font-medium text-[#2d2926] mt-2">
-              {totalMemories === 0 ? "Your story starts here" : "You haven\u2019t captured anything yet today"}
+              {totalMemories === 0 ? "Today\u2019s Story" : "Nothing captured yet today"}
             </p>
-            <p className="text-[11px] text-[#9a8f85] mt-0.5">
+            <p className="text-[11px] text-[#9a8f85] mt-0.5 max-w-[260px] mx-auto">
               {totalMemories === 0
-                ? "Once you start capturing, this is where your day comes to life."
-                : "That\u2019s okay \u2014 whenever something worth remembering happens, we\u2019re here."}
+                ? "Capture a memory and it\u2019ll show up here \u2014 a photo, a win, a moment from your day."
+                : "When you capture a memory, it shows up here as part of your day\u2019s story."}
             </p>
           </div>
         )}
