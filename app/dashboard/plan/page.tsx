@@ -75,6 +75,54 @@ type Activity = {
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CURRICULUM_RE = /^(.+) — Lesson \d+$/;
 
+// ─── US Holidays ─────────────────────────────────────────────────────────────
+
+function nthDayOfMonth(year: number, month: number, dayOfWeek: number, nth: number): number {
+  let count = 0;
+  for (let d = 1; d <= 31; d++) {
+    const dt = new Date(year, month, d);
+    if (dt.getMonth() !== month) break;
+    if (dt.getDay() === dayOfWeek) {
+      count++;
+      if (count === nth) return d;
+    }
+  }
+  return 1;
+}
+
+function lastDayOfMonth(year: number, month: number, dayOfWeek: number): number {
+  let last = 1;
+  for (let d = 1; d <= 31; d++) {
+    const dt = new Date(year, month, d);
+    if (dt.getMonth() !== month) break;
+    if (dt.getDay() === dayOfWeek) last = d;
+  }
+  return last;
+}
+
+function getUSHolidays(year: number): Record<string, string> {
+  const fmt = (m: number, d: number) => `${year}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  return {
+    [fmt(0, 1)]: "New Year\u2019s Day",
+    [fmt(0, nthDayOfMonth(year, 0, 1, 3))]: "MLK Day",
+    [fmt(1, nthDayOfMonth(year, 1, 1, 3))]: "Presidents\u2019 Day",
+    [fmt(4, lastDayOfMonth(year, 4, 1))]: "Memorial Day",
+    [fmt(6, 4)]: "Independence Day",
+    [fmt(8, nthDayOfMonth(year, 8, 1, 1))]: "Labor Day",
+    [fmt(9, nthDayOfMonth(year, 9, 1, 2))]: "Columbus Day",
+    [fmt(10, 11)]: "Veterans Day",
+    [fmt(10, nthDayOfMonth(year, 10, 4, 4))]: "Thanksgiving",
+    [fmt(11, 25)]: "Christmas",
+  };
+}
+
+function getSeasonalEmoji(month: number): string {
+  if (month >= 2 && month <= 4) return " \u{1F337}";   // Mar–May → flower
+  if (month >= 5 && month <= 7) return " \u2600\uFE0F"; // Jun–Aug → sun
+  if (month >= 8 && month <= 10) return " \u{1F342}";  // Sep–Nov → leaf
+  return " \u2744\uFE0F";                               // Dec–Feb → snowflake
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toDateStr(d: Date): string {
@@ -241,6 +289,9 @@ export default function PlanPage() {
   // ── Activities ─────────────────────────────────────────────────────────────
   const [showActivityModal, setShowActivityModal] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
+
+  // ── Month day popover ─────────────────────────────────────────────────────
+  const [monthPopoverDay, setMonthPopoverDay] = useState<string | null>(null);
 
   // ── Edit time state ─────────────────────────────────────────────────────
   const [editTimeId, setEditTimeId] = useState<string | null>(null);
@@ -1187,13 +1238,13 @@ export default function PlanPage() {
       ══════════════════════════════════════════════════ */}
       {viewMode === "month" && !loading && (
         <div className="px-4 pb-4">
-          {/* Month navigation */}
+          {/* Month navigation with seasonal emoji */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
             <button onClick={prevMonth} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronLeft size={18} />
             </button>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>
-              {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+              {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}{getSeasonalEmoji(monthStart.getMonth())}
             </span>
             <button onClick={nextMonth} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronRight size={18} />
@@ -1214,7 +1265,6 @@ export default function PlanPage() {
             const year = monthStart.getFullYear();
             const month = monthStart.getMonth();
             const firstDay = new Date(year, month, 1);
-            // Sunday-based offset for S M T W T F S headers
             const startOffset = firstDay.getDay();
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const cells: (Date | null)[] = [
@@ -1223,7 +1273,43 @@ export default function PlanPage() {
             ];
             while (cells.length % 7 !== 0) cells.push(null);
 
+            const holidays = getUSHolidays(year);
+
+            // Count activities per day (based on which weekdays they're scheduled)
+            const activityCountForDay = (dateStr: string): number => {
+              const d = new Date(dateStr + "T12:00:00");
+              // activities.days uses 0=Mon, 1=Tue, ..., 6=Sun
+              const dayIdx = (d.getDay() + 6) % 7;
+              return activities.filter(a => a.is_active && a.days.includes(dayIdx)).length;
+            };
+
+            // Compute lightest week
+            const weekCounts: { start: Date; end: Date; count: number }[] = [];
+            {
+              // Find all Mondays in the month
+              const cursor = new Date(year, month, 1);
+              while (cursor.getMonth() === month) {
+                if (cursor.getDay() === 1) { // Monday
+                  const weekStart = new Date(cursor);
+                  const weekEnd = new Date(cursor);
+                  weekEnd.setDate(weekEnd.getDate() + 4); // Friday
+                  let count = 0;
+                  for (let dd = new Date(weekStart); dd <= weekEnd && dd.getMonth() === month; dd.setDate(dd.getDate() + 1)) {
+                    const k = toDateStr(dd);
+                    count += (monthLessonMap[k] ?? []).length + activityCountForDay(k);
+                  }
+                  weekCounts.push({ start: weekStart, end: weekEnd, count });
+                }
+                cursor.setDate(cursor.getDate() + 1);
+              }
+            }
+            const lightestWeek = weekCounts.length > 0 ? weekCounts.reduce((a, b) => a.count <= b.count ? a : b) : null;
+
+            // First day of each vacation block for label
+            const vacStartDates = new Set(vacationBlocks.map(b => b.start_date));
+
             return (
+              <>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
                 {cells.map((day, idx) => {
                   if (!day) return <div key={`empty-${idx}`} />;
@@ -1232,59 +1318,156 @@ export default function PlanPage() {
                   const isPast = day < todayMidnight && !isToday;
                   const isSelected = key === selectedDay;
                   const isVacation = isDateInBlocks(key, vacationBlocks);
+                  const vacName = getVacationName(key, vacationBlocks);
+                  const isVacStart = vacStartDates.has(key);
                   const dayLessons = monthLessonMap[key] ?? [];
-                  const hasLessons = dayLessons.length > 0;
-                  const dayChildIds = [...new Set(dayLessons.map(l => l.child_id).filter(Boolean))];
-                  const dayChildren = dayChildIds.map(id => children.find(c => c.id === id)).filter(Boolean) as Child[];
+                  const lessonCount = dayLessons.length;
+                  const actCount = activityCountForDay(key);
+                  const totalItems = lessonCount + actCount;
+                  const holiday = holidays[key];
+                  const isPopoverOpen = monthPopoverDay === key;
 
+                  // Density-based background
                   let bg = "transparent";
                   let border = "none";
 
                   if (isVacation) {
-                    bg = "#fff8f0";
+                    bg = "#fef3e0";
                     border = "0.5px solid #f0c878";
-                  } else if (isToday) {
-                    bg = "var(--g-brand)";
-                  } else if (isSelected) {
-                    bg = "#f4faf0";
+                  } else if (holiday && totalItems === 0) {
+                    bg = "#f5f5fa";
+                  } else if (totalItems >= 5) {
+                    bg = "#fef9ee";
+                  } else if (totalItems >= 3) {
+                    bg = "#e0efe4";
+                  } else if (totalItems >= 1) {
+                    bg = "#f0f7f2";
+                  }
+
+                  if (isSelected && !isVacation) {
                     border = "1.5px solid var(--g-brand)";
-                  } else if (hasLessons) {
-                    bg = "white";
-                    border = "0.5px solid #e8e0d4";
                   }
 
                   return (
-                    <button
-                      key={key}
-                      onClick={() => setSelectedDay(key)}
-                      style={{
-                        aspectRatio: "1", borderRadius: 8, display: "flex", flexDirection: "column",
-                        alignItems: "center", justifyContent: "center", gap: 2, cursor: "pointer",
-                        background: bg, border, opacity: isPast ? 0.55 : 1, padding: 2,
-                      }}
-                    >
-                      <span style={{
-                        fontSize: 11, fontWeight: 700,
-                        color: isToday ? "white" : "#2d2926",
-                      }}>
-                        {day.getDate()}
-                      </span>
-                      <div style={{ display: "flex", gap: 2, minHeight: 4 }}>
-                        {isVacation ? (
-                          <span style={{ fontSize: 8 }}>🌴</span>
-                        ) : dayChildren.length > 0 ? (
-                          dayChildren.map(c => (
-                            <span key={c.id} style={{
-                              width: 4, height: 4, borderRadius: "50%", display: "inline-block",
-                              backgroundColor: isToday ? "rgba(255,255,255,0.5)" : (c.color ?? "#5c7f63"),
-                            }} />
-                          ))
-                        ) : null}
-                      </div>
-                    </button>
+                    <div key={key} style={{ position: "relative" }}>
+                      <button
+                        onClick={() => {
+                          setSelectedDay(key);
+                          setMonthPopoverDay(isPopoverOpen ? null : key);
+                        }}
+                        style={{
+                          width: "100%", aspectRatio: "1", borderRadius: 8, display: "flex", flexDirection: "column",
+                          alignItems: "center", justifyContent: "flex-start", gap: 1, cursor: "pointer",
+                          background: bg, border, opacity: isPast ? 0.55 : 1, padding: "3px 2px 2px",
+                        }}
+                      >
+                        {/* Date number — today gets a green circle */}
+                        {isToday ? (
+                          <span style={{
+                            width: 24, height: 24, borderRadius: "50%", display: "flex",
+                            alignItems: "center", justifyContent: "center",
+                            backgroundColor: "#2D5A3D", color: "white",
+                            fontSize: 11, fontWeight: 700, lineHeight: 1,
+                          }}>
+                            {day.getDate()}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "#2d2926", lineHeight: "24px" }}>
+                            {day.getDate()}
+                          </span>
+                        )}
+                        {/* Content indicators */}
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, minHeight: 10, width: "100%" }}>
+                          {isVacation ? (
+                            <>
+                              <span style={{ fontSize: 8 }}>🌴</span>
+                              {isVacStart && vacName && (
+                                <span style={{ fontSize: 6, color: "#7a5000", fontWeight: 600, lineHeight: 1, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{vacName}</span>
+                              )}
+                            </>
+                          ) : totalItems > 0 ? (
+                            <span style={{ fontSize: 7, color: "#5C5346", lineHeight: 1, textAlign: "center" }}>
+                              {lessonCount > 0 ? lessonCount : ""}{lessonCount > 0 && actCount > 0 ? "+" : ""}{actCount > 0 ? `${actCount}a` : ""}
+                            </span>
+                          ) : null}
+                          {holiday && !isVacation && (
+                            <span style={{ fontSize: 6, color: "#8B7E74", fontStyle: "italic", lineHeight: 1, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{holiday}</span>
+                          )}
+                        </div>
+                      </button>
+
+                      {/* Day popover */}
+                      {isPopoverOpen && (
+                        <>
+                          <div className="fixed inset-0 z-[60]" onClick={() => setMonthPopoverDay(null)} />
+                          <div
+                            className="absolute z-[61] bg-white border border-[#e8e5e0] rounded-xl shadow-lg p-3 w-52"
+                            style={{ top: "calc(100% + 4px)", left: "50%", transform: "translateX(-50%)" }}
+                          >
+                            <p className="text-xs font-semibold text-[#2d2926] mb-2">
+                              {day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                              {holiday && <span className="text-[#8B7E74] font-normal italic ml-1">· {holiday}</span>}
+                            </p>
+                            {isVacation && vacName && (
+                              <p className="text-xs text-[#7a5000] mb-1">🌴 {vacName}</p>
+                            )}
+                            {lessonCount === 0 && actCount === 0 && !isVacation && (
+                              <p className="text-[11px] text-[#b5aca4]">No lessons or activities</p>
+                            )}
+                            {lessonCount > 0 && (
+                              <div className="mb-1.5">
+                                {dayLessons.slice(0, 5).map((l) => {
+                                  const childName = l.child_id ? children.find(c => c.id === l.child_id)?.name : null;
+                                  return (
+                                    <p key={l.id} className="text-[11px] text-[#2d2926] truncate">
+                                      {childName && <span className="text-[#5c7f63]">{childName}: </span>}
+                                      {l.subjects?.name ?? l.title}
+                                    </p>
+                                  );
+                                })}
+                                {lessonCount > 5 && <p className="text-[10px] text-[#b5aca4]">+{lessonCount - 5} more</p>}
+                              </div>
+                            )}
+                            {actCount > 0 && (
+                              <div className="mb-1.5">
+                                {activities.filter(a => a.is_active && a.days.includes((day.getDay() + 6) % 7)).map(a => (
+                                  <p key={a.id} className="text-[11px] text-[#2d2926] truncate">{a.emoji} {a.name}</p>
+                                ))}
+                              </div>
+                            )}
+                            {!isVacation && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMonthPopoverDay(null);
+                                  setVacName("");
+                                  setVacStart(key);
+                                  setVacEnd(key);
+                                  setVacReschedule("leave");
+                                  setShowVacModal(true);
+                                }}
+                                className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
+                              >
+                                Mark as break →
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   );
                 })}
               </div>
+
+              {/* Lightest week hint */}
+              {lightestWeek && (
+                <div className="mt-3 bg-[#F8F7F4] rounded-xl p-3">
+                  <p className="text-sm text-[#5C5346]">
+                    {"\u{1F4A1}"} Lightest week: {lightestWeek.start.toLocaleDateString("en-US", { month: "short", day: "numeric" })}–{lightestWeek.end.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ({lightestWeek.count === 0 ? "nothing scheduled" : `${lightestWeek.count} item${lightestWeek.count !== 1 ? "s" : ""}`})
+                  </p>
+                </div>
+              )}
+              </>
             );
           })()}
         </div>
