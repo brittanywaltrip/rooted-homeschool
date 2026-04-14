@@ -22,13 +22,14 @@ type ActivityType = {
 type ActivityConfig = {
   emoji: string;
   name: string;
-  frequency: "weekly" | "biweekly" | "monthly";
+  frequency: "once" | "weekly" | "biweekly" | "monthly";
   days: number[];
   durationMinutes: number;
   customDuration: string;
   startTime: string;
   hasStartTime: boolean;
   childIds: string[];
+  onceDate: string;
 };
 
 interface Props {
@@ -59,7 +60,8 @@ const DURATION_OPTIONS = [
   { label: "3hr", value: 180 },
 ];
 
-const FREQUENCY_OPTIONS: { label: string; value: "weekly" | "biweekly" | "monthly" }[] = [
+const FREQUENCY_OPTIONS: { label: string; value: "once" | "weekly" | "biweekly" | "monthly" }[] = [
+  { label: "Just once", value: "once" },
   { label: "Weekly", value: "weekly" },
   { label: "Every other week", value: "biweekly" },
   { label: "Monthly", value: "monthly" },
@@ -83,6 +85,19 @@ function addMinutesToTime(time24: string, mins: number): string {
 }
 
 function buildScheduleSummary(cfg: ActivityConfig): string {
+  const dur =
+    cfg.durationMinutes >= 60
+      ? `${Math.floor(cfg.durationMinutes / 60)} hour${Math.floor(cfg.durationMinutes / 60) > 1 ? "s" : ""}${cfg.durationMinutes % 60 > 0 ? ` ${cfg.durationMinutes % 60}m` : ""}`
+      : `${cfg.durationMinutes} min`;
+  const time = cfg.hasStartTime && cfg.startTime ? ` at ${formatTime12(cfg.startTime)}` : "";
+
+  if (cfg.frequency === "once") {
+    const dateLabel = cfg.onceDate
+      ? new Date(cfg.onceDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : "today";
+    return `${cfg.emoji} ${cfg.name}: ${dateLabel}${time} for ${dur}`;
+  }
+
   const dayNames = cfg.days.map((d) => DAY_FULL[d]);
   const freq =
     cfg.frequency === "weekly"
@@ -90,11 +105,6 @@ function buildScheduleSummary(cfg: ActivityConfig): string {
       : cfg.frequency === "biweekly"
       ? `every other ${dayNames.join(", ")}`
       : `monthly on ${dayNames.join(", ")}`;
-  const dur =
-    cfg.durationMinutes >= 60
-      ? `${Math.floor(cfg.durationMinutes / 60)} hour${Math.floor(cfg.durationMinutes / 60) > 1 ? "s" : ""}${cfg.durationMinutes % 60 > 0 ? ` ${cfg.durationMinutes % 60}m` : ""}`
-      : `${cfg.durationMinutes} min`;
-  const time = cfg.hasStartTime && cfg.startTime ? ` at ${formatTime12(cfg.startTime)}` : "";
   return `${cfg.emoji} ${cfg.name}: ${freq}${time} for ${dur}`;
 }
 
@@ -166,16 +176,19 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
 
   function goToConfigure() {
     if (selectedTypes.length === 0) return;
+    const todayDate = new Date();
+    const todayStr = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
     const initial: ActivityConfig[] = selectedTypes.map((t) => ({
       emoji: t.emoji,
       name: t.name,
-      frequency: "weekly",
+      frequency: "weekly" as const,
       days: [],
       durationMinutes: 60,
       customDuration: "",
       startTime: "",
       hasStartTime: false,
       childIds: children.map((c) => c.id),
+      onceDate: todayStr,
     }));
     setConfigs(initial);
     setConfigIdx(0);
@@ -227,24 +240,60 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
   async function handleSave() {
     setSaving(true);
     try {
-      // Insert activities
-      const rows = configs.map((cfg) => ({
-        user_id: userId,
-        name: cfg.name,
-        emoji: cfg.emoji,
-        frequency: cfg.frequency,
-        days: cfg.days,
-        duration_minutes: cfg.durationMinutes,
-        scheduled_start_time: cfg.hasStartTime && cfg.startTime ? cfg.startTime : null,
-        child_ids: cfg.childIds,
-        is_active: true,
-      }));
+      // Separate one-time vs recurring configs
+      const recurringConfigs = configs.filter(c => c.frequency !== "once");
+      const onceConfigs = configs.filter(c => c.frequency === "once");
 
-      const { error } = await supabase.from("activities").insert(rows);
-      if (error) {
-        console.error("Failed to save activities:", error);
-        setSaving(false);
-        return;
+      // Insert recurring activities
+      if (recurringConfigs.length > 0) {
+        const rows = recurringConfigs.map((cfg) => ({
+          user_id: userId,
+          name: cfg.name,
+          emoji: cfg.emoji,
+          frequency: cfg.frequency,
+          days: cfg.days,
+          duration_minutes: cfg.durationMinutes,
+          scheduled_start_time: cfg.hasStartTime && cfg.startTime ? cfg.startTime : null,
+          child_ids: cfg.childIds,
+          is_active: true,
+        }));
+
+        const { error } = await supabase.from("activities").insert(rows);
+        if (error) {
+          console.error("Failed to save recurring activities:", error);
+          setSaving(false);
+          return;
+        }
+      }
+
+      // Handle one-time activities: create activity + immediate log
+      for (const cfg of onceConfigs) {
+        const { data: actRow, error: actErr } = await supabase.from("activities").insert({
+          user_id: userId,
+          name: cfg.name,
+          emoji: cfg.emoji,
+          frequency: "weekly",
+          days: [],
+          duration_minutes: cfg.durationMinutes,
+          scheduled_start_time: cfg.hasStartTime && cfg.startTime ? cfg.startTime : null,
+          child_ids: cfg.childIds,
+          is_active: false, // Not recurring — mark inactive so it doesn't show on future days
+        }).select("id").single();
+
+        if (actErr || !actRow) {
+          console.error("Failed to save one-time activity:", actErr);
+          continue;
+        }
+
+        // Create the activity_log for the specific date
+        await supabase.from("activity_logs").insert({
+          activity_id: actRow.id,
+          user_id: userId,
+          date: cfg.onceDate,
+          minutes_spent: cfg.durationMinutes,
+          completed: true,
+          completed_at: new Date().toISOString(),
+        });
       }
 
       // Update curriculum goal times if toggled
@@ -452,7 +501,7 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
               </p>
 
               {/* Frequency */}
-              <label className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] block mb-2">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] block mb-2">
                 How often?
               </label>
               <div className="flex flex-wrap gap-2 mb-5">
@@ -460,54 +509,62 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
                   <button
                     key={opt.value}
                     onClick={() => updateConfig({ frequency: opt.value })}
-                    className="rounded-full px-3.5 py-2 text-xs font-medium transition-all"
-                    style={{
-                      background:
-                        cfg.frequency === opt.value ? "#2D5A3D" : "white",
-                      color:
-                        cfg.frequency === opt.value ? "white" : "#2d2926",
-                      border:
-                        cfg.frequency === opt.value
-                          ? "1.5px solid #2D5A3D"
-                          : "1.5px solid #e0ddd8",
-                    }}
+                    className={`rounded-full py-2 px-4 text-[13px] font-medium transition-all ${
+                      cfg.frequency === opt.value
+                        ? "bg-[#2D5A3D] text-white border border-[#2D5A3D]"
+                        : "bg-white text-[#5C5346] border border-[#e8e5e0]"
+                    }`}
                   >
                     {opt.label}
                   </button>
                 ))}
               </div>
 
-              {/* Which days */}
-              <label className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] block mb-2">
-                Which days?
-              </label>
-              <div className="flex gap-2 mb-5 justify-center">
-                {DAY_LABELS.map((label, idx) => {
-                  const active = cfg.days.includes(idx);
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => toggleDay(idx)}
-                      className="flex items-center justify-center text-xs font-medium transition-all"
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: "50%",
-                        background: active ? "#2D5A3D" : "white",
-                        color: active ? "white" : "#2d2926",
-                        border: active
-                          ? "1.5px solid #2D5A3D"
-                          : "1.5px solid #e0ddd8",
-                      }}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
+              {/* Which days (hidden for "once") */}
+              {cfg.frequency !== "once" && (
+                <>
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] block mb-2">
+                    Which days?
+                  </label>
+                  <div className="flex gap-2 mb-5 justify-center">
+                    {DAY_LABELS.map((label, idx) => {
+                      const active = cfg.days.includes(idx);
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => toggleDay(idx)}
+                          className={`flex items-center justify-center text-xs font-medium transition-all ${
+                            active
+                              ? "bg-[#2D5A3D] text-white border border-[#2D5A3D]"
+                              : "bg-white text-[#5C5346] border border-[#e8e5e0]"
+                          }`}
+                          style={{ width: 40, height: 40, borderRadius: "50%" }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* Date picker for "once" */}
+              {cfg.frequency === "once" && (
+                <>
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] block mb-2">
+                    When?
+                  </label>
+                  <input
+                    type="date"
+                    value={cfg.onceDate}
+                    onChange={(e) => updateConfig({ onceDate: e.target.value })}
+                    className="w-full border-[1.5px] border-[#e8e5e0] rounded-xl py-3 px-3.5 text-[14px] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 mb-5"
+                  />
+                </>
+              )}
 
               {/* Duration */}
-              <label className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] block mb-2">
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] block mb-2">
                 Duration
               </label>
               <div className="flex flex-wrap gap-2 mb-5">
@@ -523,14 +580,11 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
                           customDuration: "",
                         })
                       }
-                      className="rounded-full px-3.5 py-2 text-xs font-medium transition-all"
-                      style={{
-                        background: isSelected ? "#2D5A3D" : "white",
-                        color: isSelected ? "white" : "#2d2926",
-                        border: isSelected
-                          ? "1.5px solid #2D5A3D"
-                          : "1.5px solid #e0ddd8",
-                      }}
+                      className={`rounded-full py-2 px-4 text-[13px] font-medium transition-all ${
+                        isSelected
+                          ? "bg-[#2D5A3D] text-white border border-[#2D5A3D]"
+                          : "bg-white text-[#5C5346] border border-[#e8e5e0]"
+                      }`}
                     >
                       {opt.label}
                     </button>
@@ -548,17 +602,16 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
                           durationMinutes: parseInt(e.target.value) || 60,
                         })
                       }
-                      className="w-16 text-xs text-center border border-[#2D5A3D] rounded-full px-2 py-2 bg-white focus:outline-none"
+                      className="w-16 text-[13px] text-center border border-[#2D5A3D] rounded-full px-2 py-2 bg-white focus:outline-none"
                       min={5}
                       autoFocus
                     />
-                    <span className="text-xs text-[#7a6f65]">min</span>
+                    <span className="text-[13px] text-[#8B7E74]">min</span>
                   </div>
                 ) : (
                   <button
                     onClick={() => updateConfig({ customDuration: "45" })}
-                    className="rounded-full px-3.5 py-2 text-xs font-medium transition-all"
-                    style={{ border: "1.5px dashed #e0ddd8", color: "#7a6f65" }}
+                    className="rounded-full py-2 px-4 text-[13px] font-medium text-[#8B7E74] transition-all border border-dashed border-[#e8e5e0]"
                   >
                     Custom
                   </button>
@@ -567,22 +620,24 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
 
               {/* Start time toggle */}
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4]">
+                <label className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74]">
                   Set a start time?
                 </label>
                 <button
                   onClick={() =>
                     updateConfig({ hasStartTime: !cfg.hasStartTime })
                   }
-                  className="relative w-10 h-5 rounded-full transition-colors"
+                  className="relative rounded-full transition-colors"
                   style={{
-                    background: cfg.hasStartTime ? "#2D5A3D" : "#e0ddd8",
+                    width: 40, height: 22,
+                    background: cfg.hasStartTime ? "#2D5A3D" : "#e8e5e0",
                   }}
                 >
                   <span
-                    className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all"
+                    className="absolute top-[3px] bg-white rounded-full shadow transition-all"
                     style={{
-                      left: cfg.hasStartTime ? 22 : 2,
+                      width: 16, height: 16,
+                      left: cfg.hasStartTime ? 21 : 3,
                     }}
                   />
                 </button>
@@ -609,7 +664,7 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
               {/* Which kids */}
               {children.length > 0 && (
                 <>
-                  <label className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] block mb-2">
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] block mb-2">
                     Which kids?
                   </label>
                   <div className="flex flex-wrap gap-2 mb-5">
@@ -639,12 +694,9 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
               )}
 
               {/* Smart preview */}
-              {cfg.days.length > 0 && (
-                <div
-                  className="rounded-xl px-4 py-3 mb-5"
-                  style={{ background: "#f0f6f1", border: "1px solid #c2dbc5" }}
-                >
-                  <p className="text-xs text-[#2D5A3D] font-medium">
+              {(cfg.frequency === "once" || cfg.days.length > 0) && (
+                <div className="bg-[#f5f3ef] rounded-xl p-3 mb-5">
+                  <p className="text-[13px] text-[#5C5346]">
                     {buildScheduleSummary({
                       ...cfg,
                       durationMinutes: effectiveDuration,
@@ -657,13 +709,13 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
               <div className="flex items-center justify-between mt-4">
                 <button
                   onClick={prevActivity}
-                  className="text-sm text-[#7a6f65] hover:text-[#2d2926] transition-colors"
+                  className="text-sm text-[#8B7E74] hover:text-[#2d2926] transition-colors"
                 >
                   &larr; Back
                 </button>
                 <button
                   onClick={nextActivity}
-                  className="px-5 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
+                  className="px-6 py-3 rounded-xl bg-[#2D5A3D] hover:opacity-90 text-white text-sm font-semibold transition-colors"
                 >
                   {configIdx < configs.length - 1
                     ? "Next activity \u2192"
@@ -688,11 +740,7 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
                 {configs.map((cfg, idx) => (
                   <div
                     key={idx}
-                    className="rounded-xl p-4 flex items-start justify-between"
-                    style={{
-                      background: "#faf9f7",
-                      border: "1px solid #e8e5e0",
-                    }}
+                    className="bg-[#f5f3ef] rounded-xl p-4 flex items-start justify-between"
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-[#2d2926]">
@@ -749,14 +797,15 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
                     </div>
                     <button
                       onClick={() => setShowLessonTimes(!showLessonTimes)}
-                      className="relative w-10 h-5 rounded-full transition-colors"
+                      className="relative rounded-full transition-colors"
                       style={{
-                        background: showLessonTimes ? "#2D5A3D" : "#e0ddd8",
+                        width: 40, height: 22,
+                        background: showLessonTimes ? "#2D5A3D" : "#e8e5e0",
                       }}
                     >
                       <span
-                        className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all"
-                        style={{ left: showLessonTimes ? 22 : 2 }}
+                        className="absolute top-[3px] bg-white rounded-full shadow transition-all"
+                        style={{ width: 16, height: 16, left: showLessonTimes ? 21 : 3 }}
                       />
                     </button>
                   </div>
@@ -794,7 +843,7 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
                 <button
                   onClick={handleSave}
                   disabled={saving}
-                  className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                  className="w-full py-3 rounded-xl bg-[#2D5A3D] hover:opacity-90 text-white text-sm font-semibold transition-colors disabled:opacity-50"
                 >
                   {saving ? "Saving\u2026" : "Save schedule \u2713"}
                 </button>
@@ -803,7 +852,7 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
                     setConfigIdx(configs.length - 1);
                     setStep("configure");
                   }}
-                  className="text-sm text-[#7a6f65] hover:text-[#2d2926] transition-colors text-center"
+                  className="text-sm text-[#8B7E74] hover:text-[#2d2926] transition-colors text-center"
                 >
                   &larr; Back
                 </button>

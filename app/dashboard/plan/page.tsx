@@ -358,7 +358,9 @@ export default function PlanPage() {
   const [planPickerConflictCount, setPlanPickerConflictCount] = useState(0);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d;
+    const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);
+    d.setHours(0, 0, 0, 0);
+    return d;
   });
   const isCurrentWeek = toDateStr(weekStart) === toDateStr(getMondayOf(new Date()));
 
@@ -1271,7 +1273,7 @@ export default function PlanPage() {
           </div>
 
           {/* 7-day strip */}
-          <div style={{ display: "flex", gap: 5 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 5 }}>
             {weekDays.map((day) => {
               const key = toDateStr(day);
               const isToday = key === todayStr;
@@ -1291,10 +1293,8 @@ export default function PlanPage() {
               if (isVacation) {
                 bg = "#fff8f0";
                 border = "0.5px solid #f0c878";
-              } else if (isToday && isSelected) {
-                bg = "var(--g-brand)";
               } else if (isToday) {
-                bg = "var(--g-brand)";
+                bg = "#2D5A3D";
               } else if (isSelected) {
                 bg = "#f4faf0";
                 border = "1.5px solid var(--g-brand)";
@@ -1302,16 +1302,16 @@ export default function PlanPage() {
                 bg = "white";
                 border = "0.5px solid #e8e0d4";
               }
-              if (isPast && hasLessons && !isSelected) opacity = 0.6;
+              if (isPast && hasLessons && !isSelected && !isToday) opacity = 0.6;
 
               return (
                 <button
                   key={key}
                   onClick={() => setSelectedDay(key)}
                   style={{
-                    flex: 1, borderRadius: 12, padding: "7px 4px", display: "flex", flexDirection: "column",
+                    borderRadius: 12, padding: "7px 4px", display: "flex", flexDirection: "column",
                     alignItems: "center", gap: 3, cursor: "pointer", background: bg, border,
-                    opacity, minWidth: 0,
+                    opacity,
                   }}
                 >
                   <span style={{
@@ -1464,13 +1464,14 @@ export default function PlanPage() {
                           setMonthPopoverDay(isPopoverOpen ? null : key);
                         }}
                         className={`w-full min-h-[48px] rounded-xl flex flex-col items-center justify-start py-2 px-1 cursor-pointer transition-colors ${cellBg} ${cellBorder}`}
-                        style={{ opacity: isPast ? 0.55 : 1 }}
+                        style={{ opacity: isPast ? 0.75 : 1 }}
                       >
                         {/* Date number */}
-                        <span className={`text-[15px] font-semibold leading-none ${
-                          isToday ? "text-white"
-                            : isWeekend && totalItems === 0 ? "text-[#b5aca4]"
-                            : "text-[#2D2A26]"
+                        <span className={`text-[15px] leading-none ${
+                          isToday ? "text-white font-semibold"
+                            : isWeekend && totalItems === 0 ? "text-[#8B7E74] font-medium"
+                            : isPast ? "text-[#5C5346] font-medium"
+                            : "text-[#2D2A26] font-semibold"
                         }`}>
                           {day.getDate()}
                         </span>
