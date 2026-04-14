@@ -34,6 +34,7 @@ interface Props {
   mode: "create" | "edit";
   editData?: CurriculumWizardEditData;
   initialChildId?: string;
+  schoolYearId?: string | null;
   onClose: () => void;
   onSaved: () => void;
   showToast?: (msg: string) => void;
@@ -120,6 +121,7 @@ export default function CurriculumWizard({
   mode,
   editData,
   initialChildId,
+  schoolYearId,
   onClose,
   onSaved,
   showToast,
@@ -391,6 +393,7 @@ export default function CurriculumWizard({
         school_days: booleanToDays(schoolDays),
         default_minutes: parseInt(defaultMinutes) || 30,
         scheduled_start_time: lessonStartTime || null,
+        school_year_id: schoolYearId || null,
         updated_at: new Date().toISOString(),
       })
       .select("id")
@@ -455,6 +458,7 @@ export default function CurriculumWizard({
       hours: 0,
       curriculum_goal_id: goalId,
       lesson_number: n,
+      school_year_id: schoolYearId || null,
     }));
 
     let totalInserted = 0;
@@ -536,6 +540,7 @@ export default function CurriculumWizard({
               minutes_spent: perDayMinutes,
               curriculum_goal_id: goalId,
               lesson_number: i + 1,
+              school_year_id: schoolYearId || null,
             });
           }
         } else {
@@ -557,6 +562,7 @@ export default function CurriculumWizard({
                 minutes_spent: perDayMinutes,
                 curriculum_goal_id: goalId,
                 lesson_number: lessonIdx + 1,
+                school_year_id: schoolYearId || null,
               });
             }
           }
@@ -643,6 +649,7 @@ export default function CurriculumWizard({
           school_days: booleanToDays(schoolDays),
           default_minutes: parseInt(defaultMinutes) || 30,
           scheduled_start_time: lessonStartTime || null,
+          school_year_id: schoolYearId || null,
           updated_at: new Date().toISOString(),
         })
         .select("id")
@@ -788,6 +795,7 @@ export default function CurriculumWizard({
               completed: true, completed_at: `${dateStr}T12:00:00Z`, is_backfill: true,
               hours: perDayHours, minutes_spent: perDayMinutes,
               curriculum_goal_id: activeGoalId, lesson_number: i + 1,
+              school_year_id: schoolYearId || null,
             });
           }
         } else {
@@ -800,6 +808,7 @@ export default function CurriculumWizard({
                 completed: true, completed_at: `${dateStr}T12:00:00Z`, is_backfill: true,
                 hours: perDayHours, minutes_spent: perDayMinutes,
                 curriculum_goal_id: activeGoalId, lesson_number: lessonIdx + 1,
+                school_year_id: schoolYearId || null,
               });
             }
           }

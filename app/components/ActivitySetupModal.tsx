@@ -35,6 +35,7 @@ type ActivityConfig = {
 interface Props {
   onClose: () => void;
   onSaved: () => void;
+  schoolYearId?: string | null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -109,7 +110,7 @@ function buildScheduleSummary(cfg: ActivityConfig): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function ActivitySetupModal({ onClose, onSaved }: Props) {
+export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: Props) {
   const [step, setStep] = useState<"pick" | "configure" | "review">("pick");
   const [children, setChildren] = useState<Child[]>([]);
   const [curriculumGoals, setCurriculumGoals] = useState<CurriculumGoal[]>([]);
@@ -255,6 +256,7 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
           scheduled_start_time: cfg.hasStartTime && cfg.startTime ? cfg.startTime : null,
           child_ids: cfg.childIds,
           is_active: true,
+          school_year_id: schoolYearId || null,
         }));
 
         const { error } = await supabase.from("activities").insert(rows);
@@ -277,6 +279,7 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
           scheduled_start_time: cfg.hasStartTime && cfg.startTime ? cfg.startTime : null,
           child_ids: cfg.childIds,
           is_active: false, // Not recurring — mark inactive so it doesn't show on future days
+          school_year_id: schoolYearId || null,
         }).select("id").single();
 
         if (actErr || !actRow) {
@@ -292,6 +295,7 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
           minutes_spent: cfg.durationMinutes,
           completed: true,
           completed_at: new Date().toISOString(),
+          school_year_id: schoolYearId || null,
         });
       }
 

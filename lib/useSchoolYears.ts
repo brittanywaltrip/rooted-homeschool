@@ -37,8 +37,47 @@ export function useSchoolYears(userId: string | null): SchoolYears {
       .order("start_date", { ascending: false });
 
     const rows = (data ?? []) as SchoolYear[];
-    setActive(rows.find(r => r.status === "active") ?? null);
-    setUpcoming(rows.find(r => r.status === "upcoming") ?? null);
+    const today = new Date().toISOString().slice(0, 10);
+    const currentActive = rows.find(r => r.status === "active");
+    const currentUpcoming = rows.find(r => r.status === "upcoming");
+
+    // Auto-archive active year if its end_date has passed and no upcoming to promote
+    if (currentActive && currentActive.end_date < today && !currentUpcoming) {
+      await supabase.from("school_years")
+        .update({ status: "archived", updated_at: new Date().toISOString() })
+        .eq("id", currentActive.id);
+      const { data: refreshed } = await supabase
+        .from("school_years").select("*").eq("user_id", userId).order("start_date", { ascending: false });
+      const freshRows = (refreshed ?? []) as SchoolYear[];
+      setActive(freshRows.find(r => r.status === "active") ?? null);
+      setUpcoming(freshRows.find(r => r.status === "upcoming") ?? null);
+      setArchived(freshRows.filter(r => r.status === "archived"));
+      setLoading(false);
+      return;
+    }
+
+    // Auto-promote upcoming → active when its start_date arrives
+    if (currentUpcoming && currentUpcoming.start_date <= today) {
+      if (currentActive) {
+        await supabase.from("school_years")
+          .update({ status: "archived", updated_at: new Date().toISOString() })
+          .eq("id", currentActive.id);
+      }
+      await supabase.from("school_years")
+        .update({ status: "active", updated_at: new Date().toISOString() })
+        .eq("id", currentUpcoming.id);
+      const { data: refreshed } = await supabase
+        .from("school_years").select("*").eq("user_id", userId).order("start_date", { ascending: false });
+      const freshRows = (refreshed ?? []) as SchoolYear[];
+      setActive(freshRows.find(r => r.status === "active") ?? null);
+      setUpcoming(freshRows.find(r => r.status === "upcoming") ?? null);
+      setArchived(freshRows.filter(r => r.status === "archived"));
+      setLoading(false);
+      return;
+    }
+
+    setActive(currentActive ?? null);
+    setUpcoming(currentUpcoming ?? null);
     setArchived(rows.filter(r => r.status === "archived"));
     setLoading(false);
   }, [userId]);
