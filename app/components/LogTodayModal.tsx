@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
+import { onLogAction } from "@/app/lib/onLogAction";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -195,6 +196,12 @@ export default function LogTodayModal({
         type: eventType,
         payload,
       });
+
+      // Fire streak + badge check (fire-and-forget)
+      const actionMap: Record<string, "memory" | "book" | "field_trip" | "project" | "activity"> = {
+        book: "book", field_trip: "field_trip", project: "project", activity: "activity", photo: "memory",
+      };
+      onLogAction({ userId: user.id, childId: childId || undefined, actionType: actionMap[category] ?? "memory" });
 
       onSaved(category, childId || undefined);
     } catch (e) {

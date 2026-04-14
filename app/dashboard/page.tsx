@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
+import { onLogAction } from "@/app/lib/onLogAction";
 import { compressImage } from "@/lib/compress-image";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
@@ -1235,6 +1236,9 @@ export default function TodayPage() {
         }
       }
       earnLeaf();
+      // Fire streak + badge check for activity completion
+      const firstChildId = activity.child_ids?.[0];
+      onLogAction({ userId: user.id, childId: firstChildId ?? undefined, actionType: "activity" });
     } else {
       if (activity.log_id) {
         await supabase.from("activity_logs").update({ completed: false, completed_at: null }).eq("id", activity.log_id);
@@ -1381,6 +1385,7 @@ export default function TodayPage() {
     }
 
     checkAndAwardBadges(effectiveUserId);
+    onLogAction({ userId: effectiveUserId, childId: lesson.child_id ?? undefined, actionType: "lesson" });
   }
 
   function closeCheckOffModal() {
@@ -1511,10 +1516,13 @@ export default function TodayPage() {
     }
     await refreshLeafCounts();
 
-    // Check for new activity badges (fire-and-forget, notification via global listener)
+    // Check for new activity badges + streaks + creative badges (fire-and-forget)
     if (!current) {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) checkAndAwardBadges(user.id);
+      if (user) {
+        checkAndAwardBadges(user.id);
+        onLogAction({ userId: user.id, childId: lesson?.child_id ?? undefined, actionType: "lesson" });
+      }
     }
   }
 
@@ -2050,6 +2058,7 @@ export default function TodayPage() {
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
     await loadData();
     checkAndAwardBadges(user.id);
+    onLogAction({ userId: user.id, childId: bookChild || undefined, actionType: "book" });
   }
 
   async function saveDrawing() {
@@ -2080,6 +2089,7 @@ export default function TodayPage() {
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing", drawingChild || null);
     await loadData();
     checkAndAwardBadges(user.id);
+    onLogAction({ userId: user.id, childId: drawingChild || undefined, actionType: "drawing" });
   }
 
   // ── Capture toast + edit sheet helpers ────────────────────────────────────
@@ -3612,6 +3622,7 @@ export default function TodayPage() {
                     posthog.capture('field_trip_logged', { type: ftType, user_plan: isPro ? 'paid' : 'free' });
                     showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null, ftType, ftChild || null);
                     checkAndAwardBadges(user.id);
+                    onLogAction({ userId: user.id, childId: ftChild || undefined, actionType: ftType as "field_trip" | "project" | "activity" });
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild(""); setFtMinutes("");
@@ -4341,6 +4352,7 @@ export default function TodayPage() {
                     const msg = winType === "win" ? "🏆 Win captured! 🌿" : "✍️ Moment saved 🌿";
                     showCaptureToast(msg, (ins as { id: string } | null)?.id ?? null, winType, winChild || null);
                     checkAndAwardBadges(user.id);
+                    onLogAction({ userId: user.id, childId: winChild || undefined, actionType: winType as "win" | "quote" });
                     setSavingWin(false);
                     setWinText("");
                     setWinChild("");
