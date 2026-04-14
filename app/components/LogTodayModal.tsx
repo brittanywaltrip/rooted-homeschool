@@ -370,6 +370,11 @@ export default function LogTodayModal({
             )}
 
             {/* Save */}
+            {!isReflection && (
+              <p className="text-xs text-[#5c7f63] italic text-center">
+                🌿 Earn a leaf for your garden!
+              </p>
+            )}
             <button
               type="button"
               onClick={handleSave}

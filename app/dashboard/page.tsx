@@ -13,6 +13,7 @@ import { compressImage } from "@/lib/compress-image";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -458,6 +459,7 @@ export default function TodayPage() {
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const { isPartner, effectiveUserId } = usePartner();
   const { setHideFab } = useDashboardLayout();
+  const { earnLeaf } = useLeafAnimationContext();
 
   // Family activity notifications
   const [familyNotifs, setFamilyNotifs] = useState<FamilyNotification[]>([]);
@@ -1221,6 +1223,7 @@ export default function TodayPage() {
           setTodayActivities(prev => prev.map(a => a.id === activity.id ? { ...a, log_id: (logRow as { id: string }).id } : a));
         }
       }
+      earnLeaf();
     } else {
       if (activity.log_id) {
         await supabase.from("activity_logs").update({ completed: false, completed_at: null }).eq("id", activity.log_id);
@@ -1325,6 +1328,7 @@ export default function TodayPage() {
     setCelebrating(true);
     setTimeout(() => setCelebrating(false), 1600);
     triggerGardenAnimation(lesson.child_id ?? undefined);
+    earnLeaf();
 
     // Child done toast
     const updatedLessons = lessons.map(l => l.id === lesson.id ? { ...l, completed: true } : l);
@@ -1401,6 +1405,7 @@ export default function TodayPage() {
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 1600);
       triggerGardenAnimation(lesson?.child_id ?? undefined);
+      earnLeaf();
 
       // Tier 2: child done toast at 300ms
       const childId = lesson?.child_id;
@@ -2074,6 +2079,7 @@ export default function TodayPage() {
     if (memoryId) {
       posthog.capture('memory_captured', { type: memoryType ?? 'unknown' });
       triggerGardenAnimation(childId ?? undefined);
+      earnLeaf();
     }
   }
 
@@ -3702,8 +3708,8 @@ export default function TodayPage() {
                   </button>
                 )}
               </div>
-              <p className="text-xs text-[#7a6f65] bg-[#e8f0e9] rounded-xl px-3 py-2">
-                🍃 This book will add a leaf to {bookChild ? children.find((c) => c.id === bookChild)?.name + "&apos;s" : "the"} garden tree.
+              <p className="text-xs text-[#5c7f63] italic text-center">
+                🌿 Earn a leaf for your garden!
               </p>
               <button onClick={saveBook} disabled={savingBook || !bookTitle.trim()}
                 className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
@@ -3922,6 +3928,9 @@ export default function TodayPage() {
                   </select>
                 </div>
               )}
+              <p className="text-xs text-[#5c7f63] italic text-center">
+                🌿 Earn a leaf for your garden!
+              </p>
               <button onClick={saveDrawing} disabled={savingDrawing || !drawingTitle.trim()}
                 className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors">
                 {savingDrawing ? "Saving…" : "Save Drawing 🎨"}

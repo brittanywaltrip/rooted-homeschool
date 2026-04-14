@@ -13,6 +13,7 @@ import { checkAndAwardBadges } from "@/lib/badges";
 import { compressImage } from "@/lib/compress-image";
 import { DashboardLayoutProvider, useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { capitalizeChildNames } from "@/lib/utils";
+import { LeafAnimationProvider, useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 
 const navItems = [
   { label: "Today",     href: "/dashboard",           icon: Sun      },
@@ -68,9 +69,11 @@ function nameInitial(name: string): string {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <ProfileProvider>
-      <DashboardLayoutProvider>
-        <DashboardLayoutInner>{children}</DashboardLayoutInner>
-      </DashboardLayoutProvider>
+      <LeafAnimationProvider>
+        <DashboardLayoutProvider>
+          <DashboardLayoutInner>{children}</DashboardLayoutInner>
+        </DashboardLayoutProvider>
+      </LeafAnimationProvider>
     </ProfileProvider>
   );
 }
@@ -97,6 +100,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [fabSaving, setFabSaving] = useState(false);
   const [fabToast, setFabToast] = useState<string | null>(null);
   const [leafBurst, setLeafBurst] = useState(false);
+  const { earnLeaf } = useLeafAnimationContext();
   const [unreadFamilyNotifs, setUnreadFamilyNotifs] = useState(0);
 
   const [partnerCtx,  setPartnerCtx]  = useState<PartnerContextType>({
@@ -265,6 +269,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       setFabSaving(false); closeFabSheet();
       window.dispatchEvent(new CustomEvent("rooted:memory-saved", { detail: { type: "photo" } }));
       setLeafBurst(true); setTimeout(() => setLeafBurst(false), 1200);
+      earnLeaf();
       setFabToast("Memory saved 🌿"); setTimeout(() => setFabToast(null), 2000);
       checkAndAwardBadges(user.id);
     } catch {
