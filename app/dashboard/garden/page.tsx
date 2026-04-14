@@ -6,13 +6,11 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges, checkFoundingBadge, ACTIVITY_BADGES } from "@/lib/badges";
 import {
-  ALL_BADGE_CATEGORIES,
-  LESSON_BADGES,
-  STREAK_BADGES,
-  CONSISTENCY_BADGES,
-  SUBJECT_BADGES,
-  checkTieredBadges,
-  type TieredBadgeDef,
+  BADGE_CATEGORIES,
+  checkCreativeBadges,
+  getEarnedBadgeKeys,
+  type BadgeTierDef,
+  type BadgeCategory,
 } from "@/app/lib/badges-tiered";
 import PageHero from "@/app/components/PageHero";
 import { posthog } from "@/lib/posthog";
@@ -406,7 +404,7 @@ export default function GardenPage() {
   useEffect(() => { document.title = "Garden \u00b7 Rooted"; localStorage.setItem("rooted_visited_garden", "1"); posthog.capture('page_viewed', { page: 'garden' }); }, []);
 
   const loadBadges = useCallback(async (userId: string, childId: string) => {
-    // Activity badges
+    // Activity badges (legacy)
     await Promise.all([
       checkAndAwardBadges(userId),
       checkFoundingBadge(userId),
@@ -417,14 +415,9 @@ export default function GardenPage() {
       .eq("user_id", userId);
     setEarnedActivityBadgeIds(new Set((actBadgeRows ?? []).map((b: { badge_id: string }) => b.badge_id)));
 
-    // Tiered badges
-    await checkTieredBadges(userId, childId);
-    const { data: tieredRows } = await supabase
-      .from("badges")
-      .select("badge_key")
-      .eq("user_id", userId)
-      .eq("child_id", childId);
-    setEarnedTieredBadgeKeys(new Set((tieredRows ?? []).map((b: { badge_key: string }) => b.badge_key)));
+    // Creative tiered badges
+    const keys = await getEarnedBadgeKeys(userId, childId);
+    setEarnedTieredBadgeKeys(keys);
   }, []);
 
   useEffect(() => {
@@ -891,67 +884,71 @@ export default function GardenPage() {
         </p>
       </div>
 
-      {/* ── Tiered Badge Collection ──────────────────────── */}
+      {/* ── Creative Badge Collection ──────────────────────── */}
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
           Badges
         </p>
-
-        <div className="space-y-4">
-          {ALL_BADGE_CATEGORIES.map((category) => {
-            const isSubjectCat = category.name === "Subject Star";
+        <div className="bg-white border border-[#e8e5e0] rounded-2xl p-4">
+          {BADGE_CATEGORIES.filter(cat => !cat.conditional || booksCount > 0).map((cat, catIdx, filteredCats) => {
             return (
-              <div key={category.name} className="bg-white border border-[#e8e5e0] rounded-2xl p-4">
-                <p className="text-xs font-semibold text-[#2d2926] mb-3">{category.name}</p>
-                <div className="flex gap-4 overflow-x-auto pb-1">
-                  {category.badges.map((badge: TieredBadgeDef) => {
-                    // For subject badges, check if any goal-specific key matches
-                    const isEarned = isSubjectCat
-                      ? [...earnedTieredBadgeKeys].some(k => k.startsWith(badge.badgeKey + "_"))
-                      : earnedTieredBadgeKeys.has(badge.badgeKey);
-
-                    // Determine if this is "next up" (previous tier earned, this one not)
-                    const badgeIdx = category.badges.indexOf(badge);
-                    const prevEarned = badgeIdx === 0
+              <div key={cat.id} className={catIdx < filteredCats.length - 1 ? "border-b border-[#f2f0ec] pb-3 mb-3" : ""}>
+                <p className="text-[13px] font-semibold text-[#2D2A26] mb-2">{cat.icon} {cat.name}</p>
+                <div className="flex gap-4">
+                  {cat.tiers.map((t, tIdx) => {
+                    const key = cat.perCurriculum
+                      ? `${cat.id}_${t.tier}`
+                      : `${cat.id}_${t.tier}`;
+                    const isEarned = cat.perCurriculum
+                      ? [...earnedTieredBadgeKeys].some(k => k.startsWith(`${cat.id}_${t.tier}_`))
+                      : earnedTieredBadgeKeys.has(key);
+                    const prevEarned = tIdx === 0
                       ? true
-                      : isSubjectCat
-                        ? [...earnedTieredBadgeKeys].some(k => k.startsWith(category.badges[badgeIdx - 1].badgeKey + "_"))
-                        : earnedTieredBadgeKeys.has(category.badges[badgeIdx - 1].badgeKey);
-                    const isNextUp = !isEarned && prevEarned;
+                      : cat.perCurriculum
+                        ? [...earnedTieredBadgeKeys].some(k => k.startsWith(`${cat.id}_${cat.tiers[tIdx - 1].tier}_`))
+                        : earnedTieredBadgeKeys.has(`${cat.id}_${cat.tiers[tIdx - 1].tier}`);
+                    const isNext = !isEarned && prevEarned;
 
-                    const tierStyle = TIER_STYLES[badge.tier];
+                    const tierBg = isEarned
+                      ? t.tier === "gold" ? "radial-gradient(circle, #fff8e1, #ffd54f)"
+                        : t.tier === "silver" ? "radial-gradient(circle, #f5f5f5, #d8d8d8)"
+                        : "radial-gradient(circle, #f5e6d3, #e8cfa8)"
+                      : "#f0ede8";
+                    const tierBorder = isEarned
+                      ? t.tier === "gold" ? "2px solid #C4962A"
+                        : t.tier === "silver" ? "2px solid #b0b0b0"
+                        : "2px solid #c4944a"
+                      : isNext ? "1.5px dashed #2D5A3D" : "1.5px dashed #d5d0ca";
+                    const tierShadow = isEarned
+                      ? t.tier === "gold" ? "0 3px 12px rgba(196,150,42,0.35)"
+                        : t.tier === "silver" ? "0 2px 8px rgba(176,176,176,0.25)"
+                        : "0 2px 8px rgba(196,148,74,0.25)"
+                      : "none";
 
                     return (
-                      <div key={badge.badgeKey} className="flex flex-col items-center shrink-0" style={{ width: 72 }}>
+                      <div key={t.tier} className="flex flex-col items-center" style={{ width: 76 }}>
                         <div
-                          className={`relative flex items-center justify-center transition-transform ${
-                            isEarned ? "badge-float" : ""
-                          }`}
+                          className="relative flex items-center justify-center rounded-2xl"
                           style={{
-                            width: 56,
-                            height: 56,
-                            borderRadius: 16,
-                            background: isEarned ? tierStyle.bg : "#f0ede8",
-                            border: isEarned
-                              ? `2px solid ${tierStyle.border}`
-                              : isNextUp
-                                ? "2px dashed #2D5A3D"
-                                : "2px dashed #d5d0ca",
-                            boxShadow: isEarned ? tierStyle.shadow : "none",
-                            opacity: isEarned ? 1 : isNextUp ? 1 : 0.5,
+                            width: 60, height: 60, background: tierBg,
+                            border: tierBorder, boxShadow: tierShadow,
                           }}
                         >
-                          <span style={{ fontSize: 24, userSelect: "none" }}>
-                            {isEarned ? badge.icon : isNextUp ? badge.icon : "🔒"}
+                          <span style={{ fontSize: 28, opacity: isEarned ? 1 : isNext ? 0.6 : 0.3, userSelect: "none" }}>
+                            {t.emoji}
                           </span>
-                          {isNextUp && (
+                          {!isEarned && !isNext && (
+                            <span className="absolute bottom-1 right-1 text-[9px]">🔒</span>
+                          )}
+                          {isNext && (
                             <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#2D5A3D] rounded-full animate-pulse" />
                           )}
                         </div>
-                        <span className={`text-[10px] font-medium text-center leading-tight mt-1.5 ${
-                          isEarned ? "text-[#2d2926]" : "text-[#b5aca4]"
-                        }`}>
-                          {badge.label}
+                        <span className={`text-[11px] font-medium text-center leading-tight mt-1.5 ${isEarned ? "text-[#2D2A26]" : "text-[#b5aca4]"}`}>
+                          {t.name}
+                        </span>
+                        <span className="text-[10px] text-[#8B7E74] text-center">
+                          {t.threshold === -1 ? t.unit : `${t.threshold} ${t.unit}`}
                         </span>
                       </div>
                     );
@@ -962,70 +959,6 @@ export default function GardenPage() {
           })}
         </div>
       </div>
-
-      {/* ── Activity Badges ──────────────────────────────── */}
-      {(() => {
-        const allBadges: { id: string; emoji: string; label: string; earned: boolean }[] = [];
-        for (const ab of ACTIVITY_BADGES) {
-          allBadges.push({ id: ab.id, emoji: ab.emoji, label: ab.label, earned: earnedActivityBadgeIds.has(ab.id) });
-        }
-        if (isAffiliate) {
-          allBadges.push({ id: "rooted_partner", emoji: "🤝", label: "Rooted Partner", earned: true });
-        }
-        const earned = allBadges.filter((b) => b.earned);
-        const locked = allBadges.filter((b) => !b.earned);
-
-        if (earned.length === 0 && locked.length === 0) return null;
-
-        return (
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
-              Activity Badges {earned.length > 0 && `· ${earned.length} earned`}
-            </p>
-
-            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-4">
-              {earned.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs text-[#5c7f63] font-medium mb-2">Earned</p>
-                  <div className="flex flex-wrap gap-3">
-                    {earned.map((badge) => (
-                      <div key={badge.id} className="badge-float flex flex-col items-center w-[72px]">
-                        <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-sm border border-[#b8d9bc] bg-gradient-to-b from-[#e8f0e9] to-[#d4ead4] flex items-center justify-center">
-                          <span className="text-2xl">{badge.emoji}</span>
-                        </div>
-                        <span className="text-[10px] font-semibold text-[var(--g-deep)] text-center leading-tight mt-1.5">
-                          {badge.label}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {locked.length > 0 && (
-                <div>
-                  <p className="text-xs text-[#b5aca4] font-medium mb-2">Undiscovered</p>
-                  <div className="flex flex-wrap gap-3">
-                    {locked.map((badge) => (
-                      <div key={badge.id} className="flex flex-col items-center w-[72px]">
-                        <div className="relative w-14 h-14 rounded-2xl border-2 border-dashed border-[#d5d0ca] bg-[#f0ede8] flex items-center justify-center" style={{ opacity: 0.5 }}>
-                          <span style={{ fontSize: 22, filter: "grayscale(1)", opacity: 0.15, userSelect: "none" }}>
-                            {badge.emoji}
-                          </span>
-                          <span className="absolute bottom-1 right-1" style={{ fontSize: 10 }}>🔒</span>
-                        </div>
-                        <span className="text-[10px] font-medium text-[#c8bfb5] text-center leading-tight mt-1.5">
-                          ???
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ── Your Journey (stats) ──────────────────────────── */}
       {(() => {

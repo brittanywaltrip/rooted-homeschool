@@ -1,65 +1,125 @@
 import { supabase } from "@/lib/supabase";
 
-// ─── Badge definitions ─────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 export type BadgeTier = "bronze" | "silver" | "gold";
 
-export type TieredBadgeDef = {
-  badgeType: string;
-  badgeKey: string;
+export type BadgeTierDef = {
   tier: BadgeTier;
-  icon: string;
-  label: string;
-  description: string;
+  emoji: string;
+  name: string;
   threshold: number;
+  unit: string;
+  description: string;
 };
 
-// Category 1: Lesson Milestones
-export const LESSON_BADGES: TieredBadgeDef[] = [
-  { badgeType: "lessons", badgeKey: "lessons_10",  tier: "bronze", icon: "📖", label: "10 Lessons",  description: "Complete 10 lessons",  threshold: 10 },
-  { badgeType: "lessons", badgeKey: "lessons_50",  tier: "silver", icon: "📖", label: "50 Lessons",  description: "Complete 50 lessons",  threshold: 50 },
-  { badgeType: "lessons", badgeKey: "lessons_100", tier: "gold",   icon: "📖", label: "100 Lessons", description: "Complete 100 lessons", threshold: 100 },
+export type BadgeCategory = {
+  id: string;
+  name: string;
+  icon: string;
+  tiers: BadgeTierDef[];
+  perCurriculum?: boolean;
+  conditional?: boolean;
+};
+
+// ─── 7 Badge Categories ──────────────────────────────────────────────────────
+
+export const BADGE_CATEGORIES: BadgeCategory[] = [
+  {
+    id: "growth",
+    name: "Growth",
+    icon: "🌱",
+    tiers: [
+      { tier: "bronze", emoji: "🌱", name: "Sprout",       threshold: 25,  unit: "leaves",     description: "Your garden is growing!" },
+      { tier: "silver", emoji: "🌿", name: "Flourishing",  threshold: 100, unit: "leaves",     description: "Look how far you've come!" },
+      { tier: "gold",   emoji: "🌳", name: "Mighty Oak",   threshold: 500, unit: "leaves",     description: "A forest of learning!" },
+    ],
+  },
+  {
+    id: "flame",
+    name: "Flame",
+    icon: "🕯️",
+    tiers: [
+      { tier: "bronze", emoji: "🕯️", name: "Spark",     threshold: 3,  unit: "day streak",  description: "A flame is lit!" },
+      { tier: "silver", emoji: "🔥",  name: "Bonfire",   threshold: 7,  unit: "day streak",  description: "Nothing can stop you!" },
+      { tier: "gold",   emoji: "☀️",  name: "Supernova", threshold: 30, unit: "day streak",  description: "You ARE the light!" },
+    ],
+  },
+  {
+    id: "rhythm",
+    name: "Rhythm",
+    icon: "🐛",
+    tiers: [
+      { tier: "bronze", emoji: "🐛", name: "Caterpillar", threshold: 5,  unit: "days this month", description: "Building your rhythm!" },
+      { tier: "silver", emoji: "🦋", name: "Butterfly",   threshold: 15, unit: "days this month", description: "Beautiful consistency!" },
+      { tier: "gold",   emoji: "🦅", name: "Eagle",       threshold: -1, unit: "every school day", description: "Soaring above it all!" },
+    ],
+  },
+  {
+    id: "deep-roots",
+    name: "Deep Roots",
+    icon: "🪨",
+    tiers: [
+      { tier: "bronze", emoji: "🪨", name: "Rough Stone", threshold: 25,  unit: "% complete", description: "Digging deep!" },
+      { tier: "silver", emoji: "💎", name: "Diamond",     threshold: 50,  unit: "% complete", description: "Polished and brilliant!" },
+      { tier: "gold",   emoji: "👑", name: "Crown",       threshold: 100, unit: "% complete", description: "Mastery achieved!" },
+    ],
+    perCurriculum: true,
+  },
+  {
+    id: "explorer",
+    name: "Explorer",
+    icon: "🐾",
+    tiers: [
+      { tier: "bronze", emoji: "🐾", name: "Footprints",   threshold: 3, unit: "subjects", description: "Following the trail!" },
+      { tier: "silver", emoji: "🧭", name: "Navigator",    threshold: 5, unit: "subjects", description: "Charting new territory!" },
+      { tier: "gold",   emoji: "🗺️", name: "Cartographer", threshold: 7, unit: "subjects", description: "You've mapped the world!" },
+    ],
+  },
+  {
+    id: "memory-keeper",
+    name: "Memory Keeper",
+    icon: "📸",
+    tiers: [
+      { tier: "bronze", emoji: "📸", name: "Snapshot",  threshold: 5,   unit: "memories", description: "Capturing the moments!" },
+      { tier: "silver", emoji: "📚", name: "Scrapbook", threshold: 25,  unit: "memories", description: "A story taking shape!" },
+      { tier: "gold",   emoji: "🏛️", name: "Museum",   threshold: 100, unit: "memories", description: "A gallery of memories!" },
+    ],
+  },
+  {
+    id: "bookworm",
+    name: "Bookworm",
+    icon: "🔖",
+    tiers: [
+      { tier: "bronze", emoji: "🔖", name: "Bookmark",          threshold: 5,  unit: "books", description: "A reader is born!" },
+      { tier: "silver", emoji: "📖", name: "Storyteller",       threshold: 15, unit: "books", description: "Lost in the pages!" },
+      { tier: "gold",   emoji: "🏰", name: "Castle of Stories", threshold: 50, unit: "books", description: "A kingdom of imagination!" },
+    ],
+    conditional: true,
+  },
 ];
 
-// Category 2: Streak Champion
-export const STREAK_BADGES: TieredBadgeDef[] = [
-  { badgeType: "streak", badgeKey: "streak_3",  tier: "bronze", icon: "🔥", label: "3-Day Streak",  description: "Log 3 days in a row",  threshold: 3 },
-  { badgeType: "streak", badgeKey: "streak_7",  tier: "silver", icon: "🔥", label: "7-Day Streak",  description: "Log 7 days in a row",  threshold: 7 },
-  { badgeType: "streak", badgeKey: "streak_30", tier: "gold",   icon: "🔥", label: "30-Day Streak", description: "Log 30 days in a row", threshold: 30 },
-];
+// ─── Data shape for badge checking ───────────────────────────────────────────
 
-// Category 3: Consistency
-export const CONSISTENCY_BADGES: TieredBadgeDef[] = [
-  { badgeType: "consistency", badgeKey: "month_5",    tier: "bronze", icon: "📅", label: "5 Days",        description: "Log 5 days in a month",        threshold: 5 },
-  { badgeType: "consistency", badgeKey: "month_15",   tier: "silver", icon: "📅", label: "15 Days",       description: "Log 15 days in a month",       threshold: 15 },
-  { badgeType: "consistency", badgeKey: "month_full", tier: "gold",   icon: "📅", label: "Full Month",    description: "Log every school day in a month", threshold: 0 },
-];
+export type BadgeCheckData = {
+  totalLeaves: number;
+  currentStreak: number;
+  longestStreak: number;
+  daysLoggedThisMonth: number;
+  schoolDaysThisMonth: number;
+  totalMemories: number;
+  totalBooks: number;
+  subjectsThisWeek: number;
+  curricula: { goalId: string; completionPct: number }[];
+};
 
-// Category 4: Subject Star (per curriculum)
-export const SUBJECT_BADGES: TieredBadgeDef[] = [
-  { badgeType: "subject", badgeKey: "subject_25",  tier: "bronze", icon: "⭐", label: "25% Done",   description: "Complete 25% of a curriculum",  threshold: 0.25 },
-  { badgeType: "subject", badgeKey: "subject_50",  tier: "silver", icon: "⭐", label: "50% Done",   description: "Complete 50% of a curriculum",  threshold: 0.50 },
-  { badgeType: "subject", badgeKey: "subject_100", tier: "gold",   icon: "⭐", label: "100% Done",  description: "Complete an entire curriculum", threshold: 1.0 },
-];
+// ─── Badge checking logic ────────────────────────────────────────────────────
 
-export const ALL_BADGE_CATEGORIES = [
-  { name: "Lesson Milestones", badges: LESSON_BADGES },
-  { name: "Streak Champion", badges: STREAK_BADGES },
-  { name: "Consistency", badges: CONSISTENCY_BADGES },
-  { name: "Subject Star", badges: SUBJECT_BADGES },
-];
-
-// ─── Badge checking logic ─────────────────────────────────────────────────────
-
-/**
- * Check and award tiered badges for a specific child.
- * Returns newly awarded badge keys.
- */
-export async function checkTieredBadges(
+export async function checkCreativeBadges(
   userId: string,
   childId: string,
-): Promise<string[]> {
-  // Fetch existing earned badges for this child
+  data: BadgeCheckData,
+): Promise<{ badgeKey: string; category: BadgeCategory; tierDef: BadgeTierDef }[]> {
   const { data: existingRows } = await supabase
     .from("badges")
     .select("badge_key")
@@ -67,115 +127,46 @@ export async function checkTieredBadges(
     .eq("child_id", childId);
 
   const earned = new Set((existingRows ?? []).map((b: { badge_key: string }) => b.badge_key));
-  const newBadges: string[] = [];
+  const newBadges: { badgeKey: string; category: BadgeCategory; tierDef: BadgeTierDef }[] = [];
 
-  // 1. Lesson milestones: count completed lessons for this child
-  const { count: lessonCount } = await supabase
-    .from("lessons")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("child_id", childId)
-    .eq("completed", true);
-
-  const totalLessons = lessonCount ?? 0;
-
-  for (const badge of LESSON_BADGES) {
-    if (!earned.has(badge.badgeKey) && totalLessons >= badge.threshold) {
-      await awardBadge(userId, childId, badge);
-      newBadges.push(badge.badgeKey);
+  function getValue(cat: BadgeCategory): number {
+    switch (cat.id) {
+      case "growth": return data.totalLeaves;
+      case "flame": return Math.max(data.currentStreak, data.longestStreak);
+      case "rhythm": return data.daysLoggedThisMonth;
+      case "explorer": return data.subjectsThisWeek;
+      case "memory-keeper": return data.totalMemories;
+      case "bookworm": return data.totalBooks;
+      default: return 0;
     }
   }
 
-  // 2. Streak champion: use profile streak data
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("current_streak_days, longest_streak_days")
-    .eq("id", userId)
-    .single();
-
-  const longestStreak = Math.max(
-    profile?.current_streak_days ?? 0,
-    profile?.longest_streak_days ?? 0,
-  );
-
-  for (const badge of STREAK_BADGES) {
-    if (!earned.has(badge.badgeKey) && longestStreak >= badge.threshold) {
-      await awardBadge(userId, childId, badge);
-      newBadges.push(badge.badgeKey);
+  for (const cat of BADGE_CATEGORIES) {
+    if (cat.perCurriculum) {
+      // Deep Roots — check per curriculum
+      for (const curr of data.curricula) {
+        for (const t of cat.tiers) {
+          const key = `${cat.id}_${t.tier}_${curr.goalId}`;
+          if (!earned.has(key) && curr.completionPct >= t.threshold) {
+            await awardBadge(userId, childId, cat.id, key, t.tier);
+            newBadges.push({ badgeKey: key, category: cat, tierDef: t });
+          }
+        }
+      }
+      continue;
     }
-  }
 
-  // 3. Consistency: count distinct active days this month for this child
-  const now = new Date();
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const monthEnd = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}-01`;
-
-  const { data: monthLessons } = await supabase
-    .from("lessons")
-    .select("date")
-    .eq("user_id", userId)
-    .eq("child_id", childId)
-    .eq("completed", true)
-    .gte("date", monthStart)
-    .lt("date", monthEnd);
-
-  const uniqueDays = new Set((monthLessons ?? []).map((l: { date: string }) => l.date));
-  const daysThisMonth = uniqueDays.size;
-
-  // Bronze: 5 days
-  if (!earned.has("month_5") && daysThisMonth >= 5) {
-    await awardBadge(userId, childId, CONSISTENCY_BADGES[0]);
-    newBadges.push("month_5");
-  }
-  // Silver: 15 days
-  if (!earned.has("month_15") && daysThisMonth >= 15) {
-    await awardBadge(userId, childId, CONSISTENCY_BADGES[1]);
-    newBadges.push("month_15");
-  }
-  // Gold: every school day (approx 20-22)
-  const { data: profileDays } = await supabase
-    .from("profiles")
-    .select("school_days")
-    .eq("id", userId)
-    .single();
-  const schoolDays: string[] = profileDays?.school_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
-  const dayMap: Record<number, string> = { 0: "Sun", 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat" };
-  let schoolDaysInMonth = 0;
-  const cursor = new Date(now.getFullYear(), now.getMonth(), 1);
-  while (cursor.getMonth() === now.getMonth() && cursor <= now) {
-    if (schoolDays.includes(dayMap[cursor.getDay()])) schoolDaysInMonth++;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  if (!earned.has("month_full") && schoolDaysInMonth > 0 && daysThisMonth >= schoolDaysInMonth) {
-    await awardBadge(userId, childId, CONSISTENCY_BADGES[2]);
-    newBadges.push("month_full");
-  }
-
-  // 4. Subject star: check curriculum completion percentages
-  const { data: goals } = await supabase
-    .from("curriculum_goals")
-    .select("id, total_lessons, current_lesson")
-    .eq("user_id", userId)
-    .eq("child_id", childId);
-
-  for (const goal of goals ?? []) {
-    const total = goal.total_lessons ?? 0;
-    const current = goal.current_lesson ?? 0;
-    if (total <= 0) continue;
-    const pct = current / total;
-
-    for (const badge of SUBJECT_BADGES) {
-      const key = `${badge.badgeKey}_${goal.id}`;
-      if (!earned.has(key) && pct >= badge.threshold) {
-        await supabase.from("badges").insert({
-          user_id: userId,
-          child_id: childId,
-          badge_type: badge.badgeType,
-          badge_key: key,
-          tier: badge.tier,
-        });
-        newBadges.push(key);
+    const value = getValue(cat);
+    for (const t of cat.tiers) {
+      const key = `${cat.id}_${t.tier}`;
+      // Special case: rhythm gold uses dynamic threshold
+      const threshold = cat.id === "rhythm" && t.tier === "gold"
+        ? data.schoolDaysThisMonth
+        : t.threshold;
+      if (threshold <= 0) continue;
+      if (!earned.has(key) && value >= threshold) {
+        await awardBadge(userId, childId, cat.id, key, t.tier);
+        newBadges.push({ badgeKey: key, category: cat, tierDef: t });
       }
     }
   }
@@ -183,32 +174,47 @@ export async function checkTieredBadges(
   return newBadges;
 }
 
-async function awardBadge(userId: string, childId: string, badge: TieredBadgeDef) {
-  // The unique index on badges table prevents duplicates — ignore constraint errors
+async function awardBadge(userId: string, childId: string, badgeType: string, badgeKey: string, tier: string) {
   const { error } = await supabase.from("badges").insert({
     user_id: userId,
     child_id: childId,
-    badge_type: badge.badgeType,
-    badge_key: badge.badgeKey,
-    tier: badge.tier,
+    badge_type: badgeType,
+    badge_key: badgeKey,
+    tier,
   });
   if (error && !error.message.includes("duplicate") && !error.code?.includes("23505")) {
     console.error("[badges-tiered] award failed:", error);
   }
 }
 
-/**
- * Fetch all earned tiered badges for a child.
- */
-export async function getEarnedBadges(
-  userId: string,
-  childId: string,
-): Promise<Set<string>> {
+export async function getEarnedBadgeKeys(userId: string, childId: string): Promise<Set<string>> {
   const { data } = await supabase
     .from("badges")
     .select("badge_key")
     .eq("user_id", userId)
     .eq("child_id", childId);
-
   return new Set((data ?? []).map((b: { badge_key: string }) => b.badge_key));
 }
+
+export async function getEarnedBadgesWithDates(userId: string, childId: string): Promise<{ badge_key: string; badge_type: string; tier: string; earned_at: string }[]> {
+  const { data } = await supabase
+    .from("badges")
+    .select("badge_key, badge_type, tier, earned_at")
+    .eq("user_id", userId)
+    .eq("child_id", childId)
+    .order("earned_at", { ascending: false });
+  return (data ?? []) as { badge_key: string; badge_type: string; tier: string; earned_at: string }[];
+}
+
+// Legacy exports for backward compatibility
+export type TieredBadgeDef = BadgeTierDef & { badgeType: string; badgeKey: string; icon: string; label: string };
+export const LESSON_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[0].tiers.map(t => ({ badgeType: "growth", badgeKey: `growth_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold }));
+export const STREAK_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[1].tiers.map(t => ({ badgeType: "flame", badgeKey: `flame_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold }));
+export const CONSISTENCY_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[2].tiers.map(t => ({ badgeType: "rhythm", badgeKey: `rhythm_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold }));
+export const SUBJECT_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[3].tiers.map(t => ({ badgeType: "deep-roots", badgeKey: `deep-roots_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold }));
+export const ALL_BADGE_CATEGORIES = BADGE_CATEGORIES.map(c => ({ name: c.name, badges: c.tiers.map(t => ({ badgeType: c.id, badgeKey: `${c.id}_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold })) }));
+export const checkTieredBadges = async (userId: string, childId: string) => {
+  // Legacy wrapper — returns badge keys only
+  const result = await checkCreativeBadges(userId, childId, { totalLeaves: 0, currentStreak: 0, longestStreak: 0, daysLoggedThisMonth: 0, schoolDaysThisMonth: 0, totalMemories: 0, totalBooks: 0, subjectsThisWeek: 0, curricula: [] });
+  return result.map(r => r.badgeKey);
+};
