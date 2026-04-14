@@ -12,8 +12,10 @@ export async function sendResendTemplate(
   const payload: Record<string, unknown> = {
     from: from ?? FROM,
     to,
-    template_id: templateId,
-    template_variables: variables,
+    template: {
+      id: templateId,
+      variables,
+    },
   }
   if (subject) payload.subject = subject
 
@@ -27,6 +29,7 @@ export async function sendResendTemplate(
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: 'Unknown error' }))
+    console.error('Resend template error:', err)
     return { ok: false, error: err.message ?? JSON.stringify(err) }
   }
   return { ok: true }
