@@ -165,6 +165,7 @@ export default function CurriculumWizard({
 
   const [lessonsPerDay, setLessonsPerDay] = useState("1");
   const [defaultMinutes, setDefaultMinutes] = useState("30");
+  const [isCustomMinutes, setIsCustomMinutes] = useState(false);
   const [targetDate, setTargetDate] = useState(editData?.targetDate ?? "");
   const [startDate, setStartDate] = useState(() => toDateStr(new Date()));
 
@@ -792,18 +793,40 @@ export default function CurriculumWizard({
                 <input value={startLesson} onChange={(e) => setStartLesson(e.target.value)}
                   type="number" min="0" placeholder={mode === "edit" ? "0" : "1"}
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-                <p className="text-[10px] text-[#b5aca4] mt-1">
-                  {mode === "edit" ? "Completed so far" : "Mid-curriculum? e.g. 45"}
+                <p className={`mt-1 ${mode === "edit" ? "text-[10px] text-[#b5aca4]" : "text-xs text-[#b5aca4]"}`}>
+                  {mode === "edit" ? "Completed so far" : "Starting mid-curriculum? Enter the lesson number to begin at."}
                 </p>
               </div>
             </div>
 
             <div>
               <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">Minutes per lesson</label>
-              <input value={defaultMinutes} onChange={(e) => setDefaultMinutes(e.target.value)}
-                type="number" min="5" max="300" placeholder="30"
-                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-              <p className="text-[10px] text-[#b5aca4] mt-1">Used to calculate your total hours</p>
+              <div className="flex flex-wrap gap-2">
+                {[15, 30, 45, 60, 90].map((m) => (
+                  <button key={m} type="button"
+                    onClick={() => { setDefaultMinutes(String(m)); setIsCustomMinutes(false); }}
+                    className={`rounded-[10px] px-4 py-2.5 text-sm font-medium border transition-colors ${
+                      !isCustomMinutes && defaultMinutes === String(m)
+                        ? "bg-[#2D5A3D] text-white border-[#2D5A3D]"
+                        : "bg-white border-[#e0ddd8] text-[#5c6b62]"
+                    }`}
+                  >{m}</button>
+                ))}
+                <button type="button"
+                  onClick={() => { setIsCustomMinutes(true); setDefaultMinutes(""); }}
+                  className={`rounded-[10px] px-4 py-2.5 text-sm font-medium transition-colors ${
+                    isCustomMinutes
+                      ? "border border-solid bg-[#2D5A3D] text-white"
+                      : "border border-dashed border-[#e0ddd8] text-[#7a6f65]"
+                  }`}
+                >Custom</button>
+              </div>
+              {isCustomMinutes && (
+                <input value={defaultMinutes} onChange={(e) => setDefaultMinutes(e.target.value)}
+                  type="number" min="1" max="300" placeholder="Type minutes"
+                  className="mt-2 w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              )}
+              <p className="text-xs text-[#5c7f63] mt-1">This is your default — you can adjust the actual time for each lesson when you check it off.</p>
             </div>
 
             <div className="flex gap-2">
