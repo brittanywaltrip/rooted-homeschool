@@ -44,7 +44,6 @@ const PRESET_ACTIVITIES: ActivityType[] = [
   { emoji: "\u{1F3C3}", name: "Sports/PE" },
   { emoji: "\u{1F3B5}", name: "Music" },
   { emoji: "\u{1F4BB}", name: "Coding" },
-  { emoji: "\u{1F68C}", name: "Field Trips" },
   { emoji: "\u{1F3A8}", name: "Art Class" },
   { emoji: "\u{1F310}", name: "Language" },
   { emoji: "\u{1F4DD}", name: "Tutoring" },
@@ -384,6 +383,10 @@ export default function ActivitySetupModal({ onClose, onSaved }: Props) {
                   );
                 })}
               </div>
+
+              <p className="text-xs text-[#8B7E74] mt-2 px-1">
+                Logging a field trip? Use <strong>Capture a Memory</strong> for one-time activities like field trips — you can log hours there too!
+              </p>
 
               {/* Custom activity cards already selected */}
               {selectedTypes

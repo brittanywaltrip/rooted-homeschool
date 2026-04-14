@@ -585,7 +585,7 @@ export default function TodayPage() {
   const [ftTitle, setFtTitle] = useState("");
   const [ftNote, setFtNote] = useState("");
   const [ftChild, setFtChild] = useState("");
-  const [ftType, setFtType] = useState<"field_trip" | "project" | "activity">("field_trip");
+  const [ftType, setFtType] = useState<"field_trip" | "project">("field_trip");
   const [ftSaving, setFtSaving] = useState(false);
   const captureFileRef = useRef<HTMLInputElement>(null);
   const captureTypeRef = useRef<"photo" | "drawing">("photo");
@@ -3565,7 +3565,7 @@ export default function TodayPage() {
             <div>
               <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Type</label>
               <div className="flex gap-2">
-                {([["field_trip", "🗺️ Field trip"], ["project", "🔬 Project"], ["activity", "🎵 Activity"]] as const).map(([val, label]) => (
+                {([["field_trip", "🗺️ Field trip"], ["project", "🔬 Project"]] as const).map(([val, label]) => (
                   <button key={val} type="button" onClick={() => setFtType(val)}
                     className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-colors ${ftType === val ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}>
                     {label}
@@ -3618,11 +3618,11 @@ export default function TodayPage() {
                     }).select("id").single();
                     if (ftErr) { console.error("[Rooted] Field trip save failed:", ftErr.message); setFtSaving(false); showCaptureToast("Save failed — try again", null); return; }
                     console.log("[Rooted] Saved:", ftType, ins);
-                    const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿", activity: "🎨 Activity logged 🌿" };
+                    const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿" };
                     posthog.capture('field_trip_logged', { type: ftType, user_plan: isPro ? 'paid' : 'free' });
                     showCaptureToast(toastMap[ftType] ?? "🌿 Saved!", (ins as { id: string } | null)?.id ?? null, ftType, ftChild || null);
                     checkAndAwardBadges(user.id);
-                    onLogAction({ userId: user.id, childId: ftChild || undefined, actionType: ftType as "field_trip" | "project" | "activity" });
+                    onLogAction({ userId: user.id, childId: ftChild || undefined, actionType: ftType as "field_trip" | "project" });
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild(""); setFtMinutes("");
