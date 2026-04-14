@@ -638,22 +638,18 @@ export default function GardenPage() {
         <Butterfly x={72} y={62} delay={1.8} color="#fbbf24" />
         <Butterfly x={45} y={55} delay={3.2} color="#86efac" />
 
-        {/* Vacation palm trees */}
+        {/* Vacation banner */}
         {activeVacation && (
-          <>
-            <div className="absolute garden-sway"
-              style={{ bottom: "27%", left: "12%", transformOrigin: "center bottom", fontSize: "clamp(30px, 6vw, 48px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
-              aria-hidden>🌴</div>
-            <div className="absolute garden-sway-alt"
-              style={{ bottom: "27%", right: "12%", transformOrigin: "center bottom", fontSize: "clamp(30px, 6vw, 48px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
-              aria-hidden>🌴</div>
-            <div className="absolute bottom-[52%] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-2xl px-3 py-1.5 text-center shadow-md z-10"
-              style={{ background: "#fef3dc", border: "1.5px solid #f0dda8" }}>
-              <p className="text-xs font-semibold text-[#7a4a1a] leading-snug">
-                {familyName ? `${familyName.replace(/^The\s+/i, "").trim() || familyName}` : "Family"} is away 🌴
-              </p>
-            </div>
-          </>
+          <div className="absolute bottom-[50%] left-1/2 -translate-x-1/2 rounded-2xl px-5 py-3 text-center shadow-lg z-10"
+            style={{ background: "#fef3dc", border: "2px solid #f0dda8" }}>
+            <p className="text-2xl mb-1" aria-hidden>🌴</p>
+            <p className="text-sm font-bold text-[#7a4a1a] leading-snug">
+              {familyName ? `${familyName.replace(/^The\s+/i, "").trim() || familyName}` : "Family"} is on a break!
+            </p>
+            {activeVacation.name && (
+              <p className="text-xs text-[#a06b2d] mt-0.5">{activeVacation.name}</p>
+            )}
+          </div>
         )}
 
         {/* Ground layers */}
