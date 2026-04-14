@@ -207,6 +207,7 @@ export default function PlanPage() {
   const [reportRange, setReportRange] = useState<string>("full");
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
+  const [includeActivities, setIncludeActivities] = useState(true);
   const [planType, setPlanType] = useState<string | null>(null);
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const isFreeUser = !planType || planType === "free" || previewFree;
@@ -794,18 +795,25 @@ export default function PlanPage() {
       const yr = now.getMonth() >= 6 ? `${now.getFullYear()}–${now.getFullYear() + 1}` : `${now.getFullYear() - 1}–${now.getFullYear()}`;
       const dateGen = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-      type LR = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null };
+      type LR = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null; is_backfill?: boolean };
       type MR = { child_id: string | null; type: string; title: string | null; date: string; duration_minutes: number | null };
       type GR = { id: string; default_minutes: number };
+      type AL = { activity_id: string; date: string; minutes_spent: number | null; completed: boolean; is_backfill?: boolean };
+      type ACT = { id: string; name: string; emoji: string; child_ids: string[] | null };
 
-      const [{ data: lr }, { data: mr }, { data: gr }] = await Promise.all([
-        supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name)").eq("user_id", effectiveUserId),
+      const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }] = await Promise.all([
+        supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), is_backfill").eq("user_id", effectiveUserId),
         supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", effectiveUserId),
         supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", effectiveUserId),
+        supabase.from("activity_logs").select("activity_id, date, minutes_spent, completed, is_backfill").eq("user_id", effectiveUserId).eq("completed", true),
+        supabase.from("activities").select("id, name, emoji, child_ids").eq("user_id", effectiveUserId),
       ]);
 
       let allLessons = (lr || []) as unknown as LR[];
       let allMemories = (mr || []) as unknown as MR[];
+      let allActivityLogs = (al || []) as unknown as AL[];
+      const activityMap: Record<string, ACT> = {};
+      for (const a of ((acts || []) as unknown as ACT[])) activityMap[a.id] = a;
       const gdm: Record<string, number> = {};
       for (const g of ((gr || []) as unknown as GR[])) gdm[g.id] = g.default_minutes ?? 30;
 
@@ -848,45 +856,77 @@ export default function PlanPage() {
           return d >= rangeStart && d <= rangeEnd;
         });
         allMemories = allMemories.filter(m => m.date >= rangeStart && m.date <= rangeEnd);
+        allActivityLogs = allActivityLogs.filter(a => a.date >= rangeStart && a.date <= rangeEnd);
       }
 
       const lessons = allLessons;
       const memories = allMemories;
+      const activityLogs = includeActivities ? allActivityLogs : [];
 
       const done = lessons.filter(l => l.completed);
       const tLM = done.reduce((s, l) => s + lm(l).m, 0);
       const mM = memories.filter(m => m.duration_minutes).reduce((s, m) => s + (m.duration_minutes || 0), 0);
+      const actM = activityLogs.reduce((s, a) => s + (a.minutes_spent || 0), 0);
       const books = memories.filter(m => m.type === "book");
       const trips = memories.filter(m => ["field_trip", "project", "activity"].includes(m.type));
-      const sDays = new Set(done.map(l => ld(l)).filter(Boolean)).size;
+      // School days: any day with a lesson OR an activity
+      const lessonDays = new Set(done.map(l => ld(l)).filter(Boolean));
+      const activityDays = new Set(activityLogs.map(a => a.date));
+      const allSchoolDays = new Set([...lessonDays, ...activityDays]);
+      const sDays = allSchoolDays.size;
+      // Backfill hours
+      const backfillMins = done.filter(l => l.is_backfill).reduce((s, l) => s + lm(l).m, 0)
+        + activityLogs.filter(a => a.is_backfill).reduce((s, a) => s + (a.minutes_spent || 0), 0);
 
       const isPerChild = reportChildId !== "all";
       const selectedChild = isPerChild ? children.find(c => c.id === reportChildId) : null;
       const reportChildren = isPerChild && selectedChild ? [selectedChild] : children;
 
-      // Filter lessons/memories to selected child when per-child
+      // Filter lessons/memories/activities to selected child when per-child
       const scopedDone = isPerChild ? done.filter(l => l.child_id === reportChildId) : done;
       const scopedMemories = isPerChild ? memories.filter(m => m.child_id === reportChildId) : memories;
+      const scopedActivityLogs = isPerChild
+        ? activityLogs.filter(a => { const act = activityMap[a.activity_id]; return act?.child_ids?.includes(reportChildId); })
+        : activityLogs;
 
       // Recalculate summary for scoped data
       const scopedTLM = scopedDone.reduce((s, l) => s + lm(l).m, 0);
+      const scopedActM = scopedActivityLogs.reduce((s, a) => s + (a.minutes_spent || 0), 0);
       const scopedMM = scopedMemories.filter(m => m.duration_minutes).reduce((s, m) => s + (m.duration_minutes || 0), 0);
       const scopedBooks = scopedMemories.filter(m => m.type === "book");
       const scopedTrips = scopedMemories.filter(m => ["field_trip", "project", "activity"].includes(m.type));
-      const scopedSDays = new Set(scopedDone.map(l => ld(l)).filter(Boolean)).size;
+      const scopedLessonDays = new Set(scopedDone.map(l => ld(l)).filter(Boolean));
+      const scopedActDays = new Set(scopedActivityLogs.map(a => a.date));
+      const scopedSDays = new Set([...scopedLessonDays, ...scopedActDays]).size;
 
       const childReport = reportChildren.map(c => {
         const cl = done.filter(l => l.child_id === c.id);
         const cm = cl.reduce((s, l) => s + lm(l).m, 0);
-        const cd = new Set(cl.map(l => ld(l)).filter(Boolean)).size;
+        // Activities for this child
+        const childActs = activityLogs.filter(a => { const act = activityMap[a.activity_id]; return act?.child_ids?.includes(c.id); });
+        const childActM = childActs.reduce((s, a) => s + (a.minutes_spent || 0), 0);
+        // School days: lessons + activities
+        const childLessonDays = new Set(cl.map(l => ld(l)).filter(Boolean));
+        const childActDays = new Set(childActs.map(a => a.date));
+        const cd = new Set([...childLessonDays, ...childActDays]).size;
         const sa: Record<string, { n: number; m: number; e: boolean }> = {};
         for (const l of cl) { const nm = l.subjects?.name || "General"; if (!sa[nm]) sa[nm] = { n: 0, m: 0, e: false }; sa[nm].n++; const r = lm(l); sa[nm].m += r.m; if (r.e) sa[nm].e = true; }
+        // Group activities
+        const actGroups: Record<string, { name: string; emoji: string; sessions: number; mins: number }> = {};
+        for (const a of childActs) {
+          const act = activityMap[a.activity_id];
+          if (!act) continue;
+          if (!actGroups[a.activity_id]) actGroups[a.activity_id] = { name: act.name, emoji: act.emoji, sessions: 0, mins: 0 };
+          actGroups[a.activity_id].sessions++;
+          actGroups[a.activity_id].mins += a.minutes_spent || 0;
+        }
         return {
           name: c.name,
-          totalHours: fmtMins(cm),
+          totalHours: fmtMins(cm + childActM),
           totalLessons: cl.length,
           schoolDays: cd,
           subjects: Object.entries(sa).map(([n, d]) => ({ name: n, count: d.n, hours: fmtMins(d.m), estimated: d.e })).sort((a, b) => b.count - a.count),
+          activities: Object.values(actGroups).map(g => ({ name: g.name, emoji: g.emoji, sessions: g.sessions, hours: fmtMins(g.mins) })).sort((a, b) => b.sessions - a.sessions),
           books: memories.filter(m => m.type === "book" && m.child_id === c.id).map(m => m.title || "Untitled"),
           fieldTrips: memories.filter(m => ["field_trip","project","activity"].includes(m.type) && m.child_id === c.id).map(m => ({ title: m.title || "Untitled", duration: m.duration_minutes })),
           wins: memories.filter(m => ["win","quote"].includes(m.type) && m.child_id === c.id).map(m => m.title || "Untitled"),
@@ -900,8 +940,9 @@ export default function PlanPage() {
 
       // Daily log — scoped to selected child when per-child
       const logMap: Record<string, { childName: string; subject: string; description: string; minutes: number; type: string; estimated: boolean }[]> = {};
-      for (const l of scopedDone) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ childName: childNameMap[l.child_id] || "", subject: l.subjects?.name || "General", description: l.title || "Lesson", minutes: r.m, type: "Lesson", estimated: r.e }); }
+      for (const l of scopedDone) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ childName: childNameMap[l.child_id] || "", subject: l.subjects?.name || "General", description: l.is_backfill ? `${l.title || "Lesson"} (imported)` : (l.title || "Lesson"), minutes: r.m, type: l.is_backfill ? "Imported" : "Lesson", estimated: r.e }); }
       for (const m of scopedMemories) { if (!m.duration_minutes || !["field_trip","project","activity","win"].includes(m.type)) continue; if (!logMap[m.date]) logMap[m.date] = []; logMap[m.date].push({ childName: m.child_id ? (childNameMap[m.child_id] || "") : "", subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: "Activity", estimated: false }); }
+      for (const a of scopedActivityLogs) { const act = activityMap[a.activity_id]; if (!act || !a.minutes_spent) continue; if (!logMap[a.date]) logMap[a.date] = []; const childNames = (act.child_ids || []).map(id => childNameMap[id] || "").filter(Boolean).join(", "); logMap[a.date].push({ childName: childNames, subject: act.name, description: `${act.emoji} ${act.name}${a.is_backfill ? " (imported)" : ""}`, minutes: a.minutes_spent, type: "Activity", estimated: false }); }
       const dailyLog = Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({
         dateLabel: new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
         entries,
@@ -915,10 +956,16 @@ export default function PlanPage() {
       const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
       generateProgressReport(doc, {
         familyName: reportTitle, schoolYear: dateRangeLabel || yr, dateGenerated: dateGen, showWatermark: true,
-        summary: { totalHours: fmtMins(scopedTLM + scopedMM), schoolDays: scopedSDays, lessons: scopedDone.length, books: scopedBooks.length, trips: scopedTrips.length, memories: scopedMemories.length },
+        summary: {
+          totalHours: fmtMins(scopedTLM + scopedActM + scopedMM),
+          curriculumHours: fmtMins(scopedTLM),
+          activityHours: scopedActM > 0 ? fmtMins(scopedActM) : undefined,
+          schoolDays: scopedSDays, lessons: scopedDone.length, books: scopedBooks.length, trips: scopedTrips.length, memories: scopedMemories.length,
+        },
         children: childReport,
         dailyLog,
         showChildColumn: !isPerChild,
+        backfillHours: backfillMins,
       });
       const slugify = (s: string) => s.replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase();
       const fileSlug = isPerChild && selectedChild
@@ -1781,6 +1828,15 @@ export default function PlanPage() {
               };
               return <p className="text-[10px] text-[#5c7f63] mt-1">{labels[reportRange]}</p>;
             })()}
+            <label className="flex items-center gap-2 mt-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeActivities}
+                onChange={e => setIncludeActivities(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-[#d4d0ca] text-[#5c7f63] focus:ring-[#5c7f63]/30"
+              />
+              <span className="text-[11px] text-[#7a6f65]">Include activity hours</span>
+            </label>
           </div>
         </div>
       )}
