@@ -2259,33 +2259,35 @@ export default function TodayPage() {
           NEW USER STATE — single focused activation card
          ═══════════════════════════════════════════════════════════ */}
       {!loading && totalMemories === 0 && !hasAnyLessons && (
-        <div className="bg-white border border-[#e8e2d9] rounded-2xl p-8 text-center">
-          <div className="w-16 h-16 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-5">
-            <span className="text-3xl">📸</span>
+        <>
+          <div className="bg-white border border-[#e8e2d9] rounded-2xl p-8 text-center">
+            <div className="w-16 h-16 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-5">
+              <span className="text-3xl">📸</span>
+            </div>
+            <h2
+              className="text-xl font-bold text-[#2d2926] mb-2"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              Capture your first memory
+            </h2>
+            <p className="text-sm text-[#7a6f65] max-w-[280px] mx-auto text-center mb-2">
+              A photo, a book they read, a win, a field trip — anything worth remembering.
+            </p>
+            <p className="text-[11px] text-[#b5aca4] text-center">
+              This is how your garden, yearbook, and timeline all start growing.
+            </p>
           </div>
-          <h2
-            className="text-xl font-bold text-[#2d2926] mb-2"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            Capture your first memory
-          </h2>
-          <p className="text-sm text-[#7a6f65] max-w-[280px] mx-auto text-center mb-6">
-            A photo, a book they read, a win, a field trip — anything worth remembering.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              const fab = document.querySelector<HTMLButtonElement>("[data-fab-trigger]");
-              if (fab) fab.click();
-            }}
-            className="w-full bg-[var(--g-brand)] text-white rounded-xl py-3.5 font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98]"
-          >
-            + Capture a memory
-          </button>
-          <p className="text-[11px] text-[#b5aca4] text-center mt-3">
-            This is how your garden, yearbook, and timeline all start growing.
-          </p>
-        </div>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+              style={{ background: "var(--g-brand)" }}
+            >
+              ✚ Capture a memory
+            </button>
+          </div>
+        </>
       )}
 
       {/* ═══════════════════════════════════════════════════════════
@@ -2709,20 +2711,22 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          CAPTURE BUTTON — visible once user has at least one memory
+          CAPTURE BUTTON + FILE INPUT
          ═══════════════════════════════════════════════════════════ */}
-      {!isPartner && totalMemories > 0 && (
+      {!isPartner && (
         <>
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-              style={{ background: "var(--g-brand)" }}
-            >
-              ✚ Capture a memory
-            </button>
-          </div>
+          {totalMemories > 0 && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+                style={{ background: "var(--g-brand)" }}
+              >
+                ✚ Capture a memory
+              </button>
+            </div>
+          )}
           <input
             ref={captureFileRef}
             type="file"
