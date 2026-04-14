@@ -292,7 +292,7 @@ function GradePill({ grade }: { grade: string }) {
 function ResourceCard({ r, savedMap, onToggle }: { r: DbResource; savedMap: Record<string, string>; onToggle: (id: string) => void }) {
   const isNew = isNewThisWeek(r.created_at);
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5">
+    <div className="bg-white rounded-2xl border border-[#e8e5e0] hover:bg-[#faf9f7] transition-all p-5">
       <div className="flex items-start gap-3">
         <div className="bg-[#f5f3f0] rounded-xl w-10 h-10 flex items-center justify-center shrink-0 text-xl">
           {getCategoryEmoji(r.category)}
@@ -465,22 +465,26 @@ export default function ResourcesPage() {
         const win = validWins[todayIdx];
         return (
           <div className="space-y-2">
-            <div className="rounded-2xl p-5 text-white" style={{ background: "linear-gradient(135deg, var(--g-brand) 0%, #3d7a50 100%)" }}>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/70">{"\u26A1"} Today&apos;s easy win</span>
-                <span className="text-[10px] text-white/40">{"\u21BB"} New idea tomorrow</span>
-              </div>
-              <div className="text-3xl mb-2">{win.emoji}</div>
-              <h3 className="text-lg font-bold mb-1">{win.title}</h3>
-              <p className="text-sm text-white/80 leading-relaxed mb-3">{win.desc}</p>
-              <div className="flex items-center gap-2 flex-wrap">
-                {win.time && <span className="text-[10px] font-medium bg-white/15 px-2 py-0.5 rounded-full">{"\u23F1"} {win.time}</span>}
-                {win.grade && <span className="text-[10px] font-medium bg-white/15 px-2 py-0.5 rounded-full">{win.grade}</span>}
-                {win.url && (
-                  <a href={win.url} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs font-semibold bg-white text-[var(--g-deep)] px-3 py-1 rounded-lg hover:bg-white/90 transition-colors">
-                    Try it {"\u2192"}
-                  </a>
-                )}
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Today&apos;s Easy Win</p>
+            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-4">
+              <div className="flex items-start gap-4">
+                <div className="text-4xl shrink-0">{win.emoji}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-base font-bold text-[#2D2A26]">{win.title}</h3>
+                    <span className="text-[10px] text-[#8B7E74]">{"\u21BB"} New idea tomorrow</span>
+                  </div>
+                  <p className="text-sm text-[#5C5346] leading-relaxed mb-3">{win.desc}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {win.time && <span className="text-[10px] font-medium bg-[#f5f3f0] text-[#5C5346] px-2 py-0.5 rounded-full">{"\u23F1"} {win.time}</span>}
+                    {win.grade && <span className="text-[10px] font-medium bg-[#f5f3f0] text-[#5C5346] px-2 py-0.5 rounded-full">{win.grade}</span>}
+                    {win.url && (
+                      <a href={win.url} target="_blank" rel="noopener noreferrer" className="ml-auto text-[13px] text-[#2D5A3D] font-semibold hover:underline transition-colors">
+                        Try it {"\u2192"}
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
             <button onClick={() => setShowAllWins(!showAllWins)} className="text-xs text-[#5c7f63] font-medium hover:underline">
@@ -504,8 +508,8 @@ export default function ResourcesPage() {
       {/* ── This Week's Free Picks (auto-rotating) ────────────── */}
       {weeklyPicks.length > 0 && (
         <div>
-          <h2 className="text-lg font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>This Week&apos;s Free Picks {"\u2B50"}</h2>
-          <p className="text-xs text-[#7a6f65] mb-4">Refreshes every Monday</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">This Week&apos;s Free Picks</p>
+          <p className="text-[12px] text-[#8B7E74] mb-3 pl-1">Refreshes every Monday</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {weeklyPicks.map((r, i) => {
               const col = PICK_CARD_COLORS[i % PICK_CARD_COLORS.length];
@@ -620,7 +624,7 @@ export default function ResourcesPage() {
          ════════════════════════════════════════════════════════════ */}
 
       <div className="space-y-4">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#a09890]">Browse Everything</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Browse Everything</p>
 
         {/* ── Search bar ────────────────────────────────────────── */}
         <div className="relative">
@@ -739,7 +743,7 @@ export default function ResourcesPage() {
                 const isYours = userState === name;
                 return (
                   <div key={name} ref={(el) => { stateRefs.current[name] = el; }}
-                    className={`bg-white rounded-2xl border transition-all overflow-hidden ${isYours ? "border-[#4a7c59] ring-1 ring-[#4a7c59]/20" : "border-gray-100 hover:border-[#c8d8cc]"}`}>
+                    className={`bg-white rounded-2xl border transition-all overflow-hidden ${isYours ? "border-[#4a7c59] ring-1 ring-[#4a7c59]/20" : "border-[#e8e5e0] hover:border-[#c8d8cc]"}`}>
                     <button onClick={() => setExpandedState(isExpanded ? null : name)}
                       className="w-full flex items-center justify-between px-5 py-3.5 text-left">
                       <div className="flex items-center gap-2.5 flex-wrap">
