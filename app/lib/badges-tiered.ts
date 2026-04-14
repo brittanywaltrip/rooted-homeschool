@@ -208,10 +208,10 @@ export async function getEarnedBadgesWithDates(userId: string, childId: string):
 
 // Legacy exports for backward compatibility
 export type TieredBadgeDef = BadgeTierDef & { badgeType: string; badgeKey: string; icon: string; label: string };
-export const LESSON_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[0].tiers.map(t => ({ badgeType: "growth", badgeKey: `growth_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold }));
-export const STREAK_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[1].tiers.map(t => ({ badgeType: "flame", badgeKey: `flame_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold }));
-export const CONSISTENCY_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[2].tiers.map(t => ({ badgeType: "rhythm", badgeKey: `rhythm_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold }));
-export const SUBJECT_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[3].tiers.map(t => ({ badgeType: "deep-roots", badgeKey: `deep-roots_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold }));
+export const LESSON_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[0].tiers.map(t => ({ badgeType: "growth", badgeKey: `growth_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold, emoji: t.emoji, name: t.name, unit: t.unit }));
+export const STREAK_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[1].tiers.map(t => ({ badgeType: "flame", badgeKey: `flame_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold, emoji: t.emoji, name: t.name, unit: t.unit }));
+export const CONSISTENCY_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[2].tiers.map(t => ({ badgeType: "rhythm", badgeKey: `rhythm_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold, emoji: t.emoji, name: t.name, unit: t.unit }));
+export const SUBJECT_BADGES: TieredBadgeDef[] = BADGE_CATEGORIES[3].tiers.map(t => ({ badgeType: "deep-roots", badgeKey: `deep-roots_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold, emoji: t.emoji, name: t.name, unit: t.unit }));
 export const ALL_BADGE_CATEGORIES = BADGE_CATEGORIES.map(c => ({ name: c.name, badges: c.tiers.map(t => ({ badgeType: c.id, badgeKey: `${c.id}_${t.tier}`, tier: t.tier, icon: t.emoji, label: t.name, description: t.description, threshold: t.threshold })) }));
 export const checkTieredBadges = async (userId: string, childId: string) => {
   // Legacy wrapper — returns badge keys only
