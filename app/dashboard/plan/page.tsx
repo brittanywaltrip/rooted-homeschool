@@ -1845,8 +1845,8 @@ export default function PlanPage() {
             >
               <span className="text-xl shrink-0">📚</span>
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-[#5C5346]">Started before Rooted?</p>
-                <p className="text-[11px] text-[#7a6f65] mt-0.5">Import your pre-Rooted hours so your progress report tells the whole story →</p>
+                <p className="text-[13px] font-medium text-[#5C5346]">Log your pre-Rooted lessons</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Need to log the lessons and activities you completed before Rooted? We got you.</p>
               </div>
               <ChevronRight size={16} className="text-[#b5aca4] shrink-0 mt-0.5" />
             </button>
