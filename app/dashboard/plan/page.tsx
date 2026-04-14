@@ -304,6 +304,19 @@ export default function PlanPage() {
   const upcomingYearId = schoolYears.upcoming?.id ?? null;
   const viewingYearId = yearView === "next" ? upcomingYearId : activeYearId;
 
+  // School year milestone dates for calendar indicators
+  const schoolYearMilestones: Record<string, string> = {};
+  if (schoolYears.upcoming) {
+    schoolYearMilestones[schoolYears.upcoming.start_date] = `🌱 ${schoolYears.upcoming.name} starts`;
+    schoolYearMilestones[schoolYears.upcoming.end_date] = `🎓 ${schoolYears.upcoming.name} ends`;
+  }
+  if (schoolYears.active) {
+    schoolYearMilestones[schoolYears.active.end_date] = `🎓 ${schoolYears.active.name} ends`;
+    if (!schoolYearMilestones[schoolYears.active.start_date]) {
+      schoolYearMilestones[schoolYears.active.start_date] = `🌱 ${schoolYears.active.name} starts`;
+    }
+  }
+
   useEffect(() => { document.title = "Plan · Rooted"; posthog.capture('page_viewed', { page: 'plan' }); }, []);
 
   useEffect(() => {
@@ -1304,6 +1317,7 @@ export default function PlanPage() {
                 border = "0.5px solid #e8e0d4";
               }
               if (isPast && hasLessons && !isSelected && !isToday) opacity = 0.6;
+              const isMilestone = !!schoolYearMilestones[key];
 
               return (
                 <button
@@ -1313,6 +1327,7 @@ export default function PlanPage() {
                     borderRadius: 12, padding: "7px 4px", display: "flex", flexDirection: "column",
                     alignItems: "center", gap: 3, cursor: "pointer", background: bg, border,
                     opacity,
+                    ...(isMilestone && !isToday ? { borderLeft: "3px solid #2D5A3D" } : {}),
                   }}
                 >
                   <span style={{
@@ -1340,6 +1355,15 @@ export default function PlanPage() {
                       ))
                     ) : null}
                   </div>
+                  {isMilestone && (
+                    <span style={{
+                      fontSize: 7, fontWeight: 700,
+                      color: isToday ? "rgba(255,255,255,0.85)" : "#2D5A3D",
+                      marginTop: 1, textAlign: "center", lineHeight: 1.1,
+                    }}>
+                      {schoolYearMilestones[key].split(" ")[0]}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -1487,6 +1511,11 @@ export default function PlanPage() {
                           ) : holiday ? (
                             <span className="text-[10px]">{holiday.split(" ")[0]}</span>
                           ) : null}
+                          {schoolYearMilestones[key] && !isVacation && (
+                            <span className="text-[8px] font-bold text-[#2D5A3D] leading-tight">
+                              {schoolYearMilestones[key].split(" ")[0]}
+                            </span>
+                          )}
                         </div>
                       </button>
 
@@ -1502,6 +1531,9 @@ export default function PlanPage() {
                               {day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                               {holiday && <span className="text-[#8B7E74] font-normal italic ml-1">· {holiday}</span>}
                             </p>
+                            {schoolYearMilestones[key] && (
+                              <p className="text-xs font-semibold text-[#2D5A3D] mb-1">{schoolYearMilestones[key]}</p>
+                            )}
                             {isVacation && vacName && (
                               <p className="text-xs text-[#7a5000] mb-1">🌴 {vacName}</p>
                             )}
@@ -1569,6 +1601,13 @@ export default function PlanPage() {
       {/* Close calendar card */}
       </div>
 
+      {/* School year milestone banner for selected day */}
+      {schoolYearMilestones[selectedDay] && (
+        <div className="bg-[#f0f7f2] border border-[#c5dbc9] rounded-xl px-3 py-2 mb-1">
+          <p className="text-sm font-semibold text-[#2D5A3D]">{schoolYearMilestones[selectedDay]}</p>
+        </div>
+      )}
+
       {/* ══════════════════════════════════════════════════
           SECTION — CURRICULUM
       ══════════════════════════════════════════════════ */}
@@ -1577,7 +1616,18 @@ export default function PlanPage() {
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
             Curriculum
           </p>
-          {curricGroups.length === 0 && (
+          {curricGroups.length === 0 && yearView === "next" && (
+            <div className="bg-[#f0f7f2] border border-[#c5dbc9] rounded-2xl p-5 text-center mb-2">
+              <p className="text-2xl mb-2">🌱</p>
+              <p className="text-sm font-semibold text-[#2D5A3D] mb-1">
+                Start planning {schoolYears.upcoming?.name ?? "next year"}!
+              </p>
+              <p className="text-xs text-[#7a6f65]">
+                Add curriculum and activities now so everything is ready when the new year begins.
+              </p>
+            </div>
+          )}
+          {curricGroups.length === 0 && yearView !== "next" && (
             <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center mb-2">
               <p style={{ fontSize: 13, color: "#b5aca4", margin: 0 }}>No curriculum added yet</p>
             </div>
@@ -2256,6 +2306,7 @@ export default function PlanPage() {
       {showCreateWizard && (
         <CurriculumWizard
           mode="create"
+          schoolYearId={viewingYearId}
           onClose={() => setShowCreateWizard(false)}
           onSaved={() => { loadData(); loadAllLessons(); }}
         />
@@ -2272,12 +2323,14 @@ export default function PlanPage() {
         <ActivitySetupModal
           onClose={() => setShowActivityModal(false)}
           onSaved={() => { loadActivities(); }}
+          schoolYearId={viewingYearId}
         />
       )}
       {editWizardData && (
         <CurriculumWizard
           mode="edit"
           editData={editWizardData}
+          schoolYearId={viewingYearId}
           onClose={() => setEditWizardData(null)}
           onSaved={() => { loadData(); loadAllLessons(); }}
           showToast={(msg) => setPlanToastMsg(msg)}
