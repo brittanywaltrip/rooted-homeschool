@@ -31,16 +31,17 @@ type LessonRow = {
 
 type VacationBlock = { start_date: string; end_date: string; name: string };
 
-// ─── Growth stages (7-stage system) ────────────────────────────────────────────
+// ─── Growth stages (8-stage leaf system) ────────────────────────────────────────
 
 const GROWTH_STAGES = [
-  { name: "Seed",        emoji: "🌰", label: "Just planted",  min: 0,   scale: 1.0 },
-  { name: "Sprout",      emoji: "🌱", label: "Sprouting",     min: 1,   scale: 1.0 },
-  { name: "Seedling",    emoji: "🌿", label: "Growing",       min: 10,  scale: 1.0 },
-  { name: "Sapling",     emoji: "🌳", label: "Sapling",       min: 25,  scale: 0.7 },
-  { name: "Young Tree",  emoji: "🌳", label: "Young tree",    min: 50,  scale: 1.0 },
-  { name: "Strong Tree", emoji: "🌳", label: "Strong tree",   min: 100, scale: 1.2 },
-  { name: "Mighty Oak",  emoji: "🌳", label: "Mighty oak",    min: 200, scale: 1.4 },
+  { name: "Seed",          emoji: "🫘", label: "Just getting started",       min: 0,   scale: 1.0 },
+  { name: "Sprouting",     emoji: "🌱", label: "A tiny shoot appears",       min: 1,   scale: 1.0 },
+  { name: "Seedling",      emoji: "🪴", label: "Putting down roots",         min: 10,  scale: 1.0 },
+  { name: "Growing",       emoji: "🌿", label: "Putting down roots",         min: 25,  scale: 0.8 },
+  { name: "Young Tree",    emoji: "🌳", label: "Standing tall",              min: 50,  scale: 1.0 },
+  { name: "Flourishing",   emoji: "🌲", label: "Strong and steady",          min: 100, scale: 1.1 },
+  { name: "Blossoming",    emoji: "🌸", label: "In full bloom",              min: 200, scale: 1.2 },
+  { name: "Bearing Fruit", emoji: "🍎", label: "The harvest of your work",   min: 500, scale: 1.4 },
 ];
 
 function getGrowthStage(lessons: number) {
@@ -388,7 +389,11 @@ export default function GardenPage() {
     longest_streak_days?: number;
   } | null>(null);
   const [isAffiliate, setIsAffiliate]   = useState(false);
-  const [badgeCelebration, setBadgeCelebration] = useState<string | null>(null);
+  const [celebrationData, setCelebrationData] = useState<{
+    stage: typeof GROWTH_STAGES[number];
+    prevStage: typeof GROWTH_STAGES[number] | null;
+    leafCount: number;
+  } | null>(null);
   const [earnedActivityBadgeIds, setEarnedActivityBadgeIds] = useState<Set<string>>(new Set());
   const [earnedTieredBadgeKeys, setEarnedTieredBadgeKeys] = useState<Set<string>>(new Set());
   const [memoriesCount, setMemoriesCount] = useState(0);
@@ -437,11 +442,13 @@ export default function GardenPage() {
       const firstChildId = kids_.length > 0 ? kids_[0].id : null;
       if (firstChildId) setSelectedId(firstChildId);
 
-      const [{ data: completed }, { data: memoryRows }, { data: vacBlocks }, { data: profileRow }] = await Promise.all([
+      const [{ data: completed }, { data: memoryRows }, { data: vacBlocks }, { data: profileRow }, { data: actLogs }, { data: actDefs }] = await Promise.all([
         supabase.from("lessons").select("child_id, date, scheduled_date, hours").eq("user_id", effectiveUserId).eq("completed", true),
         supabase.from("memories").select("child_id, type").eq("user_id", effectiveUserId),
         supabase.from("vacation_blocks").select("start_date, end_date, name").eq("user_id", effectiveUserId),
         supabase.from("profiles").select("display_name, plan_type, subscription_status, current_streak_days, longest_streak_days").eq("id", effectiveUserId).maybeSingle(),
+        supabase.from("activity_logs").select("activity_id, completed").eq("user_id", effectiveUserId).eq("completed", true),
+        supabase.from("activities").select("id, child_ids").eq("user_id", effectiveUserId),
       ]);
 
       setAllLessons((completed as LessonRow[]) ?? []);
@@ -457,7 +464,7 @@ export default function GardenPage() {
         .maybeSingle();
       setIsAffiliate(!!affiliateData?.is_active);
 
-      // Count leaves per child (lessons + memories)
+      // Count leaves per child (lessons + memories + activities)
       const counts: Record<string, number> = {};
       completed?.forEach((l) => {
         counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
@@ -466,22 +473,34 @@ export default function GardenPage() {
       memRows.forEach((m) => {
         if (m.child_id) counts[m.child_id] = (counts[m.child_id] ?? 0) + 1;
       });
+      // Activity logs: map activity_id → child_ids, credit each child
+      const actMap: Record<string, string[]> = {};
+      for (const a of ((actDefs ?? []) as { id: string; child_ids: string[] | null }[])) {
+        actMap[a.id] = a.child_ids ?? [];
+      }
+      for (const log of ((actLogs ?? []) as { activity_id: string; completed: boolean }[])) {
+        const childIds = actMap[log.activity_id] ?? [];
+        for (const cid of childIds) {
+          counts[cid] = (counts[cid] ?? 0) + 1;
+        }
+      }
       setMemoriesCount(memRows.length);
       setBooksCount(memRows.filter((m) => m.type === "book").length);
       setLeafCounts(counts);
 
-      // Badge celebration check
+      // Growth stage celebration check (persists until dismissed)
       const totalLeaves = Object.values(counts).reduce((s, n) => s + n, 0);
       const seenBadgesKey = `garden_badges_seen_${effectiveUserId}`;
       const seenBadges = new Set(JSON.parse(localStorage.getItem(seenBadgesKey) ?? "[]") as string[]);
-      const badgeThresholds = [1, 10, 25, 50, 100, 200];
+      const badgeThresholds = GROWTH_STAGES.filter(s => s.min > 0).map(s => s.min);
       const newThreshold = badgeThresholds.find(t => totalLeaves >= t && !seenBadges.has(`leaves_${t}`));
       if (newThreshold) {
         const allEarned = badgeThresholds.filter(t => totalLeaves >= t).map(t => `leaves_${t}`);
         localStorage.setItem(seenBadgesKey, JSON.stringify(allEarned));
         const stage = getGrowthStage(totalLeaves);
-        setBadgeCelebration(stage.name);
-        setTimeout(() => setBadgeCelebration(null), 3000);
+        const prevStageIdx = getGrowthStageIndex(totalLeaves) - 1;
+        const prevStage = prevStageIdx >= 0 ? GROWTH_STAGES[prevStageIdx] : null;
+        setCelebrationData({ stage, prevStage, leafCount: totalLeaves });
       }
 
       // Load badges
@@ -770,7 +789,7 @@ export default function GardenPage() {
               <div className="flex items-center gap-2 mt-3 mb-2">
                 <span className="text-sm">🌿</span>
                 <span className="text-sm font-semibold text-[#2d2926]">
-                  {selectedLeaves} {selectedLeaves === 1 ? "lesson" : "lessons"} completed
+                  {selectedLeaves} {selectedLeaves === 1 ? "leaf" : "leaves"} earned
                 </span>
                 {nextStage && (
                   <span className="text-xs text-[#8B7E74]">
@@ -809,6 +828,68 @@ export default function GardenPage() {
           </div>
         </div>
       )}
+
+      {/* ── Tree Growth Stages (detailed) ────────────────── */}
+      {selectedChild && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
+            Tree Growth Stages
+          </p>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5">
+            <p className="text-[13px] text-[#5C5346] mb-4 leading-relaxed">
+              Each kid&apos;s tree grows as they earn leaves from lessons, books, and memories.
+            </p>
+            <div className="space-y-0">
+              {GROWTH_STAGES.map((stage, i) => {
+                const isEarned = selectedLeaves >= stage.min;
+                const isNext = i === selectedStageIdx + 1;
+                const leavesToGo = stage.min - selectedLeaves;
+                return (
+                  <div key={stage.name} className="flex items-start gap-3 relative">
+                    {/* Vertical line */}
+                    {i < GROWTH_STAGES.length - 1 && (
+                      <div className="absolute left-[9px] top-[22px] w-[2px] h-[calc(100%-4px)]"
+                        style={{ backgroundColor: isEarned ? "#2D5A3D" : "#e8e5e0" }} />
+                    )}
+                    {/* Dot */}
+                    <div className="shrink-0 mt-[6px] z-10"
+                      style={{
+                        width: 20, height: 20, borderRadius: "50%",
+                        border: isEarned ? "none" : isNext ? "2px solid #2D5A3D" : "2px dashed #d5d0ca",
+                        backgroundColor: isEarned ? "#2D5A3D" : isNext ? "#e8f0e9" : "transparent",
+                      }}
+                    />
+                    {/* Content */}
+                    <div className="pb-4" style={{ opacity: isEarned || isNext ? 1 : 0.4 }}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{stage.emoji}</span>
+                        <span className={`text-[13px] ${isEarned ? "font-bold text-[#2D2A26]" : "font-medium text-[#5C5346]"}`}>
+                          {stage.name}
+                        </span>
+                        <span className="text-[11px] text-[#8B7E74]">
+                          — {stage.min === 0 ? "0 leaves" : stage.min === 1 ? "1 leaf" : `${stage.min} leaves`}
+                        </span>
+                        {isNext && <span className="text-[10px] font-semibold text-[#2D5A3D] bg-[#e8f0e9] px-1.5 py-0.5 rounded">NEXT</span>}
+                      </div>
+                      <p className="text-[11px] text-[#8B7E74] mt-0.5 pl-7">
+                        {isNext ? `${leavesToGo} more ${leavesToGo === 1 ? "leaf" : "leaves"} to go!` : stage.label}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── How leaves are earned ─────────────────────────── */}
+      <div className="text-center">
+        <p className="text-[12px] font-medium text-[#5C5346] mb-1">How leaves are earned:</p>
+        <p className="text-[11px] text-[#8B7E74]">
+          Complete a lesson = 1 leaf · Log a book = 1 leaf · Capture a memory = 1 leaf · Complete an activity = 1 leaf
+        </p>
+      </div>
 
       {/* ── Tiered Badge Collection ──────────────────────── */}
       <div>
@@ -1073,33 +1154,38 @@ export default function GardenPage() {
       <div className="h-4" />
       </div>
 
-      {/* Badge celebration overlay */}
-      {badgeCelebration && (
-        <div className="fixed inset-0 z-[60] pointer-events-none flex items-center justify-center">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <span
-              key={i}
-              className="absolute text-xl"
-              style={{
-                left: `${30 + Math.random() * 40}%`,
-                top: `${30 + Math.random() * 30}%`,
-                animation: `badge-burst 1.5s ease-out forwards`,
-                animationDelay: `${i * 0.08}s`,
-                opacity: 0,
-              }}
-            >
-              {["⭐", "🌟", "✨", "🎉", "🏅"][i % 5]}
-            </span>
-          ))}
-          <div
-            className="bg-white/95 border border-[#e8e5e0] rounded-2xl px-6 py-4 text-center shadow-xl"
-            style={{ animation: "badge-pop 2s ease-out forwards" }}
-          >
-            <p className="text-2xl mb-1">🏅</p>
-            <p className="text-sm font-bold text-[#2d2926]">New stage reached!</p>
-            <p className="text-xs text-[#5c7f63] mt-0.5">{badgeCelebration}</p>
+      {/* Growth stage celebration modal (persists until dismissed) */}
+      {celebrationData && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-[60]" />
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6">
+            <div className="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-xs w-full">
+              {/* Stage transition */}
+              <div className="text-4xl mb-4 flex items-center justify-center gap-2">
+                {celebrationData.prevStage && (
+                  <>
+                    <span className="opacity-40">{celebrationData.prevStage.emoji}</span>
+                    <span className="text-[#8B7E74] text-lg">→</span>
+                  </>
+                )}
+                <span>{celebrationData.stage.emoji}</span>
+              </div>
+              <h2 className="text-xl font-bold text-[#2D2A26] mb-2" style={{ fontFamily: "var(--font-display)" }}>
+                You reached {celebrationData.stage.name}!
+              </h2>
+              <p className="text-sm text-[#8B7E74] mb-6">
+                {celebrationData.leafCount} {celebrationData.leafCount === 1 ? "leaf" : "leaves"} earned from lessons, books &amp; memories
+              </p>
+              <button
+                type="button"
+                onClick={() => setCelebrationData(null)}
+                className="w-full py-3.5 rounded-xl bg-[#2D5A3D] text-white font-semibold text-sm hover:opacity-90 transition-colors"
+              >
+                Keep Growing!
+              </button>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Float animation for seasonal items */}
