@@ -2709,9 +2709,9 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          CAPTURE BUTTON — always visible for non-partner users
+          CAPTURE BUTTON — visible once user has at least one memory
          ═══════════════════════════════════════════════════════════ */}
-      {!isPartner && (
+      {!isPartner && totalMemories > 0 && (
         <>
           <div className="space-y-2">
             <button
