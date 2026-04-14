@@ -759,9 +759,8 @@ export default function GardenPage() {
       {/* ── Per-kid Growth Cards (stacked) ──────────────────── */}
       {children.map((child) => {
         const childLeaves = leafCounts[child.id] ?? 0;
-        const childStageIdx = getGrowthStageIndex(childLeaves);
-        const childStage = GROWTH_STAGES[childStageIdx];
-        const childNextStage = GROWTH_STAGES[childStageIdx + 1] ?? null;
+        const childStage = GROWTH_STAGES[getGrowthStageIndex(childLeaves)];
+        const childNextStage = GROWTH_STAGES[getGrowthStageIndex(childLeaves) + 1] ?? null;
         const isSelected = child.id === selectedId;
 
         return (
@@ -796,64 +795,17 @@ export default function GardenPage() {
               </div>
             </div>
 
-            {/* Journey timeline */}
-            <div className="pt-3.5 border-t border-[#f0ede8]">
-              <div className="flex items-center justify-between gap-0.5 relative">
-                {/* Background line */}
-                <div
-                  className="absolute h-0.5 bg-[#e8e2d9] rounded-full"
-                  style={{ top: 18, left: 18, right: 18, zIndex: 1 }}
-                />
-                {/* Progress line */}
-                <div
-                  className="absolute h-0.5 bg-[#2D5A3D] rounded-full transition-all duration-700"
-                  style={{
-                    top: 18,
-                    left: 18,
-                    width: `${Math.min((childStageIdx / (GROWTH_STAGES.length - 1)) * 100, 100)}%`,
-                    zIndex: 1,
-                  }}
-                />
-                {GROWTH_STAGES.map((stage, i) => {
-                  const isReached = childLeaves >= stage.min;
-                  const isCurrent = i === childStageIdx;
-                  return (
-                    <div key={stage.name} className="flex flex-col items-center flex-1 min-w-0">
-                      <div
-                        className={`w-9 h-9 rounded-full flex items-center justify-center text-base relative z-[2] ${
-                          isCurrent ? "ring-2 ring-[#2D5A3D] ring-offset-1" : ""
-                        }`}
-                        style={{
-                          background: isReached ? "#e8f0e9" : "#f0ede8",
-                          opacity: isReached ? 1 : 0.4,
-                        }}
-                      >
-                        {stage.emoji}
-                      </div>
-                      <span
-                        className={`text-[9px] font-semibold mt-1 text-center leading-tight ${
-                          isReached ? "text-[#2D5A3D]" : "text-[#b5aca4]"
-                        }`}
-                      >
-                        {stage.min}+
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Leaf count + next stage */}
-              <div className="flex items-center justify-center gap-1 mt-2.5 text-[13px]">
-                <span>🌿</span>
-                <span className="font-semibold text-[#2D5A3D]">
-                  {childLeaves} {childLeaves === 1 ? "leaf" : "leaves"}
+            {/* Leaf count + next stage */}
+            <div className="flex items-center gap-1.5 pt-3 border-t border-[#f0ede8] text-[13px]">
+              <span>🌿</span>
+              <span className="font-semibold text-[#2D5A3D]">
+                {childLeaves} {childLeaves === 1 ? "leaf" : "leaves"}
+              </span>
+              {childNextStage && (
+                <span className="text-[#8B7E74]">
+                  · {childNextStage.min - childLeaves} to {childNextStage.name}
                 </span>
-                {childNextStage && (
-                  <span className="text-[#8B7E74]">
-                    · {childNextStage.min - childLeaves} to {childNextStage.name}
-                  </span>
-                )}
-              </div>
+              )}
             </div>
           </div>
         );
@@ -866,6 +818,57 @@ export default function GardenPage() {
           Complete a lesson = 1 leaf · Log a book = 1 leaf · Capture a memory = 1 leaf · Complete an activity = 1 leaf
         </p>
       </div>
+
+      {/* ── Tree Growth Stages ───────────────────────────── */}
+      {selectedChild && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
+            Tree Growth Stages
+          </p>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5">
+            <p className="text-[13px] text-[#5C5346] mb-4 leading-relaxed">
+              Each kid&apos;s tree grows as they earn leaves from lessons, books, and memories.
+            </p>
+            <div className="space-y-0">
+              {GROWTH_STAGES.map((stage, i) => {
+                const isEarned = selectedLeaves >= stage.min;
+                const isNext = i === selectedStageIdx + 1;
+                const leavesToGo = stage.min - selectedLeaves;
+                return (
+                  <div key={stage.name} className="flex items-start gap-3 relative">
+                    {i < GROWTH_STAGES.length - 1 && (
+                      <div className="absolute left-[9px] top-[22px] w-[2px] h-[calc(100%-4px)]"
+                        style={{ backgroundColor: isEarned ? "#2D5A3D" : "#e8e5e0" }} />
+                    )}
+                    <div className="shrink-0 mt-[6px] z-10"
+                      style={{
+                        width: 20, height: 20, borderRadius: "50%",
+                        border: isEarned ? "none" : isNext ? "2px solid #2D5A3D" : "2px dashed #d5d0ca",
+                        backgroundColor: isEarned ? "#2D5A3D" : isNext ? "#e8f0e9" : "transparent",
+                      }}
+                    />
+                    <div className="pb-4" style={{ opacity: isEarned || isNext ? 1 : 0.4 }}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{stage.emoji}</span>
+                        <span className={`text-[13px] ${isEarned ? "font-bold text-[#2D2A26]" : "font-medium text-[#5C5346]"}`}>
+                          {stage.name}
+                        </span>
+                        <span className="text-[11px] text-[#8B7E74]">
+                          — {stage.min === 0 ? "0 leaves" : stage.min === 1 ? "1 leaf" : `${stage.min} leaves`}
+                        </span>
+                        {isNext && <span className="text-[10px] font-semibold text-[#2D5A3D] bg-[#e8f0e9] px-1.5 py-0.5 rounded">NEXT</span>}
+                      </div>
+                      <p className="text-[11px] text-[#8B7E74] mt-0.5 pl-7">
+                        {isEarned ? "\u2713 Reached" : isNext ? `${leavesToGo} more leaf${leavesToGo !== 1 ? "s" : ""} to go` : stage.label}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Creative Badge Collection ──────────────────────── */}
       <div>
