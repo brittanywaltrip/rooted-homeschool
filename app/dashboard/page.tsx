@@ -2017,6 +2017,71 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
+          CAPTURE CARD — unified for new and existing users
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && !isPartner && (
+        <div className="bg-white border border-[#e8e2d9] rounded-2xl p-8 text-center">
+          <div className="w-16 h-16 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-5">
+            <span className="text-3xl">📸</span>
+          </div>
+          <h2
+            className="text-xl font-bold text-[#2d2926] mb-2"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            {totalMemories === 0 ? "Capture your first memory" : "Capture a memory today"}
+          </h2>
+          <p className="text-sm text-[#7a6f65] max-w-[280px] mx-auto text-center mb-6">
+            {totalMemories === 0
+              ? "A photo, a book they read, a win, a field trip — anything worth remembering."
+              : "A drawing, a funny moment, a book they finished, a field trip — the little things add up."}
+          </p>
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
+            style={{ background: "var(--g-brand)" }}
+          >
+            ✚ Capture a memory
+          </button>
+          {totalMemories === 0 && (
+            <p className="text-[11px] text-[#b5aca4] text-center mt-3">
+              This is how your garden, yearbook, and timeline all start growing.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          YEARBOOK NUDGE — once per week
+         ═══════════════════════════════════════════════════════════ */}
+      {yearbookCount > 0 && (() => {
+        const lastShown = typeof window !== "undefined" ? localStorage.getItem("yearbook_nudge_shown") : null;
+        const now = new Date();
+        const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+        const weekKey = weekStart.toISOString().slice(0, 10);
+        if (lastShown === weekKey) return null;
+        return (
+          <button
+            onClick={() => {
+              localStorage.setItem("yearbook_nudge_shown", weekKey);
+              router.push("/dashboard/memories/yearbook");
+            }}
+            className="w-full bg-[#faf6f0] border border-[#c0dd97] rounded-xl p-3 flex items-center gap-3 cursor-pointer text-left hover:bg-[#f5f0e8] transition-colors"
+          >
+            <span className="text-[20px]">📖</span>
+            <div>
+              <p className="text-[12px] text-[#5c7f63] font-medium">
+                Your yearbook has {yearbookCount} memor{yearbookCount === 1 ? "y" : "ies"} so far this year
+              </p>
+              <p className="text-[11px] text-[#9a8f85]">
+                Tap to open your family yearbook →
+              </p>
+            </div>
+          </button>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════
           LESSONS CARD — checklist with progress bar
          ═══════════════════════════════════════════════════════════ */}
       {hasAnyLessons && (() => {
@@ -2290,139 +2355,6 @@ export default function TodayPage() {
       })()}
 
       {/* ═══════════════════════════════════════════════════════════
-          CAPTURE CARD — unified for new and existing users
-         ═══════════════════════════════════════════════════════════ */}
-      {!loading && !isPartner && (
-        <div className="bg-white border border-[#e8e2d9] rounded-2xl p-8 text-center">
-          <div className="w-16 h-16 rounded-full bg-[#e8f0e9] flex items-center justify-center mx-auto mb-5">
-            <span className="text-3xl">📸</span>
-          </div>
-          <h2
-            className="text-xl font-bold text-[#2d2926] mb-2"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            {totalMemories === 0 ? "Capture your first memory" : "Capture a memory today"}
-          </h2>
-          <p className="text-sm text-[#7a6f65] max-w-[280px] mx-auto text-center mb-6">
-            {totalMemories === 0
-              ? "A photo, a book they read, a win, a field trip — anything worth remembering."
-              : "A drawing, a funny moment, a book they finished, a field trip — the little things add up."}
-          </p>
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors hover:opacity-90"
-            style={{ background: "var(--g-brand)" }}
-          >
-            ✚ Capture a memory
-          </button>
-          {totalMemories === 0 && (
-            <p className="text-[11px] text-[#b5aca4] text-center mt-3">
-              This is how your garden, yearbook, and timeline all start growing.
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════
-          LAST CAPTURED HERO — most recent memory photo card
-         ═══════════════════════════════════════════════════════════ */}
-      {totalMemories > 0 && lastMemory && todayStory.length === 0 && (
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">LAST CAPTURED</p>
-          {/* Text-primary types (win, quote, book) — type icon leads, photo is thumbnail */}
-          {["win", "quote", "book"].includes(lastMemory.type) ? (
-            <button
-              type="button"
-              className="w-full overflow-hidden text-left flex items-center gap-3"
-              style={{ height: 80, borderRadius: 16, background: "linear-gradient(135deg, #4a8c28, #0a2206)", padding: "0 16px" }}
-              onClick={async () => {
-                if (!lastMemory) return;
-                if (lastMemory.photo_url) {
-                  setLightboxMemory({ id: lastMemory.id, title: lastMemory.title ?? "Memory", photo_url: lastMemory.photo_url, date: lastMemory.date, type: lastMemory.type ?? "photo" });
-                } else {
-                  const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", lastMemory.id).single();
-                  if (data) openEditSheet(data.id, data.title ?? "", data.caption ?? "", data.child_id ?? "", data.type);
-                }
-              }}
-            >
-              {/* Type icon */}
-              <span style={{ fontSize: 28, lineHeight: 1 }}>
-                {({ win: "⭐", quote: "⭐", book: "📖" } as Record<string, string>)[lastMemory.type] ?? "🌿"}
-              </span>
-              {/* Text content */}
-              <div className="flex-1 min-w-0">
-                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>
-                  {({ win: "Win", quote: "Win", book: "Book" } as Record<string, string>)[lastMemory.type] ?? "Memory"}
-                  {" · "}{safeParseDateStr(lastMemory.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric" }) ?? "Unknown date"}
-                  {lastMemory.child_id && children.find(c => c.id === lastMemory.child_id) ? ` · ${children.find(c => c.id === lastMemory.child_id)!.name}` : ""}
-                </p>
-                <p style={{ fontSize: 14, fontWeight: 700, color: "#fff" }} className="truncate">
-                  {lastMemory.title ?? lastMemory.type.charAt(0).toUpperCase() + lastMemory.type.slice(1).replace("_", " ")}
-                </p>
-                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.5)" }}>tap to view →</p>
-              </div>
-              {/* Optional photo thumbnail */}
-              {lastMemory.photo_url && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={lastMemory.photo_url} alt="" className="shrink-0 object-cover" style={{ width: 52, height: 52, borderRadius: 10 }} />
-              )}
-            </button>
-          ) : (
-            /* Visual-primary types (photo, drawing, field_trip, etc.) — photo as full background */
-            <button
-              type="button"
-              className="relative w-full overflow-hidden text-left"
-              style={{ height: 160, borderRadius: 16 }}
-              onClick={async () => {
-                if (!lastMemory) return;
-                if (lastMemory.photo_url) {
-                  setLightboxMemory({ id: lastMemory.id, title: lastMemory.title ?? "Memory", photo_url: lastMemory.photo_url, date: lastMemory.date, type: lastMemory.type ?? "photo" });
-                } else {
-                  const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", lastMemory.id).single();
-                  if (data) openEditSheet(data.id, data.title ?? "", data.caption ?? "", data.child_id ?? "", data.type);
-                }
-              }}
-            >
-              {/* Background */}
-              {lastMemory.photo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={lastMemory.photo_url} alt="" className="absolute inset-0 w-full h-full object-cover object-top" />
-              ) : (
-                <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #4a8c28, #0a2206)" }} />
-              )}
-
-              {/* Gradient overlay from bottom */}
-              <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 60%)" }} />
-
-              {/* Type pill (top-left) */}
-              <div className="absolute top-2.5 left-2.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-                <span style={{ fontSize: 10, color: "#fff" }}>
-                  {({ photo: "📸 Photo", drawing: "🎨 Drawing", field_trip: "🗺️ Trip", project: "🗺️ Trip", activity: "🗺️ Trip" } as Record<string, string>)[lastMemory.type] ?? "🌿 Memory"}
-                </span>
-              </div>
-
-              {/* Tap pill (top-right) */}
-              <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-full" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-                <span style={{ fontSize: 10, color: "#fff" }}>tap to view →</span>
-              </div>
-
-              {/* Bottom overlay text */}
-              <div className="absolute bottom-0 left-0 right-0 px-3.5 pb-3">
-                <p style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>
-                  {safeParseDateStr(lastMemory.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric" }) ?? "Unknown date"}
-                  {lastMemory.child_id && children.find(c => c.id === lastMemory.child_id) ? ` · ${children.find(c => c.id === lastMemory.child_id)!.name}` : ""}
-                </p>
-                <p style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>
-                  {lastMemory.title ?? (lastMemory.type === "photo" ? "Photo memory" : lastMemory.type.charAt(0).toUpperCase() + lastMemory.type.slice(1).replace("_", " "))}
-                </p>
-              </div>
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════
           CONTEXTUAL ONBOARDING — one warm nudge card at a time
          ═══════════════════════════════════════════════════════════ */}
       {!loading && (() => {
@@ -2600,34 +2532,6 @@ export default function TodayPage() {
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S STORY</p>
 
-        {/* Yearbook nudge — once per week, links to yearbook for paid, upgrade for free */}
-        {yearbookCount > 0 && (() => {
-          const lastShown = typeof window !== "undefined" ? localStorage.getItem("yearbook_nudge_shown") : null;
-          const now = new Date();
-          const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
-          const weekKey = weekStart.toISOString().slice(0, 10);
-          if (lastShown === weekKey) return null;
-          return (
-            <button
-              onClick={() => {
-                localStorage.setItem("yearbook_nudge_shown", weekKey);
-                router.push("/dashboard/memories/yearbook");
-              }}
-              className="w-full bg-[#faf6f0] border border-[#c0dd97] rounded-xl p-3 flex items-center gap-3 cursor-pointer mb-3 text-left hover:bg-[#f5f0e8] transition-colors"
-            >
-              <span className="text-[20px]">📖</span>
-              <div>
-                <p className="text-[12px] text-[#5c7f63] font-medium">
-                  Your yearbook has {yearbookCount} memor{yearbookCount === 1 ? "y" : "ies"} so far this year
-                </p>
-                <p className="text-[11px] text-[#9a8f85]">
-                  Tap to open your family yearbook →
-                </p>
-              </div>
-            </button>
-          );
-        })()}
-
         {todayStory.length > 0 ? (
           <div className="bg-white border border-[#e8e2d9] rounded-[14px] overflow-hidden divide-y divide-[#f0ede8]">
             {todayStory.map((m) => {
@@ -2684,9 +2588,15 @@ export default function TodayPage() {
           </div>
         ) : (
           <div className="bg-white border border-[#e8e2d9] rounded-[14px] py-8 text-center">
-            <span className="text-3xl">🌿</span>
-            <p className="text-[13px] font-medium text-[#2d2926] mt-2">Nothing yet today.</p>
-            <p className="text-[11px] text-[#9a8f85] mt-0.5">Every day is a fresh start</p>
+            <span className="text-3xl">{totalMemories === 0 ? "🌱" : "🌿"}</span>
+            <p className="text-[13px] font-medium text-[#2d2926] mt-2">
+              {totalMemories === 0 ? "Your story starts here" : "You haven\u2019t captured anything yet today"}
+            </p>
+            <p className="text-[11px] text-[#9a8f85] mt-0.5">
+              {totalMemories === 0
+                ? "Once you start capturing, this is where your day comes to life."
+                : "That\u2019s okay \u2014 whenever something worth remembering happens, we\u2019re here."}
+            </p>
           </div>
         )}
         {todayStory.length > 0 && (
