@@ -941,7 +941,7 @@ export default function PlanPage() {
     <>
     {/* ── Hero Header ──────────────────────────────────── */}
     <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
-    <div className="px-4 pt-5 pb-7 space-y-4 max-w-5xl">
+    <div className="px-4 pt-5 pb-7 space-y-4 max-w-5xl" style={{ background: "#F8F7F4" }}>
 
       {/* ── Total hours this year ─────────────────────────── */}
       {!loading && allLessons.length > 0 && (() => {
@@ -954,7 +954,7 @@ export default function PlanPage() {
         const h = Math.floor(totalMins / 60);
         const m = totalMins % 60;
         return (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center justify-between">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl sm:rounded-2xl p-5 sm:p-5 flex items-center justify-between">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4]">Total hours this year</p>
               <p className="text-2xl font-bold text-[#2d2926] mt-0.5">{h}h {m > 0 ? `${m}m` : ""}</p>
@@ -976,29 +976,33 @@ export default function PlanPage() {
         </div>
       )}
 
-      {/* ── Week / Month toggle ──────────────────────────── */}
-      <div style={{ background: "white", border: "0.5px solid #e8e0d4", borderRadius: 10, overflow: "hidden", display: "flex" }}>
-        <button
-          onClick={() => setViewMode("week")}
-          style={{
-            flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
-            background: viewMode === "week" ? "var(--g-brand)" : "white",
-            color: viewMode === "week" ? "white" : "#7a6f65",
-          }}
-        >
-          Week
-        </button>
-        <button
-          onClick={() => setViewMode("month")}
-          style={{
-            flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
-            background: viewMode === "month" ? "var(--g-brand)" : "white",
-            color: viewMode === "month" ? "white" : "#7a6f65",
-          }}
-        >
-          Month
-        </button>
-      </div>
+      {/* ── Calendar card (toggle + nav + grid) ──────────── */}
+      <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
+        {/* Toggle row */}
+        <div className="flex gap-2 p-4 pb-3">
+          <button
+            onClick={() => setViewMode("week")}
+            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            style={{
+              background: viewMode === "week" ? "#2D5A3D" : "white",
+              color: viewMode === "week" ? "white" : "#7a6f65",
+              border: viewMode === "week" ? "1px solid #2D5A3D" : "1px solid #e8e5e0",
+            }}
+          >
+            Week
+          </button>
+          <button
+            onClick={() => setViewMode("month")}
+            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            style={{
+              background: viewMode === "month" ? "#2D5A3D" : "white",
+              color: viewMode === "month" ? "white" : "#7a6f65",
+              border: viewMode === "month" ? "1px solid #2D5A3D" : "1px solid #e8e5e0",
+            }}
+          >
+            Month
+          </button>
+        </div>
 
       {/* ── Missed lessons banner ────────────────────────── */}
       {!loading && missedLessons.length > 0 && (
@@ -1038,19 +1042,19 @@ export default function PlanPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          SECTION 2A — WEEK VIEW
+          SECTION 2A — WEEK VIEW (inside calendar card)
       ══════════════════════════════════════════════════ */}
       {viewMode === "week" && !loading && (
-        <div>
+        <div className="px-4 pb-4">
           {/* Week navigation */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
-            <button onClick={prevWeek} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+            <button onClick={prevWeek} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronLeft size={18} />
             </button>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>
               {formatWeekRange(weekStart)}
             </span>
-            <button onClick={nextWeek} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+            <button onClick={nextWeek} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronRight size={18} />
             </button>
           </div>
@@ -1132,19 +1136,19 @@ export default function PlanPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          SECTION 2B — MONTH VIEW
+          SECTION 2B — MONTH VIEW (inside calendar card)
       ══════════════════════════════════════════════════ */}
       {viewMode === "month" && !loading && (
-        <div>
+        <div className="px-4 pb-4">
           {/* Month navigation */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
-            <button onClick={prevMonth} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+            <button onClick={prevMonth} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronLeft size={18} />
             </button>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>
               {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
             </span>
-            <button onClick={nextMonth} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+            <button onClick={nextMonth} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronRight size={18} />
             </button>
           </div>
@@ -1238,12 +1242,14 @@ export default function PlanPage() {
           })()}
         </div>
       )}
+      {/* Close calendar card */}
+      </div>
 
       {/* ══════════════════════════════════════════════════
           SECTION 3 — DAY PANEL
       ══════════════════════════════════════════════════ */}
       {!loading && (
-        <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
           {selectedDay === todayStr
             ? "Today\u2019s Lessons"
             : `Lessons — ${selectedDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`}
@@ -1253,7 +1259,7 @@ export default function PlanPage() {
         // Vacation day
         if (isSelectedVacation) {
           return (
-            <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "24px 16px", textAlign: "center" }}>
+            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center">
               <span style={{ fontSize: 22, opacity: 0.35 }}>🌴</span>
               <p style={{ fontSize: 12, color: "#b5aca4", marginTop: 6 }}>{selectedVacName}</p>
             </div>
@@ -1263,7 +1269,7 @@ export default function PlanPage() {
         // No lessons day
         if (selectedDayTotal === 0) {
           return (
-            <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "24px 16px", textAlign: "center" }}>
+            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center">
               <span style={{ fontSize: 22, opacity: 0.35 }}>🌿</span>
               <p style={{ fontSize: 12, color: "#b5aca4", marginTop: 6 }}>
                 {isSelectedWeekend ? "Enjoy your day off!" : "No lessons scheduled"}
@@ -1274,9 +1280,9 @@ export default function PlanPage() {
 
         // Day with lessons
         return (
-          <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", overflow: "hidden" }}>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
             {/* Header */}
-            <div style={{ padding: "10px 13px 8px", borderBottom: "0.5px solid #f0ece4" }}>
+            <div className="px-5 pt-4 pb-3 border-b border-[#f0ece4]">
               <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>{selectedDateLabel}</span>
             </div>
 
@@ -1430,16 +1436,16 @@ export default function PlanPage() {
           SECTION 4 — YOUR COURSES
       ══════════════════════════════════════════════════ */}
       {!isPartner && !loading && (
-        <div style={{ marginTop: 8 }}>
-          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
             Course Progress
           </p>
           {curricGroups.length === 0 && (
-            <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "24px 16px", textAlign: "center", marginBottom: 8 }}>
+            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center mb-2">
               <p style={{ fontSize: 13, color: "#b5aca4", margin: 0 }}>No curriculum added yet</p>
             </div>
           )}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="flex flex-col gap-3">
             {curricGroups.map((group) => {
               const completedFromRows = group.totalCount - group.remainingCount;
               const goal = group.goalData;
@@ -1457,7 +1463,7 @@ export default function PlanPage() {
               const lessonsRemaining = totalLessons - currentLesson;
 
               return (
-                <div key={group.key} style={{ background: "white", borderRadius: 14, border: isExpanded ? "0.5px solid #b8d89a" : "0.5px solid #e8e0d4", overflow: "hidden" }}>
+                <div key={group.key} className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden" style={{ borderLeftWidth: 3, borderLeftColor: child?.color ?? "#5c7f63" }}>
                   {/* Header (tappable) */}
                   <button
                     onClick={() => setExpandedCourses(prev => {
@@ -1586,24 +1592,16 @@ export default function PlanPage() {
           </div>
 
           {/* + Add curriculum / + Add activity */}
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <div className="flex gap-3 mt-3">
             <button
               onClick={() => setShowCreateWizard(true)}
-              style={{
-                flex: 1, background: "white", border: "0.5px solid #e8e0d4", borderRadius: 12,
-                padding: "11px 13px", fontSize: 12, color: "var(--g-brand)", fontWeight: 600, cursor: "pointer",
-                textAlign: "center",
-              }}
+              className="flex-1 border-2 border-dashed border-[#e0ddd8] rounded-2xl p-4 text-center text-[#5c7f63] font-medium text-sm cursor-pointer hover:bg-[#faf9f7] transition-colors"
             >
               + Add curriculum
             </button>
             <button
               onClick={() => setShowActivityModal(true)}
-              style={{
-                flex: 1, background: "white", border: "1.5px dashed #e0ddd8", borderRadius: 12,
-                padding: "11px 13px", fontSize: 12, color: "#5c7f63", fontWeight: 600, cursor: "pointer",
-                textAlign: "center",
-              }}
+              className="flex-1 border-2 border-dashed border-[#e0ddd8] rounded-2xl p-4 text-center text-[#5c7f63] font-medium text-sm cursor-pointer hover:bg-[#faf9f7] transition-colors"
             >
               {"\u{1F4CB}"} Add activity
             </button>
@@ -1615,11 +1613,11 @@ export default function PlanPage() {
           SECTION — ACTIVITIES
       ══════════════════════════════════════════════════ */}
       {!isPartner && !loading && activities.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
-            Activities
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
+            {"\u{1F4CB}"} Activities
           </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
             {activities.map((act) => {
               const dayNames = act.days.map((d) => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d]).filter(Boolean);
               const freqLabel = act.frequency === "weekly" ? "Every" : act.frequency === "biweekly" ? "Every other" : "Monthly";
@@ -1632,43 +1630,45 @@ export default function PlanPage() {
               const schedule = `${freqLabel} ${dayNames.join(", ")} \u00b7 ${durLabel}${timeLabel ? ` \u00b7 ${timeLabel}` : ""}`;
 
               return (
-                <div
-                  key={act.id}
-                  style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "12px 14px" }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 18 }}>{act.emoji}</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 13, fontWeight: 600, color: "#2d2926", margin: 0 }}>{act.name}</p>
-                        <p style={{ fontSize: 11, color: "#9a8e84", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{schedule}</p>
-                      </div>
+                <div key={act.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <span className="text-lg">{act.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#2d2926] truncate">{act.name}</p>
+                      <p className="text-[11px] text-[#9a8e84] truncate mt-0.5">{schedule}</p>
                     </div>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-                      <button
-                        onClick={() => setShowActivityModal(true)}
-                        style={{ fontSize: 11, fontWeight: 500, color: "#5c7f63", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => deleteActivity(act.id)}
-                        style={{ fontSize: 11, fontWeight: 500, color: "#b5aca4", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
-                      >
-                        Delete
-                      </button>
-                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center shrink-0">
+                    <button
+                      onClick={() => setShowActivityModal(true)}
+                      className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteActivity(act.id)}
+                      className="text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
               );
             })}
+            {/* + Add activity inside card */}
+            <button
+              onClick={() => setShowActivityModal(true)}
+              className="w-full px-5 py-3 text-sm font-medium text-[#5c7f63] text-center hover:bg-[#faf9f7] transition-colors"
+            >
+              + Add activity
+            </button>
           </div>
         </div>
       )}
 
       {/* ── Curriculum empty state ───────────────────────────── */}
       {!loading && !isPartner && curricGroups.length === 0 && curriculumGoals.length === 0 && subjects.length === 0 && allLessons.length === 0 && (
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-8 flex flex-col items-center text-center">
+        <div className="bg-white border border-[#e8e5e0] rounded-2xl p-8 flex flex-col items-center text-center">
           <span className="text-4xl mb-4">🌱</span>
           <h2 className="text-xl font-semibold text-[var(--g-deep)] mb-2">Your plan is ready to grow!</h2>
           <p className="text-sm text-[#7a6f65] leading-relaxed max-w-sm mx-auto mb-6">
@@ -1698,11 +1698,11 @@ export default function PlanPage() {
           SECTION 5 — PROGRESS REPORT
       ══════════════════════════════════════════════════ */}
       {!isPartner && !loading && (
-        <div style={{ marginTop: 8 }}>
-          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
             Progress Report
           </p>
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-[#2d2926]">📊 Progress Report</h3>
@@ -1755,7 +1755,7 @@ export default function PlanPage() {
                 <button
                   onClick={downloadReport}
                   disabled={downloadingReport}
-                  className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors shrink-0 ml-auto"
+                  className="flex items-center gap-1.5 text-xs font-semibold bg-[#2D5A3D] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors shrink-0 ml-auto"
                 >
                   {downloadingReport ? "Generating…" : "Download Report"}
                 </button>
@@ -1789,48 +1789,49 @@ export default function PlanPage() {
           SECTION 6 — BREAKS & VACATIONS
       ══════════════════════════════════════════════════ */}
       {!isPartner && (
-        <div style={{ marginTop: 8 }}>
-          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
             Breaks &amp; Vacations
           </p>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
+            {/* Vacation rows */}
+            {vacationBlocks.length > 0 && (
+              <div className="divide-y divide-[#f0ede8]">
+                {vacationBlocks.map((block) => {
+                  const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  return (
+                    <div key={block.id} className="flex items-center justify-between px-5 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-sm">🌴</span>
+                        <span className="text-sm font-medium text-[#2d2926]">{block.name}</span>
+                        <span className="text-xs text-[#9a8e84]">{s} – {e}</span>
+                      </div>
+                      <button
+                        onClick={() => deleteVacationBlock(block.id)}
+                        className="text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {vacationBlocks.length === 0 && (
+              <div className="px-5 py-4 text-center">
+                <p className="text-sm text-[#b5aca4]">No breaks scheduled</p>
+              </div>
+            )}
 
-          {/* Vacation pills */}
-          {vacationBlocks.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-              {vacationBlocks.map((block) => {
-                const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                return (
-                  <div key={block.id} style={{
-                    background: "#fff8f0", border: "0.5px solid #f0c878", borderRadius: 20,
-                    padding: "5px 10px 5px 8px", display: "inline-flex", alignItems: "center", gap: 6,
-                  }}>
-                    <span style={{ fontSize: 12 }}>🌴</span>
-                    <span style={{ fontSize: 11, color: "#7a5000", fontWeight: 700 }}>{block.name} · {s}–{e}</span>
-                    <button
-                      onClick={() => deleteVacationBlock(block.id)}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "#c8bfb5", padding: 0, display: "flex" }}
-                      aria-label="Remove break"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* + Add break */}
-          <button
-            onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
-            style={{
-              width: "100%", background: "white", border: "0.5px solid #e8e0d4", borderRadius: 12,
-              padding: "11px 13px", fontSize: 12, color: "var(--g-brand)", fontWeight: 600, cursor: "pointer",
-              textAlign: "center",
-            }}
-          >
-            + Add break or vacation
-          </button>
+            {/* + Add break */}
+            <button
+              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+              className="w-full px-5 py-3 text-sm font-medium text-[#5c7f63] text-center hover:bg-[#faf9f7] transition-colors border-t border-[#f0ede8]"
+            >
+              + Add break or vacation
+            </button>
+          </div>
         </div>
       )}
 
