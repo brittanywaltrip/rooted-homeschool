@@ -1163,23 +1163,21 @@ export default function PlanPage() {
         <div className="flex gap-2 p-4 pb-3">
           <button
             onClick={() => setViewMode("week")}
-            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-            style={{
-              background: viewMode === "week" ? "#2D5A3D" : "white",
-              color: viewMode === "week" ? "white" : "#7a6f65",
-              border: viewMode === "week" ? "1px solid #2D5A3D" : "1px solid #e8e5e0",
-            }}
+            className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+              viewMode === "week"
+                ? "bg-[#2D5A3D] text-white"
+                : "bg-[#F8F7F4] text-[#5C5346] border border-[#e8e5e0]"
+            }`}
           >
             Week
           </button>
           <button
             onClick={() => setViewMode("month")}
-            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-            style={{
-              background: viewMode === "month" ? "#2D5A3D" : "white",
-              color: viewMode === "month" ? "white" : "#7a6f65",
-              border: viewMode === "month" ? "1px solid #2D5A3D" : "1px solid #e8e5e0",
-            }}
+            className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+              viewMode === "month"
+                ? "bg-[#2D5A3D] text-white"
+                : "bg-[#F8F7F4] text-[#5C5346] border border-[#e8e5e0]"
+            }`}
           >
             Month
           </button>
@@ -1321,26 +1319,23 @@ export default function PlanPage() {
       ══════════════════════════════════════════════════ */}
       {viewMode === "month" && !loading && (
         <div className="px-4 pb-4">
-          {/* Month navigation with seasonal emoji */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
-            <button onClick={prevMonth} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
+          {/* Month navigation */}
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <button onClick={prevMonth} className="w-8 h-8 flex items-center justify-center text-[#5c7f63] hover:text-[#2D5A3D] transition-colors rounded-lg hover:bg-[#f0ede8]">
               <ChevronLeft size={18} />
             </button>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>
+            <span className="text-[15px] font-semibold text-[#2D2A26]">
               {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}{getSeasonalEmoji(monthStart.getMonth())}
             </span>
-            <button onClick={nextMonth} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
+            <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center text-[#5c7f63] hover:text-[#2D5A3D] transition-colors rounded-lg hover:bg-[#f0ede8]">
               <ChevronRight size={18} />
             </button>
           </div>
 
-          {/* Instruction hint */}
-          <p style={{ fontSize: 12, color: "#8B7E74", textAlign: "center", marginBottom: 8 }}>Tap any day to see details</p>
-
           {/* Day-of-week headers */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, marginBottom: 4 }}>
+          <div className="grid grid-cols-7 gap-1 pb-2">
             {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-              <div key={i} style={{ textAlign: "center", fontSize: 9, textTransform: "uppercase", color: "#b5aca4", fontWeight: 600 }}>
+              <div key={i} className="text-center text-[11px] font-medium uppercase text-[#8B7E74]">
                 {d}
               </div>
             ))}
@@ -1396,89 +1391,68 @@ export default function PlanPage() {
 
             return (
               <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+              <div className="grid grid-cols-7 gap-1">
                 {cells.map((day, idx) => {
-                  if (!day) return <div key={`empty-${idx}`} />;
+                  if (!day) return <div key={`empty-${idx}`} className="min-h-[48px]" />;
                   const key = toDateStr(day);
                   const isToday = key === todayStr;
                   const isPast = day < todayMidnight && !isToday;
                   const isSelected = key === selectedDay;
                   const isVacation = isDateInBlocks(key, vacationBlocks);
                   const vacName = getVacationName(key, vacationBlocks);
-                  const isVacStart = vacStartDates.has(key);
                   const dayLessons = monthLessonMap[key] ?? [];
                   const lessonCount = dayLessons.length;
                   const actCount = activityCountForDay(key);
                   const totalItems = lessonCount + actCount;
                   const holiday = holidays[key];
                   const isPopoverOpen = monthPopoverDay === key;
+                  const isWeekend = day.getDay() === 0 || day.getDay() === 6;
 
-                  // Density-based background
-                  let bg = "transparent";
-                  let border = "none";
-
-                  if (isVacation) {
-                    bg = "#fef3e0";
-                    border = "0.5px solid #f0c878";
-                  } else if (holiday) {
-                    bg = totalItems >= 1 ? "#f0f7f2" : "#fef9f0";
-                  } else if (totalItems >= 5) {
-                    bg = "#fef9ee";
-                  } else if (totalItems >= 3) {
-                    bg = "#e0efe4";
-                  } else if (totalItems >= 1) {
-                    bg = "#f0f7f2";
+                  let cellBg = "";
+                  let cellBorder = "";
+                  if (isToday) {
+                    cellBg = "bg-[#2D5A3D]";
+                  } else if (isVacation) {
+                    cellBg = "bg-[#fef3e0]";
+                    cellBorder = "border border-[#f0c878]";
+                  } else if (holiday && totalItems === 0) {
+                    cellBg = "bg-[#fef9f0]";
+                  } else if (totalItems > 0) {
+                    cellBg = "bg-[#f0f7f2]";
                   }
-
-                  if (isSelected && !isVacation) {
-                    border = "1.5px solid var(--g-brand)";
+                  if (isSelected && !isToday && !isVacation) {
+                    cellBorder = "ring-2 ring-[#2D5A3D] ring-inset";
                   }
 
                   return (
-                    <div key={key} style={{ position: "relative" }}>
+                    <div key={key} className="relative">
                       <button
                         onClick={() => {
                           setSelectedDay(key);
                           setMonthPopoverDay(isPopoverOpen ? null : key);
                         }}
-                        style={{
-                          width: "100%", aspectRatio: "1", borderRadius: 8, display: "flex", flexDirection: "column",
-                          alignItems: "center", justifyContent: "flex-start", gap: 1, cursor: "pointer",
-                          background: bg, border, opacity: isPast ? 0.55 : 1, padding: "3px 2px 2px",
-                        }}
+                        className={`w-full min-h-[48px] rounded-xl flex flex-col items-center justify-start py-2 px-1 cursor-pointer transition-colors ${cellBg} ${cellBorder}`}
+                        style={{ opacity: isPast ? 0.55 : 1 }}
                       >
-                        {/* Date number — today gets a green circle */}
-                        {isToday ? (
-                          <span style={{
-                            width: 24, height: 24, borderRadius: "50%", display: "flex",
-                            alignItems: "center", justifyContent: "center",
-                            backgroundColor: "#2D5A3D", color: "white",
-                            fontSize: 11, fontWeight: 700, lineHeight: 1,
-                          }}>
-                            {day.getDate()}
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: 11, fontWeight: 700, color: "#2d2926", lineHeight: "24px" }}>
-                            {day.getDate()}
-                          </span>
-                        )}
-                        {/* Content indicators */}
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0, minHeight: 10, width: "100%" }}>
+                        {/* Date number */}
+                        <span className={`text-[15px] font-semibold leading-none ${
+                          isToday ? "text-white"
+                            : isWeekend && totalItems === 0 ? "text-[#b5aca4]"
+                            : "text-[#2D2A26]"
+                        }`}>
+                          {day.getDate()}
+                        </span>
+                        {/* Indicators */}
+                        <div className="flex items-center justify-center gap-0.5 mt-1 min-h-[10px]">
                           {isVacation ? (
-                            <>
-                              <span style={{ fontSize: 8 }}>🌴</span>
-                              {isVacStart && vacName && (
-                                <span style={{ fontSize: 6, color: "#7a5000", fontWeight: 600, lineHeight: 1, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{vacName}</span>
-                              )}
-                            </>
-                          ) : totalItems > 0 ? (
-                            <span style={{ fontSize: 7, color: "#5C5346", lineHeight: 1, textAlign: "center" }}>
-                              {lessonCount > 0 ? lessonCount : ""}{lessonCount > 0 && actCount > 0 ? "+" : ""}{actCount > 0 ? `${actCount}a` : ""}
-                            </span>
+                            <span className="text-[10px]">🌴</span>
+                          ) : totalItems > 0 && !isToday ? (
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#2D5A3D]" />
+                          ) : totalItems > 0 && isToday ? (
+                            <span className="w-1.5 h-1.5 rounded-full bg-white/60" />
+                          ) : holiday ? (
+                            <span className="text-[10px]">{holiday.split(" ")[0]}</span>
                           ) : null}
-                          {holiday && !isVacation && (
-                            <span style={{ fontSize: 9, lineHeight: 1, textAlign: "center" }}>{holiday.split(" ")[0]}</span>
-                          )}
                         </div>
                       </button>
 
