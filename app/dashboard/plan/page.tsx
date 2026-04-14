@@ -287,7 +287,8 @@ export default function PlanPage() {
   // ── Curriculum management ─────────────────────────────────────────────────
   const [showCreateWizard,  setShowCreateWizard]  = useState(false);
   const [downloadingReport, setDownloadingReport] = useState(false);
-  const [reportChildId, setReportChildId] = useState<string>("all");
+  const [reportChildId, setReportChildId] = useState<string>("");
+  useEffect(() => { if (children.length > 0 && !reportChildId) setReportChildId(children[0].id); }, [children]); // eslint-disable-line react-hooks/exhaustive-deps
   const [reportRange, setReportRange] = useState<string>("full");
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
@@ -1057,16 +1058,22 @@ export default function PlanPage() {
       const backfillMins = done.filter(l => l.is_backfill).reduce((s, l) => s + lm(l).m, 0)
         + activityLogs.filter(a => a.is_backfill).reduce((s, a) => s + (a.minutes_spent || 0), 0);
 
-      const isPerChild = reportChildId !== "all";
-      const selectedChild = isPerChild ? children.find(c => c.id === reportChildId) : null;
-      const reportChildren = isPerChild && selectedChild ? [selectedChild] : children;
+      const selectedChild = children.find(c => c.id === reportChildId);
+      if (!selectedChild) {
+        alert("Please select a child for the report.");
+        setDownloadingReport(false);
+        return;
+      }
+      const reportChildren = [selectedChild];
+      const isPerChild = true;
 
       // Filter lessons/memories/activities to selected child when per-child
-      const scopedDone = isPerChild ? done.filter(l => l.child_id === reportChildId) : done;
-      const scopedMemories = isPerChild ? memories.filter(m => m.child_id === reportChildId) : memories;
-      const scopedActivityLogs = isPerChild
-        ? activityLogs.filter(a => { const act = activityMap[a.activity_id]; return act?.child_ids?.includes(reportChildId); })
-        : activityLogs;
+      const scopedDone = done.filter(l => l.child_id === reportChildId);
+      const scopedMemories = memories.filter(m => m.child_id === reportChildId || m.child_id === null);
+      const scopedActivityLogs = activityLogs.filter(a => {
+        const act = activityMap[a.activity_id];
+        return act?.child_ids?.includes(reportChildId);
+      });
 
       // Recalculate summary for scoped data
       const scopedTLM = scopedDone.reduce((s, l) => s + lm(l).m, 0);
@@ -1106,9 +1113,9 @@ export default function PlanPage() {
           schoolDays: cd,
           subjects: Object.entries(sa).map(([n, d]) => ({ name: n, count: d.n, hours: fmtMins(d.m), estimated: d.e })).sort((a, b) => b.count - a.count),
           activities: Object.values(actGroups).map(g => ({ name: g.name, emoji: g.emoji, sessions: g.sessions, hours: fmtMins(g.mins) })).sort((a, b) => b.sessions - a.sessions),
-          books: memories.filter(m => m.type === "book" && m.child_id === c.id).map(m => m.title || "Untitled"),
-          fieldTrips: memories.filter(m => ["field_trip","project","activity"].includes(m.type) && m.child_id === c.id).map(m => ({ title: m.title || "Untitled", duration: m.duration_minutes })),
-          wins: memories.filter(m => ["win","quote"].includes(m.type) && m.child_id === c.id).map(m => m.title || "Untitled"),
+          books: memories.filter(m => m.type === "book" && (m.child_id === c.id || m.child_id === null)).map(m => m.title || "Untitled"),
+          fieldTrips: memories.filter(m => ["field_trip","project","activity"].includes(m.type) && (m.child_id === c.id || m.child_id === null)).map(m => ({ title: m.title || "Untitled", duration: m.duration_minutes })),
+          wins: memories.filter(m => ["win","quote"].includes(m.type) && (m.child_id === c.id || m.child_id === null)).map(m => m.title || "Untitled"),
           badges: [],
         };
       });
@@ -2059,7 +2066,7 @@ export default function PlanPage() {
       {!isPartner && !loading && yearView === "this" && (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
-            Hours &amp; Progress Report
+            Progress Report
           </p>
           <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5">
             {/* Hours summary */}
@@ -2098,7 +2105,6 @@ export default function PlanPage() {
                 onChange={(e) => setReportChildId(e.target.value)}
                 className="text-xs border border-[#e8e2d9] rounded-lg px-2.5 py-1.5 bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/30"
               >
-                <option value="all">All Children</option>
                 {children.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}

@@ -1002,16 +1002,6 @@ export default function GardenPage() {
                 </div>
               </div>
 
-              <Link
-                href="/dashboard/reports"
-                className="flex items-center justify-between bg-white border border-[#e8e5e0] rounded-xl px-4 py-3 hover:bg-[#F8F7F4] transition-colors mt-3"
-              >
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Export progress PDF</p>
-                  <p className="text-xs text-[#8B7E74] mt-0.5">Lessons, books, and hours by subject</p>
-                </div>
-                <span className="text-[#5c7f63] text-lg">↗</span>
-              </Link>
               </>
             )}
           </div>
