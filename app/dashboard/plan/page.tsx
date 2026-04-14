@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, ChevronDown, Plus, X } from "lucide-react";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
@@ -1782,31 +1781,13 @@ export default function PlanPage() {
                   </button>
                 ))}
               </div>
-              {isFreeUser ? (
-                <div className="ml-auto text-right">
-                  <button
-                    disabled
-                    className="flex items-center gap-1.5 text-xs font-semibold bg-[#b5aca4] text-white px-4 py-2 rounded-lg cursor-not-allowed opacity-60"
-                  >
-                    Download Report
-                  </button>
-                  <Link
-                    href="/upgrade"
-                    onClick={() => posthog.capture('upgrade_clicked', { source: 'progress_report' })}
-                    className="text-[10px] text-[#5c7f63] hover:underline mt-1 inline-block"
-                  >
-                    Upgrade to Founding Family to download →
-                  </Link>
-                </div>
-              ) : (
-                <button
-                  onClick={downloadReport}
-                  disabled={downloadingReport}
-                  className="flex items-center gap-1.5 text-xs font-semibold bg-[#2D5A3D] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors shrink-0 ml-auto"
-                >
-                  {downloadingReport ? "Generating…" : "Download Report"}
-                </button>
-              )}
+              <button
+                onClick={downloadReport}
+                disabled={downloadingReport}
+                className="flex items-center gap-1.5 text-xs font-semibold bg-[#2D5A3D] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors shrink-0 ml-auto"
+              >
+                {downloadingReport ? "Generating…" : "Download Report"}
+              </button>
             </div>
             {reportRange === "custom" && (
               <div className="flex items-center gap-2 mt-2">
