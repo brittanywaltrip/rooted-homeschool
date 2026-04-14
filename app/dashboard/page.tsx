@@ -3431,7 +3431,7 @@ export default function TodayPage() {
       {showCaptureMenu && (
         <>
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowCaptureMenu(false)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-xl" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+          <div className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-xl" style={{ maxWidth: 420, margin: "0 auto", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="flex items-center justify-between px-5 pb-2">
               <h2 className="text-[18px] font-bold text-[#2D2A26]">Capture a memory</h2>
