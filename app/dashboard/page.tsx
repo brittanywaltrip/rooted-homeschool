@@ -54,6 +54,17 @@ type ActivityItem = {
   memoryType?: string;
 };
 
+type TodayActivity = {
+  id: string;
+  name: string;
+  emoji: string;
+  duration_minutes: number;
+  scheduled_start_time: string | null;
+  child_ids: string[];
+  completed: boolean;
+  log_id?: string;
+};
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const INSPIRATION_PROMPTS = [
@@ -151,6 +162,31 @@ function getSubjectStyle(subjectName: string | undefined): { bg: string; text: s
   if (n.includes("art") || n.includes("music") || n.includes("drama") || n.includes("theater") || n.includes("craft") || n.includes("draw"))
     return { bg: "#fce8ec", text: "#7a2a36" };
   return { bg: "#f0ede8", text: "#5c5248" };
+}
+
+/** Parse "HH:MM:SS" or "HH:MM" time string into total minutes from midnight */
+function parseTimeToMinutes(t: string | null): number | null {
+  if (!t) return null;
+  const parts = t.split(":");
+  if (parts.length < 2) return null;
+  return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+}
+
+/** Format minutes-from-midnight into display time like "9:00" or "1:30" */
+function formatTime(totalMinutes: number): string {
+  let mins = ((totalMinutes % 1440) + 1440) % 1440; // wrap to 0-1439
+  let h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) h = 12;
+  else if (h > 12) h -= 12;
+  return `${h}:${String(m).padStart(2, "0")}`;
+}
+
+/** Format duration in minutes to human string like "30 min" or "1 hr" or "1.5 hr" */
+function formatDuration(mins: number): string {
+  if (mins < 60) return `${mins} min`;
+  if (mins % 60 === 0) return `${mins / 60} hr`;
+  return `${(mins / 60).toFixed(1)} hr`;
 }
 
 // ─── Floating Leaves Celebration ──────────────────────────────────────────────
@@ -572,6 +608,14 @@ export default function TodayPage() {
   const [timePillValue, setTimePillValue] = useState("");
   const timePillTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Activities state
+  const [todayActivities, setTodayActivities] = useState<TodayActivity[]>([]);
+  const [showRunningLate, setShowRunningLate] = useState(false);
+  const [shiftMinutes, setShiftMinutes] = useState(30);
+  const [isCustomShift, setIsCustomShift] = useState(false);
+  const [customShiftValue, setCustomShiftValue] = useState("");
+  const [timeShiftOffset, setTimeShiftOffset] = useState(0); // local-only visual shift in minutes
+
   // Lesson check-off modal state
   const [checkOffLesson, setCheckOffLesson] = useState<{ lesson: Lesson; defaultMinutes: number } | null>(null);
   const [checkOffMinutes, setCheckOffMinutes] = useState(30);
@@ -605,6 +649,64 @@ export default function TodayPage() {
     memEvents?.forEach((e)  => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
     setLeafCounts(counts);
   }, [effectiveUserId]);
+
+  const loadTodayActivities = useCallback(async () => {
+    if (!effectiveUserId) return;
+    const todayDow = new Date().getDay(); // 0=Sun..6=Sat
+    const { data: actData } = await supabase
+      .from("activities")
+      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, created_at")
+      .eq("user_id", effectiveUserId)
+      .eq("is_active", true);
+    if (!actData || actData.length === 0) { setTodayActivities([]); return; }
+
+    const now = new Date();
+    const filtered = (actData as { id: string; name: string; emoji: string; frequency: string; days: number[]; duration_minutes: number; scheduled_start_time: string | null; child_ids: string[]; created_at: string }[]).filter((a) => {
+      if (!a.days || !a.days.includes(todayDow)) return false;
+      if (a.frequency === "weekly") return true;
+      if (a.frequency === "biweekly") {
+        const anchor = new Date(a.created_at);
+        const diffWeeks = Math.floor((now.getTime() - anchor.getTime()) / (7 * 24 * 60 * 60 * 1000));
+        return diffWeeks % 2 === 0;
+      }
+      if (a.frequency === "monthly") {
+        // Show only on first occurrence of matching day this month
+        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+        let cursor = new Date(firstDay);
+        while (cursor.getMonth() === now.getMonth()) {
+          if (cursor.getDay() === todayDow) {
+            return cursor.getDate() === now.getDate();
+          }
+          cursor.setDate(cursor.getDate() + 1);
+        }
+        return false;
+      }
+      return false;
+    });
+
+    // Check which activities have been logged today
+    const actIds = filtered.map((a) => a.id);
+    const { data: logData } = actIds.length > 0
+      ? await supabase
+          .from("activity_logs")
+          .select("id, activity_id, completed")
+          .eq("user_id", effectiveUserId)
+          .eq("date", today)
+          .in("activity_id", actIds)
+      : { data: [] };
+    const logMap = new Map((logData ?? []).map((l: { id: string; activity_id: string; completed: boolean }) => [l.activity_id, { log_id: l.id, completed: l.completed }]));
+
+    setTodayActivities(filtered.map((a) => ({
+      id: a.id,
+      name: a.name,
+      emoji: a.emoji ?? "📝",
+      duration_minutes: a.duration_minutes ?? 60,
+      scheduled_start_time: a.scheduled_start_time,
+      child_ids: a.child_ids ?? [],
+      completed: logMap.get(a.id)?.completed ?? false,
+      log_id: logMap.get(a.id)?.log_id,
+    })));
+  }, [effectiveUserId, today]);
 
   const loadData = useCallback(async () => {
     if (!effectiveUserId) return;
@@ -961,7 +1063,7 @@ export default function TodayPage() {
     }
   }, [today, effectiveUserId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData(); loadTodayActivities(); }, [loadData, loadTodayActivities]);
 
   // PostHog identify
   useEffect(() => {
@@ -1089,6 +1191,80 @@ export default function TodayPage() {
       .eq("date", today)
       .order("created_at", { ascending: false });
     setTodayStory((data ?? []) as typeof todayStory);
+  }
+
+  // ── Activity actions ──────────────────────────────────────────────────────
+
+  async function toggleActivity(activity: TodayActivity) {
+    const newCompleted = !activity.completed;
+    // Optimistic update
+    setTodayActivities(prev => prev.map(a => a.id === activity.id ? { ...a, completed: newCompleted } : a));
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    if (newCompleted) {
+      if (activity.log_id) {
+        await supabase.from("activity_logs").update({ completed: true, completed_at: new Date().toISOString() }).eq("id", activity.log_id);
+      } else {
+        const { data: logRow } = await supabase.from("activity_logs").insert({
+          activity_id: activity.id,
+          user_id: user.id,
+          date: today,
+          minutes_spent: activity.duration_minutes,
+          completed: true,
+          completed_at: new Date().toISOString(),
+        }).select("id").single();
+        if (logRow) {
+          setTodayActivities(prev => prev.map(a => a.id === activity.id ? { ...a, log_id: (logRow as { id: string }).id } : a));
+        }
+      }
+    } else {
+      if (activity.log_id) {
+        await supabase.from("activity_logs").update({ completed: false, completed_at: null }).eq("id", activity.log_id);
+      }
+    }
+  }
+
+  async function skipRestOfToday() {
+    // Push uncompleted lessons to next school day
+    const uncompleted = lessons.filter(l => !l.completed);
+    if (uncompleted.length === 0) return;
+
+    const goalIds = [...new Set(uncompleted.map(l => l.curriculum_goal_id).filter(Boolean))] as string[];
+    const goalSchoolDays = new Map<string, Set<number>>();
+    if (goalIds.length > 0) {
+      const { data: goals } = await supabase.from("curriculum_goals")
+        .select("id, school_days").in("id", goalIds);
+      const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+      for (const g of (goals ?? [])) {
+        const days = (g as { school_days?: string[] }).school_days ?? [];
+        goalSchoolDays.set(g.id, days.length > 0 ? new Set(days.map((d: string) => dayMap[d] ?? -1)) : new Set([0, 1, 2, 3, 4]));
+      }
+    }
+    const defaultDays = new Set([0, 1, 2, 3, 4]);
+
+    const undoData: { lessonId: string; date: string }[] = [];
+    for (const lesson of uncompleted) {
+      const activeDays = (lesson.curriculum_goal_id && goalSchoolDays.has(lesson.curriculum_goal_id))
+        ? goalSchoolDays.get(lesson.curriculum_goal_id)!
+        : defaultDays;
+      const cur = new Date(today + "T12:00:00");
+      let safety = 0;
+      while (safety < 365) {
+        cur.setDate(cur.getDate() + 1);
+        const dayIdx = (cur.getDay() + 6) % 7;
+        if (activeDays.has(dayIdx)) {
+          const newDate = localDateStr(cur);
+          await supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", lesson.id);
+          undoData.push({ lessonId: lesson.id, date: today });
+          break;
+        }
+        safety++;
+      }
+    }
+    setLessons(prev => prev.filter(l => l.completed));
+    showRescheduleUndo(`${uncompleted.length} lesson${uncompleted.length !== 1 ? "s" : ""} moved to next school day! Undo?`, undoData);
   }
 
   // ── Lesson actions ────────────────────────────────────────────────────────
@@ -1996,6 +2172,17 @@ export default function TodayPage() {
 
   const childrenWithLessons = children.filter(c => lessons.some(l => l.child_id === c.id));
 
+  // Detect timeline mode: any item today has a scheduled_start_time
+  const hasAnyStartTime = todayActivities.some(a => a.scheduled_start_time != null);
+  // We check curriculum_goals for lessons too — but we don't have that joined here.
+  // For simplicity, use activities' start times as the trigger (curriculum_goals.scheduled_start_time
+  // would require an extra join). Timeline mode activates if ANY activity has a start time.
+  const useTimeline = hasAnyStartTime;
+
+  // Combined total for progress bar
+  const totalItems = lessons.length + todayActivities.length;
+  const doneItems = lessons.filter(l => l.completed).length + todayActivities.filter(a => a.completed).length;
+
   // Expanded child panel for lesson swipe
   const [expandedChild, setExpandedChild] = useState<string | null>(null);
 
@@ -2184,14 +2371,52 @@ export default function TodayPage() {
       })()}
 
       {/* ═══════════════════════════════════════════════════════════
-          LESSONS CARD — checklist with progress bar
+          SCHEDULE CARD — checklist or timeline + activities
          ═══════════════════════════════════════════════════════════ */}
-      {hasAnyLessons && (() => {
+      {(hasAnyLessons || todayActivities.length > 0) && (() => {
         const totalLessons = lessons.length;
         const doneLessons = lessons.filter(l => l.completed).length;
-        const allDone = totalLessons > 0 && doneLessons === totalLessons;
-        const progressPct = totalLessons > 0 ? (doneLessons / totalLessons) * 100 : 0;
-        const uniqueChildIds = new Set(lessons.map(l => l.child_id).filter(Boolean));
+        const doneActivities = todayActivities.filter(a => a.completed).length;
+        const combinedTotal = totalLessons + todayActivities.length;
+        const combinedDone = doneLessons + doneActivities;
+        const combinedAllDone = combinedTotal > 0 && combinedDone === combinedTotal;
+        const combinedPct = combinedTotal > 0 ? (combinedDone / combinedTotal) * 100 : 0;
+        const uniqueChildIds = new Set([
+          ...lessons.map(l => l.child_id).filter(Boolean),
+          ...todayActivities.flatMap(a => a.child_ids),
+        ]);
+
+        // Build unified item list for both views
+        type ScheduleItem = (
+          | { kind: "lesson"; lesson: Lesson; startTime: number | null }
+          | { kind: "activity"; activity: TodayActivity; startTime: number | null }
+        );
+        const items: ScheduleItem[] = [
+          ...lessons.map(l => ({ kind: "lesson" as const, lesson: l, startTime: null as number | null })),
+          ...todayActivities.map(a => ({ kind: "activity" as const, activity: a, startTime: parseTimeToMinutes(a.scheduled_start_time) })),
+        ];
+
+        // Sort: completed at bottom, then by start time (nulls last), then lessons before activities
+        items.sort((a, b) => {
+          const aDone = a.kind === "lesson" ? a.lesson.completed : a.activity.completed;
+          const bDone = b.kind === "lesson" ? b.lesson.completed : b.activity.completed;
+          if (aDone !== bDone) return aDone ? 1 : -1;
+          const aTime = a.startTime ?? 9999;
+          const bTime = b.startTime ?? 9999;
+          if (aTime !== bTime) return aTime - bTime;
+          return a.kind === "lesson" ? -1 : 1;
+        });
+
+        // For timeline view: separate timed vs flexible items
+        const timedItems = items.filter(i => i.startTime != null);
+        const flexibleItems = items.filter(i => i.startTime == null);
+
+        // Apply shift offset for "Running late?" in timeline
+        const getDisplayTime = (mins: number | null) => {
+          if (mins == null) return null;
+          const shifted = mins + timeShiftOffset;
+          return shifted >= 1440 ? null : shifted; // past midnight → flexible
+        };
 
         return (
           <div className="bg-white border border-[#e8e2d9] rounded-2xl overflow-hidden">
@@ -2199,89 +2424,230 @@ export default function TodayPage() {
             <div className="flex items-center justify-between px-5 pt-4 pb-3">
               <div className="flex items-center gap-2">
                 <span className="text-base">📚</span>
-                <span className="text-[15px] font-semibold text-[#2d2926]">Today&apos;s Lessons</span>
+                <span className="text-[15px] font-semibold text-[#2d2926]">Today&apos;s Schedule</span>
               </div>
-              {!isPartner && (
-                <button type="button" onClick={openExtraLessons} className="text-[13px] text-[#5c7f63] hover:text-[var(--g-deep)] font-medium transition-colors">
-                  + Log extra
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {useTimeline && !isPartner && (
+                  <button
+                    type="button"
+                    onClick={() => setShowRunningLate(true)}
+                    className="text-xs text-[#5c7f63] font-semibold bg-[#eef3ef] border-none px-2.5 py-1.5 rounded-lg"
+                  >
+                    ⏩ Running late?
+                  </button>
+                )}
+                {!isPartner && (
+                  <button type="button" onClick={openExtraLessons} className="text-[13px] text-[#5c7f63] hover:text-[var(--g-deep)] font-medium transition-colors">
+                    + Log extra
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* Progress bar */}
-            {totalLessons > 0 && (
-              <div className="flex items-center gap-3 px-5 pb-3">
-                <div className="flex-1 h-1.5 rounded-full bg-[#f0ede8]">
-                  <div
-                    className="h-full rounded-full transition-all duration-300"
-                    style={{ width: `${progressPct}%`, backgroundColor: allDone ? "#2D5A3D" : "#5c7f63" }}
-                  />
-                </div>
-                <span className={`text-[12px] shrink-0 ${allDone ? "text-[#2D5A3D] font-semibold" : "text-[#7a6f65]"}`}>
-                  {doneLessons} of {totalLessons}{allDone ? " ✓" : ""}
-                </span>
+            {/* ── TIMELINE VIEW ──────────────────────────────────── */}
+            {useTimeline && combinedTotal > 0 && !combinedAllDone && (
+              <div className="px-4 pb-3">
+                {/* Timed items */}
+                {timedItems.length > 0 && (
+                  <div className="relative">
+                    {/* Vertical connecting line */}
+                    <div className="absolute left-[33px] top-[14px] bottom-[14px] w-[2px] bg-[#e8e5e0]" />
+                    {timedItems.map((item, idx) => {
+                      const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
+                      const isFirst = !isDone && !timedItems.slice(0, idx).some(i =>
+                        !(i.kind === "lesson" ? i.lesson.completed : i.activity.completed)
+                      );
+                      const displayMins = getDisplayTime(item.startTime);
+                      if (displayMins == null) return null; // shifted past midnight
+
+                      return (
+                        <button
+                          key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
+                          type="button"
+                          onClick={() => {
+                            if (isPartner) return;
+                            if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
+                            else toggleActivity(item.activity);
+                          }}
+                          className="relative w-full flex items-center gap-3 py-2.5 text-left"
+                        >
+                          {/* Time */}
+                          <span className="text-xs font-semibold text-[#b5aca4] w-12 text-right shrink-0">
+                            {formatTime(displayMins)}
+                          </span>
+                          {/* Dot */}
+                          <div className={`relative z-10 flex items-center justify-center shrink-0 ${
+                            isDone
+                              ? "w-[18px] h-[18px] rounded-full bg-[#2D5A3D]"
+                              : isFirst
+                                ? "w-[18px] h-[18px] rounded-full border-2 border-[#2D5A3D] bg-[#e8f0e9] shadow-[0_0_0_3px_rgba(45,90,61,0.15)]"
+                                : "w-[18px] h-[18px] rounded-full border-2 border-[#e0ddd8] bg-white"
+                          }`}>
+                            {isDone && (
+                              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                          {/* Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                                {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
+                                {item.kind === "lesson" ? item.lesson.title : item.activity.name}
+                              </p>
+                              {item.kind === "activity" && (
+                                <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-[#7a6f65] truncate">
+                              {item.kind === "lesson"
+                                ? [item.lesson.subjects?.name, children.find(c => c.id === item.lesson.child_id)?.name].filter(Boolean).join(" · ")
+                                : [formatDuration(item.activity.duration_minutes), ...item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean)].join(" · ")
+                              }
+                            </p>
+                          </div>
+                          {/* Child tag */}
+                          {item.kind === "lesson" && (() => {
+                            const child = children.find(c => c.id === item.lesson.child_id);
+                            return child && uniqueChildIds.size > 1 ? (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-[#f0ede8] text-[#7a6f65] shrink-0">{child.name}</span>
+                            ) : null;
+                          })()}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Flexible section (no times) */}
+                {flexibleItems.length > 0 && (
+                  <>
+                    {timedItems.length > 0 && (
+                      <div className="flex items-center gap-2 my-2 px-1">
+                        <div className="flex-1 h-px bg-[#e8e5e0]" />
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#b5aca4]">Flexible</span>
+                        <div className="flex-1 h-px bg-[#e8e5e0]" />
+                      </div>
+                    )}
+                    {flexibleItems.map((item, idx) => {
+                      const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
+                      return (
+                        <button
+                          key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
+                          type="button"
+                          onClick={() => {
+                            if (isPartner) return;
+                            if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
+                            else toggleActivity(item.activity);
+                          }}
+                          className={`w-full flex items-center gap-3 py-3 px-1 text-left transition-colors ${idx < flexibleItems.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
+                        >
+                          <div className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
+                            isDone ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
+                          }`}>
+                            {isDone && (
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                                {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
+                                {item.kind === "lesson" ? item.lesson.title : item.activity.name}
+                              </p>
+                              {item.kind === "activity" && (
+                                <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-[#7a6f65] truncate">
+                              {item.kind === "lesson"
+                                ? item.lesson.subjects?.name || ""
+                                : [formatDuration(item.activity.duration_minutes), ...item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean)].join(" · ")
+                              }
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
               </div>
             )}
 
-            {/* STATE 1 & 2: Has lessons today */}
-            {totalLessons > 0 && !allDone && (
+            {/* ── CHECKLIST VIEW (no times set) ─────────────────── */}
+            {!useTimeline && combinedTotal > 0 && !combinedAllDone && (
               <div className="px-4 pb-3">
-                {lessons.map((lesson, idx) => {
-                  const child = children.find(c => c.id === lesson.child_id);
-                  const subjectName = lesson.subjects?.name || "";
+                {items.map((item, idx) => {
+                  const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
                   return (
                     <button
-                      key={lesson.id}
+                      key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
                       type="button"
-                      onClick={() => !isPartner && openCheckOffModal(lesson.id, lesson.completed)}
-                      className={`w-full flex items-center gap-3 py-3 px-1 text-left transition-colors ${idx < lessons.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
+                      onClick={() => {
+                        if (isPartner) return;
+                        if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
+                        else toggleActivity(item.activity);
+                      }}
+                      className={`w-full flex items-center gap-3 py-3 px-1 text-left transition-colors ${idx < items.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
                     >
                       {/* Checkbox */}
                       <div
                         className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                          lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
+                          isDone ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
                         }`}
                       >
-                        {lesson.completed && (
+                        {isDone && (
                           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                             <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                         )}
                       </div>
-                      {/* Lesson info */}
+                      {/* Item info */}
                       <div className="flex-1 min-w-0">
-                        <p className={`text-[14px] font-medium truncate ${lesson.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                          {lesson.title}
+                        <div className="flex items-center gap-1.5">
+                          <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                            {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
+                            {item.kind === "lesson" ? item.lesson.title : item.activity.name}
+                          </p>
+                          {item.kind === "activity" && (
+                            <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[#7a6f65] truncate">
+                          {item.kind === "lesson"
+                            ? (item.lesson.subjects?.name || "")
+                            : [formatDuration(item.activity.duration_minutes), ...item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean)].join(" · ")
+                          }
                         </p>
-                        {subjectName && (
-                          <p className="text-[12px] text-[#7a6f65] truncate">{subjectName}</p>
-                        )}
                       </div>
                       {/* Child tag */}
-                      {child && uniqueChildIds.size > 1 && (
-                        <span
-                          className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
-                          style={{
-                            backgroundColor: `${child.color ?? "#5c7f63"}20`,
-                            color: child.color ?? "#5c7f63",
-                          }}
-                        >
-                          {child.name}
-                        </span>
-                      )}
+                      {item.kind === "lesson" && (() => {
+                        const child = children.find(c => c.id === item.lesson.child_id);
+                        return child && uniqueChildIds.size > 1 ? (
+                          <span
+                            className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
+                            style={{ backgroundColor: `${child.color ?? "#5c7f63"}20`, color: child.color ?? "#5c7f63" }}
+                          >
+                            {child.name}
+                          </span>
+                        ) : null;
+                      })()}
                     </button>
                   );
                 })}
               </div>
             )}
 
-            {/* STATE 2: All done */}
-            {totalLessons > 0 && allDone && (
+            {/* STATE: All done */}
+            {combinedTotal > 0 && combinedAllDone && (
               <div className="px-5 pb-4">
                 <div className="text-center py-4">
                   <p className="text-[14px] font-semibold text-[#5c7f63]">All done for today! 🎉</p>
                   <p className="text-[12px] text-[#b5aca4] mt-1">
-                    {doneLessons} lesson{doneLessons !== 1 ? "s" : ""} completed{uniqueChildIds.size > 1 ? ` across ${uniqueChildIds.size} kids` : ""}
+                    {combinedDone} item{combinedDone !== 1 ? "s" : ""} completed{uniqueChildIds.size > 1 ? ` across ${uniqueChildIds.size} kids` : ""}
                   </p>
                 </div>
                 {upcomingDays.length > 0 && (
@@ -2304,8 +2670,8 @@ export default function TodayPage() {
               </div>
             )}
 
-            {/* STATE 3: No lessons today */}
-            {totalLessons === 0 && (
+            {/* STATE: No items today */}
+            {combinedTotal === 0 && (
               <div className="px-5 pb-4">
                 <div className="bg-[#f5f3ef] rounded-lg py-3.5 px-4 text-center">
                   <p className="text-[14px] text-[#7a6f65]">
@@ -2331,9 +2697,37 @@ export default function TodayPage() {
                 )}
               </div>
             )}
+
+            {/* Progress bar footer */}
+            {combinedTotal > 0 && (
+              <div className="px-4 pb-4">
+                <div className="flex items-center gap-3 bg-[#faf9f7] rounded-[10px] p-3 mt-0.5">
+                  <div className="flex-1 h-1.5 rounded-full bg-[#e8e5e0]">
+                    <div
+                      className="h-full rounded-full bg-[#2D5A3D] transition-all duration-300"
+                      style={{ width: `${combinedPct}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-semibold text-[#5c7f63] shrink-0">
+                    {combinedDone} of {combinedTotal} done
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
+
+      {/* Skip rest of today link */}
+      {lessons.some(l => !l.completed) && !isPartner && (
+        <button
+          type="button"
+          onClick={skipRestOfToday}
+          className="w-full text-xs text-[#b8860b] font-medium text-center cursor-pointer py-1"
+        >
+          Rough day? Skip remaining → next school day
+        </button>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           LESSON SWIPE — horizontal child cards + expandable panel (kept for multi-child detail)
@@ -3944,6 +4338,88 @@ export default function TodayPage() {
                 className="w-full py-3 rounded-xl bg-[var(--g-brand)] hover:bg-[#1e3d29] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
               >
                 {savingWin ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Running Late modal ──────────────────────────────────── */}
+      {showRunningLate && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowRunningLate(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4">
+              <div>
+                <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>Running late?</h2>
+                <p className="text-sm text-[#7a6f65] mt-1">Push remaining items forward. We&apos;ll adjust today&apos;s schedule.</p>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">Shift everything by</label>
+                <div className="flex flex-wrap gap-2">
+                  {[{ label: "15m", mins: 15 }, { label: "30m", mins: 30 }, { label: "1hr", mins: 60 }, { label: "2hr", mins: 120 }].map(({ label, mins }) => (
+                    <button key={mins} type="button"
+                      onClick={() => { setShiftMinutes(mins); setIsCustomShift(false); }}
+                      className={`rounded-[10px] px-4 py-2.5 text-sm font-medium border transition-colors ${
+                        !isCustomShift && shiftMinutes === mins
+                          ? "bg-[#2D5A3D] text-white border-[#2D5A3D]"
+                          : "bg-white border-[#e0ddd8] text-[#5c6b62]"
+                      }`}
+                    >{label}</button>
+                  ))}
+                  <button type="button"
+                    onClick={() => { setIsCustomShift(true); setCustomShiftValue(""); }}
+                    className={`rounded-[10px] px-4 py-2.5 text-sm font-medium transition-colors ${
+                      isCustomShift
+                        ? "border border-solid bg-[#2D5A3D] text-white"
+                        : "border border-dashed border-[#e0ddd8] text-[#7a6f65]"
+                    }`}
+                  >Custom</button>
+                </div>
+                {isCustomShift && (
+                  <input value={customShiftValue} onChange={(e) => { setCustomShiftValue(e.target.value); const v = parseInt(e.target.value); if (v > 0) setShiftMinutes(v); }}
+                    type="number" min="1" max="480" placeholder="Minutes"
+                    className="mt-2 w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+                )}
+              </div>
+
+              {/* Preview */}
+              <div className="bg-[#faf9f7] rounded-xl p-3 space-y-1.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[#b5aca4] mb-1">Preview</p>
+                {todayActivities.filter(a => !a.completed && a.scheduled_start_time).slice(0, 3).map(a => {
+                  const orig = parseTimeToMinutes(a.scheduled_start_time);
+                  const shifted = orig != null ? orig + shiftMinutes : null;
+                  return (
+                    <div key={a.id} className="flex items-center gap-2 text-xs text-[#7a6f65]">
+                      <span className="text-[#b5aca4]">{orig != null ? formatTime(orig) : "—"}</span>
+                      <span>→</span>
+                      <span className="text-[#2d2926] font-medium">{shifted != null && shifted < 1440 ? formatTime(shifted) : "Flexible"}</span>
+                      <span className="truncate">{a.emoji} {a.name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTimeShiftOffset(prev => prev + shiftMinutes);
+                  setShowRunningLate(false);
+                }}
+                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
+              >
+                Shift schedule →
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setShowRunningLate(false); skipRestOfToday(); }}
+                className="w-full text-center"
+              >
+                <span className="text-xs text-[#b8860b] font-medium">Skip the rest of today</span>
+                <span className="block text-[10px] text-[#b5aca4] mt-0.5">Undone items push to the next school day</span>
               </button>
             </div>
           </div>
