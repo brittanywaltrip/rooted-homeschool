@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
+import ActivitySetupModal from "@/app/components/ActivitySetupModal";
 import Toast from "@/components/Toast";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -57,6 +58,17 @@ type VacationBlock = {
   name: string;
   start_date: string;
   end_date: string;
+};
+type Activity = {
+  id: string;
+  name: string;
+  emoji: string;
+  frequency: "weekly" | "biweekly" | "monthly";
+  days: number[];
+  duration_minutes: number;
+  scheduled_start_time: string | null;
+  child_ids: string[];
+  is_active: boolean;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -226,6 +238,10 @@ export default function PlanPage() {
   const [expandedCurricMenu, setExpandedCurricMenu] = useState<string | null>(null);
   const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
 
+  // ── Activities ─────────────────────────────────────────────────────────────
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [activities, setActivities] = useState<Activity[]>([]);
+
   // ── Edit time state ─────────────────────────────────────────────────────
   const [editTimeId, setEditTimeId] = useState<string | null>(null);
   const [editTimeValue, setEditTimeValue] = useState("");
@@ -293,6 +309,17 @@ export default function PlanPage() {
     setVacationBlocks((data as VacationBlock[]) ?? []);
   }, [effectiveUserId]);
 
+  const loadActivities = useCallback(async () => {
+    if (!effectiveUserId) return;
+    const { data } = await supabase
+      .from("activities")
+      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, is_active")
+      .eq("user_id", effectiveUserId)
+      .eq("is_active", true)
+      .order("created_at");
+    setActivities((data as Activity[]) ?? []);
+  }, [effectiveUserId]);
+
   const loadMonthData = useCallback(async () => {
     if (!effectiveUserId) return;
     const ms = new Date(monthStart);
@@ -310,6 +337,7 @@ export default function PlanPage() {
   useEffect(() => { loadData(); },           [loadData]);
   useEffect(() => { loadAllLessons(); },     [loadAllLessons]);
   useEffect(() => { loadVacationBlocks(); }, [loadVacationBlocks]);
+  useEffect(() => { loadActivities(); },     [loadActivities]);
 
   // Re-fetch when children are edited in Settings
   useEffect(() => {
@@ -465,6 +493,12 @@ export default function PlanPage() {
   async function deleteVacationBlock(id: string) {
     setVacationBlocks((p) => p.filter((b) => b.id !== id));
     await supabase.from("vacation_blocks").delete().eq("id", id);
+  }
+
+  // ── Delete activity ────────────────────────────────────────────────────
+  async function deleteActivity(id: string) {
+    setActivities((p) => p.filter((a) => a.id !== id));
+    await supabase.from("activities").update({ is_active: false }).eq("id", id);
   }
 
   // ── Missed lessons (needed by reschedule functions) ─────────────────────
@@ -1551,17 +1585,84 @@ export default function PlanPage() {
             })}
           </div>
 
-          {/* + Add curriculum */}
-          <button
-            onClick={() => setShowCreateWizard(true)}
-            style={{
-              width: "100%", background: "white", border: "0.5px solid #e8e0d4", borderRadius: 12,
-              padding: "11px 13px", fontSize: 12, color: "var(--g-brand)", fontWeight: 600, cursor: "pointer",
-              marginTop: 8, textAlign: "center",
-            }}
-          >
-            + Add curriculum
-          </button>
+          {/* + Add curriculum / + Add activity */}
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button
+              onClick={() => setShowCreateWizard(true)}
+              style={{
+                flex: 1, background: "white", border: "0.5px solid #e8e0d4", borderRadius: 12,
+                padding: "11px 13px", fontSize: 12, color: "var(--g-brand)", fontWeight: 600, cursor: "pointer",
+                textAlign: "center",
+              }}
+            >
+              + Add curriculum
+            </button>
+            <button
+              onClick={() => setShowActivityModal(true)}
+              style={{
+                flex: 1, background: "white", border: "1.5px dashed #e0ddd8", borderRadius: 12,
+                padding: "11px 13px", fontSize: 12, color: "#5c7f63", fontWeight: 600, cursor: "pointer",
+                textAlign: "center",
+              }}
+            >
+              {"\u{1F4CB}"} Add activity
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          SECTION — ACTIVITIES
+      ══════════════════════════════════════════════════ */}
+      {!isPartner && !loading && activities.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+            Activities
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {activities.map((act) => {
+              const dayNames = act.days.map((d) => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d]).filter(Boolean);
+              const freqLabel = act.frequency === "weekly" ? "Every" : act.frequency === "biweekly" ? "Every other" : "Monthly";
+              const durLabel = act.duration_minutes >= 60
+                ? `${Math.floor(act.duration_minutes / 60)} hr${Math.floor(act.duration_minutes / 60) > 1 ? "s" : ""}${act.duration_minutes % 60 > 0 ? ` ${act.duration_minutes % 60}m` : ""}`
+                : `${act.duration_minutes} min`;
+              const timeLabel = act.scheduled_start_time
+                ? (() => { const [h, m] = act.scheduled_start_time.split(":").map(Number); const ampm = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`; })()
+                : null;
+              const schedule = `${freqLabel} ${dayNames.join(", ")} \u00b7 ${durLabel}${timeLabel ? ` \u00b7 ${timeLabel}` : ""}`;
+
+              return (
+                <div
+                  key={act.id}
+                  style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "12px 14px" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: 18 }}>{act.emoji}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: "#2d2926", margin: 0 }}>{act.name}</p>
+                        <p style={{ fontSize: 11, color: "#9a8e84", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{schedule}</p>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                      <button
+                        onClick={() => setShowActivityModal(true)}
+                        style={{ fontSize: 11, fontWeight: 500, color: "#5c7f63", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => deleteActivity(act.id)}
+                        style={{ fontSize: 11, fontWeight: 500, color: "#b5aca4", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -1904,6 +2005,12 @@ export default function PlanPage() {
           mode="create"
           onClose={() => setShowCreateWizard(false)}
           onSaved={() => { loadData(); loadAllLessons(); }}
+        />
+      )}
+      {showActivityModal && (
+        <ActivitySetupModal
+          onClose={() => setShowActivityModal(false)}
+          onSaved={() => { loadActivities(); }}
         />
       )}
       {editWizardData && (
