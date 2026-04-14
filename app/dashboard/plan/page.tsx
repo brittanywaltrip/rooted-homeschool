@@ -8,9 +8,11 @@ import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
 import ActivitySetupModal from "@/app/components/ActivitySetupModal";
+import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import Toast from "@/components/Toast";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { useSchoolYears } from "@/lib/useSchoolYears";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -292,6 +294,14 @@ export default function PlanPage() {
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const isFreeUser = !planType || planType === "free" || previewFree;
 
+  // ── School year support ─────────────────────────────────────────────────────
+  const schoolYears = useSchoolYears(effectiveUserId || null);
+  const [yearView, setYearView] = useState<"this" | "next">("this");
+  const [showCreateYear, setShowCreateYear] = useState(false);
+  const activeYearId = schoolYears.active?.id ?? null;
+  const upcomingYearId = schoolYears.upcoming?.id ?? null;
+  const viewingYearId = yearView === "next" ? upcomingYearId : activeYearId;
+
   useEffect(() => { document.title = "Plan · Rooted"; posthog.capture('page_viewed', { page: 'plan' }); }, []);
 
   useEffect(() => {
@@ -356,7 +366,7 @@ export default function PlanPage() {
       supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, school_year_id").eq("user_id", effectiveUserId).order("created_at"),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
@@ -790,10 +800,30 @@ export default function PlanPage() {
     return monthLessonMap[selectedDay] ?? [];
   })();
 
-  // Curriculum groups from allLessons
+  // ── Year-scoped data ─────────────────────────────────────────────────────
+  const yearScopedGoals = curriculumGoals.filter(g => {
+    const gYearId = (g as unknown as { school_year_id?: string }).school_year_id;
+    if (yearView === "next") return gYearId === upcomingYearId;
+    return !gYearId || gYearId === activeYearId; // null = active year (pre-migration)
+  });
+  const yearScopedLessons = allLessons.filter(l => {
+    const goalId = l.curriculum_goal_id;
+    if (!goalId) return yearView === "this"; // unlinked lessons → this year
+    const goal = curriculumGoals.find(g => g.id === goalId);
+    const gYearId = (goal as unknown as { school_year_id?: string } | undefined)?.school_year_id;
+    if (yearView === "next") return gYearId === upcomingYearId;
+    return !gYearId || gYearId === activeYearId;
+  });
+  const yearScopedActivities = activities.filter(a => {
+    const aYearId = (a as unknown as { school_year_id?: string }).school_year_id;
+    if (yearView === "next") return aYearId === upcomingYearId;
+    return !aYearId || aYearId === activeYearId;
+  });
+
+  // Curriculum groups from allLessons (year-scoped)
   const curricGroups: CurriculumGroup[] = (() => {
     const map = new Map<string, CurriculumGroup>();
-    for (const l of allLessons) {
+    for (const l of yearScopedLessons) {
       const match = CURRICULUM_RE.exec(l.title);
       if (!match) continue;
       const cName = match[1];
@@ -1072,6 +1102,49 @@ export default function PlanPage() {
     {/* ── Hero Header ──────────────────────────────────── */}
     <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
     <div className="px-4 pt-5 pb-7 space-y-4 max-w-5xl" style={{ background: "#F8F7F4" }}>
+
+      {/* ── Year toggle (when upcoming year exists) ────────── */}
+      {!schoolYears.loading && schoolYears.upcoming && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => setYearView("this")}
+            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            style={{
+              background: yearView === "this" ? "#2D5A3D" : "white",
+              color: yearView === "this" ? "white" : "#8B7E74",
+              border: yearView === "this" ? "none" : "1px solid #e8e5e0",
+            }}
+          >
+            This Year
+          </button>
+          <button
+            onClick={() => setYearView("next")}
+            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            style={{
+              background: yearView === "next" ? "#2D5A3D" : "white",
+              color: yearView === "next" ? "white" : "#8B7E74",
+              border: yearView === "next" ? "none" : "1px solid #e8e5e0",
+            }}
+          >
+            Next Year
+          </button>
+        </div>
+      )}
+
+      {/* ── Plan Next Year prompt (no upcoming year yet) ──── */}
+      {!schoolYears.loading && schoolYears.active && !schoolYears.upcoming && yearView === "this" && (
+        <button
+          onClick={() => setShowCreateYear(true)}
+          className="w-full bg-white border border-[#e8e5e0] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
+        >
+          <span className="text-xl shrink-0">🌱</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-medium text-[#2D2A26]">Plan Next Year</p>
+            <p className="text-[11px] text-[#8B7E74] mt-0.5">Start setting up your curriculum for next year — your current year stays untouched.</p>
+          </div>
+          <ChevronRight size={16} className="text-[#8B7E74] shrink-0 mt-0.5" />
+        </button>
+      )}
 
       {/* ── Catch-up banner ──────────────────────────────── */}
       {!loading && hasCatchUp && (
@@ -1696,7 +1769,7 @@ export default function PlanPage() {
       {/* ══════════════════════════════════════════════════
           SECTION — ACTIVITIES
       ══════════════════════════════════════════════════ */}
-      {!isPartner && !loading && activities.length > 0 && (
+      {!isPartner && !loading && yearScopedActivities.length > 0 && (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
             {"\u{1F4CB}"} Activities
@@ -1826,9 +1899,9 @@ export default function PlanPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          HOURS & PROGRESS REPORT (combined)
+          HOURS & PROGRESS REPORT (combined) — hidden in next year view
       ══════════════════════════════════════════════════ */}
-      {!isPartner && !loading && (
+      {!isPartner && !loading && yearView === "this" && (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
             Hours &amp; Progress Report
@@ -2099,6 +2172,14 @@ export default function PlanPage() {
           mode="create"
           onClose={() => setShowCreateWizard(false)}
           onSaved={() => { loadData(); loadAllLessons(); }}
+        />
+      )}
+      {showCreateYear && effectiveUserId && (
+        <CreateSchoolYearModal
+          userId={effectiveUserId}
+          activeYearName={schoolYears.active?.name}
+          onClose={() => setShowCreateYear(false)}
+          onCreated={() => { schoolYears.reload(); }}
         />
       )}
       {showActivityModal && (
