@@ -2017,7 +2017,159 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          LESSON SWIPE — horizontal child cards + expandable panel
+          LESSONS CARD — checklist with progress bar
+         ═══════════════════════════════════════════════════════════ */}
+      {hasAnyLessons && (() => {
+        const totalLessons = lessons.length;
+        const doneLessons = lessons.filter(l => l.completed).length;
+        const allDone = totalLessons > 0 && doneLessons === totalLessons;
+        const progressPct = totalLessons > 0 ? (doneLessons / totalLessons) * 100 : 0;
+        const uniqueChildIds = new Set(lessons.map(l => l.child_id).filter(Boolean));
+
+        return (
+          <div className="bg-white border border-[#e8e2d9] rounded-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-4 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-base">📚</span>
+                <span className="text-[15px] font-semibold text-[#2d2926]">Today&apos;s Lessons</span>
+              </div>
+              {!isPartner && (
+                <button type="button" onClick={openExtraLessons} className="text-[13px] text-[#5c7f63] hover:text-[var(--g-deep)] font-medium transition-colors">
+                  + Log extra
+                </button>
+              )}
+            </div>
+
+            {/* Progress bar */}
+            {totalLessons > 0 && (
+              <div className="flex items-center gap-3 px-5 pb-3">
+                <div className="flex-1 h-1.5 rounded-full bg-[#f0ede8]">
+                  <div
+                    className="h-full rounded-full transition-all duration-300"
+                    style={{ width: `${progressPct}%`, backgroundColor: allDone ? "#2D5A3D" : "#5c7f63" }}
+                  />
+                </div>
+                <span className={`text-[12px] shrink-0 ${allDone ? "text-[#2D5A3D] font-semibold" : "text-[#7a6f65]"}`}>
+                  {doneLessons} of {totalLessons}{allDone ? " ✓" : ""}
+                </span>
+              </div>
+            )}
+
+            {/* STATE 1 & 2: Has lessons today */}
+            {totalLessons > 0 && !allDone && (
+              <div className="px-4 pb-3">
+                {lessons.map((lesson, idx) => {
+                  const child = children.find(c => c.id === lesson.child_id);
+                  const subjectName = lesson.subjects?.name || "";
+                  return (
+                    <button
+                      key={lesson.id}
+                      type="button"
+                      onClick={() => !isPartner && toggleLesson(lesson.id, lesson.completed)}
+                      className={`w-full flex items-center gap-3 py-3 px-1 text-left transition-colors ${idx < lessons.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
+                    >
+                      {/* Checkbox */}
+                      <div
+                        className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
+                          lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
+                        }`}
+                      >
+                        {lesson.completed && (
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </div>
+                      {/* Lesson info */}
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-[14px] font-medium truncate ${lesson.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                          {lesson.title}
+                        </p>
+                        {subjectName && (
+                          <p className="text-[12px] text-[#7a6f65] truncate">{subjectName}</p>
+                        )}
+                      </div>
+                      {/* Child tag */}
+                      {child && uniqueChildIds.size > 1 && (
+                        <span
+                          className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
+                          style={{
+                            backgroundColor: `${child.color ?? "#5c7f63"}20`,
+                            color: child.color ?? "#5c7f63",
+                          }}
+                        >
+                          {child.name}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* STATE 2: All done */}
+            {totalLessons > 0 && allDone && (
+              <div className="px-5 pb-4">
+                <div className="text-center py-4">
+                  <p className="text-[14px] font-semibold text-[#5c7f63]">All done for today! 🎉</p>
+                  <p className="text-[12px] text-[#b5aca4] mt-1">
+                    {doneLessons} lesson{doneLessons !== 1 ? "s" : ""} completed{uniqueChildIds.size > 1 ? ` across ${uniqueChildIds.size} kids` : ""}
+                  </p>
+                </div>
+                {upcomingDays.length > 0 && (
+                  <>
+                    <div className="border-t border-[#f0ede8] my-3" />
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9a8f85] mb-2">Coming Up</p>
+                    <div className="flex gap-2">
+                      {upcomingDays.map(({ date, count }) => {
+                        const d = new Date(date + "T12:00:00");
+                        const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
+                        return (
+                          <Link key={date} href="/dashboard/plan" className="text-[11px] font-medium text-[#7a6f65] bg-[#f5f3ef] rounded-full px-3 py-1 hover:bg-[#ece8e0] transition-colors">
+                            {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* STATE 3: No lessons today */}
+            {totalLessons === 0 && (
+              <div className="px-5 pb-4">
+                <div className="bg-[#f5f3ef] rounded-lg py-3.5 px-4 text-center">
+                  <p className="text-[14px] text-[#7a6f65]">
+                    {(() => { const dow = new Date().getDay(); return dow === 0 || dow === 6 ? "Enjoy your day off! 🌿" : "No lessons scheduled today 🌿"; })()}
+                  </p>
+                </div>
+                {upcomingDays.length > 0 && (
+                  <>
+                    <div className="border-t border-[#f0ede8] my-3" />
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9a8f85] mb-2">Coming Up</p>
+                    <div className="flex gap-2">
+                      {upcomingDays.map(({ date, count }) => {
+                        const d = new Date(date + "T12:00:00");
+                        const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
+                        return (
+                          <Link key={date} href="/dashboard/plan" className="text-[11px] font-medium text-[#7a6f65] bg-[#f5f3ef] rounded-full px-3 py-1 hover:bg-[#ece8e0] transition-colors">
+                            {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════
+          LESSON SWIPE — horizontal child cards + expandable panel (kept for multi-child detail)
          ═══════════════════════════════════════════════════════════ */}
       {hasAnyLessons && lessons.length > 0 && (() => {
         const childIds = new Set(children.map(c => c.id));
@@ -2029,76 +2181,11 @@ export default function TodayPage() {
         const unassigned = lessons.filter(l => !l.child_id || !childIds.has(l.child_id));
         if (unassigned.length > 0) cardsToRender.push({ id: "__unassigned", name: "Unassigned", color: "#9a8f85", lessons: unassigned });
 
-        // ── Single child: inline card (no swipe track) ──────────────
-        if (cardsToRender.length === 1) {
-          const card = cardsToRender[0];
-          const childObj = children.find(c => c.id === card.id);
-          return (
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S LESSONS</p>
-              <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e8e0d4" }}>
-                {/* Child header */}
-                <div className="flex items-center gap-2 px-3.5 py-2.5 border-b" style={{ borderColor: "#f0ede8" }}>
-                  <div
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                    style={{ backgroundColor: card.color ?? "#5c7f63" }}
-                  >
-                    {card.name.charAt(0).toUpperCase()}
-                  </div>
-                  <span className="text-xs font-bold text-[#2d2926]">{toTitleCase(card.name)}</span>
-                </div>
-                {/* Lesson rows */}
-                <div className="p-2 space-y-1">
-                  {card.lessons.map(lesson => (
-                    <TodayLessonCard
-                      key={lesson.id} lesson={lesson}
-                      childObj={card.id === "__unassigned" ? undefined : childObj}
-                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} onMinutesUpdate={(id, mins) => setLessons(prev => prev.map(l => l.id === id ? { ...l, minutes_spent: mins } : l))} isPartner={isPartner}
-                    />
-                  ))}
-                </div>
-                {/* Extra lesson button — only when all scheduled lessons done */}
-                {!isPartner && card.id !== "__unassigned" && card.lessons.length > 0 && card.lessons.every(l => l.completed) && (
-                  <div className="px-3 pb-3" style={{ position: "relative", zIndex: 10 }}>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); logExtraLesson(card.id); }}
-                      disabled={extraLessonLoading === card.id}
-                      style={{ minHeight: 44 }}
-                      className="w-full text-center text-[12px] font-medium text-[#b5aca4] hover:text-[#7a6f65] py-2 transition-colors disabled:opacity-50"
-                    >
-                      {extraLessonLoading === card.id ? "Logging..." : `+ ${card.name} did an extra lesson today`}
-                    </button>
-                  </div>
-                )}
-                {/* Ahead-of-schedule pill */}
-                {aheadPromptChildren.has(card.id) && !dismissedAheadPrompts.has(card.id) && (
-                  <div className="px-3 pb-2.5">
-                    <div className="flex items-center justify-between gap-2 bg-[#f4faf0] border border-[#d4e8c8] rounded-full px-3 py-1.5">
-                      <span className="text-[11px] text-[var(--g-deep)]">You&apos;re ahead of schedule — update your finish date?</span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() => rescheduleAfterExtra(card.id)}
-                          className="text-[11px] font-semibold text-[var(--g-brand)] hover:underline"
-                        >Update</button>
-                        <button
-                          onClick={() => setDismissedAheadPrompts(prev => new Set(prev).add(card.id))}
-                          className="text-[#b5aca4] hover:text-[#7a6f65] text-xs leading-none"
-                        >✕</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        }
+        // Only show swipe cards for multi-child families
+        if (cardsToRender.length <= 1) return null;
 
-        // ── Multiple children: horizontal swipe track ───────────────
         return (
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">TODAY&apos;S LESSONS</p>
-
             {/* Horizontal scrollable child cards */}
             <div className="flex gap-2.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}>
               <style>{`.flex::-webkit-scrollbar { display: none; }`}</style>
@@ -2201,59 +2288,6 @@ export default function TodayPage() {
           </div>
         );
       })()}
-
-      {/* ── Today time summary ──────────────────────────────────── */}
-      {hasAnyLessons && lessons.length > 0 && lessons.some(l => l.completed) && (() => {
-        const totalMins = lessons.filter(l => l.completed).reduce((sum, l) => {
-          if (l.minutes_spent != null) return sum + l.minutes_spent;
-          if (l.hours != null && l.hours > 0) return sum + Math.round(l.hours * 60);
-          return sum + 30;
-        }, 0);
-        const display = totalMins >= 60 ? `${Math.floor(totalMins / 60)}h ${totalMins % 60 > 0 ? `${totalMins % 60}m` : ""}` : `${totalMins} min`;
-        return <p className="text-xs text-[#b5aca4] px-1 -mt-2">Today: {display} logged</p>;
-      })()}
-
-      {/* ── Log extra lessons link ──────────────────────────────── */}
-      {hasAnyLessons && (
-        <button
-          type="button"
-          onClick={openExtraLessons}
-          className="text-xs font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors px-1 -mt-1"
-        >
-          + Log extra lessons
-        </button>
-      )}
-
-      {/* ── Empty state: no lessons today ──────────────────────── */}
-      {children.length > 0 && hasAnyLessons && lessons.length === 0 && (
-        <div style={{ background: "#fff", borderRadius: 12, border: "0.5px solid #e8e0d4", padding: 16, textAlign: "center" }}>
-          <p style={{ fontSize: 13, color: "#9a8f85" }}>
-            {(() => { const dow = new Date().getDay(); return dow === 0 || dow === 6 ? "Enjoy your day off! 🌿" : "No lessons scheduled today 🌿"; })()}
-          </p>
-        </div>
-      )}
-
-      {/* ── Coming Up — next 2 days with lessons ──────────── */}
-      {upcomingDays.length > 0 && (
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#9a8f85] mb-2 px-0.5">COMING UP</p>
-          <div className="flex gap-2">
-            {upcomingDays.map(({ date, count }) => {
-              const d = new Date(date + "T12:00:00");
-              const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
-              return (
-                <Link
-                  key={date}
-                  href="/dashboard/plan"
-                  style={{ background: "#fff", border: "0.5px solid #e8e0d4", borderRadius: 20, padding: "5px 12px", fontSize: 11, color: "#7a6f65", fontWeight: 500 }}
-                >
-                  {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* ═══════════════════════════════════════════════════════════
           CAPTURE CARD — unified for new and existing users
