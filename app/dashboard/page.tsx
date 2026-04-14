@@ -579,9 +579,9 @@ export default function TodayPage() {
 
   // ── Hide FAB when new-user empty state is showing ─────────────────────────
   useEffect(() => {
-    setHideFab(!loading && totalMemories === 0 && !hasAnyLessons);
+    setHideFab(!loading && totalMemories === 0);
     return () => setHideFab(false);
-  }, [loading, totalMemories, hasAnyLessons, setHideFab]);
+  }, [loading, totalMemories, setHideFab]);
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
