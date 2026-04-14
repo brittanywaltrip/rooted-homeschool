@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
+import ActivitySetupModal from "@/app/components/ActivitySetupModal";
 import Toast from "@/components/Toast";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -57,6 +58,17 @@ type VacationBlock = {
   name: string;
   start_date: string;
   end_date: string;
+};
+type Activity = {
+  id: string;
+  name: string;
+  emoji: string;
+  frequency: "weekly" | "biweekly" | "monthly";
+  days: number[];
+  duration_minutes: number;
+  scheduled_start_time: string | null;
+  child_ids: string[];
+  is_active: boolean;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -195,6 +207,7 @@ export default function PlanPage() {
   const [reportRange, setReportRange] = useState<string>("full");
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
+  const [includeActivities, setIncludeActivities] = useState(true);
   const [planType, setPlanType] = useState<string | null>(null);
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const isFreeUser = !planType || planType === "free" || previewFree;
@@ -225,6 +238,10 @@ export default function PlanPage() {
   const [profileSchoolDays, setProfileSchoolDays] = useState<string[]>([]);
   const [expandedCurricMenu, setExpandedCurricMenu] = useState<string | null>(null);
   const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
+
+  // ── Activities ─────────────────────────────────────────────────────────────
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [activities, setActivities] = useState<Activity[]>([]);
 
   // ── Edit time state ─────────────────────────────────────────────────────
   const [editTimeId, setEditTimeId] = useState<string | null>(null);
@@ -293,6 +310,17 @@ export default function PlanPage() {
     setVacationBlocks((data as VacationBlock[]) ?? []);
   }, [effectiveUserId]);
 
+  const loadActivities = useCallback(async () => {
+    if (!effectiveUserId) return;
+    const { data } = await supabase
+      .from("activities")
+      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, is_active")
+      .eq("user_id", effectiveUserId)
+      .eq("is_active", true)
+      .order("created_at");
+    setActivities((data as Activity[]) ?? []);
+  }, [effectiveUserId]);
+
   const loadMonthData = useCallback(async () => {
     if (!effectiveUserId) return;
     const ms = new Date(monthStart);
@@ -310,6 +338,7 @@ export default function PlanPage() {
   useEffect(() => { loadData(); },           [loadData]);
   useEffect(() => { loadAllLessons(); },     [loadAllLessons]);
   useEffect(() => { loadVacationBlocks(); }, [loadVacationBlocks]);
+  useEffect(() => { loadActivities(); },     [loadActivities]);
 
   // Re-fetch when children are edited in Settings
   useEffect(() => {
@@ -465,6 +494,12 @@ export default function PlanPage() {
   async function deleteVacationBlock(id: string) {
     setVacationBlocks((p) => p.filter((b) => b.id !== id));
     await supabase.from("vacation_blocks").delete().eq("id", id);
+  }
+
+  // ── Delete activity ────────────────────────────────────────────────────
+  async function deleteActivity(id: string) {
+    setActivities((p) => p.filter((a) => a.id !== id));
+    await supabase.from("activities").update({ is_active: false }).eq("id", id);
   }
 
   // ── Missed lessons (needed by reschedule functions) ─────────────────────
@@ -760,18 +795,25 @@ export default function PlanPage() {
       const yr = now.getMonth() >= 6 ? `${now.getFullYear()}–${now.getFullYear() + 1}` : `${now.getFullYear() - 1}–${now.getFullYear()}`;
       const dateGen = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-      type LR = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null };
+      type LR = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null; is_backfill?: boolean };
       type MR = { child_id: string | null; type: string; title: string | null; date: string; duration_minutes: number | null };
       type GR = { id: string; default_minutes: number };
+      type AL = { activity_id: string; date: string; minutes_spent: number | null; completed: boolean; is_backfill?: boolean };
+      type ACT = { id: string; name: string; emoji: string; child_ids: string[] | null };
 
-      const [{ data: lr }, { data: mr }, { data: gr }] = await Promise.all([
-        supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name)").eq("user_id", effectiveUserId),
+      const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }] = await Promise.all([
+        supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), is_backfill").eq("user_id", effectiveUserId),
         supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", effectiveUserId),
         supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", effectiveUserId),
+        supabase.from("activity_logs").select("activity_id, date, minutes_spent, completed, is_backfill").eq("user_id", effectiveUserId).eq("completed", true),
+        supabase.from("activities").select("id, name, emoji, child_ids").eq("user_id", effectiveUserId),
       ]);
 
       let allLessons = (lr || []) as unknown as LR[];
       let allMemories = (mr || []) as unknown as MR[];
+      let allActivityLogs = (al || []) as unknown as AL[];
+      const activityMap: Record<string, ACT> = {};
+      for (const a of ((acts || []) as unknown as ACT[])) activityMap[a.id] = a;
       const gdm: Record<string, number> = {};
       for (const g of ((gr || []) as unknown as GR[])) gdm[g.id] = g.default_minutes ?? 30;
 
@@ -814,45 +856,77 @@ export default function PlanPage() {
           return d >= rangeStart && d <= rangeEnd;
         });
         allMemories = allMemories.filter(m => m.date >= rangeStart && m.date <= rangeEnd);
+        allActivityLogs = allActivityLogs.filter(a => a.date >= rangeStart && a.date <= rangeEnd);
       }
 
       const lessons = allLessons;
       const memories = allMemories;
+      const activityLogs = includeActivities ? allActivityLogs : [];
 
       const done = lessons.filter(l => l.completed);
       const tLM = done.reduce((s, l) => s + lm(l).m, 0);
       const mM = memories.filter(m => m.duration_minutes).reduce((s, m) => s + (m.duration_minutes || 0), 0);
+      const actM = activityLogs.reduce((s, a) => s + (a.minutes_spent || 0), 0);
       const books = memories.filter(m => m.type === "book");
       const trips = memories.filter(m => ["field_trip", "project", "activity"].includes(m.type));
-      const sDays = new Set(done.map(l => ld(l)).filter(Boolean)).size;
+      // School days: any day with a lesson OR an activity
+      const lessonDays = new Set(done.map(l => ld(l)).filter(Boolean));
+      const activityDays = new Set(activityLogs.map(a => a.date));
+      const allSchoolDays = new Set([...lessonDays, ...activityDays]);
+      const sDays = allSchoolDays.size;
+      // Backfill hours
+      const backfillMins = done.filter(l => l.is_backfill).reduce((s, l) => s + lm(l).m, 0)
+        + activityLogs.filter(a => a.is_backfill).reduce((s, a) => s + (a.minutes_spent || 0), 0);
 
       const isPerChild = reportChildId !== "all";
       const selectedChild = isPerChild ? children.find(c => c.id === reportChildId) : null;
       const reportChildren = isPerChild && selectedChild ? [selectedChild] : children;
 
-      // Filter lessons/memories to selected child when per-child
+      // Filter lessons/memories/activities to selected child when per-child
       const scopedDone = isPerChild ? done.filter(l => l.child_id === reportChildId) : done;
       const scopedMemories = isPerChild ? memories.filter(m => m.child_id === reportChildId) : memories;
+      const scopedActivityLogs = isPerChild
+        ? activityLogs.filter(a => { const act = activityMap[a.activity_id]; return act?.child_ids?.includes(reportChildId); })
+        : activityLogs;
 
       // Recalculate summary for scoped data
       const scopedTLM = scopedDone.reduce((s, l) => s + lm(l).m, 0);
+      const scopedActM = scopedActivityLogs.reduce((s, a) => s + (a.minutes_spent || 0), 0);
       const scopedMM = scopedMemories.filter(m => m.duration_minutes).reduce((s, m) => s + (m.duration_minutes || 0), 0);
       const scopedBooks = scopedMemories.filter(m => m.type === "book");
       const scopedTrips = scopedMemories.filter(m => ["field_trip", "project", "activity"].includes(m.type));
-      const scopedSDays = new Set(scopedDone.map(l => ld(l)).filter(Boolean)).size;
+      const scopedLessonDays = new Set(scopedDone.map(l => ld(l)).filter(Boolean));
+      const scopedActDays = new Set(scopedActivityLogs.map(a => a.date));
+      const scopedSDays = new Set([...scopedLessonDays, ...scopedActDays]).size;
 
       const childReport = reportChildren.map(c => {
         const cl = done.filter(l => l.child_id === c.id);
         const cm = cl.reduce((s, l) => s + lm(l).m, 0);
-        const cd = new Set(cl.map(l => ld(l)).filter(Boolean)).size;
+        // Activities for this child
+        const childActs = activityLogs.filter(a => { const act = activityMap[a.activity_id]; return act?.child_ids?.includes(c.id); });
+        const childActM = childActs.reduce((s, a) => s + (a.minutes_spent || 0), 0);
+        // School days: lessons + activities
+        const childLessonDays = new Set(cl.map(l => ld(l)).filter(Boolean));
+        const childActDays = new Set(childActs.map(a => a.date));
+        const cd = new Set([...childLessonDays, ...childActDays]).size;
         const sa: Record<string, { n: number; m: number; e: boolean }> = {};
         for (const l of cl) { const nm = l.subjects?.name || "General"; if (!sa[nm]) sa[nm] = { n: 0, m: 0, e: false }; sa[nm].n++; const r = lm(l); sa[nm].m += r.m; if (r.e) sa[nm].e = true; }
+        // Group activities
+        const actGroups: Record<string, { name: string; emoji: string; sessions: number; mins: number }> = {};
+        for (const a of childActs) {
+          const act = activityMap[a.activity_id];
+          if (!act) continue;
+          if (!actGroups[a.activity_id]) actGroups[a.activity_id] = { name: act.name, emoji: act.emoji, sessions: 0, mins: 0 };
+          actGroups[a.activity_id].sessions++;
+          actGroups[a.activity_id].mins += a.minutes_spent || 0;
+        }
         return {
           name: c.name,
-          totalHours: fmtMins(cm),
+          totalHours: fmtMins(cm + childActM),
           totalLessons: cl.length,
           schoolDays: cd,
           subjects: Object.entries(sa).map(([n, d]) => ({ name: n, count: d.n, hours: fmtMins(d.m), estimated: d.e })).sort((a, b) => b.count - a.count),
+          activities: Object.values(actGroups).map(g => ({ name: g.name, emoji: g.emoji, sessions: g.sessions, hours: fmtMins(g.mins) })).sort((a, b) => b.sessions - a.sessions),
           books: memories.filter(m => m.type === "book" && m.child_id === c.id).map(m => m.title || "Untitled"),
           fieldTrips: memories.filter(m => ["field_trip","project","activity"].includes(m.type) && m.child_id === c.id).map(m => ({ title: m.title || "Untitled", duration: m.duration_minutes })),
           wins: memories.filter(m => ["win","quote"].includes(m.type) && m.child_id === c.id).map(m => m.title || "Untitled"),
@@ -866,8 +940,9 @@ export default function PlanPage() {
 
       // Daily log — scoped to selected child when per-child
       const logMap: Record<string, { childName: string; subject: string; description: string; minutes: number; type: string; estimated: boolean }[]> = {};
-      for (const l of scopedDone) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ childName: childNameMap[l.child_id] || "", subject: l.subjects?.name || "General", description: l.title || "Lesson", minutes: r.m, type: "Lesson", estimated: r.e }); }
+      for (const l of scopedDone) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ childName: childNameMap[l.child_id] || "", subject: l.subjects?.name || "General", description: l.is_backfill ? `${l.title || "Lesson"} (imported)` : (l.title || "Lesson"), minutes: r.m, type: l.is_backfill ? "Imported" : "Lesson", estimated: r.e }); }
       for (const m of scopedMemories) { if (!m.duration_minutes || !["field_trip","project","activity","win"].includes(m.type)) continue; if (!logMap[m.date]) logMap[m.date] = []; logMap[m.date].push({ childName: m.child_id ? (childNameMap[m.child_id] || "") : "", subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: "Activity", estimated: false }); }
+      for (const a of scopedActivityLogs) { const act = activityMap[a.activity_id]; if (!act || !a.minutes_spent) continue; if (!logMap[a.date]) logMap[a.date] = []; const childNames = (act.child_ids || []).map(id => childNameMap[id] || "").filter(Boolean).join(", "); logMap[a.date].push({ childName: childNames, subject: act.name, description: `${act.emoji} ${act.name}${a.is_backfill ? " (imported)" : ""}`, minutes: a.minutes_spent, type: "Activity", estimated: false }); }
       const dailyLog = Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({
         dateLabel: new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
         entries,
@@ -881,10 +956,16 @@ export default function PlanPage() {
       const doc = new jsPDF({ orientation: "portrait", unit: "in", format: "letter" });
       generateProgressReport(doc, {
         familyName: reportTitle, schoolYear: dateRangeLabel || yr, dateGenerated: dateGen, showWatermark: true,
-        summary: { totalHours: fmtMins(scopedTLM + scopedMM), schoolDays: scopedSDays, lessons: scopedDone.length, books: scopedBooks.length, trips: scopedTrips.length, memories: scopedMemories.length },
+        summary: {
+          totalHours: fmtMins(scopedTLM + scopedActM + scopedMM),
+          curriculumHours: fmtMins(scopedTLM),
+          activityHours: scopedActM > 0 ? fmtMins(scopedActM) : undefined,
+          schoolDays: scopedSDays, lessons: scopedDone.length, books: scopedBooks.length, trips: scopedTrips.length, memories: scopedMemories.length,
+        },
         children: childReport,
         dailyLog,
         showChildColumn: !isPerChild,
+        backfillHours: backfillMins,
       });
       const slugify = (s: string) => s.replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase();
       const fileSlug = isPerChild && selectedChild
@@ -907,7 +988,7 @@ export default function PlanPage() {
     <>
     {/* ── Hero Header ──────────────────────────────────── */}
     <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
-    <div className="px-4 pt-5 pb-7 space-y-4 max-w-5xl">
+    <div className="px-4 pt-5 pb-7 space-y-4 max-w-5xl" style={{ background: "#F8F7F4" }}>
 
       {/* ── Total hours this year ─────────────────────────── */}
       {!loading && allLessons.length > 0 && (() => {
@@ -920,7 +1001,7 @@ export default function PlanPage() {
         const h = Math.floor(totalMins / 60);
         const m = totalMins % 60;
         return (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 flex items-center justify-between">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl sm:rounded-2xl p-5 sm:p-5 flex items-center justify-between">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4]">Total hours this year</p>
               <p className="text-2xl font-bold text-[#2d2926] mt-0.5">{h}h {m > 0 ? `${m}m` : ""}</p>
@@ -942,29 +1023,33 @@ export default function PlanPage() {
         </div>
       )}
 
-      {/* ── Week / Month toggle ──────────────────────────── */}
-      <div style={{ background: "white", border: "0.5px solid #e8e0d4", borderRadius: 10, overflow: "hidden", display: "flex" }}>
-        <button
-          onClick={() => setViewMode("week")}
-          style={{
-            flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
-            background: viewMode === "week" ? "var(--g-brand)" : "white",
-            color: viewMode === "week" ? "white" : "#7a6f65",
-          }}
-        >
-          Week
-        </button>
-        <button
-          onClick={() => setViewMode("month")}
-          style={{
-            flex: 1, padding: "9px 0", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer",
-            background: viewMode === "month" ? "var(--g-brand)" : "white",
-            color: viewMode === "month" ? "white" : "#7a6f65",
-          }}
-        >
-          Month
-        </button>
-      </div>
+      {/* ── Calendar card (toggle + nav + grid) ──────────── */}
+      <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
+        {/* Toggle row */}
+        <div className="flex gap-2 p-4 pb-3">
+          <button
+            onClick={() => setViewMode("week")}
+            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            style={{
+              background: viewMode === "week" ? "#2D5A3D" : "white",
+              color: viewMode === "week" ? "white" : "#7a6f65",
+              border: viewMode === "week" ? "1px solid #2D5A3D" : "1px solid #e8e5e0",
+            }}
+          >
+            Week
+          </button>
+          <button
+            onClick={() => setViewMode("month")}
+            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            style={{
+              background: viewMode === "month" ? "#2D5A3D" : "white",
+              color: viewMode === "month" ? "white" : "#7a6f65",
+              border: viewMode === "month" ? "1px solid #2D5A3D" : "1px solid #e8e5e0",
+            }}
+          >
+            Month
+          </button>
+        </div>
 
       {/* ── Missed lessons banner ────────────────────────── */}
       {!loading && missedLessons.length > 0 && (
@@ -1004,19 +1089,19 @@ export default function PlanPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          SECTION 2A — WEEK VIEW
+          SECTION 2A — WEEK VIEW (inside calendar card)
       ══════════════════════════════════════════════════ */}
       {viewMode === "week" && !loading && (
-        <div>
+        <div className="px-4 pb-4">
           {/* Week navigation */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
-            <button onClick={prevWeek} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+            <button onClick={prevWeek} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronLeft size={18} />
             </button>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>
               {formatWeekRange(weekStart)}
             </span>
-            <button onClick={nextWeek} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+            <button onClick={nextWeek} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronRight size={18} />
             </button>
           </div>
@@ -1098,19 +1183,19 @@ export default function PlanPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          SECTION 2B — MONTH VIEW
+          SECTION 2B — MONTH VIEW (inside calendar card)
       ══════════════════════════════════════════════════ */}
       {viewMode === "month" && !loading && (
-        <div>
+        <div className="px-4 pb-4">
           {/* Month navigation */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
-            <button onClick={prevMonth} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+            <button onClick={prevMonth} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronLeft size={18} />
             </button>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>
               {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
             </span>
-            <button onClick={nextMonth} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "#7a6f65" }}>
+            <button onClick={nextMonth} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronRight size={18} />
             </button>
           </div>
@@ -1204,12 +1289,14 @@ export default function PlanPage() {
           })()}
         </div>
       )}
+      {/* Close calendar card */}
+      </div>
 
       {/* ══════════════════════════════════════════════════
           SECTION 3 — DAY PANEL
       ══════════════════════════════════════════════════ */}
       {!loading && (
-        <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
           {selectedDay === todayStr
             ? "Today\u2019s Lessons"
             : `Lessons — ${selectedDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`}
@@ -1219,7 +1306,7 @@ export default function PlanPage() {
         // Vacation day
         if (isSelectedVacation) {
           return (
-            <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "24px 16px", textAlign: "center" }}>
+            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center">
               <span style={{ fontSize: 22, opacity: 0.35 }}>🌴</span>
               <p style={{ fontSize: 12, color: "#b5aca4", marginTop: 6 }}>{selectedVacName}</p>
             </div>
@@ -1229,7 +1316,7 @@ export default function PlanPage() {
         // No lessons day
         if (selectedDayTotal === 0) {
           return (
-            <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "24px 16px", textAlign: "center" }}>
+            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center">
               <span style={{ fontSize: 22, opacity: 0.35 }}>🌿</span>
               <p style={{ fontSize: 12, color: "#b5aca4", marginTop: 6 }}>
                 {isSelectedWeekend ? "Enjoy your day off!" : "No lessons scheduled"}
@@ -1240,9 +1327,9 @@ export default function PlanPage() {
 
         // Day with lessons
         return (
-          <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", overflow: "hidden" }}>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
             {/* Header */}
-            <div style={{ padding: "10px 13px 8px", borderBottom: "0.5px solid #f0ece4" }}>
+            <div className="px-5 pt-4 pb-3 border-b border-[#f0ece4]">
               <span style={{ fontSize: 13, fontWeight: 600, color: "#2d2926" }}>{selectedDateLabel}</span>
             </div>
 
@@ -1396,16 +1483,16 @@ export default function PlanPage() {
           SECTION 4 — YOUR COURSES
       ══════════════════════════════════════════════════ */}
       {!isPartner && !loading && (
-        <div style={{ marginTop: 8 }}>
-          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
             Course Progress
           </p>
           {curricGroups.length === 0 && (
-            <div style={{ background: "white", borderRadius: 14, border: "0.5px solid #e8e0d4", padding: "24px 16px", textAlign: "center", marginBottom: 8 }}>
+            <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center mb-2">
               <p style={{ fontSize: 13, color: "#b5aca4", margin: 0 }}>No curriculum added yet</p>
             </div>
           )}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="flex flex-col gap-3">
             {curricGroups.map((group) => {
               const completedFromRows = group.totalCount - group.remainingCount;
               const goal = group.goalData;
@@ -1423,7 +1510,7 @@ export default function PlanPage() {
               const lessonsRemaining = totalLessons - currentLesson;
 
               return (
-                <div key={group.key} style={{ background: "white", borderRadius: 14, border: isExpanded ? "0.5px solid #b8d89a" : "0.5px solid #e8e0d4", overflow: "hidden" }}>
+                <div key={group.key} className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden" style={{ borderLeftWidth: 3, borderLeftColor: child?.color ?? "#5c7f63" }}>
                   {/* Header (tappable) */}
                   <button
                     onClick={() => setExpandedCourses(prev => {
@@ -1551,23 +1638,84 @@ export default function PlanPage() {
             })}
           </div>
 
-          {/* + Add curriculum */}
-          <button
-            onClick={() => setShowCreateWizard(true)}
-            style={{
-              width: "100%", background: "white", border: "0.5px solid #e8e0d4", borderRadius: 12,
-              padding: "11px 13px", fontSize: 12, color: "var(--g-brand)", fontWeight: 600, cursor: "pointer",
-              marginTop: 8, textAlign: "center",
-            }}
-          >
-            + Add curriculum
-          </button>
+          {/* + Add curriculum / + Add activity */}
+          <div className="flex gap-3 mt-3">
+            <button
+              onClick={() => setShowCreateWizard(true)}
+              className="flex-1 border-2 border-dashed border-[#e0ddd8] rounded-2xl p-4 text-center text-[#5c7f63] font-medium text-sm cursor-pointer hover:bg-[#faf9f7] transition-colors"
+            >
+              + Add curriculum
+            </button>
+            <button
+              onClick={() => setShowActivityModal(true)}
+              className="flex-1 border-2 border-dashed border-[#e0ddd8] rounded-2xl p-4 text-center text-[#5c7f63] font-medium text-sm cursor-pointer hover:bg-[#faf9f7] transition-colors"
+            >
+              {"\u{1F4CB}"} Add activity
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          SECTION — ACTIVITIES
+      ══════════════════════════════════════════════════ */}
+      {!isPartner && !loading && activities.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
+            {"\u{1F4CB}"} Activities
+          </p>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
+            {activities.map((act) => {
+              const dayNames = act.days.map((d) => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d]).filter(Boolean);
+              const freqLabel = act.frequency === "weekly" ? "Every" : act.frequency === "biweekly" ? "Every other" : "Monthly";
+              const durLabel = act.duration_minutes >= 60
+                ? `${Math.floor(act.duration_minutes / 60)} hr${Math.floor(act.duration_minutes / 60) > 1 ? "s" : ""}${act.duration_minutes % 60 > 0 ? ` ${act.duration_minutes % 60}m` : ""}`
+                : `${act.duration_minutes} min`;
+              const timeLabel = act.scheduled_start_time
+                ? (() => { const [h, m] = act.scheduled_start_time.split(":").map(Number); const ampm = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`; })()
+                : null;
+              const schedule = `${freqLabel} ${dayNames.join(", ")} \u00b7 ${durLabel}${timeLabel ? ` \u00b7 ${timeLabel}` : ""}`;
+
+              return (
+                <div key={act.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <span className="text-lg">{act.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#2d2926] truncate">{act.name}</p>
+                      <p className="text-[11px] text-[#9a8e84] truncate mt-0.5">{schedule}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 items-center shrink-0">
+                    <button
+                      onClick={() => setShowActivityModal(true)}
+                      className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteActivity(act.id)}
+                      className="text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {/* + Add activity inside card */}
+            <button
+              onClick={() => setShowActivityModal(true)}
+              className="w-full px-5 py-3 text-sm font-medium text-[#5c7f63] text-center hover:bg-[#faf9f7] transition-colors"
+            >
+              + Add activity
+            </button>
+          </div>
         </div>
       )}
 
       {/* ── Curriculum empty state ───────────────────────────── */}
       {!loading && !isPartner && curricGroups.length === 0 && curriculumGoals.length === 0 && subjects.length === 0 && allLessons.length === 0 && (
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-8 flex flex-col items-center text-center">
+        <div className="bg-white border border-[#e8e5e0] rounded-2xl p-8 flex flex-col items-center text-center">
           <span className="text-4xl mb-4">🌱</span>
           <h2 className="text-xl font-semibold text-[var(--g-deep)] mb-2">Your plan is ready to grow!</h2>
           <p className="text-sm text-[#7a6f65] leading-relaxed max-w-sm mx-auto mb-6">
@@ -1597,11 +1745,11 @@ export default function PlanPage() {
           SECTION 5 — PROGRESS REPORT
       ══════════════════════════════════════════════════ */}
       {!isPartner && !loading && (
-        <div style={{ marginTop: 8 }}>
-          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
             Progress Report
           </p>
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-[#2d2926]">📊 Progress Report</h3>
@@ -1654,7 +1802,7 @@ export default function PlanPage() {
                 <button
                   onClick={downloadReport}
                   disabled={downloadingReport}
-                  className="flex items-center gap-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors shrink-0 ml-auto"
+                  className="flex items-center gap-1.5 text-xs font-semibold bg-[#2D5A3D] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors shrink-0 ml-auto"
                 >
                   {downloadingReport ? "Generating…" : "Download Report"}
                 </button>
@@ -1680,6 +1828,15 @@ export default function PlanPage() {
               };
               return <p className="text-[10px] text-[#5c7f63] mt-1">{labels[reportRange]}</p>;
             })()}
+            <label className="flex items-center gap-2 mt-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeActivities}
+                onChange={e => setIncludeActivities(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-[#d4d0ca] text-[#5c7f63] focus:ring-[#5c7f63]/30"
+              />
+              <span className="text-[11px] text-[#7a6f65]">Include activity hours</span>
+            </label>
           </div>
         </div>
       )}
@@ -1688,48 +1845,49 @@ export default function PlanPage() {
           SECTION 6 — BREAKS & VACATIONS
       ══════════════════════════════════════════════════ */}
       {!isPartner && (
-        <div style={{ marginTop: 8 }}>
-          <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#b5aca4", marginBottom: 8 }}>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-2">
             Breaks &amp; Vacations
           </p>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
+            {/* Vacation rows */}
+            {vacationBlocks.length > 0 && (
+              <div className="divide-y divide-[#f0ede8]">
+                {vacationBlocks.map((block) => {
+                  const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  return (
+                    <div key={block.id} className="flex items-center justify-between px-5 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-sm">🌴</span>
+                        <span className="text-sm font-medium text-[#2d2926]">{block.name}</span>
+                        <span className="text-xs text-[#9a8e84]">{s} – {e}</span>
+                      </div>
+                      <button
+                        onClick={() => deleteVacationBlock(block.id)}
+                        className="text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {vacationBlocks.length === 0 && (
+              <div className="px-5 py-4 text-center">
+                <p className="text-sm text-[#b5aca4]">No breaks scheduled</p>
+              </div>
+            )}
 
-          {/* Vacation pills */}
-          {vacationBlocks.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-              {vacationBlocks.map((block) => {
-                const s = new Date(block.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                const e = new Date(block.end_date   + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                return (
-                  <div key={block.id} style={{
-                    background: "#fff8f0", border: "0.5px solid #f0c878", borderRadius: 20,
-                    padding: "5px 10px 5px 8px", display: "inline-flex", alignItems: "center", gap: 6,
-                  }}>
-                    <span style={{ fontSize: 12 }}>🌴</span>
-                    <span style={{ fontSize: 11, color: "#7a5000", fontWeight: 700 }}>{block.name} · {s}–{e}</span>
-                    <button
-                      onClick={() => deleteVacationBlock(block.id)}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "#c8bfb5", padding: 0, display: "flex" }}
-                      aria-label="Remove break"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* + Add break */}
-          <button
-            onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
-            style={{
-              width: "100%", background: "white", border: "0.5px solid #e8e0d4", borderRadius: 12,
-              padding: "11px 13px", fontSize: 12, color: "var(--g-brand)", fontWeight: 600, cursor: "pointer",
-              textAlign: "center",
-            }}
-          >
-            + Add break or vacation
-          </button>
+            {/* + Add break */}
+            <button
+              onClick={() => { setVacName(""); setVacStart(""); setVacEnd(""); setVacReschedule("shift"); setShowVacModal(true); }}
+              className="w-full px-5 py-3 text-sm font-medium text-[#5c7f63] text-center hover:bg-[#faf9f7] transition-colors border-t border-[#f0ede8]"
+            >
+              + Add break or vacation
+            </button>
+          </div>
         </div>
       )}
 
@@ -1904,6 +2062,12 @@ export default function PlanPage() {
           mode="create"
           onClose={() => setShowCreateWizard(false)}
           onSaved={() => { loadData(); loadAllLessons(); }}
+        />
+      )}
+      {showActivityModal && (
+        <ActivitySetupModal
+          onClose={() => setShowActivityModal(false)}
+          onSaved={() => { loadActivities(); }}
         />
       )}
       {editWizardData && (

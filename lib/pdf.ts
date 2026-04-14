@@ -100,6 +100,8 @@ export type ReportData = {
   showWatermark: boolean;
   summary: {
     totalHours: string;
+    curriculumHours?: string;
+    activityHours?: string;
     schoolDays: number;
     lessons: number;
     books: number;
@@ -112,6 +114,7 @@ export type ReportData = {
     totalLessons: number;
     schoolDays: number;
     subjects: { name: string; count: number; hours: string; estimated: boolean }[];
+    activities?: { name: string; emoji: string; sessions: number; hours: string }[];
     books: string[];
     fieldTrips: { title: string; duration: number | null }[];
     wins: string[];
@@ -122,6 +125,7 @@ export type ReportData = {
     entries: { childName?: string; subject: string; description: string; minutes: number; type: string; estimated: boolean }[];
   }[];
   showChildColumn?: boolean;
+  backfillHours?: number;
 };
 
 export function generateProgressReport(doc: jsPDF, data: ReportData) {
@@ -201,9 +205,31 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
   doc.setFontSize(7);
   setColor(doc, C.light);
   txt(doc,"* Hours marked with an asterisk are estimated from default lesson time settings.", MX, y);
+  y += 0.15;
+
+  // Curriculum / Activity breakdown
+  if (data.summary.curriculumHours || data.summary.activityHours) {
+    doc.setFontSize(7);
+    setColor(doc, C.muted);
+    const parts: string[] = [];
+    if (data.summary.curriculumHours) parts.push(`Curriculum: ${data.summary.curriculumHours}`);
+    if (data.summary.activityHours) parts.push(`Activities: ${data.summary.activityHours}`);
+    txt(doc, parts.join("  |  "), MX, y);
+    y += 0.15;
+  }
+
+  // Pre-Rooted backfill note
+  if (data.backfillHours && data.backfillHours > 0) {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(7);
+    setColor(doc, C.muted);
+    txt(doc, `Includes ${fmtMins(data.backfillHours)} of pre-Rooted imported data.`, MX, y);
+    doc.setFont("helvetica", "normal");
+    y += 0.15;
+  }
 
   // ── Per-child sections ───────────────────────────────────────────────────
-  y += 0.5;
+  y += 0.35;
 
   for (const child of data.children) {
     // Check if we need a new page
@@ -252,6 +278,34 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
         txt(doc,sub.name, MX + 0.1, y + 0.17);
         txt(doc,String(sub.count), MX + 4.5, y + 0.17, { align: "right" });
         txt(doc,`${sub.hours}${sub.estimated ? "*" : ""}`, PW - MX - 0.1, y + 0.17, { align: "right" });
+        y += 0.22;
+      }
+      drawLine(doc, MX, y, PW - MX, y, C.border, 0.003);
+      y += 0.15;
+    }
+
+    // Activities table
+    if (child.activities && child.activities.length > 0) {
+      if (y > PH - 1.5) { if (!safeAddPage()) continue; y = MY; }
+      doc.setFontSize(7);
+      setColor(doc, C.muted);
+      txt(doc, "ACTIVITIES", MX, y + 0.1);
+      y += 0.2;
+      fillRect(doc, MX, y, CW_INNER, 0.25, C.headerBg);
+      doc.setFontSize(7);
+      setColor(doc, C.muted);
+      txt(doc, "ACTIVITY", MX + 0.1, y + 0.17);
+      txt(doc, "SESSIONS", MX + 4.5, y + 0.17, { align: "right" });
+      txt(doc, "HOURS", PW - MX - 0.1, y + 0.17, { align: "right" });
+      y += 0.25;
+      for (const act of child.activities) {
+        if (y > PH - 1) { if (!safeAddPage()) break; y = MY; }
+        drawLine(doc, MX, y, PW - MX, y, C.border, 0.003);
+        doc.setFontSize(9);
+        setColor(doc, C.dark);
+        txt(doc, `${safe(act.emoji)} ${act.name}`, MX + 0.1, y + 0.17);
+        txt(doc, String(act.sessions), MX + 4.5, y + 0.17, { align: "right" });
+        txt(doc, act.hours, PW - MX - 0.1, y + 0.17, { align: "right" });
         y += 0.22;
       }
       drawLine(doc, MX, y, PW - MX, y, C.border, 0.003);
