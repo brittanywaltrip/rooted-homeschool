@@ -33,14 +33,6 @@ const UPDATES = [
   },
   {
     date: "April 2026",
-    emoji: "🔐",
-    title: "Sign In with Google",
-    description:
-      "One tap to sign up or log in with your Google account. No more passwords to remember.",
-    inspiredByFamily: false,
-  },
-  {
-    date: "April 2026",
     emoji: "🌿",
     title: "Meet Rooted & Rooted+",
     description:
