@@ -18,6 +18,7 @@ import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import ListsSection from "@/app/components/ListsSection";
 import AppointmentsSection from "@/app/components/AppointmentsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
+import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 // PageHero removed — replaced by Book Cover Card
 
@@ -624,6 +625,7 @@ export default function TodayPage() {
   type ApptRow = { id: string; title: string; emoji: string; date: string; time: string | null; duration_minutes: number; location: string | null; child_ids: string[]; completed: boolean; instance_date: string };
   const [todayAppointments, setTodayAppointments] = useState<ApptRow[]>([]);
   const [showApptWizard, setShowApptWizard] = useState(false);
+  const [showManageSchedule, setShowManageSchedule] = useState(false);
 
   // Activities state
   const [todayActivities, setTodayActivities] = useState<TodayActivity[]>([]);
@@ -2320,7 +2322,12 @@ export default function TodayPage() {
           SCHEDULE — label + card
          ═══════════════════════════════════════════════════════════ */}
       {(hasAnyLessons || todayActivities.length > 0) && (
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] px-0.5 -mb-1">Today&apos;s Schedule</p>
+        <div className="flex items-center justify-between px-0.5 -mb-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">Today&apos;s Schedule</p>
+          <button type="button" onClick={() => setShowManageSchedule(true)} className="text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] transition-colors">
+            Manage
+          </button>
+        </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════
@@ -3456,6 +3463,15 @@ export default function TodayPage() {
         isOpen={showApptWizard}
         onClose={() => setShowApptWizard(false)}
         onSaved={loadData}
+      />
+
+      {/* ── Manage Schedule Modal ─────────────────────────── */}
+      <ManageScheduleModal
+        isOpen={showManageSchedule}
+        onClose={() => setShowManageSchedule(false)}
+        onAddAppt={() => setShowApptWizard(true)}
+        onChanged={loadData}
+        children={children}
       />
 
       {/* ── Extra lessons modal ────────────────────────────── */}
