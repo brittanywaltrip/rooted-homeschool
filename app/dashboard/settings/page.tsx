@@ -121,11 +121,24 @@ function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string 
 export default function SettingsPage() {
   const { refreshProfile } = useProfile();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<SettingsTab>(() =>
-    searchParams.get("section") === "children" ? "kids" : "family"
-  );
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+    const tab = searchParams.get("tab");
+    if (tab && ["family", "kids", "account", "partners"].includes(tab)) return tab as SettingsTab;
+    return searchParams.get("section") === "children" ? "kids" : "family";
+  });
 
   useEffect(() => { document.title = "Settings \u00b7 Rooted"; }, []);
+
+  // Auto-scroll to anchor on load (e.g., #family-sharing)
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash) {
+      setTimeout(() => {
+        const el = document.querySelector(hash);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 300);
+    }
+  }, []);
 
   // First / Last name
   const [firstName,      setFirstName]      = useState("");
@@ -224,7 +237,6 @@ export default function SettingsPage() {
   const [yearTransitioning, setYearTransitioning] = useState(false);
   const [yearError,        setYearError]        = useState("");
   const [yearSuccessToast, setYearSuccessToast] = useState(false);
-  const [schoolStartTime,  setSchoolStartTime]  = useState("");
 
   // Share with Family
   type FamilyInvite = {
@@ -271,7 +283,6 @@ export default function SettingsPage() {
     setSavedPartnerEmail(pe);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
     setHomeschoolState((profile as { state?: string } | null)?.state ?? "");
-    setSchoolStartTime((profile as { school_start_time?: string } | null)?.school_start_time ?? "");
     setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
     setCurrentPeriodEnd((profile as { current_period_end?: string } | null)?.current_period_end ?? null);
@@ -1387,7 +1398,7 @@ export default function SettingsPage() {
       </section>}
 
       {/* ── Share your journey ──────────────────────────────── */}
-      {activeTab === "family" && <section className="space-y-3">
+      {activeTab === "family" && <section id="family-sharing" className="space-y-3 scroll-mt-24">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-[#2d2926]">Share your journey 🌿</h2>
           <span className="h-px flex-1 bg-[#e8e2d9]" />
@@ -1572,53 +1583,6 @@ export default function SettingsPage() {
               })}
             </div>
           )}
-        </div>
-      </section>}
-
-      {/* ── School Start Time ───────────────────────────────── */}
-      {activeTab === "family" && <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-[#2d2926]">School Start Time</h2>
-          <span className="h-px flex-1 bg-[#e8e2d9]" />
-        </div>
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5">
-          <p className="text-xs text-[#7a6f65] mb-3">
-            Set a start time to see time slots next to your lessons on the Today page. Leave blank to hide times.
-          </p>
-          <div className="flex items-center gap-3">
-            <input
-              type="time"
-              value={schoolStartTime}
-              onChange={async (e) => {
-                const val = e.target.value || null;
-                setSchoolStartTime(val ?? "");
-                const token = (await supabase.auth.getSession()).data.session?.access_token ?? "";
-                fetch("/api/profile/update", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                  body: JSON.stringify({ school_start_time: val }),
-                });
-              }}
-              className="text-sm border border-[#e8e2d9] rounded-lg px-3 py-2 bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/30"
-            />
-            {schoolStartTime && (
-              <button
-                type="button"
-                onClick={async () => {
-                  setSchoolStartTime("");
-                  const token = (await supabase.auth.getSession()).data.session?.access_token ?? "";
-                  fetch("/api/profile/update", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ school_start_time: null }),
-                  });
-                }}
-                className="text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
-              >
-                Clear
-              </button>
-            )}
-          </div>
         </div>
       </section>}
 
