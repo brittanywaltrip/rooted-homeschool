@@ -30,7 +30,7 @@ export const ACTIVITY_BADGES: BadgeDef[] = [
   { id: "gallery_wall",      emoji: "🖼️", label: "Gallery Wall",      message: "3 drawings saved. You're building a gallery." },
   { id: "author",            emoji: "✍️", label: "Author",            message: "5 books logged. You're raising a reader." },
   { id: "full_circle",       emoji: "🔄", label: "Full Circle",       message: "A memory from one year ago. Look how far you've come." },
-  { id: "founding_family",   emoji: "⭐", label: "Founding Family",   message: "You believed in Rooted from the start. Thank you." },
+  { id: "founding_family",   emoji: "⭐", label: "Rooted+ Founding Family",   message: "You believed in Rooted from the start. Thank you." },
   { id: "rooted",            emoji: "🌳", label: "Rooted",            message: "One full year. Your roots run deep now." },
 ];
 

@@ -395,7 +395,7 @@ export default function ReportsPage() {
           href="/upgrade"
           className="block w-full text-center bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-medium py-3 rounded-xl transition-colors"
         >
-          Upgrade to download and print your log →
+          Upgrade to Rooted+ to download and print your log →
         </Link>
       )}
 

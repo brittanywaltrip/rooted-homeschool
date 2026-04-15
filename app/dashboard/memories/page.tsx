@@ -372,7 +372,7 @@ export default function MemoriesPage() {
     const shown: string[] = JSON.parse(localStorage.getItem("rooted_milestones_shown") || "[]");
     const milestones: { at: number; milestone: string; message: string; badgeEmoji: string }[] = [
       { at: 10, milestone: "10 memories captured", badgeEmoji: "\uD83C\uDF3F", message: "Your family\u2019s story is growing. Upgrade to keep every memory forever." },
-      { at: 25, milestone: "25 memories \u2014 you\u2019re really doing this", badgeEmoji: "\uD83C\uDF1F", message: "Most families never get this far. Lock in the founding price before it\u2019s gone." },
+      { at: 25, milestone: "25 memories \u2014 you\u2019re really doing this", badgeEmoji: "\uD83C\uDF1F", message: "Most families never get this far. Lock in Rooted+ Founding Family pricing before it\u2019s gone." },
       { at: 50, milestone: "50 memories. This is something special.", badgeEmoji: "\uD83C\uDF3B", message: "Half a hundred moments saved. Imagine looking back on these in ten years." },
     ];
     const hit = milestones.filter((m) => memories.length >= m.at && !shown.includes(String(m.at)));

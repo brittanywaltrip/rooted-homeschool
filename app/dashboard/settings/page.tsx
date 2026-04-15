@@ -1629,10 +1629,10 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-medium text-[#2d2926]">
                 {planType === 'founding_family'
-                  ? '🌱 Founding Family — $39/yr locked forever'
+                  ? '🌱 Rooted+ — $39/yr locked forever (Founding Family)'
                   : planType === 'standard'
-                  ? '🌿 Standard — $59/yr'
-                  : '🪴 Free Plan'}
+                  ? '🌿 Rooted+ — $59/yr'
+                  : '🪴 Rooted (Free)'}
               </p>
               {currentPeriodEnd && subscriptionStatus === 'active' && (
                 <p className="text-xs text-[#7a6f65] mt-1">
@@ -1661,7 +1661,7 @@ export default function SettingsPage() {
                 href="/upgrade"
                 className="shrink-0 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium transition-colors"
               >
-                Upgrade to Founding Family →
+                Get Rooted+ →
               </a>
             )}
           </div>

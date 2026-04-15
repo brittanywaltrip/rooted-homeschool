@@ -305,7 +305,7 @@ export default function FamilyUpdatePage() {
         </button>
       )}
       {!userIsPro && !usedThisMonth && (
-        <p className="text-[10px] text-[#b5aca4] text-center">Free plan: 1 update per month · <Link href="/upgrade" className="underline font-semibold text-[#5c7f63]">Claim Founding Price — $39/yr</Link></p>
+        <p className="text-[10px] text-[#b5aca4] text-center">Rooted: 1 update per month · <Link href="/upgrade" className="underline font-semibold text-[#5c7f63]">Get Rooted+ — $39/yr</Link></p>
       )}
 
       {genError && (
@@ -337,10 +337,10 @@ export default function FamilyUpdatePage() {
           className="block bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl px-5 py-4 hover:from-[#ddeade] hover:to-[#c5e0c8] transition-colors"
         >
           <p className="text-sm font-semibold text-[#2d2926] mb-1">
-            ✨ Upgrade to Founding Family to generate your update
+            ✨ Upgrade to Rooted+ to generate your update
           </p>
           <p className="text-xs text-[#5c7f63]">
-            $39/year, locked in forever. Unlimited AI updates, yearbook, and more.
+            Rooted+ · $39/year, locked in forever. Unlimited AI updates, yearbook, and more.
           </p>
         </Link>
       )}
