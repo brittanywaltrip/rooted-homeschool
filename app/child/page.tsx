@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -119,6 +119,8 @@ function BigTree({ stageIndex }: { stageIndex: number }) {
 
 export default function ChildPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const childParam = searchParams.get("child");
   const [children,   setChildren]   = useState<Child[]>([]);
   const [leafCounts, setLeafCounts] = useState<Record<string, number>>({});
   const [childIdx,   setChildIdx]   = useState(0);
@@ -161,6 +163,11 @@ export default function ChildPage() {
     });
 
     setChildren(kids ?? []);
+    // If URL has ?child=ID, select that child
+    if (childParam && kids) {
+      const idx = kids.findIndex((k: Child) => k.id === childParam);
+      if (idx >= 0) setChildIdx(idx);
+    }
     setLeafCounts(counts);
     setLoading(false);
   }, [router]);
@@ -218,41 +225,12 @@ export default function ChildPage() {
       {/* ── Top bar ──────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2 relative z-10">
         <button
-          onClick={() => router.push("/dashboard")}
+          onClick={() => router.push("/dashboard/garden")}
           className="flex items-center gap-1.5 bg-white/25 hover:bg-white/40 backdrop-blur-sm text-white font-semibold text-sm px-3 py-2 rounded-full transition-colors"
         >
           <ChevronLeft size={16} />
           Parent View
         </button>
-
-        {/* Child switcher */}
-        {children.length > 1 && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setChildIdx((i) => (i - 1 + children.length) % children.length)}
-              className="w-8 h-8 bg-white/25 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-colors"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <div className="flex gap-1.5">
-              {children.map((c, i) => (
-                <button
-                  key={c.id}
-                  onClick={() => setChildIdx(i)}
-                  className={`w-2.5 h-2.5 rounded-full transition-all ${
-                    i === childIdx ? "scale-125 bg-white" : "bg-white/50"
-                  }`}
-                />
-              ))}
-            </div>
-            <button
-              onClick={() => setChildIdx((i) => (i + 1) % children.length)}
-              className="w-8 h-8 bg-white/25 hover:bg-white/40 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-colors"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        )}
       </div>
 
       {/* ── Sun ──────────────────────────────────────────────── */}

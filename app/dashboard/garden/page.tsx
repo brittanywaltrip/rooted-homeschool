@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -372,6 +373,7 @@ const TIER_STYLES = {
 // ─── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function GardenPage() {
+  const router = useRouter();
   const { effectiveUserId } = usePartner();
   const [children, setChildren]         = useState<Child[]>([]);
   const [leafCounts, setLeafCounts]     = useState<Record<string, number>>({});
@@ -811,6 +813,37 @@ export default function GardenPage() {
         );
       })}
 
+      {/* ── Kid View Buttons ──────────────────────────────── */}
+      {children.length > 0 && (
+        <div className="flex flex-col gap-2.5">
+          {children.map((child) => (
+            <button
+              key={child.id}
+              onClick={() => router.push(`/child?child=${child.id}`)}
+              className="w-full flex items-center justify-between bg-white border border-[#e8e5e0] rounded-2xl px-5 py-4 hover:border-[#2D5A3D] hover:shadow-sm transition-all group"
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
+                  style={{ background: `${child.color || '#8B7E74'}22` }}
+                >
+                  {getGrowthStage(leafCounts[child.id] ?? 0).emoji}
+                </div>
+                <div className="text-left">
+                  <p className="text-[15px] font-bold text-[#2D2A26]">
+                    Show {child.name} Their Garden
+                  </p>
+                  <p className="text-[12px] text-[#8B7E74]">
+                    Open {child.name}&apos;s kid-friendly view
+                  </p>
+                </div>
+              </div>
+              <span className="text-[#8B7E74] group-hover:text-[#2D5A3D] text-lg transition-colors">&rarr;</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── How leaves are earned ─────────────────────────── */}
       <div className="text-center">
         <p className="text-[12px] font-medium text-[#5C5346] mb-1">How leaves are earned:</p>
@@ -818,6 +851,27 @@ export default function GardenPage() {
           Complete a lesson = 1 leaf · Log a book = 1 leaf · Capture a memory = 1 leaf · Complete an activity = 1 leaf
         </p>
       </div>
+
+      {/* ── Child Toggle Pills ────────────────────────────── */}
+      {children.length > 1 && (
+        <div className="flex justify-center">
+          <div className="inline-flex bg-white border border-[#e8e5e0] rounded-full p-1 gap-1">
+            {children.map((child) => (
+              <button
+                key={child.id}
+                onClick={() => setSelectedId(child.id)}
+                className={`px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all ${
+                  selectedId === child.id
+                    ? "bg-[#2D5A3D] text-white shadow-sm"
+                    : "text-[#8B7E74] hover:text-[#5C5346]"
+                }`}
+              >
+                {child.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Tree Growth Stages ───────────────────────────── */}
       {selectedChild && (
@@ -871,9 +925,10 @@ export default function GardenPage() {
       )}
 
       {/* ── Creative Badge Collection ──────────────────────── */}
+      {selectedChild && (
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
-          Badges
+        <p className="text-[13px] font-bold uppercase tracking-wide text-[#5C5346] mb-3 pl-1">
+          {selectedChild ? `${selectedChild.name}'s Badges` : "Badges"}
         </p>
         <div className="bg-white border border-[#e8e5e0] rounded-2xl p-4">
           {BADGE_CATEGORIES.filter(cat => !cat.conditional || booksCount > 0).map((cat, catIdx, filteredCats) => {
@@ -945,6 +1000,7 @@ export default function GardenPage() {
           })}
         </div>
       </div>
+      )}
 
       <div className="h-4" />
       </div>
