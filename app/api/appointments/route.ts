@@ -37,21 +37,37 @@ type AppointmentRow = {
 
 type ExpandedAppointment = AppointmentRow & { instance_date: string }
 
+function fmtDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function expandRecurring(
   appt: AppointmentRow,
   rangeStart: string,
   rangeEnd: string,
 ): ExpandedAppointment[] {
   const rule = appt.recurrence_rule
+
+  // No rule or no days: just return the appointment on its own date if in range
   if (!rule || !rule.days || rule.days.length === 0) {
-    return [{ ...appt, instance_date: appt.date }]
+    if (appt.date >= rangeStart && appt.date <= rangeEnd) {
+      return [{ ...appt, instance_date: appt.date }]
+    }
+    return []
   }
 
   const results: ExpandedAppointment[] = []
+  const addedDates = new Set<string>()
   const start = new Date(rangeStart + 'T00:00:00')
   const end = new Date(rangeEnd + 'T00:00:00')
   const ruleEnd = rule.end_date ? new Date(rule.end_date + 'T00:00:00') : null
   const apptStart = new Date(appt.date + 'T00:00:00')
+
+  // Always include the appointment's own start date if it falls within the range
+  if (appt.date >= rangeStart && appt.date <= rangeEnd && (!ruleEnd || apptStart <= ruleEnd)) {
+    results.push({ ...appt, instance_date: appt.date })
+    addedDates.add(appt.date)
+  }
 
   // For biweekly: determine the reference week from the appointment's start date
   const biweeklyRef = Math.floor(apptStart.getTime() / (7 * 86400000))
@@ -69,13 +85,11 @@ function expandRecurring(
         const cursorWeek = Math.floor(cursor.getTime() / (7 * 86400000))
         include = (cursorWeek - biweeklyRef) % 2 === 0
       } else if (rule.frequency === 'monthly') {
-        // Monthly on specific day-of-week: only first occurrence in month
         const firstOfMonth = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
         let count = 0
         for (let d = new Date(firstOfMonth); d <= cursor; d.setDate(d.getDate() + 1)) {
           if (d.getDay() === dow) count++
         }
-        // Match same week-of-month as the original appointment
         const origFirstOfMonth = new Date(apptStart.getFullYear(), apptStart.getMonth(), 1)
         let origCount = 0
         for (let d = new Date(origFirstOfMonth); d <= apptStart; d.setDate(d.getDate() + 1)) {
@@ -85,8 +99,11 @@ function expandRecurring(
       }
 
       if (include) {
-        const dateStr = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
-        results.push({ ...appt, instance_date: dateStr })
+        const ds = fmtDate(cursor)
+        if (!addedDates.has(ds)) {
+          results.push({ ...appt, instance_date: ds })
+          addedDates.add(ds)
+        }
       }
     }
     cursor.setDate(cursor.getDate() + 1)

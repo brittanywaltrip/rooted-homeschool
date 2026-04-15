@@ -75,12 +75,13 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
     const token = session.access_token;
     setLoading(true);
 
-    const [recurRes, upcomingRes, pastRes, actRes] = await Promise.all([
-      // Recurring appointments (all, not date-filtered)
-      fetch("/api/appointments?date=" + todayStr(), { headers: { Authorization: `Bearer ${token}` } }),
-      // Upcoming 14 days
+    const [upcomingRes, recurringRes, pastRes, actRes] = await Promise.all([
+      // Upcoming 30 days (default — no date param)
       fetch("/api/appointments", { headers: { Authorization: `Bearer ${token}` } }),
-      // Past: we need a custom approach — fetch completed
+      // All recurring appointments (direct query, not expanded)
+      supabase.from("appointments").select("*").eq("user_id", user.id).eq("is_recurring", true)
+        .order("created_at", { ascending: false }),
+      // Past: completed in last 7 days
       supabase.from("appointments").select("*").eq("user_id", user.id).eq("completed", true)
         .gte("date", dateStr(-7)).order("date", { ascending: false }),
       // Recurring activities
@@ -88,21 +89,12 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
         .eq("user_id", user.id).eq("is_active", true),
     ]);
 
-    // Recurring: filter to is_recurring from all fetched appointments
-    if (recurRes.ok) {
-      const all: Appointment[] = await recurRes.json();
-      // Dedupe recurring by id (expanded instances share same id)
-      const seen = new Set<string>();
-      const rec: Appointment[] = [];
-      for (const a of all) {
-        if (a.is_recurring && !seen.has(a.id)) { seen.add(a.id); rec.push(a); }
-      }
-      setRecurringAppts(rec);
-    }
+    // Recurring: direct from DB (not expanded)
+    setRecurringAppts((recurringRes.data ?? []) as Appointment[]);
 
     if (upcomingRes.ok) {
       const all: Appointment[] = await upcomingRes.json();
-      setUpcomingAppts(all.filter(a => !a.is_recurring && !a.completed));
+      setUpcomingAppts(all.filter(a => !a.completed));
     }
 
     setPastAppts((pastRes.data ?? []) as Appointment[]);

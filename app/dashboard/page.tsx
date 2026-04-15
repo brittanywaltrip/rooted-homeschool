@@ -2324,8 +2324,8 @@ export default function TodayPage() {
       {(hasAnyLessons || todayActivities.length > 0) && (
         <div className="flex items-center justify-between px-0.5 -mb-1">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">Today&apos;s Schedule</p>
-          <button type="button" onClick={() => setShowManageSchedule(true)} className="text-[11px] font-medium text-[#b5aca4] hover:text-[#7a6f65] transition-colors">
-            Manage
+          <button type="button" onClick={() => setShowManageSchedule(true)} className="flex items-center gap-1 text-[11px] font-medium text-white rounded-full px-3 py-1 transition-opacity hover:opacity-80" style={{ background: "#7C3AED" }}>
+            📅 Manage
           </button>
         </div>
       )}
