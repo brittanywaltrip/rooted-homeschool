@@ -5,7 +5,6 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
-import PageHero from "@/app/components/PageHero";
 import YearbookBookmark from "@/app/components/YearbookBookmark";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -284,161 +283,172 @@ export default function YearbookPage() {
 
   return (
     <>
-      <PageHero
-        overline={`${yearLabel} School Year`}
-        title={`Your ${yearLabel} Yearbook 📖`}
-        subtitle={memories.length === 0
-          ? "Your pages are waiting"
-          : `${memories.length} memor${memories.length === 1 ? "y" : "ies"} curated`}
-      >
-        <Link
-          href="/dashboard/memories/yearbook/read"
-          className={`mt-4 block w-full text-center text-[15px] font-semibold px-5 py-3.5 rounded-xl ${
-            memories.length === 0
-              ? "opacity-50 pointer-events-none bg-white/80 text-[var(--g-deep)]"
-              : "bg-white text-[var(--g-deep)] active:scale-[0.98] transition-transform"
-          }`}
-        >
-          📖 Read Your Yearbook
-        </Link>
-      </PageHero>
-
-      <div className="max-w-3xl mx-auto px-4 pt-5 pb-20">
-
-        {/* ── Edit link ────────────────────────────────────────── */}
-        <div className="flex justify-end mb-4">
-          <Link
-            href="/dashboard/memories/yearbook/edit"
-            className="relative text-[13px] font-medium text-[var(--g-deep)] underline underline-offset-2"
-          >
-            ✏️ Edit memories
-            {progressPct < 100 && (
-              <span className="ml-1.5 inline-block w-2 h-2 rounded-full bg-[rgba(254, 252, 249, 0.55)] align-middle" />
-            )}
-          </Link>
+      {/* ── Warm Hero ──────────────────────────────────────── */}
+      <div className="relative overflow-hidden border-b border-[#e4ddd0]"
+        style={{ background: "linear-gradient(160deg, #faf6ef 0%, #f3ece0 50%, #ece4d4 100%)" }}>
+        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-100"
+          style={{ background: "radial-gradient(circle, rgba(196,150,42,0.08) 0%, transparent 70%)" }} />
+        <div className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full opacity-100"
+          style={{ background: "radial-gradient(circle, rgba(45,90,61,0.06) 0%, transparent 70%)" }} />
+        <div className="relative z-10 text-center px-7 pt-9 pb-8">
+          <p className="text-[12px] text-[#a89a88] font-medium mb-3">
+            <Link href="/dashboard/memories" className="text-[#8B7E74] hover:underline">Memories</Link>
+            {" \u203A "}Yearbook
+          </p>
+          <span className="text-[48px] block mb-2.5" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.08))" }}>📖</span>
+          <h1 className="text-[28px] font-bold text-[#2D2A26] tracking-tight" style={{ fontFamily: "var(--font-display)" }}>
+            Your Family Yearbook
+          </h1>
+          <p className="text-[14px] font-semibold text-[#C4962A] tracking-wide uppercase mt-1.5">
+            {yearLabel}
+          </p>
+          <p className="text-[16px] text-[#7a6f65] italic mt-3" style={{ fontFamily: "var(--font-display)" }}>
+            Your year, beautifully remembered.
+          </p>
         </div>
+      </div>
 
-        {/* ── Cover card ──────────────────────────────────────── */}
-        <div className="rounded-2xl overflow-hidden border border-[#c0dd97]" style={{ background: "#faf6f0" }}>
-          {/* Top strip */}
-          <div className="relative overflow-hidden px-4 py-3" style={{ background: "var(--g-deep)" }}>
-            <span className="absolute top-1 right-2 text-[72px] leading-none opacity-[0.06] select-none pointer-events-none">🌿</span>
-            <span className="absolute -bottom-2 left-1 text-[56px] leading-none opacity-[0.05] select-none pointer-events-none">🌱</span>
-            <div className="relative z-10 flex items-start justify-between">
-              <div>
-                <p className="text-[18px] font-bold text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>
-                  {familyName}
-                </p>
-                <p className="text-[10px] text-[rgba(254, 252, 249, 0.55)] uppercase tracking-wider mt-0.5">
-                  {yearLabel} school year
-                </p>
-              </div>
-              <span className="bg-white/[0.12] text-[9px] text-[#c8e6c4] px-3 py-1 rounded-full mt-1">
-                {memories.length} memories
-              </span>
-            </div>
+      <div className="max-w-[680px] mx-auto px-5 pb-20">
+
+        {/* ── Value Card + CTA ─────────────────────────────── */}
+        <div className="mt-7">
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-7 text-center shadow-[0_1px_4px_rgba(0,0,0,0.03)]">
+            <p className="text-[14px] text-[#7a6f65] leading-relaxed max-w-[480px] mx-auto mb-5">
+              As you capture memories throughout the year, Rooted automatically turns them into a beautiful digital yearbook. Add personal touches like letters and quotes, or just let your photos and wins tell the story.
+            </p>
+            <Link
+              href="/dashboard/memories/yearbook/read"
+              className={`inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-[16px] font-bold transition-all ${
+                memories.length === 0
+                  ? "opacity-50 pointer-events-none bg-[#e8e5e0] text-[#7a6f65]"
+                  : "text-white shadow-[0_3px_12px_rgba(196,150,42,0.25)] hover:-translate-y-0.5 hover:shadow-[0_5px_20px_rgba(196,150,42,0.35)]"
+              }`}
+              style={memories.length > 0 ? { background: "linear-gradient(135deg, #C4962A, #b8882a)" } : {}}
+            >
+              Open Your Yearbook &rarr;
+            </Link>
+            <Link
+              href="/dashboard/memories/yearbook/edit"
+              className="inline-flex items-center gap-1.5 ml-3 px-5 py-2.5 rounded-lg text-[13px] font-semibold text-[#8B7E74] border-[1.5px] border-[#ddd6cc] hover:border-[#b0a89e] hover:text-[#5c5248] transition-all"
+            >
+              ✏️ Edit Memories
+            </Link>
           </div>
 
-          {/* Bottom strip — stats */}
-          <div className="px-4 py-3 flex items-center justify-between">
+          {/* ── Stats Bar ──────────────────────────────────── */}
+          <div className="flex mt-7 bg-[#faf8f4] border border-[#ece7de] rounded-xl p-3.5">
             {[
+              { label: "Memories", count: memories.length },
               { label: "Photos", count: photoCount },
               { label: "Books", count: bookCount },
               { label: "Wins", count: winCount },
               { label: "Quotes", count: quoteCount },
             ].map((stat, i) => (
-              <div key={stat.label} className="flex-1 text-center relative">
-                {i > 0 && <div className="absolute left-0 top-1 bottom-1 w-px bg-[#e8e2d9]" />}
-                <p className="text-[18px] font-bold text-[var(--g-deep)]">{stat.count}</p>
-                <p className="text-[10px] text-[#9a8f85]">{stat.label}</p>
+              <div key={stat.label} className="flex-1 text-center relative py-1">
+                {i > 0 && <div className="absolute left-0 top-1 bottom-1 w-px bg-[#e4ddd2]" />}
+                <p className="text-[22px] font-extrabold text-[#2D5A3D] leading-none mb-0.5">{stat.count}</p>
+                <p className="text-[11px] font-medium text-[#a89a88] uppercase tracking-wide">{stat.label}</p>
               </div>
             ))}
           </div>
         </div>
 
-        {/* ── Progress bar ────────────────────────────────────── */}
-        <div className="mt-4">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] text-[#9a8f85]">Pages filling up</span>
-            <span className="text-[11px] text-[#9a8f85]">{filledCount} of {totalCount} sections complete</span>
-          </div>
-          <div className="h-[5px] bg-[#e8e3dc] rounded-full overflow-hidden">
-            <div
-              className="h-full bg-[var(--g-deep)] rounded-full transition-all duration-500"
-              style={{ width: `${progressPct}%` }}
-            />
+        {/* ── Features List ────────────────────────────────── */}
+        <div className="mt-7">
+          <h2 className="text-[16px] font-bold text-[#2D2A26] mb-3.5">What your yearbook includes</h2>
+          <div className="grid grid-cols-2 gap-2.5">
+            {[
+              { icon: "📅", name: "Month-by-month timeline", desc: "Memories auto-organized into monthly chapters" },
+              { icon: "👨‍👩‍👧‍👦", name: "Family cover page", desc: "A dedicated page for your family\u2019s story" },
+              { icon: "📸", name: "Photos & drawings", desc: "Every image beautifully laid out" },
+              { icon: "🏆", name: "Wins & milestones", desc: "The breakthroughs you don\u2019t want to forget" },
+              { icon: "📚", name: "Books read", desc: "A full reading log for the year" },
+              { icon: "🗺️", name: "Field trips & adventures", desc: "The places you explored together" },
+              { icon: "🗣️", name: "Quotes & funny moments", desc: "The things they said that made you laugh" },
+              { icon: "💌", name: "Letter to your kids", desc: "A personal note to close out the year" },
+            ].map((f) => (
+              <div key={f.name} className="flex items-start gap-2.5 p-3.5 bg-white border border-[#ece7de] rounded-xl">
+                <div className="w-[34px] h-[34px] rounded-[10px] bg-[#f4f2ee] flex items-center justify-center text-[16px] shrink-0">
+                  {f.icon}
+                </div>
+                <div>
+                  <p className="text-[13px] font-semibold text-[#2D2A26] leading-tight">{f.name}</p>
+                  <p className="text-[11px] text-[#a89a88] mt-0.5 leading-snug">{f.desc}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* ── Empty state ─────────────────────────────────────── */}
-        {memories.length === 0 && (
-          <div className="mt-6">
-            <div className="bg-[#fefcf9] border border-[#e8e0d9] rounded-2xl p-6 text-center">
-              <span className="text-4xl block mb-3">🔖</span>
-              <h3 className="text-base font-bold text-[#2d2926] mb-2" style={{ fontFamily: "var(--font-display)" }}>
-                Your yearbook starts here
-              </h3>
-              <p className="text-sm text-[#7a6f65] leading-relaxed max-w-sm mx-auto mb-5">
-                Tap the bookmark on any memory to add it. Wins, books, and quotes are added automatically — photos need a tap.
-              </p>
-              <Link
-                href="/dashboard/memories"
-                className="inline-block text-sm font-medium text-[var(--g-deep)] border border-[var(--g-deep)] rounded-xl px-5 py-2.5 hover:bg-[#f0ede8] transition-colors"
-              >
-                ← Back to Memories
-              </Link>
+        {/* ── Pricing / Member Banner ──────────────────────── */}
+        {isPro ? (
+          <div className="mt-8 flex items-center gap-3.5 rounded-2xl border-[1.5px] border-[#c0dcc6]"
+            style={{ background: "linear-gradient(135deg, #f0f7f2, #e6f2e9)", padding: "18px 24px" }}>
+            <div className="w-11 h-11 bg-white rounded-xl flex items-center justify-center text-[22px] shadow-[0_1px_4px_rgba(0,0,0,0.06)] shrink-0">
+              🌿
             </div>
+            <div className="flex-1">
+              <p className="text-[14px] font-bold text-[#2D5A3D]">Founding Family Member</p>
+              <p className="text-[12px] text-[#5c7f63] leading-snug">Unlimited memories in your yearbook — locked in at $39/year</p>
+            </div>
+            <span className="px-3 py-1.5 bg-[#2D5A3D] text-white text-[11px] font-bold rounded-lg tracking-wide shrink-0">
+              Rooted+
+            </span>
+          </div>
+        ) : (
+          <div className="mt-8 rounded-2xl border-[1.5px] border-[#e4ddd0] p-6 text-center relative overflow-hidden"
+            style={{ background: "linear-gradient(135deg, #fdfbf7, #f7f0e4)" }}>
+            <div className="absolute -top-5 -right-5 w-24 h-24 rounded-full"
+              style={{ background: "radial-gradient(circle, rgba(196,150,42,0.1) 0%, transparent 70%)" }} />
+            <p className="text-[11px] font-bold uppercase tracking-[1.2px] text-[#C4962A] mb-2.5 relative z-10">
+              Yearbook Access
+            </p>
+            <div className="grid grid-cols-2 gap-3 mb-[18px] relative z-10">
+              <div className="bg-white border border-[#e8e5e0] rounded-xl p-4 text-center">
+                <p className="text-[12px] font-bold uppercase tracking-wide text-[#8B7E74] mb-1.5">Rooted</p>
+                <p className="text-[14px] font-semibold text-[#5c5248] leading-snug">Up to 50 memories in your yearbook</p>
+                <p className="text-[11px] text-[#a89a88] mt-1">Free forever</p>
+              </div>
+              <div className="rounded-xl p-4 text-center text-white"
+                style={{ background: "linear-gradient(135deg, #2D5A3D, #3a7050)" }}>
+                <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-1.5">Rooted+</p>
+                <p className="text-[14px] font-semibold text-white leading-snug">Unlimited memories</p>
+                <p className="text-[11px] text-white/65 mt-1">Your complete year, beautifully preserved</p>
+              </div>
+            </div>
+            <a
+              href="/dashboard/pricing"
+              className="relative z-10 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-[10px] text-[13px] font-bold text-white shadow-[0_2px_8px_rgba(196,150,42,0.2)] hover:-translate-y-0.5 transition-all"
+              style={{ background: "#C4962A" }}
+            >
+              Lock in Founding Family pricing — $39/year &rarr;
+            </a>
+            <p className="text-[11px] text-[#a89a88] mt-2 relative z-10">
+              Price goes to <strong className="text-[#C4962A] font-bold">$59/year</strong> on May 1st
+            </p>
           </div>
         )}
 
-        {/* ── Chapter grid ────────────────────────────────────── */}
-        {memories.length > 0 && (
-          <div className="space-y-8 mt-6">
-            {/* Family chapter */}
-            {familyMemories.length > 0 && (
-              <Chapter title="Our Family" mems={familyMemories} />
-            )}
+        {/* ── Bottom CTA ───────────────────────────────────── */}
+        <div className="text-center pt-9">
+          <p className="text-[14px] text-[#8B7E74] italic mb-4">
+            You&apos;re building something beautiful. Keep capturing — your yearbook grows with every memory.
+          </p>
+          <Link
+            href="/dashboard/memories/yearbook/read"
+            className={`inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-[16px] font-bold transition-all ${
+              memories.length === 0
+                ? "opacity-50 pointer-events-none bg-[#e8e5e0] text-[#7a6f65]"
+                : "text-white shadow-[0_3px_12px_rgba(196,150,42,0.25)] hover:-translate-y-0.5 hover:shadow-[0_5px_20px_rgba(196,150,42,0.35)]"
+            }`}
+            style={memories.length > 0 ? { background: "linear-gradient(135deg, #C4962A, #b8882a)" } : {}}
+          >
+            Open Your Yearbook &rarr;
+          </Link>
+        </div>
 
-            {/* Per-child chapters */}
-            {childChapters.map(({ child, mems }) => (
-              mems.length > 0 ? (
-                <Chapter
-                  key={child.id}
-                  title={`${child.name}\u2019s Year`}
-                  color={child.color ?? "#5c7f63"}
-                  mems={mems}
-                />
-              ) : (
-                <div key={child.id} className="bg-[#faf8f3] rounded-xl p-4 border border-dashed border-[#d4cfc8]">
-                  <p className="text-[12px] text-[#9a8f85] italic">
-                    {child.name}&apos;s chapter is empty — log a win, quote, or book for{" "}
-                    {child.name} and it&apos;ll appear here automatically.
-                  </p>
-                </div>
-              )
-            ))}
-
-            {/* ── Print CTA ───────────────────────────────────── */}
-            <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border border-[#b8d9bc] rounded-2xl p-6 text-center">
-              <p className="text-lg font-bold text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
-                Ready to print? 📚
-              </p>
-              <p className="text-sm text-[var(--g-deep)] mb-4 max-w-sm mx-auto">
-                Your memories are beautifully arranged and ready to become a keepsake.
-              </p>
-              <button
-                disabled
-                className="inline-flex items-center gap-1.5 bg-[#5c7f63] text-white text-sm font-semibold px-6 py-3 rounded-xl shadow-sm opacity-50 cursor-not-allowed"
-              >
-                🖨️ Print Yearbook · Coming Soon
-              </button>
-              <p className="text-xs text-[#7a6f65] mt-2">Print orders coming soon — we&apos;re working on something beautiful.</p>
-            </div>
-          </div>
-        )}
-
-        {/* ── Archived yearbooks note ─────────────────────────── */}
-        <p className="text-[11px] text-center text-[#b5aca4] py-2">
+        {/* ── Archived yearbooks note ─────────────────────── */}
+        <p className="text-[11px] text-center text-[#b5aca4] pt-6 pb-2">
           📖 Your archived yearbooks are yours forever — always readable, even if your plan changes.
         </p>
       </div>
