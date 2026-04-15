@@ -950,45 +950,62 @@ export default function GardenPage() {
                         : earnedTieredBadgeKeys.has(`${cat.id}_${cat.tiers[tIdx - 1].tier}`);
                     const isNext = !isEarned && prevEarned;
 
+                    // ── Duolingo-style visual states ──
                     const tierBg = isEarned
-                      ? t.tier === "gold" ? "radial-gradient(circle, #fff8e1, #ffd54f)"
-                        : t.tier === "silver" ? "radial-gradient(circle, #f5f5f5, #d8d8d8)"
-                        : "radial-gradient(circle, #f5e6d3, #e8cfa8)"
-                      : "#f0ede8";
+                      ? t.tier === "gold" ? "radial-gradient(circle, #fff8e1 0%, #ffe082 50%, #ffd54f 100%)"
+                        : t.tier === "silver" ? "radial-gradient(circle, #fafafa 0%, #e8e8e8 50%, #d0d0d0 100%)"
+                        : "radial-gradient(circle, #fdf0e0 0%, #f0d8b8 50%, #e8c8a0 100%)"
+                      : isNext ? "#f0ede8" : "#f5f3f0";
                     const tierBorder = isEarned
-                      ? t.tier === "gold" ? "2px solid #C4962A"
-                        : t.tier === "silver" ? "2px solid #b0b0b0"
-                        : "2px solid #c4944a"
-                      : isNext ? "1.5px dashed #2D5A3D" : "1.5px dashed #d5d0ca";
+                      ? t.tier === "gold" ? "2.5px solid #C4962A"
+                        : t.tier === "silver" ? "2.5px solid #a0a0a0"
+                        : "2.5px solid #c4944a"
+                      : isNext ? "2.5px solid #2D5A3D" : "2px solid #e8e5e0";
                     const tierShadow = isEarned
-                      ? t.tier === "gold" ? "0 3px 12px rgba(196,150,42,0.35)"
-                        : t.tier === "silver" ? "0 2px 8px rgba(176,176,176,0.25)"
-                        : "0 2px 8px rgba(196,148,74,0.25)"
-                      : "none";
+                      ? t.tier === "gold" ? "0 4px 16px rgba(196,150,42,0.4), inset 0 1px 2px rgba(255,255,255,0.5)"
+                        : t.tier === "silver" ? "0 3px 12px rgba(160,160,160,0.3), inset 0 1px 2px rgba(255,255,255,0.4)"
+                        : "0 3px 12px rgba(196,148,74,0.3), inset 0 1px 2px rgba(255,255,255,0.4)"
+                      : isNext ? "0 2px 8px rgba(45,90,61,0.15)" : "none";
 
                     return (
                       <div key={t.tier} className="flex flex-col items-center" style={{ width: 76 }}>
                         <div
                           className="relative flex items-center justify-center rounded-2xl"
                           style={{
-                            width: 60, height: 60, background: tierBg,
+                            width: 64, height: 64, background: tierBg,
                             border: tierBorder, boxShadow: tierShadow,
+                            transform: isEarned ? "scale(1)" : "scale(0.95)",
+                            transition: "transform 0.2s, box-shadow 0.2s",
                           }}
                         >
-                          <span style={{ fontSize: 28, opacity: isEarned ? 1 : isNext ? 0.6 : 0.3, userSelect: "none" }}>
+                          <span style={{
+                            fontSize: 30,
+                            opacity: isEarned ? 1 : isNext ? 0.5 : 0.2,
+                            userSelect: "none",
+                            filter: !isEarned && !isNext ? "grayscale(100%)" : "none",
+                          }}>
                             {t.emoji}
                           </span>
-                          {!isEarned && !isNext && (
-                            <span className="absolute bottom-1 right-1 text-[9px]">🔒</span>
+                          {isEarned && (
+                            <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#2D5A3D] rounded-full flex items-center justify-center shadow-sm">
+                              <span className="text-white text-[10px] font-bold">{"\u2713"}</span>
+                            </span>
                           )}
                           {isNext && (
-                            <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#2D5A3D] rounded-full animate-pulse" />
+                            <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-[#2D5A3D] text-white text-[8px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap shadow-sm">
+                              NEXT
+                            </span>
+                          )}
+                          {!isEarned && !isNext && (
+                            <span className="absolute bottom-1 right-1 text-[10px] opacity-40">🔒</span>
                           )}
                         </div>
-                        <span className={`text-[11px] font-medium text-center leading-tight mt-1.5 ${isEarned ? "text-[#2D2A26]" : "text-[#b5aca4]"}`}>
+                        <span className={`text-[11px] font-semibold text-center leading-tight mt-2 ${
+                          isEarned ? "text-[#2D2A26]" : isNext ? "text-[#2D5A3D]" : "text-[#c0b8b0]"
+                        }`}>
                           {t.name}
                         </span>
-                        <span className="text-[10px] text-[#8B7E74] text-center">
+                        <span className={`text-[10px] text-center ${isEarned ? "text-[#8B7E74]" : "text-[#d0c8c0]"}`}>
                           {t.threshold === -1 ? t.unit : `${t.threshold} ${t.unit}`}
                         </span>
                       </div>
