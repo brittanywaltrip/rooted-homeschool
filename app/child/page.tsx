@@ -51,6 +51,11 @@ function ChildPageInner() {
   const [showCelebration, setShowCelebration] = useState(false);
   const [celebrationData, setCelebrationData] = useState({ emoji: "", title: "", sub: "" });
   const [treeShaking, setTreeShaking] = useState(false);
+  const [namePop, setNamePop] = useState(false);
+  const [pillPop, setPillPop] = useState(false);
+  const [leafPop, setLeafPop] = useState(false);
+  const [streakPop, setStreakPop] = useState(false);
+  const [progressFlash, setProgressFlash] = useState(false);
 
   // Personalized cheers
   const child = children[childIdx];
@@ -200,7 +205,33 @@ function ChildPageInner() {
 
   function handleTreeTap() {
     setTreeShaking(true);
+    fireConfetti();
     setTimeout(() => setTreeShaking(false), 700);
+  }
+
+  function handleNameTap() {
+    setNamePop(true);
+    setTimeout(() => setNamePop(false), 600);
+  }
+
+  function handlePillTap() {
+    setPillPop(true);
+    setTimeout(() => setPillPop(false), 500);
+  }
+
+  function handleLeafTap() {
+    setLeafPop(true);
+    setTimeout(() => setLeafPop(false), 600);
+  }
+
+  function handleStreakTap() {
+    setStreakPop(true);
+    setTimeout(() => setStreakPop(false), 500);
+  }
+
+  function handleProgressTap() {
+    setProgressFlash(true);
+    setTimeout(() => setProgressFlash(false), 600);
   }
 
   if (loading) {
@@ -275,12 +306,12 @@ function ChildPageInner() {
       <div className="absolute top-8 right-6 sun-glow z-10" style={{ width: 72, height: 72 }}>
         <svg viewBox="0 0 72 72" className="w-full h-full">
           <g className="sun-rays-spin" style={{ transformOrigin: "36px 36px" }}>
-            {[0, 45, 90, 135].map((a) => (
+            {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
               <line key={a} x1="36" y1="8" x2="36" y2="2" stroke="#ffc93d" strokeWidth="3"
                 strokeLinecap="round" transform={`rotate(${a} 36 36)`} />
             ))}
-            {[22.5, 67.5, 112.5, 157.5].map((a) => (
-              <line key={a} x1="36" y1="10" x2="36" y2="4" stroke="#ffd86b" strokeWidth="2"
+            {[22.5, 67.5, 112.5, 157.5, 202.5, 247.5, 292.5, 337.5].map((a) => (
+              <line key={a} x1="36" y1="10" x2="36" y2="5" stroke="#ffd86b" strokeWidth="2"
                 strokeLinecap="round" transform={`rotate(${a} 36 36)`} />
             ))}
           </g>
@@ -345,8 +376,9 @@ function ChildPageInner() {
 
         {/* Child name */}
         <div
-          className="text-5xl font-black text-white drop-shadow-lg mb-1 text-center tracking-tight cursor-pointer select-none active:scale-110 transition-transform"
+          className={`text-5xl font-black text-white drop-shadow-lg mb-1 text-center tracking-tight cursor-pointer select-none transition-transform ${namePop ? "animate-[kidview-wiggle_0.5s_ease-in-out]" : ""}`}
           style={{ textShadow: "0 4px 16px rgba(0,0,0,0.2)" }}
+          onClick={handleNameTap}
         >
           {childName}
           {child?.birthday && (() => {
@@ -358,8 +390,9 @@ function ChildPageInner() {
 
         {/* Stage pill */}
         <div
-          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-black text-xl shadow-lg mb-2 cursor-pointer select-none active:scale-105 transition-transform"
+          className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-black text-xl shadow-lg mb-2 cursor-pointer select-none transition-transform ${pillPop ? "animate-[kidview-pop_0.4s_cubic-bezier(0.34,1.56,0.64,1)]" : ""}`}
           style={{ backgroundColor: childColor, color: "white" }}
+          onClick={handlePillTap}
         >
           <span>{stage.emoji}</span>
           <span>{stage.name}</span>
@@ -386,15 +419,16 @@ function ChildPageInner() {
 
         {/* Leaf count */}
         <div
-          className="flex items-center gap-2 px-5 py-2.5 rounded-full shadow-xl font-black text-white text-xl mt-2 cursor-pointer select-none active:scale-105 transition-transform"
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-full shadow-xl font-black text-white text-xl mt-2 cursor-pointer select-none transition-transform ${leafPop ? "animate-[kidview-jiggle_0.5s_ease-in-out]" : ""}`}
           style={{ backgroundColor: childColor }}
+          onClick={handleLeafTap}
         >
           🍃 {leaves} {leaves === 1 ? "leaf" : "leaves"}
         </div>
 
         {/* Progress to next stage */}
         {nextStage && (
-          <div className="mt-5 w-full max-w-xs cursor-pointer select-none">
+          <div className={`mt-5 w-full max-w-xs cursor-pointer select-none ${progressFlash ? "animate-[kidview-flash_0.5s_ease-out]" : ""}`} onClick={handleProgressTap}>
             <div className="flex justify-between text-xs font-bold text-white/85 mb-1.5 px-1">
               <span>{stage.emoji} {stage.name}</span>
               <span>{nextStage.min - leaves} more to {nextStage.name}</span>
@@ -414,7 +448,7 @@ function ChildPageInner() {
         )}
 
         {/* Streak */}
-        <div className="mt-5 flex items-center gap-3 bg-white/20 backdrop-blur-sm px-5 py-3 rounded-2xl cursor-pointer select-none active:scale-105 transition-transform">
+        <div className={`mt-5 flex items-center gap-3 bg-white/20 backdrop-blur-sm px-5 py-3 rounded-2xl cursor-pointer select-none transition-transform ${streakPop ? "animate-[kidview-bounce_0.4s_cubic-bezier(0.34,1.56,0.64,1)]" : ""}`} onClick={handleStreakTap}>
           <span className="text-3xl" style={{ animation: "kidview-fire 0.5s ease-in-out infinite alternate" }}>🔥</span>
           <div>
             <div className="text-white font-extrabold text-base" style={{ textShadow: "0 2px 6px rgba(0,0,0,0.15)" }}>
@@ -599,6 +633,46 @@ function ChildPageInner() {
         @keyframes kidview-cardpop {
           0% { transform: scale(0.7); opacity: 0; }
           100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes kidview-wiggle {
+          0%, 100% { transform: rotate(0deg) scale(1); }
+          15% { transform: rotate(-6deg) scale(1.05); }
+          30% { transform: rotate(5deg) scale(1.08); }
+          45% { transform: rotate(-4deg) scale(1.06); }
+          60% { transform: rotate(3deg) scale(1.04); }
+          80% { transform: rotate(-1deg) scale(1.02); }
+        }
+        @keyframes kidview-pop {
+          0% { transform: scale(1); }
+          40% { transform: scale(1.15); }
+          70% { transform: scale(0.95); }
+          100% { transform: scale(1); }
+        }
+        @keyframes kidview-jiggle {
+          0%, 100% { transform: translateX(0) rotate(0deg); }
+          20% { transform: translateX(-4px) rotate(-2deg); }
+          40% { transform: translateX(4px) rotate(2deg); }
+          60% { transform: translateX(-3px) rotate(-1deg); }
+          80% { transform: translateX(2px) rotate(1deg); }
+        }
+        @keyframes kidview-bounce {
+          0% { transform: scale(1); }
+          30% { transform: scale(1.12); }
+          50% { transform: scale(0.96); }
+          70% { transform: scale(1.04); }
+          100% { transform: scale(1); }
+        }
+        @keyframes kidview-flash {
+          0% { filter: brightness(1); }
+          30% { filter: brightness(1.4); }
+          100% { filter: brightness(1); }
+        }
+        .sun-rays-spin {
+          animation: kidview-sun-spin 12s linear infinite;
+        }
+        @keyframes kidview-sun-spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
       `}</style>
     </div>
