@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Plus, Send, Trash2, ChevronDown } from "lucide-react";
 import NewListModal from "./NewListModal";
 
@@ -18,46 +18,50 @@ interface Props {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ListsSection({ lists, onListsChanged, getToken }: Props) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [items, setItems] = useState<ItemRow[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
-  const [newText, setNewText] = useState("");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [itemsByList, setItemsByList] = useState<Record<string, ItemRow[]>>({});
+  const [loadingLists, setLoadingLists] = useState<Set<string>>(new Set());
+  const [newTextByList, setNewTextByList] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch items when a list is expanded
+  // Fetch items for a specific list
   const fetchItems = useCallback(async (listId: string) => {
     const token = await getToken();
     if (!token) return;
-    setLoadingItems(true);
+    setLoadingLists((prev) => new Set(prev).add(listId));
     try {
       const res = await fetch(`/api/list-items?list_id=${listId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) setItems(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setItemsByList((prev) => ({ ...prev, [listId]: data }));
+      }
     } catch { /* ignore */ }
-    setLoadingItems(false);
+    setLoadingLists((prev) => { const next = new Set(prev); next.delete(listId); return next; });
   }, [getToken]);
-
-  useEffect(() => {
-    if (expandedId) fetchItems(expandedId);
-    else setItems([]);
-  }, [expandedId, fetchItems]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   function toggleExpand(id: string) {
-    setExpandedId((prev) => (prev === id ? null : id));
-    setNewText("");
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else { next.add(id); fetchItems(id); }
+      return next;
+    });
     setDeleteId(null);
   }
 
   async function toggleItem(item: ItemRow) {
     // Optimistic update
-    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, done: !item.done } : i)));
+    setItemsByList((prev) => ({
+      ...prev,
+      [item.list_id]: (prev[item.list_id] ?? []).map((i) => (i.id === item.id ? { ...i, done: !item.done } : i)),
+    }));
     const token = await getToken();
     if (!token) return;
     await fetch("/api/list-items", {
@@ -66,11 +70,12 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
       body: JSON.stringify({ id: item.id, done: !item.done }),
     });
     // Re-fetch to get server sort order (done items sink)
-    if (expandedId) fetchItems(expandedId);
+    fetchItems(item.list_id);
   }
 
-  async function addItem() {
-    if (!newText.trim() || !expandedId || adding) return;
+  async function addItem(listId: string) {
+    const text = newTextByList[listId] ?? "";
+    if (!text.trim() || adding) return;
     setAdding(true);
     const token = await getToken();
     if (!token) { setAdding(false); return; }
@@ -78,20 +83,19 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
       const res = await fetch("/api/list-items", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ list_id: expandedId, text: newText.trim() }),
+        body: JSON.stringify({ list_id: listId, text: text.trim() }),
       });
       if (res.ok) {
-        setNewText("");
-        fetchItems(expandedId);
+        setNewTextByList((prev) => ({ ...prev, [listId]: "" }));
+        fetchItems(listId);
         onListsChanged();
-        setTimeout(() => inputRef.current?.focus(), 50);
       }
     } catch { /* ignore */ }
     setAdding(false);
   }
 
-  async function deleteItem(itemId: string) {
-    setItems((prev) => prev.filter((i) => i.id !== itemId));
+  async function deleteItem(itemId: string, listId: string) {
+    setItemsByList((prev) => ({ ...prev, [listId]: (prev[listId] ?? []).filter((i) => i.id !== itemId) }));
     setDeleteId(null);
     const token = await getToken();
     if (!token) return;
@@ -138,8 +142,8 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
         {/* Lists */}
         <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
           {lists.map((list) => {
-            const isExpanded = expandedId === list.id;
-            const listItems = isExpanded ? items : [];
+            const isExpanded = expandedIds.has(list.id);
+            const listItems = isExpanded ? (itemsByList[list.id] ?? []) : [];
             const doneCount = listItems.filter((i) => i.done).length;
             const totalCount = listItems.length;
 
@@ -172,7 +176,7 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
                 >
                   {isExpanded && (
                     <div className="px-4 pb-3 pt-0">
-                      {loadingItems ? (
+                      {loadingLists.has(list.id) ? (
                         <p className="text-xs text-[#b5aca4] py-2 text-center">Loading...</p>
                       ) : listItems.length === 0 ? (
                         <p className="text-xs text-[#b5aca4] py-2 text-center">Tap + to add your first item</p>
@@ -212,7 +216,7 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
                               {deleteId === item.id && (
                                 <button
                                   type="button"
-                                  onClick={() => deleteItem(item.id)}
+                                  onClick={() => deleteItem(item.id, list.id)}
                                   className="shrink-0 w-7 h-7 rounded-full bg-red-50 flex items-center justify-center text-red-400 hover:bg-red-100 transition-colors"
                                 >
                                   <Trash2 size={13} />
@@ -226,18 +230,17 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
                       {/* Add item input */}
                       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[#f0ede8]">
                         <input
-                          ref={inputRef}
                           type="text"
                           placeholder="Add item..."
-                          value={newText}
-                          onChange={(e) => setNewText(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") addItem(); }}
+                          value={newTextByList[list.id] ?? ""}
+                          onChange={(e) => setNewTextByList((prev) => ({ ...prev, [list.id]: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === "Enter") addItem(list.id); }}
                           className="flex-1 text-[13px] bg-transparent placeholder:text-[#c8c0b8] focus:outline-none text-[#2d2926] py-1"
                         />
                         <button
                           type="button"
-                          onClick={addItem}
-                          disabled={!newText.trim() || adding}
+                          onClick={() => addItem(list.id)}
+                          disabled={!(newTextByList[list.id] ?? "").trim() || adding}
                           className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors disabled:opacity-30"
                           style={{ color: "var(--g-brand, #2d5a3d)" }}
                         >
