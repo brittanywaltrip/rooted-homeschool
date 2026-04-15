@@ -8,6 +8,46 @@ import { ChevronLeft } from "lucide-react";
 
 const UPDATES = [
   {
+    date: "April 2026",
+    emoji: "📖",
+    title: "Yearbook",
+    description:
+      "Your family's year — captured in one beautiful, scrollable yearbook. Photos, memories, milestones, all in one place. Free to build with up to 50 memories.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "April 2026",
+    emoji: "👨‍👩‍👧‍👦",
+    title: "Family Sharing",
+    description:
+      "Invite grandparents, co-parents, or anyone who wants to follow along. They get a read-only view of your family's progress — no account needed.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "April 2026",
+    emoji: "📋",
+    title: "Hours & Attendance Log",
+    description:
+      "Track your homeschool hours and attendance in one place. Download or print a PDF anytime — perfect for state requirements or your own records. Free for everyone.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "April 2026",
+    emoji: "🔐",
+    title: "Sign In with Google",
+    description:
+      "One tap to sign up or log in with your Google account. No more passwords to remember.",
+    inspiredByFamily: false,
+  },
+  {
+    date: "April 2026",
+    emoji: "🌿",
+    title: "Meet Rooted & Rooted+",
+    description:
+      "We gave our plans real names! The free plan is now called Rooted, and the paid plan is Rooted+. Same features you love, just a cleaner look throughout the app.",
+    inspiredByFamily: false,
+  },
+  {
     date: "March 2026",
     emoji: "📅",
     title: "Reschedule a Lesson",
