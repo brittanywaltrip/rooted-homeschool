@@ -1,64 +1,47 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import {
+  BADGE_CATEGORIES,
+  getEarnedBadgeKeys,
+} from "@/app/lib/badges-tiered";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Child = { id: string; name: string; color: string | null; birthday?: string | null };
 
-// ─── Stage config ─────────────────────────────────────────────────────────────
+// ─── 8-stage system (synced with garden page) ─────────────────────────────────
 
-const STAGES = [
-  { name: "Tiny Seed",      emoji: "🌰", min: 0,  color: "#c4956a", bg: "#f5ede0", msg: "You're just getting started — and that's amazing!" },
-  { name: "Sprouting!",     emoji: "🌱", min: 5,  color: "#5c7f63", bg: "#e8f5ea", msg: "Look at you go! You're growing fast!" },
-  { name: "Sapling",        emoji: "🌿", min: 15, color: "var(--g-deep)", bg: "#d4ead4", msg: "Growing stronger every single day!" },
-  { name: "Growing Tall",   emoji: "🌳", min: 30, color: "#2d5c38", bg: "#c8e6c8", msg: "Wow, you're reaching for the sky!" },
-  { name: "THRIVING! ✨",   emoji: "🌲", min: 50, color: "#1e4828", bg: "#b8ddb8", msg: "You are AMAZING! Look how far you've come!" },
+const GROWTH_STAGES = [
+  { name: "Seed",          emoji: "🫘", min: 0,   color: "#c4956a", msg: "You're just getting started — and that's amazing!" },
+  { name: "Sprouting",     emoji: "🌱", min: 1,   color: "#5c7f63", msg: "A tiny shoot appears!" },
+  { name: "Seedling",      emoji: "🪴", min: 10,  color: "#e8927c", msg: "Look at you grow!" },
+  { name: "Growing",       emoji: "🌿", min: 25,  color: "#5c7f63", msg: "Growing stronger every single day!" },
+  { name: "Young Tree",    emoji: "🌳", min: 50,  color: "#2d5c38", msg: "Standing tall!" },
+  { name: "Flourishing",   emoji: "🌲", min: 100, color: "#1e4828", msg: "Strong and steady!" },
+  { name: "Blossoming",    emoji: "🌸", min: 200, color: "#d4789c", msg: "In full bloom — so beautiful!" },
+  { name: "Bearing Fruit", emoji: "🍎", min: 500, color: "#c0392b", msg: "The harvest of all your hard work!" },
 ];
 
 function getStageIndex(leaves: number) {
   let idx = 0;
-  for (let i = 0; i < STAGES.length; i++) {
-    if (leaves >= STAGES[i].min) idx = i;
+  for (let i = 0; i < GROWTH_STAGES.length; i++) {
+    if (leaves >= GROWTH_STAGES[i].min) idx = i;
   }
   return idx;
 }
 
-const BADGES = [
-  { id: "first_leaf",  emoji: "⭐",  label: "First Leaf!",   check: (l: number) => l >= 1  },
-  { id: "sprout",      emoji: "🌱",  label: "Sprout",        check: (l: number) => l >= 25 },
-  { id: "growing",     emoji: "🌿",  label: "Flourishing",   check: (l: number) => l >= 100 },
-  { id: "mighty_oak",  emoji: "🌳",  label: "Mighty Oak",    check: (l: number) => l >= 500 },
-  { id: "snapshot",    emoji: "📸",  label: "Snapshot",       check: (l: number) => l >= 5  },
-  { id: "bookmark",    emoji: "🔖",  label: "Bookmark",       check: (l: number) => l >= 5  },
-  { id: "spark",       emoji: "🕯️", label: "Spark",          check: (l: number) => l >= 3  },
-  { id: "caterpillar", emoji: "🐛",  label: "Caterpillar",    check: (l: number) => l >= 5  },
-  { id: "footprints",  emoji: "🐾",  label: "Footprints",     check: (l: number) => l >= 10 },
-  { id: "rough_stone", emoji: "🪨",  label: "Rough Stone",    check: (l: number) => l >= 15 },
-];
-
-const CHEERS = [
-  "You're growing SO fast! 🌟",
-  "Every lesson is a new leaf! 🍃",
-  "You're an amazing learner! ✨",
-  "Keep going — you're doing great! 💪",
-  "Look how tall your tree is! 🌳",
-  "You're a superstar! ⭐",
-  "Learning is your superpower! ⚡",
-  "Your tree is so proud of you! 🌿",
-];
-
-// ─── Tree SVG ──────────────────────────────────────────────────────────────────
+// ─── Tree SVG (scaled for 8 stages) ──────────────────────────────────────────
 
 function BigTree({ stageIndex }: { stageIndex: number }) {
-  const stage = stageIndex + 1;
+  const stage = stageIndex + 1; // 1-indexed for rendering
   return (
     <svg viewBox="0 0 100 120" className="w-full h-full overflow-visible" aria-hidden>
       <ellipse cx="50" cy="113" rx="24" ry="5" fill="rgba(0,0,0,0.12)" />
 
+      {/* Stage 1: Seed */}
       {stage === 1 && (
         <g>
           <path d="M44 96 Q50 84 56 96 Q50 108 44 96" fill="#8b6f47" className="leaf-shimmer" />
@@ -66,36 +49,82 @@ function BigTree({ stageIndex }: { stageIndex: number }) {
           <ellipse cx="50" cy="65" rx="4" ry="3" fill="#7a9e7e" opacity="0.7" />
         </g>
       )}
-      {stage >= 2 && <rect x="47" y="72" width="6" height="40" rx="3" fill="#8b6f47" />}
+      {/* Stage 2: Sprouting */}
       {stage === 2 && (
-        <g className="leaf-shimmer">
-          <path d="M50 82 Q33 70 38 54 Q50 64 50 82" fill="#7a9e7e" />
-          <path d="M50 82 Q67 70 62 54 Q50 64 50 82" fill="#5c7f63" />
+        <g>
+          <rect x="48" y="80" width="4" height="32" rx="2" fill="#8b6f47" />
+          <path d="M50 86 Q36 76 40 60 Q50 72 50 86" fill="#7a9e7e" className="leaf-shimmer" />
+          <path d="M50 86 Q64 76 60 60 Q50 72 50 86" fill="#5c7f63" className="leaf-shimmer" />
         </g>
       )}
+      {/* Stage 3: Seedling */}
       {stage === 3 && (
         <g>
-          <rect x="47" y="58" width="6" height="16" rx="3" fill="#8b6f47" />
+          <rect x="47" y="72" width="6" height="40" rx="3" fill="#8b6f47" />
+          <path d="M50 82 Q33 70 38 54 Q50 64 50 82" fill="#7a9e7e" className="leaf-shimmer" />
+          <path d="M50 82 Q67 70 62 54 Q50 64 50 82" fill="#5c7f63" className="leaf-shimmer" />
+        </g>
+      )}
+      {/* Stage 4: Growing */}
+      {stage === 4 && (
+        <g>
+          <rect x="47" y="58" width="6" height="54" rx="3" fill="#8b6f47" />
           <path d="M50 74 Q28 60 35 40 Q48 54 50 74" fill="#5c7f63" className="leaf-shimmer" />
           <path d="M50 74 Q72 60 65 40 Q52 54 50 74" fill="#7a9e7e" className="leaf-shimmer" />
           <circle cx="50" cy="36" r="17" fill="#5c7f63" opacity="0.9" />
-          <circle cx="50" cy="24" r="13" fill="var(--g-deep)" />
+          <circle cx="50" cy="24" r="13" fill="#1a2c22" />
         </g>
       )}
-      {stage === 4 && (
+      {/* Stage 5: Young Tree */}
+      {stage === 5 && (
         <g>
-          <rect x="46" y="56" width="8" height="18" rx="4" fill="#8b6f47" />
+          <rect x="46" y="56" width="8" height="56" rx="4" fill="#8b6f47" />
           <path d="M50 70 Q22 54 30 30 Q46 46 50 70" fill="#5c7f63" className="leaf-shimmer" />
           <path d="M50 70 Q78 54 70 30 Q54 46 50 70" fill="#7a9e7e" className="leaf-shimmer" />
           <circle cx="32" cy="44" r="17" fill="#7a9e7e" />
           <circle cx="68" cy="44" r="17" fill="#7a9e7e" />
           <circle cx="50" cy="32" r="20" fill="#5c7f63" />
-          <circle cx="50" cy="18" r="14" fill="var(--g-deep)" />
+          <circle cx="50" cy="18" r="14" fill="#1a2c22" />
         </g>
       )}
-      {stage >= 5 && (
+      {/* Stage 6: Flourishing */}
+      {stage === 6 && (
         <g>
-          <rect x="45" y="56" width="10" height="18" rx="5" fill="#8b6f47" />
+          <rect x="45" y="56" width="10" height="56" rx="5" fill="#8b6f47" />
+          <path d="M50 72 Q14 54 24 22 Q44 42 50 72" fill="#5c7f63" className="leaf-shimmer" />
+          <path d="M50 72 Q86 54 76 22 Q56 42 50 72" fill="#7a9e7e" className="leaf-shimmer" />
+          <circle cx="26" cy="50" r="19" fill="#7a9e7e" />
+          <circle cx="74" cy="50" r="19" fill="#7a9e7e" />
+          <circle cx="50" cy="34" r="23" fill="#5c7f63" />
+          <circle cx="50" cy="16" r="16" fill="#1a2c22" />
+          <circle cx="34" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
+          <circle cx="66" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
+        </g>
+      )}
+      {/* Stage 7: Blossoming */}
+      {stage === 7 && (
+        <g>
+          <rect x="45" y="56" width="10" height="56" rx="5" fill="#8b6f47" />
+          <path d="M50 72 Q14 54 24 22 Q44 42 50 72" fill="#5c7f63" className="leaf-shimmer" />
+          <path d="M50 72 Q86 54 76 22 Q56 42 50 72" fill="#7a9e7e" className="leaf-shimmer" />
+          <circle cx="26" cy="50" r="19" fill="#7a9e7e" />
+          <circle cx="74" cy="50" r="19" fill="#7a9e7e" />
+          <circle cx="50" cy="34" r="23" fill="#5c7f63" />
+          <circle cx="50" cy="16" r="16" fill="#1a2c22" />
+          <circle cx="34" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
+          <circle cx="66" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
+          {/* Blossoms */}
+          <circle cx="20" cy="36" r="3" fill="#ffb7c5" className="sparkle" style={{ animationDelay: "0s" }} />
+          <circle cx="80" cy="30" r="3" fill="#ffb7c5" className="sparkle" style={{ animationDelay: "0.6s" }} />
+          <circle cx="38" cy="14" r="2.5" fill="#ffc0cb" className="sparkle" style={{ animationDelay: "1.2s" }} />
+          <circle cx="62" cy="14" r="2.5" fill="#ffc0cb" className="sparkle" style={{ animationDelay: "0.3s" }} />
+          <circle cx="50" cy="6"  r="2" fill="#ffb7c5" className="sparkle" style={{ animationDelay: "0.9s" }} />
+        </g>
+      )}
+      {/* Stage 8: Bearing Fruit */}
+      {stage >= 8 && (
+        <g>
+          <rect x="45" y="56" width="10" height="56" rx="5" fill="#8b6f47" />
           <path d="M50 72 Q14 54 24 22 Q44 42 50 72" fill="#5c7f63" className="leaf-shimmer" />
           <path d="M50 72 Q86 54 76 22 Q56 42 50 72" fill="#7a9e7e" className="leaf-shimmer" />
           <circle cx="26" cy="50" r="19" fill="#7a9e7e" />
@@ -103,43 +132,67 @@ function BigTree({ stageIndex }: { stageIndex: number }) {
           <circle cx="38" cy="62" r="14" fill="#5c7f63" opacity="0.9" />
           <circle cx="62" cy="62" r="14" fill="#5c7f63" opacity="0.9" />
           <circle cx="50" cy="34" r="23" fill="#5c7f63" />
-          <circle cx="50" cy="16" r="16" fill="var(--g-deep)" />
-          <circle cx="34" cy="26" r="11" fill="var(--g-deep)" opacity="0.85" />
-          <circle cx="66" cy="26" r="11" fill="var(--g-deep)" opacity="0.85" />
-          <circle cx="20" cy="36" r="2" fill="#a8d8a8" className="sparkle" style={{ animationDelay: "0.3s" }} />
-          <circle cx="80" cy="30" r="2" fill="#a8d8a8" className="sparkle" style={{ animationDelay: "0.9s" }} />
-          <circle cx="50" cy="8"  r="1.5" fill="#c8f0c8" className="sparkle" style={{ animationDelay: "1.5s" }} />
+          <circle cx="50" cy="16" r="16" fill="#1a2c22" />
+          <circle cx="34" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
+          <circle cx="66" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
+          {/* Fruits */}
+          <circle cx="30" cy="54" r="4" fill="#e74c3c" className="sparkle" style={{ animationDelay: "0s" }} />
+          <circle cx="70" cy="48" r="4" fill="#e74c3c" className="sparkle" style={{ animationDelay: "0.5s" }} />
+          <circle cx="50" cy="22" r="3.5" fill="#e74c3c" className="sparkle" style={{ animationDelay: "1s" }} />
+          <circle cx="40" cy="36" r="3" fill="#f1c40f" className="sparkle" style={{ animationDelay: "0.3s" }} />
+          <circle cx="60" cy="38" r="3" fill="#f1c40f" className="sparkle" style={{ animationDelay: "0.8s" }} />
         </g>
       )}
     </svg>
   );
 }
 
-// ─── Main Page ─────────────────────────────────────────────────────────────────
+// ─── Inner page (needs Suspense for useSearchParams) ──────────────────────────
 
-export default function ChildPage() {
+function ChildPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const childParam = searchParams.get("child");
-  const [children,   setChildren]   = useState<Child[]>([]);
+  const confettiRef = useRef<HTMLCanvasElement>(null);
+
+  const [children, setChildren] = useState<Child[]>([]);
   const [leafCounts, setLeafCounts] = useState<Record<string, number>>({});
-  const [childIdx,   setChildIdx]   = useState(0);
-  const [loading,    setLoading]    = useState(true);
-  const [cheerIdx,   setCheerIdx]   = useState(0);
+  const [childIdx, setChildIdx] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [cheerIdx, setCheerIdx] = useState(0);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [earnedBadgeKeys, setEarnedBadgeKeys] = useState<Set<string>>(new Set());
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [celebrationData, setCelebrationData] = useState({ emoji: "", title: "", sub: "" });
+  const [treeShaking, setTreeShaking] = useState(false);
+
+  // Personalized cheers
+  const child = children[childIdx];
+  const childName = child?.name ?? "Friend";
+  const cheers = [
+    `${childName}, you're growing SO fast! 🌟`,
+    `Every lesson is a new leaf, ${childName}! 🍃`,
+    `${childName}, you're an amazing learner! ✨`,
+    `Keep going, ${childName} — you're doing great! 💪`,
+    `Look how tall your tree is, ${childName}! 🌳`,
+    `${childName}, you're a superstar! ⭐`,
+    `Learning is YOUR superpower, ${childName}! ⚡`,
+    `Your tree is so proud of you, ${childName}! 🌿`,
+  ];
 
   // Rotate cheer messages
   useEffect(() => {
-    const t = setInterval(() => {
-      setCheerIdx((i) => (i + 1) % CHEERS.length);
-    }, 3500);
+    const t = setInterval(() => setCheerIdx((i) => (i + 1) % 8), 3500);
     return () => clearInterval(t);
   }, []);
 
+  // Load data
   const loadData = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { router.replace("/login"); return; }
 
     const uid = session.user.id;
+    setUserId(uid);
 
     const [{ data: kids }, { data: completed }, { data: activityEvents }, { data: memoryRows }] = await Promise.all([
       supabase.from("children").select("id, name, color, birthday")
@@ -163,26 +216,106 @@ export default function ChildPage() {
     });
 
     setChildren(kids ?? []);
+    setLeafCounts(counts);
+    setLoading(false);
+
     // If URL has ?child=ID, select that child
     if (childParam && kids) {
       const idx = kids.findIndex((k: Child) => k.id === childParam);
       if (idx >= 0) setChildIdx(idx);
     }
-    setLeafCounts(counts);
-    setLoading(false);
-  }, [router]);
+  }, [router, childParam]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const child   = children[childIdx];
-  const leaves  = child ? (leafCounts[child.id] ?? 0) : 0;
+  // Load tiered badges for selected child
+  useEffect(() => {
+    if (!userId || !child) return;
+    getEarnedBadgeKeys(userId, child.id).then(setEarnedBadgeKeys);
+  }, [userId, child]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Derived state
+  const leaves = child ? (leafCounts[child.id] ?? 0) : 0;
   const stageIdx = getStageIndex(leaves);
-  const stage    = STAGES[stageIdx];
-  const nextStage = STAGES[stageIdx + 1];
-  const progress  = nextStage
+  const stage = GROWTH_STAGES[stageIdx];
+  const nextStage = GROWTH_STAGES[stageIdx + 1];
+  const progress = nextStage
     ? ((leaves - stage.min) / (nextStage.min - stage.min)) * 100
     : 100;
-  const earnedBadges = BADGES.filter((b) => b.check(leaves));
+  const childColor = child?.color ?? stage.color;
+
+  // ─── Confetti ───────────────────────────────────────────────────────────────
+  function fireConfetti() {
+    const canvas = confettiRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const colors = ["#ff6b6b", "#ffd93d", "#6bcb77", "#4d96ff", "#ff8feb", "#a855f7", "#fb923c"];
+    const particles: { x: number; y: number; vx: number; vy: number; color: string; size: number; rotation: number; rotSpeed: number; gravity: number; opacity: number; shape: string }[] = [];
+
+    for (let i = 0; i < 120; i++) {
+      particles.push({
+        x: canvas.width / 2 + (Math.random() - 0.5) * 200,
+        y: canvas.height * 0.4,
+        vx: (Math.random() - 0.5) * 16,
+        vy: -(8 + Math.random() * 12),
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: 4 + Math.random() * 6,
+        rotation: Math.random() * 360,
+        rotSpeed: (Math.random() - 0.5) * 12,
+        gravity: 0.2 + Math.random() * 0.1,
+        opacity: 1,
+        shape: Math.random() > 0.5 ? "rect" : "circle",
+      });
+    }
+
+    let frame = 0;
+    function animate() {
+      frame++;
+      ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
+      let alive = false;
+      for (const p of particles) {
+        p.x += p.vx;
+        p.vy += p.gravity;
+        p.y += p.vy;
+        p.vx *= 0.99;
+        p.rotation += p.rotSpeed;
+        if (frame > 50) p.opacity -= 0.015;
+        if (p.opacity <= 0) continue;
+        alive = true;
+        ctx!.save();
+        ctx!.translate(p.x, p.y);
+        ctx!.rotate((p.rotation * Math.PI) / 180);
+        ctx!.globalAlpha = Math.max(0, p.opacity);
+        ctx!.fillStyle = p.color;
+        if (p.shape === "rect") {
+          ctx!.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+        } else {
+          ctx!.beginPath();
+          ctx!.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+          ctx!.fill();
+        }
+        ctx!.restore();
+      }
+      if (alive && frame < 200) requestAnimationFrame(animate);
+      else ctx!.clearRect(0, 0, canvas!.width, canvas!.height);
+    }
+    animate();
+  }
+
+  function triggerCelebration(emoji: string, title: string, sub: string) {
+    setCelebrationData({ emoji, title, sub });
+    setShowCelebration(true);
+    fireConfetti();
+  }
+
+  function handleTreeTap() {
+    setTreeShaking(true);
+    setTimeout(() => setTreeShaking(false), 700);
+  }
 
   if (loading) {
     return (
@@ -205,7 +338,7 @@ export default function ChildPage() {
           <p className="text-white text-2xl font-bold drop-shadow mb-2">No children set up yet!</p>
           <p className="text-white/80 mb-6">Ask a parent to add children in Settings.</p>
           <button onClick={() => router.push("/dashboard")}
-            className="bg-white text-[var(--g-deep)] font-bold px-6 py-3 rounded-2xl shadow-lg">
+            className="bg-white text-[#1a2c22] font-bold px-6 py-3 rounded-2xl shadow-lg">
             Go back
           </button>
         </div>
@@ -213,27 +346,46 @@ export default function ChildPage() {
     );
   }
 
-  const childColor = child?.color ?? "#5c7f63";
-
   return (
     <div
-      className="min-h-screen overflow-hidden relative flex flex-col"
+      className="min-h-screen overflow-x-hidden relative flex flex-col"
       style={{
         background: "linear-gradient(180deg, #5bafd4 0%, #87ceeb 30%, #b2e4f0 58%, #7EC46A 78%, #4CAF50 100%)",
       }}
     >
-      {/* ── Top bar ──────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-2 relative z-10">
+      {/* Confetti canvas */}
+      <canvas ref={confettiRef} className="fixed inset-0 pointer-events-none z-50" />
+
+      {/* Butterfly */}
+      <div className="fixed z-20 pointer-events-none text-2xl"
+        style={{
+          animation: "kidview-butterfly 18s cubic-bezier(0.4,0,0.6,1) infinite",
+          filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.1))",
+        }}>
+        <span style={{ display: "inline-block", animation: "kidview-wingflap 0.6s ease-in-out infinite alternate" }}>🦋</span>
+      </div>
+
+      {/* Bee */}
+      <div className="fixed z-20 pointer-events-none text-xl"
+        style={{
+          animation: "kidview-bee 14s cubic-bezier(0.4,0,0.6,1) infinite",
+          animationDelay: "-4s",
+          filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.1))",
+        }}>
+        <span style={{ display: "inline-block", animation: "kidview-beebob 0.8s ease-in-out infinite alternate" }}>🐝</span>
+      </div>
+
+      {/* Top bar */}
+      <div className="flex items-center px-4 pt-4 pb-2 relative z-10">
         <button
           onClick={() => router.push("/dashboard/garden")}
-          className="flex items-center gap-1.5 bg-white/25 hover:bg-white/40 backdrop-blur-sm text-white font-semibold text-sm px-3 py-2 rounded-full transition-colors"
+          className="flex items-center gap-1 bg-white/25 hover:bg-white/40 backdrop-blur-sm text-white font-semibold text-sm px-3 py-2 rounded-full transition-colors"
         >
-          <ChevronLeft size={16} />
-          Parent View
+          &larr; Parent View
         </button>
       </div>
 
-      {/* ── Sun ──────────────────────────────────────────────── */}
+      {/* Sun */}
       <div className="absolute top-8 right-6 sun-glow z-10" style={{ width: 72, height: 72 }}>
         <svg viewBox="0 0 72 72" className="w-full h-full">
           <g className="sun-rays-spin" style={{ transformOrigin: "36px 36px" }}>
@@ -252,8 +404,8 @@ export default function ChildPage() {
         </svg>
       </div>
 
-      {/* ── Cloud decorations ─────────────────────────────────── */}
-      <div className="cloud-drift absolute top-12 left-4 opacity-80" style={{ animationDelay: "0s" }}>
+      {/* Clouds */}
+      <div className="cloud-drift absolute top-12 left-4 opacity-80">
         <svg viewBox="0 0 100 48" width="100" height="48">
           <ellipse cx="50" cy="34" rx="48" ry="14" fill="white" opacity="0.9" />
           <ellipse cx="30" cy="28" rx="22" ry="20" fill="white" opacity="0.9" />
@@ -270,8 +422,8 @@ export default function ChildPage() {
         </svg>
       </div>
 
-      {/* ── Main content area ─────────────────────────────────── */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 relative z-10">
+      {/* Main content */}
+      <div className="flex-1 flex flex-col items-center px-6 pb-32 relative z-10">
 
         {/* Birthday celebration */}
         {child?.birthday && (() => {
@@ -288,7 +440,7 @@ export default function ChildPage() {
                     className="absolute rounded-full"
                     style={{
                       left: `${5 + Math.random() * 90}%`,
-                      top: `-5%`,
+                      top: "-5%",
                       width: 6 + Math.random() * 4,
                       height: 6 + Math.random() * 4,
                       background: ["#f9a8d4", "#fbbf24", "#86efac", "#93c5fd", "#c4b5fd"][i % 5],
@@ -299,7 +451,7 @@ export default function ChildPage() {
                 ))}
               </div>
               <p className="text-sm text-white/80 font-medium">
-                Today is YOUR day, {child.name}! Let&apos;s celebrate by learning something amazing 🌱
+                Today is YOUR day, {childName}! Let&apos;s celebrate by learning something amazing 🌱
               </p>
             </div>
           );
@@ -307,10 +459,10 @@ export default function ChildPage() {
 
         {/* Child name */}
         <div
-          className="text-4xl sm:text-5xl font-black text-white drop-shadow-lg mb-1 text-center tracking-tight"
-          style={{ textShadow: "0 3px 12px rgba(0,0,0,0.25)" }}
+          className="text-5xl font-black text-white drop-shadow-lg mb-1 text-center tracking-tight cursor-pointer select-none active:scale-110 transition-transform"
+          style={{ textShadow: "0 4px 16px rgba(0,0,0,0.2)" }}
         >
-          {child?.name}
+          {childName}
           {child?.birthday && (() => {
             const bd = new Date(child.birthday + "T12:00:00");
             const now = new Date();
@@ -318,19 +470,23 @@ export default function ChildPage() {
           })()}
         </div>
 
-        {/* Stage badge */}
+        {/* Stage pill */}
         <div
-          className="inline-flex items-center gap-2 px-5 py-2 rounded-full font-black text-lg sm:text-xl shadow-lg mb-6"
+          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-black text-xl shadow-lg mb-4 cursor-pointer select-none active:scale-105 transition-transform"
           style={{ backgroundColor: childColor, color: "white" }}
         >
           <span>{stage.emoji}</span>
           <span>{stage.name}</span>
         </div>
 
-        {/* Tree */}
-        <div className="relative">
+        {/* Tree — tappable with shake */}
+        <div
+          className="relative cursor-pointer select-none"
+          onClick={handleTreeTap}
+          style={{ WebkitTapHighlightColor: "transparent" }}
+        >
           <div
-            className="garden-sway"
+            className={`garden-sway ${treeShaking ? "animate-[kidview-shake_0.6s_ease-in-out]" : ""}`}
             style={{
               width: "clamp(160px, 40vw, 240px)",
               height: "clamp(180px, 44vw, 270px)",
@@ -339,72 +495,232 @@ export default function ChildPage() {
           >
             <BigTree stageIndex={stageIdx} />
           </div>
+        </div>
 
-          {/* Floating leaf count badge */}
-          <div
-            className="absolute -top-4 left-1/2 -translate-x-1/2 badge-float flex items-center gap-2 px-4 py-2 rounded-full shadow-xl font-black text-white text-xl sm:text-2xl whitespace-nowrap"
-            style={{ backgroundColor: childColor }}
-          >
-            🍃 {leaves} {leaves === 1 ? "leaf" : "leaves"}
-          </div>
+        {/* Leaf count */}
+        <div
+          className="flex items-center gap-2 px-5 py-2.5 rounded-full shadow-xl font-black text-white text-xl mt-2 cursor-pointer select-none active:scale-105 transition-transform"
+          style={{ backgroundColor: childColor }}
+        >
+          🍃 {leaves} {leaves === 1 ? "leaf" : "leaves"}
         </div>
 
         {/* Progress to next stage */}
         {nextStage && (
-          <div className="mt-5 w-full max-w-xs">
-            <div className="flex justify-between text-xs font-semibold text-white/80 mb-1.5 px-1">
+          <div className="mt-5 w-full max-w-xs cursor-pointer select-none">
+            <div className="flex justify-between text-xs font-bold text-white/85 mb-1.5 px-1">
               <span>{stage.emoji} {stage.name}</span>
-              <span>{nextStage.min - leaves} more to {nextStage.name} {nextStage.emoji}</span>
+              <span>{nextStage.min - leaves} more to {nextStage.name}</span>
             </div>
-            <div className="w-full h-3 bg-white/30 rounded-full overflow-hidden shadow-inner">
+            <div className="w-full h-3.5 bg-white/25 rounded-full overflow-hidden shadow-inner relative">
               <div
-                className="h-full rounded-full transition-all duration-700"
+                className="h-full rounded-full transition-all duration-1000 relative overflow-hidden"
                 style={{ width: `${Math.min(progress, 100)}%`, backgroundColor: "white" }}
-              />
+              >
+                <div className="absolute inset-0" style={{
+                  background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)",
+                  animation: "kidview-shimmer 2s infinite",
+                }} />
+              </div>
             </div>
           </div>
         )}
 
-        {/* Earned badges */}
-        {earnedBadges.length > 0 && (
-          <div className="mt-6 flex flex-wrap gap-3 justify-center">
-            {earnedBadges.map((b) => (
-              <div
-                key={b.id}
-                className="badge-float flex flex-col items-center bg-white/90 backdrop-blur-sm rounded-2xl px-3 py-2.5 shadow-lg min-w-[64px]"
-              >
-                <span className="text-2xl sm:text-3xl mb-1">{b.emoji}</span>
-                <span className="text-[10px] font-bold text-[#2d2926] text-center leading-tight">{b.label}</span>
-              </div>
-            ))}
+        {/* Tiered Badges */}
+        <div className="w-full max-w-sm mt-6">
+          <p className="text-white font-extrabold text-sm text-center uppercase tracking-wide mb-3"
+            style={{ textShadow: "0 2px 6px rgba(0,0,0,0.15)" }}>
+            🏆 {childName}&apos;s Badges
+          </p>
+          <div className="flex flex-wrap gap-2.5 justify-center">
+            {BADGE_CATEGORIES.map((cat) =>
+              cat.tiers.map((t, tIdx) => {
+                const key = cat.perCurriculum
+                  ? `${cat.id}_${t.tier}`
+                  : `${cat.id}_${t.tier}`;
+                const isEarned = cat.perCurriculum
+                  ? [...earnedBadgeKeys].some(k => k.startsWith(`${cat.id}_${t.tier}_`))
+                  : earnedBadgeKeys.has(key);
+                const prevEarned = tIdx === 0
+                  ? true
+                  : cat.perCurriculum
+                    ? [...earnedBadgeKeys].some(k => k.startsWith(`${cat.id}_${cat.tiers[tIdx - 1].tier}_`))
+                    : earnedBadgeKeys.has(`${cat.id}_${cat.tiers[tIdx - 1].tier}`);
+                const isNext = !isEarned && prevEarned;
+
+                return (
+                  <div
+                    key={`${cat.id}_${t.tier}`}
+                    className={`relative flex flex-col items-center rounded-2xl px-2.5 py-2.5 min-w-[68px] max-w-[76px] cursor-pointer select-none active:scale-95 transition-transform ${
+                      isEarned
+                        ? "bg-white/90 backdrop-blur-sm shadow-lg"
+                        : isNext
+                        ? "bg-white/35 backdrop-blur-sm border-2 border-white/80"
+                        : "bg-white/10"
+                    }`}
+                    onClick={() => {
+                      if (isEarned) {
+                        triggerCelebration(
+                          t.emoji,
+                          `${childName}, you did it!`,
+                          `You earned the <strong>${t.name}</strong> badge! ${t.description}`
+                        );
+                      }
+                    }}
+                  >
+                    {isEarned && (
+                      <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#2D5A3D] rounded-full flex items-center justify-center shadow-sm border-2 border-white">
+                        <span className="text-white text-[10px] font-bold">{"\u2713"}</span>
+                      </span>
+                    )}
+                    {isNext && (
+                      <div className="bg-white text-[#2D5A3D] text-[7px] font-extrabold px-2 py-0.5 rounded-full mb-1 shadow-sm">
+                        NEXT
+                      </div>
+                    )}
+                    <span className={`text-2xl mb-1 ${!isEarned && !isNext ? "opacity-15 grayscale" : isNext ? "opacity-55" : ""}`}>
+                      {t.emoji}
+                    </span>
+                    <span className={`text-[9px] font-bold text-center leading-tight ${
+                      isEarned ? "text-[#2D2A26]" : isNext ? "text-white/90" : "text-white/30"
+                    }`}>
+                      {t.name}
+                    </span>
+                    {!isEarned && !isNext && (
+                      <span className="text-[8px] opacity-30 mt-0.5">🔒</span>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
-        )}
+        </div>
 
         {/* Cheer message */}
         <div
-          className="mt-8 text-center text-lg sm:text-xl font-bold text-white drop-shadow-lg max-w-sm"
-          style={{ textShadow: "0 2px 8px rgba(0,0,0,0.2)" }}
-          key={cheerIdx}
+          className="mt-8 text-center text-xl font-extrabold text-white drop-shadow-lg max-w-sm cursor-pointer select-none active:scale-105 transition-transform"
+          style={{ textShadow: "0 3px 10px rgba(0,0,0,0.2)" }}
+          onClick={() => setCheerIdx((i) => (i + 1) % cheers.length)}
         >
-          {CHEERS[cheerIdx]}
+          {cheers[cheerIdx]}
         </div>
       </div>
 
-      {/* ── Ground decorations ────────────────────────────────── */}
-      <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ height: "22%" }}>
+      {/* Ground */}
+      <div className="fixed bottom-0 left-0 right-0 pointer-events-none z-[1]" style={{ height: "18vh" }}>
         <svg viewBox="0 0 400 90" preserveAspectRatio="xMidYMax slice" className="w-full h-full">
           <path d="M0 50 Q80 32 160 46 Q240 62 320 40 Q380 24 400 44 L400 90 L0 90 Z"
             fill="#4CAF50" opacity="0.5" />
           <path d="M0 58 Q100 44 200 56 Q300 70 400 52 L400 90 L0 90 Z" fill="#388E3C" />
-          {/* Flowers */}
           {[8, 15, 85, 92].map((x) => (
             <g key={x} transform={`translate(${x * 4}, 52)`}>
               <line x1="0" y1="0" x2="0" y2="-14" stroke="#2E7D32" strokeWidth="1.5" />
-              <circle cx="0" cy="-17" r="4" fill={["#ff9ec4","#ffd166","#a8d8ea","#ff9ec4"][Math.floor(x/10)%4]} />
+              <circle cx="0" cy="-17" r="4" fill={["#ff9ec4", "#ffd166", "#a8d8ea", "#ff9ec4"][Math.floor(x / 10) % 4]} />
             </g>
           ))}
         </svg>
       </div>
+
+      {/* Celebration overlay */}
+      {showCelebration && (
+        <div
+          className="fixed inset-0 z-[90] bg-black/50 backdrop-blur-sm flex items-center justify-center"
+          onClick={() => setShowCelebration(false)}
+        >
+          <div
+            className="bg-white rounded-3xl p-8 text-center max-w-[300px] w-[90%] shadow-2xl animate-[kidview-cardpop_0.5s_cubic-bezier(0.34,1.56,0.64,1)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-6xl mb-2 animate-bounce">{celebrationData.emoji}</div>
+            <div className="text-2xl font-black text-[#2D2A26] mb-1">{celebrationData.title}</div>
+            <div className="text-sm text-[#8B7E74] mb-5 leading-relaxed" dangerouslySetInnerHTML={{ __html: celebrationData.sub }} />
+            <button
+              onClick={() => setShowCelebration(false)}
+              className="bg-gradient-to-br from-[#2D5A3D] to-[#3d7a52] text-white font-extrabold px-8 py-3 rounded-2xl shadow-lg text-base active:scale-95 transition-transform"
+            >
+              AWESOME! 🎉
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Inline keyframe styles */}
+      <style jsx>{`
+        @keyframes kidview-butterfly {
+          0%   { top: 28%; left: -5%; transform: rotate(3deg) scaleX(1); }
+          8%   { top: 25%; left: 8%; transform: rotate(-2deg) scaleX(1); }
+          16%  { top: 22%; left: 18%; transform: rotate(2deg) scaleX(1); }
+          24%  { top: 26%; left: 28%; transform: rotate(-1deg) scaleX(1); }
+          32%  { top: 20%; left: 38%; transform: rotate(3deg) scaleX(1); }
+          40%  { top: 24%; left: 48%; transform: rotate(0deg) scaleX(1); }
+          48%  { top: 18%; left: 56%; transform: rotate(-2deg) scaleX(-1); }
+          56%  { top: 22%; left: 64%; transform: rotate(1deg) scaleX(-1); }
+          64%  { top: 26%; left: 72%; transform: rotate(-1deg) scaleX(-1); }
+          72%  { top: 20%; left: 80%; transform: rotate(2deg) scaleX(-1); }
+          80%  { top: 24%; left: 88%; transform: rotate(0deg) scaleX(-1); }
+          88%  { top: 22%; left: 96%; transform: rotate(-2deg) scaleX(-1); }
+          100% { top: 26%; left: 108%; transform: rotate(1deg) scaleX(-1); }
+        }
+        @keyframes kidview-wingflap {
+          0% { transform: scaleX(1) rotate(0deg); }
+          100% { transform: scaleX(0.7) rotate(2deg); }
+        }
+        @keyframes kidview-bee {
+          0%   { top: 38%; right: -5%; transform: scaleX(-1); }
+          10%  { top: 36%; right: 8%; transform: scaleX(-1); }
+          20%  { top: 33%; right: 18%; transform: scaleX(-1); }
+          30%  { top: 36%; right: 28%; transform: scaleX(-1); }
+          40%  { top: 32%; right: 40%; transform: scaleX(-1); }
+          50%  { top: 35%; right: 52%; transform: scaleX(-1); }
+          60%  { top: 31%; right: 62%; transform: scaleX(1); }
+          70%  { top: 34%; right: 72%; transform: scaleX(1); }
+          80%  { top: 30%; right: 82%; transform: scaleX(1); }
+          90%  { top: 34%; right: 94%; transform: scaleX(1); }
+          100% { top: 36%; right: 108%; transform: scaleX(1); }
+        }
+        @keyframes kidview-beebob {
+          0% { transform: translateY(0) rotate(-1deg); }
+          100% { transform: translateY(-2px) rotate(1deg); }
+        }
+        @keyframes kidview-fire {
+          0% { transform: scale(1) rotate(-2deg); filter: brightness(1); }
+          100% { transform: scale(1.08) rotate(2deg); filter: brightness(1.15); }
+        }
+        @keyframes kidview-shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(200%); }
+        }
+        @keyframes kidview-shake {
+          0%, 100% { transform: rotate(0deg); }
+          15% { transform: rotate(-8deg); }
+          30% { transform: rotate(6deg); }
+          45% { transform: rotate(-5deg); }
+          60% { transform: rotate(3deg); }
+          75% { transform: rotate(-2deg); }
+        }
+        @keyframes kidview-cardpop {
+          0% { transform: scale(0.7); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
     </div>
+  );
+}
+
+// ─── Exported page (Suspense boundary for useSearchParams) ────────────────────
+
+export default function ChildPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center"
+        style={{ background: "linear-gradient(180deg, #87CEEB 0%, #5BAFD4 50%, #7EC46A 100%)" }}>
+        <div className="text-center">
+          <div className="text-6xl mb-4 animate-bounce">🌿</div>
+          <p className="text-white text-xl font-bold drop-shadow">Loading your garden…</p>
+        </div>
+      </div>
+    }>
+      <ChildPageInner />
+    </Suspense>
   );
 }
