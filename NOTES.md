@@ -159,13 +159,14 @@ affiliates: id, user_id, name, code, stripe_coupon_id, paypal_email, is_active, 
 
 ## Pricing
 
-| Plan | Price | Stripe ID |
-|------|-------|-----------|
-| Free | $0 | — |
-| Founding Family | $39/yr | price_1TCVWDLP14EaoUlTNwZFGS8A |
-| Standard | $59/yr | price_1TCVWgLP14EaoUlT25totKGW |
+| Display Name | Plan (DB) | Price | Stripe ID |
+|-------------|-----------|-------|-----------|
+| Rooted | free / null | $0 | — |
+| Rooted+ (Founding Family) | founding_family | $39/yr | price_1TCVWDLP14EaoUlTNwZFGS8A |
+| Rooted+ | standard | $59/yr | price_1TCVWgLP14EaoUlT25totKGW |
 
-Founding Family ends April 30, 2026. First 200 families only.
+Rooted+ Founding Family pricing ends April 30, 2026. First 200 families only.
+Use "+" symbol, never "Plus" — display as "Rooted+".
 
 ---
 

@@ -248,15 +248,15 @@ export async function GET(req: Request) {
       const email   = (customer as Stripe.Customer).email?.toLowerCase();
       if (!email) continue;
       const priceId = sub.items.data[0]?.price.id;
-      const plan    = priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID ? "Founding"
-        : priceId === process.env.STRIPE_STANDARD_PRICE_ID ? "Standard" : null;
+      const plan    = priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID ? "Rooted+ Founding"
+        : priceId === process.env.STRIPE_STANDARD_PRICE_ID ? "Rooted+" : null;
       if (plan) payingEmails.set(email, plan);
     }
 
     // Set plan from Stripe active subs
     recentSignups = recentSignups.map(signup => ({
       ...signup,
-      plan: payingEmails.get(signup.email.toLowerCase()) ?? "Free",
+      plan: payingEmails.get(signup.email.toLowerCase()) ?? "Rooted",
     }));
   } catch {
     // Stripe unavailable — fall back to DB plan_type
@@ -265,9 +265,9 @@ export async function GET(req: Request) {
       const planType = profile?.plan_type ?? null;
       return {
         ...signup,
-        plan: planType === "founding_family" ? "Founding"
-            : planType === "standard"        ? "Standard"
-            : "Free",
+        plan: planType === "founding_family" ? "Rooted+ Founding"
+            : planType === "standard"        ? "Rooted+"
+            : "Rooted",
       };
     });
     stripeFoundingCount = foundingFamilies;

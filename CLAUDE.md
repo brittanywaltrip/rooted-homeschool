@@ -46,12 +46,13 @@ NEVER show hello.rootedapp@gmail.com to users.
 - Sentence case always. Never ALL CAPS.
 
 ## Pricing plans
-- Free: lessons, garden, resources, memories 30 days, 1 AI Family Update/month
-- Founding Family $39/yr (ends April 30 2026): everything unlimited + yearbook PDF
-- Standard $59/yr: same as Founding
-- Monthly $6.99/mo: same features as annual plans
+- Rooted (free): lessons, garden, resources, memories 30 days, 1 AI Family Update/month
+- Rooted+ Founding Family $39/yr (ends April 30 2026): everything unlimited + yearbook PDF
+- Rooted+ Standard $59/yr: same as Founding Family
+- Rooted+ Monthly $6.99/mo: same features (hidden during Founding Family window)
 - Stripe Founding price ID: price_1TCVWDLP14EaoUlTNwZFGS8A
 - Stripe Standard price ID: price_1TCVWgLP14EaoUlT25totKGW
+- Display name convention: free tier = "Rooted", all paid tiers = "Rooted+" (always use + symbol, never "Plus")
 
 ## Features BUILT (can mention to users)
 - Lesson tracking (Today page)
@@ -111,12 +112,16 @@ Step 5: Done + Brittany founder closing moment
 - memory-photos: user photo memories (public)
 - family-photos: family profile photos (public)
 
-## Plan system (as of April 11, 2026)
+## Plan system (as of April 14, 2026)
+Display names: "Rooted" (free), "Rooted+" (all paid tiers). Use + symbol, never "Plus".
+Founding Family = pricing tier within Rooted+ ($39/yr, locked forever, ends April 30).
+
 Three fields control feature gating:
 - plan_type: NULL for free users, 'founding_family'/'standard'/'monthly'/'gift' for paid. Set ONLY by Stripe webhook.
 - subscription_status: 'free' (DB default) or 'active'/'cancelled'/'refunded'. Set ONLY by Stripe webhook.
 - is_pro: boolean, false by default. Set ONLY by Stripe webhook.
 plan_type is NULL (not 'free') for all free users — this is intentional. Treat NULL as free in all components.
+DB values are NEVER "rooted" or "rooted+" — always use founding_family/standard/monthly/gift.
 
 ## Database state (April 11, 2026)
 - 461 free profiles, 22 paid (founding_family), 1 gift edge case
