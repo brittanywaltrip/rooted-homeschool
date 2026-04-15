@@ -729,23 +729,95 @@ export default function TodayPage() {
     loadDataBusy.current = true;
     try {
 
-    const [{ data: profile }, { data: { user: authUser } }, { data: profileData }] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time").eq("id", effectiveUserId).maybeSingle(),
+    // ── Phase 1: Fire all independent queries in parallel ────────────────
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+    const twoWeeks = new Date(); twoWeeks.setDate(twoWeeks.getDate() + 14);
+    const nowForSY = new Date();
+    const schoolYearStartMonth = 7;
+    const syYear = nowForSY.getMonth() >= schoolYearStartMonth ? nowForSY.getFullYear() : nowForSY.getFullYear() - 1;
+    const syStart = `${syYear}-08-01`;
+    const monthStartStr = `${nowForSY.getFullYear()}-${String(nowForSY.getMonth() + 1).padStart(2, "0")}-01`;
+    const monthEndStr = localDateStr(nowForSY);
+    const otdNow = new Date();
+    const lastYear = otdNow.getFullYear() - 1;
+    const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
+    const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
+    const prevMonth = nowForSY.getMonth() === 0 ? 11 : nowForSY.getMonth() - 1;
+    const prevMonthYear = nowForSY.getMonth() === 0 ? nowForSY.getFullYear() - 1 : nowForSY.getFullYear();
+    const prevStart = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-01`;
+    const prevEnd = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-31`;
+
+    const [
+      profileResult,
+      authResult,
+      childrenResult,
+      todayLessonsResult,
+      allLessonsResult,
+      recentLessonsResult,
+      completedResult,
+      bookEventsResult,
+      memEventsResult,
+      todayBooksResult,
+      todayMemEventsResult,
+      subjectsResult,
+      vacBlocksResult,
+      upcomingResult,
+      memCountResult,
+      photoCountResult,
+      ybCountResult,
+      monthLessonsResult,
+      monthMemoriesResult,
+      lastMemResult,
+      tier1Result,
+      todayStoryResult,
+      prevMonthResult,
+    ] = await Promise.all([
+      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
-      supabase.from("profiles").select("is_pro, plan_type").eq("id", effectiveUserId).single(),
+      supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id").eq("user_id", effectiveUserId).or(`date.eq.${today},scheduled_date.eq.${today}`),
+      supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
+      supabase.from("lessons").select("date, scheduled_date, completed").eq("user_id", effectiveUserId).gte("scheduled_date", localDateStr(thirtyDaysAgo)),
+      supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
+      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_field_trip"]),
+      supabase.from("app_events").select("id, payload").eq("user_id", effectiveUserId).eq("type", "book_read").filter("payload->>date", "eq", today),
+      supabase.from("app_events").select("id, type, payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_photo"]).filter("payload->>date", "eq", today),
+      supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
+      supabase.from("vacation_blocks").select("name, end_date, start_date").eq("user_id", effectiveUserId),
+      supabase.from("lessons").select("title, scheduled_date, child_id, subjects(name)").eq("user_id", effectiveUserId).eq("completed", false).gte("scheduled_date", localDateStr(tomorrow)).lte("scheduled_date", localDateStr(twoWeeks)).order("scheduled_date"),
+      supabase.from("memories").select("id").eq("user_id", effectiveUserId).gte("date", syStart),
+      supabase.from("memories").select("id").eq("user_id", effectiveUserId).in("type", ["photo", "drawing"]),
+      supabase.from("memories").select("id").eq("user_id", effectiveUserId).eq("include_in_book", true).gte("date", syStart),
+      supabase.from("lessons").select("date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true).gte("scheduled_date", monthStartStr).lte("scheduled_date", monthEndStr),
+      supabase.from("memories").select("date").eq("user_id", effectiveUserId).gte("date", monthStartStr).lte("date", monthEndStr),
+      supabase.from("memories").select("id, type, title, date, child_id, photo_url").eq("user_id", effectiveUserId).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("memories").select("id, title, date, child_id, photo_url").eq("user_id", effectiveUserId).gte("date", localDateStr(otdStart)).lte("date", localDateStr(otdEnd)).order("date", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("memories").select("id, type, title, caption, child_id, photo_url, include_in_book, created_at").eq("user_id", effectiveUserId).eq("date", today).order("created_at", { ascending: false }),
+      nowForSY.getDate() <= 15
+        ? supabase.from("lessons").select("id").eq("user_id", effectiveUserId).eq("completed", true).gte("date", prevStart).lte("date", prevEnd)
+        : Promise.resolve({ data: null }),
     ]);
+
+    // ── Phase 2: Process all results (no awaits) ────────────────────────
+
+    // Profile
+    const profile = profileResult.data;
+    const authUser = authResult.data?.user;
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
-    setIsPro((profileData as { is_pro?: boolean } | null)?.is_pro ?? false);
-    const pt = (profileData as { plan_type?: string } | null)?.plan_type ?? null;
+    setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
+    const pt = (profile as { plan_type?: string } | null)?.plan_type ?? null;
     setPlanType(pt);
     const isFreeUser = !pt || pt === "free";
     const showTeaser = isFreeUser || previewFree;
     console.log('[YearbookTeaser] plan_type:', pt, 'showing teaser:', showTeaser, 'previewFree:', previewFree);
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
 
-    // Check if today is a school day
+    // School days
     const schoolDays: string[] = (profile as { school_days?: string[] } | null)?.school_days ?? [];
     setSchoolDaysArr(schoolDays);
     setSchoolStartTime((profile as { school_start_time?: string } | null)?.school_start_time ?? null);
@@ -754,7 +826,7 @@ export default function TodayPage() {
       setIsSchoolDay(schoolDays.includes(todayDayName));
     }
 
-    // "Days learning together" milestone — 1st school day of each month
+    // Milestone
     const schoolYearStart = (profile as { school_year_start?: string } | null)?.school_year_start;
     if (schoolYearStart) {
       const now = new Date();
@@ -769,17 +841,8 @@ export default function TodayPage() {
       }
     }
 
-    // Streak + week dots: fetch recent completed lesson dates
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const thirtyDaysAgoStr = localDateStr(thirtyDaysAgo);
-    const { data: recentLessons } = await supabase
-      .from("lessons")
-      .select("date, scheduled_date, completed")
-      .eq("user_id", effectiveUserId)
-      .gte("scheduled_date", thirtyDaysAgoStr);
-
-    // Build sets of dates with any lessons and dates with all complete
+    // Streak + week dots
+    const recentLessons = recentLessonsResult.data;
     const lessonsByDate = new Map<string, { total: number; done: number }>();
     for (const l of recentLessons ?? []) {
       const d = l.date ?? l.scheduled_date ?? "";
@@ -790,16 +853,15 @@ export default function TodayPage() {
       lessonsByDate.set(d, entry);
     }
 
-    // Calculate streak: consecutive school days going back from yesterday with at least 1 completed lesson
     let currentStreak = 0;
     const cursor = new Date();
-    cursor.setDate(cursor.getDate() - 1); // start from yesterday
+    cursor.setDate(cursor.getDate() - 1);
     for (let i = 0; i < 60; i++) {
       const dateStr = localDateStr(cursor);
       const dayName = cursor.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       if (schoolDays.length > 0 && !schoolDays.includes(dayName)) {
         cursor.setDate(cursor.getDate() - 1);
-        continue; // skip non-school days
+        continue;
       }
       const entry = lessonsByDate.get(dateStr);
       if (entry && entry.done > 0) {
@@ -809,14 +871,13 @@ export default function TodayPage() {
         break;
       }
     }
-    // If today has completions, count today too
     const todayEntry = lessonsByDate.get(today);
     if (todayEntry && todayEntry.done > 0) currentStreak++;
     setStreak(currentStreak);
 
-    // Week dots: Mon–Fri of current week
+    // Week dots
     const nowDate = new Date();
-    const currentDow = nowDate.getDay(); // 0=Sun
+    const currentDow = nowDate.getDay();
     const monday = new Date(nowDate);
     monday.setDate(monday.getDate() - ((currentDow === 0 ? 7 : currentDow) - 1));
     const dots: ("done" | "partial" | "off" | "future")[] = [];
@@ -838,42 +899,25 @@ export default function TodayPage() {
     }
     setWeekDots(dots);
 
-    // Check if we should show the family update prompt
+    // Family update prompt
     const now = new Date();
-    const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-    const prevMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-    const monthKey = `family_update_seen_${prevMonthYear}_${prevMonth}`;
-    const alreadySeen = localStorage.getItem(monthKey) === "1";
-    if (!alreadySeen && now.getDate() <= 15) {
-      // Check if user had lessons last month
-      const prevStart = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-01`;
-      const prevEnd = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-31`;
-      const { data: prevMonthData } = await supabase
-        .from("lessons")
-        .select("id")
-        .eq("user_id", effectiveUserId)
-        .eq("completed", true)
-        .gte("date", prevStart)
-        .lte("date", prevEnd);
-      if ((prevMonthData?.length ?? 0) > 0) setShowFamilyUpdate(true);
+    if (now.getDate() <= 15) {
+      const monthKey = `family_update_seen_${prevMonthYear}_${prevMonth}`;
+      const alreadySeen = localStorage.getItem(monthKey) === "1";
+      if (!alreadySeen && (prevMonthResult.data?.length ?? 0) > 0) {
+        setShowFamilyUpdate(true);
+      }
     }
 
-    const { data: childrenData } = await supabase
-      .from("children").select("id, name, color, birthday")
-      .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order");
+    // Children
+    const childrenData = childrenResult.data;
     setChildren(capitalizeChildNames(childrenData ?? []));
 
-    const [{ data: lessonsData }, { data: allLessonsData }] = await Promise.all([
-      supabase
-        .from("lessons")
-        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id")
-        .eq("user_id", effectiveUserId)
-        .or(`date.eq.${today},scheduled_date.eq.${today}`),
-      supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
-    ]);
+    // Today's lessons
+    const lessonsData = todayLessonsResult.data;
     const loadedLessons = (lessonsData as unknown as Lesson[]) ?? [];
     setLessons(loadedLessons);
-    setHasAnyLessons((allLessonsData?.length ?? 0) > 0);
+    setHasAnyLessons((allLessonsResult.data?.length ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
 
     // Auto-select first incomplete child
@@ -884,58 +928,34 @@ export default function TodayPage() {
       setSelectedChild((firstIncomplete ?? kidsWithLessons[0]).id);
     }
 
-    const [{ data: completed }, { data: bookEvents }, { data: memEvents }] = await Promise.all([
-      supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
-      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
-      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_field_trip"]),
-    ]);
+    // Leaf counts
+    const completed = completedResult.data;
+    const bookEvents = bookEventsResult.data;
+    const memEvents = memEventsResult.data;
     const counts: Record<string, number> = {};
     completed?.forEach((l) => { if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
     bookEvents?.forEach((e) => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
     memEvents?.forEach((e)  => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
     setLeafCounts(counts);
 
-    const { data: todayBooksData } = await supabase
-      .from("app_events").select("id, payload")
-      .eq("user_id", effectiveUserId).eq("type", "book_read")
-      .filter("payload->>date", "eq", today);
-    setTodayBooks((todayBooksData as unknown as BookLog[]) ?? []);
+    // Today books + memory events
+    setTodayBooks((todayBooksResult.data as unknown as BookLog[]) ?? []);
+    setTodayMemoryEvents((todayMemEventsResult.data as unknown as TodayEvent[]) ?? []);
 
-    const { data: todayMemData } = await supabase
-      .from("app_events").select("id, type, payload")
-      .eq("user_id", effectiveUserId)
-      .in("type", ["memory_book", "memory_project", "memory_photo"])
-      .filter("payload->>date", "eq", today);
-    setTodayMemoryEvents((todayMemData as unknown as TodayEvent[]) ?? []);
+    // Subjects
+    setSubjects((subjectsResult.data as Subject[]) ?? []);
 
-    const { data: subjectsData } = await supabase
-      .from("subjects").select("id, name, color")
-      .eq("user_id", effectiveUserId).order("name");
-    setSubjects((subjectsData as Subject[]) ?? []);
-
-    const { data: vacBlocks } = await supabase
-      .from("vacation_blocks").select("name, end_date, start_date")
-      .eq("user_id", effectiveUserId);
+    // Vacation blocks
+    const vacBlocks = vacBlocksResult.data;
     const currentVac = (vacBlocks ?? []).find(
       (b: { start_date: string; end_date: string; name: string }) => today >= b.start_date && today <= b.end_date
     );
     setActiveVacation(currentVac ? { name: currentVac.name, end_date: currentVac.end_date } : null);
     setAllVacationBlocks((vacBlocks ?? []) as { name: string; start_date: string; end_date: string }[]);
 
-    // Upcoming lessons — first school day after today with scheduled lessons
-    const nextDates = Array.from({ length: 14 }, (_, i) => {
-      const d = new Date(); d.setDate(d.getDate() + i + 1);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    });
-    const { data: upcomingData } = await supabase
-      .from("lessons")
-      .select("title, scheduled_date, child_id, subjects(name)")
-      .eq("user_id", effectiveUserId)
-      .eq("completed", false)
-      .gte("scheduled_date", nextDates[0])
-      .lte("scheduled_date", nextDates[13])
-      .order("scheduled_date");
+    // Upcoming lessons
     type UpRow = { title: string; scheduled_date: string | null; child_id: string | null; subjects: { name: string } | null };
+    const upcomingData = upcomingResult.data;
     if (upcomingData && upcomingData.length > 0) {
       const rows = upcomingData as unknown as UpRow[];
       const firstDate = rows[0].scheduled_date ?? "";
@@ -948,7 +968,6 @@ export default function TodayPage() {
           subjectName: l.subjects?.name ?? null,
         })),
       });
-      // Build upcoming days pills (next 2 days with lessons)
       const dayMap = new Map<string, number>();
       for (const r of rows) {
         const d = r.scheduled_date ?? "";
@@ -960,115 +979,47 @@ export default function TodayPage() {
       setUpcomingDays([]);
     }
 
-    // ── Book Cover: total memories this school year ────────────────────
-    const schoolYearStartMonth = 7; // August (0-indexed July = school year start)
-    const nowForSY = new Date();
-    const syYear = nowForSY.getMonth() >= schoolYearStartMonth ? nowForSY.getFullYear() : nowForSY.getFullYear() - 1;
-    const syStart = `${syYear}-08-01`;
-    const { data: memCountData } = await supabase
-      .from("memories")
-      .select("id")
-      .eq("user_id", effectiveUserId)
-      .gte("date", syStart);
-    setTotalMemories(memCountData?.length ?? 0);
+    // Memory counts
+    setTotalMemories(memCountResult.data?.length ?? 0);
+    setTotalPhotos(photoCountResult.data?.length ?? 0);
+    setYearbookCount(ybCountResult.data?.length ?? 0);
 
-    // ── Photo count for limit nudge ──────────────────────────────────
-    const { data: photoCountData } = await supabase
-      .from("memories")
-      .select("id")
-      .eq("user_id", effectiveUserId)
-      .in("type", ["photo", "drawing"]);
-    setTotalPhotos(photoCountData?.length ?? 0);
-
-    // ── Yearbook bookmark count for nudge card ────────────────────────
-    const { data: ybCountData } = await supabase
-      .from("memories")
-      .select("id")
-      .eq("user_id", effectiveUserId)
-      .eq("include_in_book", true)
-      .gte("date", syStart);
-    setYearbookCount(ybCountData?.length ?? 0);
-
-    // ── Active days this month ─────────────────────────────────────────
-    const monthStart = `${nowForSY.getFullYear()}-${String(nowForSY.getMonth() + 1).padStart(2, "0")}-01`;
-    const monthEnd = localDateStr(nowForSY);
-    const [{ data: monthLessons }, { data: monthMemories }] = await Promise.all([
-      supabase.from("lessons").select("date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true).gte("scheduled_date", monthStart).lte("scheduled_date", monthEnd),
-      supabase.from("memories").select("date").eq("user_id", effectiveUserId).gte("date", monthStart).lte("date", monthEnd),
-    ]);
+    // Active days this month
     const activeDates = new Set<string>();
-    (monthLessons ?? []).forEach((l: { date?: string; scheduled_date?: string }) => {
+    (monthLessonsResult.data ?? []).forEach((l: { date?: string; scheduled_date?: string }) => {
       const d = l.date ?? l.scheduled_date;
       if (d) activeDates.add(d);
     });
-    (monthMemories ?? []).forEach((m: { date: string }) => { if (m.date) activeDates.add(m.date); });
+    (monthMemoriesResult.data ?? []).forEach((m: { date: string }) => { if (m.date) activeDates.add(m.date); });
     setActiveDaysThisMonth(activeDates.size);
 
-    // ── Last captured memory (single record, no cross-mixing) ──────────
-    const { data: lastMemData } = await supabase
-      .from("memories")
-      .select("id, type, title, date, child_id, photo_url")
-      .eq("user_id", effectiveUserId)
-      .order("date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    setLastMemory(lastMemData as typeof lastMemory);
+    // Last captured memory
+    setLastMemory(lastMemResult.data as typeof lastMemory);
 
-    // ── On This Day — 3-tier system ─────────────────────────────────────
-    const otdNow = new Date();
-    const lastYear = otdNow.getFullYear() - 1;
-
-    // Tier 1: ±3 days of today last year
-    const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
-    const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
-    const { data: tier1Data } = await supabase
-      .from("memories")
-      .select("id, title, date, child_id, photo_url")
-      .eq("user_id", effectiveUserId)
-      .gte("date", localDateStr(otdStart))
-      .lte("date", localDateStr(otdEnd))
-      .order("date", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (tier1Data) {
-      setOnThisDayMemory(tier1Data as typeof onThisDayMemory);
+    // ── Phase 3: On This Day (one conditional query) ────────────────────
+    if (tier1Result.data) {
+      setOnThisDayMemory(tier1Result.data as typeof onThisDayMemory);
       setOnThisDayTier(1);
-      // Award full_circle badge on Tier 1 match
       checkAndAwardBadges(effectiveUserId);
     } else {
-      // Tier 2: same month last year
       const tier2Start = new Date(lastYear, otdNow.getMonth(), 1);
-      const tier2End = new Date(lastYear, otdNow.getMonth() + 1, 0); // last day of month
-      const { data: tier2Data } = await supabase
-        .from("memories")
+      const tier2End = new Date(lastYear, otdNow.getMonth() + 1, 0);
+      const { data: tier2Data } = await supabase.from("memories")
         .select("id, title, date, child_id, photo_url")
         .eq("user_id", effectiveUserId)
-        .gte("date", localDateStr(tier2Start))
-        .lte("date", localDateStr(tier2End))
-        .order("date", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
+        .gte("date", localDateStr(tier2Start)).lte("date", localDateStr(tier2End))
+        .order("date", { ascending: false }).limit(1).maybeSingle();
       if (tier2Data) {
         setOnThisDayMemory(tier2Data as typeof onThisDayMemory);
         setOnThisDayTier(2);
       } else {
-        // Tier 3: brand new user — show inspiration prompt
         setOnThisDayMemory(null);
         setOnThisDayTier(3);
       }
     }
 
-    // ── Today's story ──────────────────────────────────────────────────
-    const { data: storyData } = await supabase
-      .from("memories")
-      .select("id, type, title, caption, child_id, photo_url, include_in_book, created_at")
-      .eq("user_id", effectiveUserId)
-      .eq("date", today)
-      .order("created_at", { ascending: false });
-    setTodayStory((storyData ?? []) as typeof todayStory);
+    // Today's story
+    setTodayStory((todayStoryResult.data ?? []) as typeof todayStory);
 
     } catch (err) {
       console.error("Failed to load dashboard data:", err);

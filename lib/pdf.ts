@@ -152,7 +152,7 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   setColor(doc, C.white);
-  txt(doc,`Annual Progress Report | ${data.schoolYear}`, PW / 2, 1.45, { align: "center" });
+  txt(doc,`Progress Report | ${data.schoolYear}`, PW / 2, 1.45, { align: "center" });
   doc.setFontSize(8);
   setColor(doc, C.white);
   txt(doc,`Generated ${data.dateGenerated}`, PW / 2, 1.75, { align: "center" });

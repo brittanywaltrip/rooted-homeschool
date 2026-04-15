@@ -670,142 +670,125 @@ export default function MemoriesPage() {
     <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Photos, drawings, wins, books, field trips — everything." />
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
-      {/* Header links */}
-      <div className="flex justify-end gap-4 -mt-2 mb--1">
-        <button
-          type="button"
-          onClick={() => {
-            window.open('/family/preview', '_blank');
-          }}
-          className="text-sm text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors cursor-pointer"
-        >
-          👁 Preview family view
-        </button>
-        <button
-          type="button"
-          onClick={() => alert("More memory types coming soon")}
-          className="text-sm text-[#5c7f63] cursor-pointer"
-        >
-          + Add memory
-        </button>
+      {/* ── Quick Actions ─────────────────────────────────── */}
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2.5 pl-0.5">Quick Actions</p>
+        <div className="grid grid-cols-3 gap-3">
+          <button
+            onClick={() => {
+              const el = document.getElementById("quick-photo-fab");
+              if (el) el.click();
+            }}
+            className="bg-white border border-[#ebe8e3] rounded-2xl p-4 text-left hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer group"
+          >
+            <div className="w-10 h-10 rounded-xl bg-[#e6f4ea] flex items-center justify-center text-lg mb-2">📷</div>
+            <p className="text-[13px] font-bold text-[#2D2A26] leading-tight">Capture Memory</p>
+            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">Photo, win, book, drawing, or trip</p>
+          </button>
+          <Link
+            href="/dashboard/memories/yearbook"
+            className="bg-white border border-[#ebe8e3] rounded-2xl p-4 text-left hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer group"
+          >
+            <div className="w-10 h-10 rounded-xl bg-[#fef6e4] flex items-center justify-center text-lg mb-2">📖</div>
+            <p className="text-[13px] font-bold text-[#2D2A26] leading-tight">Yearbook</p>
+            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">{memories.filter((m) => m.include_in_book).length} memories saved this year</p>
+          </Link>
+          <Link
+            href="/dashboard/settings?tab=family#family-sharing"
+            className="bg-white border border-[#ebe8e3] rounded-2xl p-4 text-left hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer group"
+          >
+            <div className="w-10 h-10 rounded-xl bg-[#e8f0fa] flex items-center justify-center text-lg mb-2">👨‍👩‍👧‍👦</div>
+            <p className="text-[13px] font-bold text-[#2D2A26] leading-tight">Family Sharing</p>
+            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">Invite family to see your memories</p>
+          </Link>
+        </div>
       </div>
 
-      {/* ── Yearbook card (hidden when 0 memories) ────────────────── */}
-      {memories.length > 0 && (
-        <Link
-          href="/dashboard/memories/yearbook"
-          className="bg-white border border-[#e8e5e0] rounded-2xl p-3 flex items-center gap-3 hover:border-[#5c7f63] transition-colors"
-        >
-          <span className="text-[20px]">📖</span>
-          <div>
-            <p className="text-[13px] font-semibold text-[var(--g-deep)]">Your family yearbook →</p>
-            <p className="text-[11px] text-[#9a8f85]">
-              {memories.filter((m) => m.include_in_book).length} memories bookmarked this year
-            </p>
+      {/* ── Browse Memories ───────────────────────────────── */}
+      <div>
+        <div className="flex items-baseline justify-between mb-2.5 pl-0.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">Your Memories</p>
+          <span className="text-[13px] text-[#b0a89e] font-medium">{filtered.length} total</span>
+        </div>
+        <div className="bg-white border border-[#e8e5e0] rounded-2xl p-3 shadow-sm">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {([
+              ["all", "All"],
+              ["type:photo", "Photos"],
+              ["favorites", "Favorites"],
+              ...children.map((c) => [c.id, c.name] as [string, string]),
+            ]).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setFilter(filter === key ? "all" : key)}
+                className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
+                  filter === key
+                    ? "bg-[#2D5A3D] text-white"
+                    : "bg-[#f4f2ee] text-[#7a6f65] hover:bg-[#ebe8e2] hover:text-[#2D2A26]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+            <button
+              onClick={() => setShowMoreFilters(!showMoreFilters)}
+              className="px-2 py-1.5 text-[13px] font-medium text-[#8B7E74] hover:bg-[#f4f2ee] rounded-lg transition-colors"
+            >
+              {showMoreFilters ? "Less \u25B4" : "More \u25BE"}
+            </button>
           </div>
-        </Link>
-      )}
 
-      {/* ── Filter pills ─────────────────────────────────────── */}
-      {/* ROW 1: Primary filters */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {([
-          ["all", "All"],
-          ["type:photo", "📸 Photos"],
-          ["favorites", "♡ Favorites"],
-        ] as const).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setFilter(filter === key ? "all" : key)}
-            className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              filter === key
-                ? "bg-[#2D5A3D] text-white"
-                : "bg-white border border-[#e8e5e0] text-[#7a6f65] hover:border-[#5c7f63]"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-        <button
-          onClick={() => setShowMoreFilters(!showMoreFilters)}
-          className="px-3.5 py-1.5 rounded-full text-sm transition-colors"
-          style={{ background: "#f4faf0", border: "1px solid #c0dea8", color: "var(--g-brand)", fontWeight: 500 }}
-        >
-          {showMoreFilters ? "Less ‹" : "More ›"}
-        </button>
-      </div>
-
-      {/* Expanded tray */}
-      {showMoreFilters && (
-        <div className="flex flex-wrap gap-2" style={{ background: "#f9f6f0", borderRadius: 12, border: "0.5px solid #e8e0d4", padding: "8px 12px", marginTop: 4 }}>
-          {([
-            ["type:win", "⭐ Wins"],
-            ["type:book", "📚 Books"],
-            ["type:drawing", "🎨 Drawings"],
-            ["type:field_trip", "🗺️ Trips"],
-          ] as const).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setFilter(filter === key ? "all" : key)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                filter === key
-                  ? "bg-[#2D5A3D] text-white"
-                  : "bg-white border border-[#e8e5e0] text-[#7a6f65] hover:border-[#5c7f63]"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ROW 2: Child avatars */}
-      {children.length > 0 && (
-        <div className="flex items-center gap-2">
-          {children.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setFilter(filter === c.id ? "all" : c.id)}
-              className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-sm font-semibold text-white transition-all ${
-                filter === c.id ? "ring-2 ring-offset-2 ring-[#5c7f63]" : "opacity-70 hover:opacity-100"
-              }`}
-              style={{ backgroundColor: c.color ?? "#5c7f63" }}
-              title={c.name}
-            >
-              {c.name.charAt(0).toUpperCase()}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── Search bar ──────────────────────────────────────── */}
-      <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#b5aca4] pointer-events-none" />
-        <input
-          ref={searchRef}
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search memories..."
-          className="w-full pl-9 pr-16 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
-        />
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-          {searchQuery && (
-            <button
-              onClick={() => { setSearchQuery(""); searchRef.current?.focus(); }}
-              className="p-1 rounded-full hover:bg-[#f0ede8] text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
-              aria-label="Clear search"
-            >
-              <X size={14} />
-            </button>
+          {showMoreFilters && (
+            <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-[#f0ede8]">
+              {([
+                ["type:win", "Wins"],
+                ["type:book", "Books"],
+                ["type:drawing", "Drawings"],
+                ["type:field_trip", "Trips"],
+                ["yearbook", "In Yearbook"],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setFilter(filter === key ? "all" : key)}
+                  className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
+                    filter === key
+                      ? "bg-[#2D5A3D] text-white"
+                      : "bg-[#f4f2ee] text-[#7a6f65] hover:bg-[#ebe8e2]"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           )}
-          <button
-            onClick={startVoiceSearch}
-            className="p-1 rounded-full hover:bg-[#f0ede8] text-[#b5aca4] hover:text-[#5c7f63] transition-colors"
-            aria-label="Voice search"
-          >
-            <Mic size={14} />
-          </button>
+
+          <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-[#f0ede8]">
+            <Search size={14} className="text-[#b5aca4] shrink-0" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search..."
+              className="flex-1 text-[13px] text-[#2d2926] placeholder-[#c0b8b0] bg-transparent border-none outline-none"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(""); searchRef.current?.focus(); }}
+                className="p-1 rounded-full hover:bg-[#f0ede8] text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
+                aria-label="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
+            <button
+              onClick={startVoiceSearch}
+              className="p-1 rounded-full hover:bg-[#f0ede8] text-[#b5aca4] hover:text-[#5c7f63] transition-colors"
+              aria-label="Voice search"
+            >
+              <Mic size={14} />
+            </button>
+          </div>
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -239,7 +240,7 @@ function getGardenTheme(date: Date): GardenTheme {
   // Spring (Mar–May)
   if (m >= 3 && m <= 5) return {
     name: "Spring",
-    groundEmojis: ["🌸", "🌷", "🌱", "🦋", "🌸", "🌷"],
+    groundEmojis: ["🌸", "🌷", "🌱", "🌼", "🌸", "🌷"],
     skyEmojis: ["🦋", "🦋"],
     treeEffect: "",
     skyGradient: "linear-gradient(180deg, #87CEEB 0%, #C8E8F8 60%, #dff0e8 82%, #7ab87a 100%)",
@@ -248,7 +249,7 @@ function getGardenTheme(date: Date): GardenTheme {
   // Summer (Jun–Aug)
   if (m >= 6 && m <= 8) return {
     name: "Summer",
-    groundEmojis: ["🌻", "🦋", "🐝", "🌻", "🐝"],
+    groundEmojis: ["🌻", "🌼", "🐝", "🌻", "🐝"],
     skyEmojis: ["☀️", "☀️"],
     treeEffect: "",
     skyGradient: "linear-gradient(180deg, #1E90FF 0%, #87CEEB 60%, #d4ecea 82%, #6aaa5a 100%)",
@@ -372,6 +373,7 @@ const TIER_STYLES = {
 // ─── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function GardenPage() {
+  const router = useRouter();
   const { effectiveUserId } = usePartner();
   const [children, setChildren]         = useState<Child[]>([]);
   const [leafCounts, setLeafCounts]     = useState<Record<string, number>>({});
@@ -638,22 +640,18 @@ export default function GardenPage() {
         <Butterfly x={72} y={62} delay={1.8} color="#fbbf24" />
         <Butterfly x={45} y={55} delay={3.2} color="#86efac" />
 
-        {/* Vacation palm trees */}
+        {/* Vacation banner */}
         {activeVacation && (
-          <>
-            <div className="absolute garden-sway"
-              style={{ bottom: "27%", left: "12%", transformOrigin: "center bottom", fontSize: "clamp(30px, 6vw, 48px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
-              aria-hidden>🌴</div>
-            <div className="absolute garden-sway-alt"
-              style={{ bottom: "27%", right: "12%", transformOrigin: "center bottom", fontSize: "clamp(30px, 6vw, 48px)", lineHeight: 1, userSelect: "none", zIndex: 5 }}
-              aria-hidden>🌴</div>
-            <div className="absolute bottom-[52%] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-2xl px-3 py-1.5 text-center shadow-md z-10"
-              style={{ background: "#fef3dc", border: "1.5px solid #f0dda8" }}>
-              <p className="text-xs font-semibold text-[#7a4a1a] leading-snug">
-                {familyName ? `${familyName.replace(/^The\s+/i, "").trim() || familyName}` : "Family"} is away 🌴
-              </p>
-            </div>
-          </>
+          <div className="absolute bottom-[50%] left-1/2 -translate-x-1/2 rounded-2xl px-5 py-3 text-center shadow-lg z-10"
+            style={{ background: "#fef3dc", border: "2px solid #f0dda8" }}>
+            <p className="text-2xl mb-1" aria-hidden>🌴</p>
+            <p className="text-sm font-bold text-[#7a4a1a] leading-snug">
+              {familyName ? `${familyName.replace(/^The\s+/i, "").trim() || familyName}` : "Family"} is on a break!
+            </p>
+            {activeVacation.name && (
+              <p className="text-xs text-[#a06b2d] mt-0.5">{activeVacation.name}</p>
+            )}
+          </div>
         )}
 
         {/* Ground layers */}
@@ -760,89 +758,122 @@ export default function GardenPage() {
         )}
       </div>
 
-      {/* ── Child tabs ─────────────────────────────────────── */}
-      {children.length > 1 && (
-        <div className="flex gap-2 flex-wrap">
+      {/* ── Per-kid Growth Cards (stacked) ──────────────────── */}
+      {children.map((child) => {
+        const childLeaves = leafCounts[child.id] ?? 0;
+        const childStage = GROWTH_STAGES[getGrowthStageIndex(childLeaves)];
+        const childNextStage = GROWTH_STAGES[getGrowthStageIndex(childLeaves) + 1] ?? null;
+        const isSelected = child.id === selectedId;
+
+        return (
+          <div
+            key={child.id}
+            className={`bg-white border rounded-2xl p-[18px] transition-colors cursor-pointer ${
+              isSelected ? "border-[#2D5A3D] shadow-sm" : "border-[#e8e5e0]"
+            }`}
+            onClick={() => setSelectedId(child.id)}
+          >
+            {/* Top row: accent strip + info + tree emoji */}
+            <div className="flex items-center justify-between mb-3.5">
+              <div className="flex items-stretch">
+                <div
+                  className="w-1 rounded-full mr-3 self-stretch"
+                  style={{ background: child.color || "#8B7E74" }}
+                />
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74]">
+                    {child.name}
+                  </p>
+                  <p className="text-xl font-bold text-[#2d2926] flex items-center gap-1.5 mt-0.5">
+                    {childStage.emoji} {childStage.name}
+                  </p>
+                  <p className="text-[13px] text-[#8B7E74] mt-0.5">
+                    {childStage.label}
+                  </p>
+                </div>
+              </div>
+              <div className="w-[52px] h-[52px] flex items-center justify-center text-[38px]">
+                {getGrowthStage(childLeaves).emoji}
+              </div>
+            </div>
+
+            {/* Leaf count + next stage */}
+            <div className="flex items-center gap-1.5 pt-3 border-t border-[#f0ede8] text-[13px]">
+              <span>🌿</span>
+              <span className="font-semibold text-[#2D5A3D]">
+                {childLeaves} {childLeaves === 1 ? "leaf" : "leaves"}
+              </span>
+              {childNextStage && (
+                <span className="text-[#8B7E74]">
+                  · {childNextStage.min - childLeaves} to {childNextStage.name}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* ── Kid View Buttons ──────────────────────────────── */}
+      {children.length > 0 && (
+        <div className="flex flex-col gap-2.5">
           {children.map((child) => (
             <button
               key={child.id}
-              onClick={() => setSelectedId(child.id)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                selectedId === child.id
-                  ? "bg-[#2D5A3D] text-white border-transparent shadow-sm"
-                  : "bg-white text-[#5c6b62] border-[#e8e5e0] hover:border-[#5c7f63]"
-              }`}
+              onClick={() => router.push(`/child?child=${child.id}`)}
+              className="w-full flex items-center justify-between bg-white border border-[#e8e5e0] rounded-2xl px-5 py-4 hover:border-[#2D5A3D] hover:shadow-sm transition-all group"
             >
-              {child.name}
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
+                  style={{ background: `${child.color || '#8B7E74'}22` }}
+                >
+                  {getGrowthStage(leafCounts[child.id] ?? 0).emoji}
+                </div>
+                <div className="text-left">
+                  <p className="text-[15px] font-bold text-[#2D2A26]">
+                    Show {child.name} Their Garden
+                  </p>
+                  <p className="text-[12px] text-[#8B7E74]">
+                    Open {child.name}&apos;s kid-friendly view
+                  </p>
+                </div>
+              </div>
+              <span className="text-[#8B7E74] group-hover:text-[#2D5A3D] text-lg transition-colors">&rarr;</span>
             </button>
           ))}
         </div>
       )}
 
-      {/* ── Growth Progress Card ──────────────────────────── */}
-      {selectedChild && (
-        <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-0.5 flex items-center gap-1">
-                {selectedChild.name}
-                {selectedChild.birthday && (() => {
-                  const bd = new Date(selectedChild.birthday + "T12:00:00");
-                  const now = new Date();
-                  return bd.getMonth() === now.getMonth() && bd.getDate() === now.getDate() ? " 🎂" : "";
-                })()}
-              </p>
-              <h2 className="text-xl font-bold text-[#2d2926]">
-                {selectedStage.emoji} {selectedStage.name}
-              </h2>
-              <p className="text-sm mt-0.5 text-[#8B7E74]">
-                {selectedStage.label}
-              </p>
+      {/* ── How leaves are earned ─────────────────────────── */}
+      <div className="text-center">
+        <p className="text-[12px] font-medium text-[#5C5346] mb-1">How leaves are earned:</p>
+        <p className="text-[11px] text-[#8B7E74]">
+          Complete a lesson = 1 leaf · Log a book = 1 leaf · Capture a memory = 1 leaf · Complete an activity = 1 leaf
+        </p>
+      </div>
 
-              <div className="flex items-center gap-2 mt-3 mb-2">
-                <span className="text-sm">🌿</span>
-                <span className="text-sm font-semibold text-[#2d2926]">
-                  {selectedLeaves} {selectedLeaves === 1 ? "leaf" : "leaves"} earned
-                </span>
-                {nextStage && (
-                  <span className="text-xs text-[#8B7E74]">
-                    · {nextStage.min - selectedLeaves} to {nextStage.name}
-                  </span>
-                )}
-              </div>
-
-              <div className="w-full h-2 bg-[#f0ede8] rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-700"
-                  style={{ width: `${Math.min(progress, 100)}%`, backgroundColor: "#2D5A3D" }}
-                />
-              </div>
-
-              {/* Streak display */}
-              {currentStreak > 0 && (
-                <div className="mt-3 flex items-center gap-1.5">
-                  <span className="text-sm">🔥</span>
-                  <span className="text-sm font-semibold text-[#c4956a]">
-                    {currentStreak} day streak
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Big tree preview */}
-            <div style={{ width: 56, height: 56, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span
-                style={{ fontSize: 44, lineHeight: 1, filter: "drop-shadow(0 6px 16px rgba(0,0,0,0.2))", userSelect: "none" }}
-                aria-hidden
+      {/* ── Child Toggle Pills ────────────────────────────── */}
+      {children.length > 1 && (
+        <div className="flex justify-center">
+          <div className="inline-flex bg-white border border-[#e8e5e0] rounded-full p-1 gap-1">
+            {children.map((child) => (
+              <button
+                key={child.id}
+                onClick={() => setSelectedId(child.id)}
+                className={`px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all ${
+                  selectedId === child.id
+                    ? "bg-[#2D5A3D] text-white shadow-sm"
+                    : "text-[#8B7E74] hover:text-[#5C5346]"
+                }`}
               >
-                {selectedStage.emoji}
-              </span>
-            </div>
+                {child.name}
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* ── Tree Growth Stages (detailed) ────────────────── */}
+      {/* ── Tree Growth Stages ───────────────────────────── */}
       {selectedChild && (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
@@ -859,12 +890,10 @@ export default function GardenPage() {
                 const leavesToGo = stage.min - selectedLeaves;
                 return (
                   <div key={stage.name} className="flex items-start gap-3 relative">
-                    {/* Vertical line */}
                     {i < GROWTH_STAGES.length - 1 && (
                       <div className="absolute left-[9px] top-[22px] w-[2px] h-[calc(100%-4px)]"
                         style={{ backgroundColor: isEarned ? "#2D5A3D" : "#e8e5e0" }} />
                     )}
-                    {/* Dot */}
                     <div className="shrink-0 mt-[6px] z-10"
                       style={{
                         width: 20, height: 20, borderRadius: "50%",
@@ -872,7 +901,6 @@ export default function GardenPage() {
                         backgroundColor: isEarned ? "#2D5A3D" : isNext ? "#e8f0e9" : "transparent",
                       }}
                     />
-                    {/* Content */}
                     <div className="pb-4" style={{ opacity: isEarned || isNext ? 1 : 0.4 }}>
                       <div className="flex items-center gap-2">
                         <span className="text-lg">{stage.emoji}</span>
@@ -885,7 +913,7 @@ export default function GardenPage() {
                         {isNext && <span className="text-[10px] font-semibold text-[#2D5A3D] bg-[#e8f0e9] px-1.5 py-0.5 rounded">NEXT</span>}
                       </div>
                       <p className="text-[11px] text-[#8B7E74] mt-0.5 pl-7">
-                        {isNext ? `${leavesToGo} more ${leavesToGo === 1 ? "leaf" : "leaves"} to go!` : stage.label}
+                        {isEarned ? "\u2713 Reached" : isNext ? `${leavesToGo} more leaf${leavesToGo !== 1 ? "s" : ""} to go` : stage.label}
                       </p>
                     </div>
                   </div>
@@ -896,18 +924,11 @@ export default function GardenPage() {
         </div>
       )}
 
-      {/* ── How leaves are earned ─────────────────────────── */}
-      <div className="text-center">
-        <p className="text-[12px] font-medium text-[#5C5346] mb-1">How leaves are earned:</p>
-        <p className="text-[11px] text-[#8B7E74]">
-          Complete a lesson = 1 leaf · Log a book = 1 leaf · Capture a memory = 1 leaf · Complete an activity = 1 leaf
-        </p>
-      </div>
-
       {/* ── Creative Badge Collection ──────────────────────── */}
+      {selectedChild && (
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
-          Badges
+        <p className="text-[13px] font-bold uppercase tracking-wide text-[#5C5346] mb-3 pl-1">
+          {selectedChild ? `${selectedChild.name}'s Badges` : "Badges"}
         </p>
         <div className="bg-white border border-[#e8e5e0] rounded-2xl p-4">
           {BADGE_CATEGORIES.filter(cat => !cat.conditional || booksCount > 0).map((cat, catIdx, filteredCats) => {
@@ -929,45 +950,62 @@ export default function GardenPage() {
                         : earnedTieredBadgeKeys.has(`${cat.id}_${cat.tiers[tIdx - 1].tier}`);
                     const isNext = !isEarned && prevEarned;
 
+                    // ── Duolingo-style visual states ──
                     const tierBg = isEarned
-                      ? t.tier === "gold" ? "radial-gradient(circle, #fff8e1, #ffd54f)"
-                        : t.tier === "silver" ? "radial-gradient(circle, #f5f5f5, #d8d8d8)"
-                        : "radial-gradient(circle, #f5e6d3, #e8cfa8)"
-                      : "#f0ede8";
+                      ? t.tier === "gold" ? "radial-gradient(circle, #fff8e1 0%, #ffe082 50%, #ffd54f 100%)"
+                        : t.tier === "silver" ? "radial-gradient(circle, #fafafa 0%, #e8e8e8 50%, #d0d0d0 100%)"
+                        : "radial-gradient(circle, #fdf0e0 0%, #f0d8b8 50%, #e8c8a0 100%)"
+                      : isNext ? "#f0ede8" : "#f5f3f0";
                     const tierBorder = isEarned
-                      ? t.tier === "gold" ? "2px solid #C4962A"
-                        : t.tier === "silver" ? "2px solid #b0b0b0"
-                        : "2px solid #c4944a"
-                      : isNext ? "1.5px dashed #2D5A3D" : "1.5px dashed #d5d0ca";
+                      ? t.tier === "gold" ? "2.5px solid #C4962A"
+                        : t.tier === "silver" ? "2.5px solid #a0a0a0"
+                        : "2.5px solid #c4944a"
+                      : isNext ? "2.5px solid #2D5A3D" : "2px solid #e8e5e0";
                     const tierShadow = isEarned
-                      ? t.tier === "gold" ? "0 3px 12px rgba(196,150,42,0.35)"
-                        : t.tier === "silver" ? "0 2px 8px rgba(176,176,176,0.25)"
-                        : "0 2px 8px rgba(196,148,74,0.25)"
-                      : "none";
+                      ? t.tier === "gold" ? "0 4px 16px rgba(196,150,42,0.4), inset 0 1px 2px rgba(255,255,255,0.5)"
+                        : t.tier === "silver" ? "0 3px 12px rgba(160,160,160,0.3), inset 0 1px 2px rgba(255,255,255,0.4)"
+                        : "0 3px 12px rgba(196,148,74,0.3), inset 0 1px 2px rgba(255,255,255,0.4)"
+                      : isNext ? "0 2px 8px rgba(45,90,61,0.15)" : "none";
 
                     return (
                       <div key={t.tier} className="flex flex-col items-center" style={{ width: 76 }}>
                         <div
                           className="relative flex items-center justify-center rounded-2xl"
                           style={{
-                            width: 60, height: 60, background: tierBg,
+                            width: 64, height: 64, background: tierBg,
                             border: tierBorder, boxShadow: tierShadow,
+                            transform: isEarned ? "scale(1)" : "scale(0.95)",
+                            transition: "transform 0.2s, box-shadow 0.2s",
                           }}
                         >
-                          <span style={{ fontSize: 28, opacity: isEarned ? 1 : isNext ? 0.6 : 0.3, userSelect: "none" }}>
+                          <span style={{
+                            fontSize: 30,
+                            opacity: isEarned ? 1 : isNext ? 0.5 : 0.2,
+                            userSelect: "none",
+                            filter: !isEarned && !isNext ? "grayscale(100%)" : "none",
+                          }}>
                             {t.emoji}
                           </span>
-                          {!isEarned && !isNext && (
-                            <span className="absolute bottom-1 right-1 text-[9px]">🔒</span>
+                          {isEarned && (
+                            <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#2D5A3D] rounded-full flex items-center justify-center shadow-sm">
+                              <span className="text-white text-[10px] font-bold">{"\u2713"}</span>
+                            </span>
                           )}
                           {isNext && (
-                            <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#2D5A3D] rounded-full animate-pulse" />
+                            <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 bg-[#2D5A3D] text-white text-[8px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap shadow-sm">
+                              NEXT
+                            </span>
+                          )}
+                          {!isEarned && !isNext && (
+                            <span className="absolute bottom-1 right-1 text-[10px] opacity-40">🔒</span>
                           )}
                         </div>
-                        <span className={`text-[11px] font-medium text-center leading-tight mt-1.5 ${isEarned ? "text-[#2D2A26]" : "text-[#b5aca4]"}`}>
+                        <span className={`text-[11px] font-semibold text-center leading-tight mt-2 ${
+                          isEarned ? "text-[#2D2A26]" : isNext ? "text-[#2D5A3D]" : "text-[#c0b8b0]"
+                        }`}>
                           {t.name}
                         </span>
-                        <span className="text-[10px] text-[#8B7E74] text-center">
+                        <span className={`text-[10px] text-center ${isEarned ? "text-[#8B7E74]" : "text-[#d0c8c0]"}`}>
                           {t.threshold === -1 ? t.unit : `${t.threshold} ${t.unit}`}
                         </span>
                       </div>
@@ -979,129 +1017,6 @@ export default function GardenPage() {
           })}
         </div>
       </div>
-
-      {/* ── Your Journey (stats) ──────────────────────────── */}
-      {(() => {
-        const activeDates = new Set(
-          allLessons.map((l) => l.date ?? l.scheduled_date).filter(Boolean) as string[]
-        );
-        const totalHours = allLessons.reduce((s, l) => s + (l.hours ?? 0), 0);
-        const hasSomeData = allLessons.length > 0;
-
-        return (
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
-              Your Journey
-            </p>
-            {!hasSomeData ? (
-              <div className="bg-white border border-[#e8e5e0] rounded-2xl p-6 text-center">
-                <p className="text-sm text-[#8B7E74]">Complete lessons to see your stats here 📊</p>
-              </div>
-            ) : (
-              <>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-gradient-to-br from-[#fff8ed] to-[#fef3dc] border border-[#f5c97a]/40 rounded-2xl p-4 text-center">
-                  <div className="text-2xl mb-1">🔥</div>
-                  <p className="text-2xl font-bold text-[#c4956a]">{currentStreak}</p>
-                  <p className="text-xs font-medium text-[#8b6f47] mt-0.5">Current streak</p>
-                  <p className="text-[10px] text-[#b5aca4] mt-0.5">
-                    {currentStreak === 0 ? "Start today!" : `${currentStreak} day${currentStreak !== 1 ? "s" : ""}`}
-                  </p>
-                </div>
-                <div className="bg-white border border-[#e8e5e0] rounded-2xl p-4 text-center">
-                  <div className="text-2xl mb-1">📚</div>
-                  <p className="text-2xl font-bold text-[#2d2926]">{allLessons.length}</p>
-                  <p className="text-xs font-medium text-[#8B7E74] mt-0.5">Lessons logged</p>
-                  <p className="text-[10px] text-[#b5aca4] mt-0.5">All time</p>
-                </div>
-                {totalHours > 0 ? (
-                  <div className="bg-white border border-[#e8e5e0] rounded-2xl p-4 text-center">
-                    <div className="text-2xl mb-1">⏱️</div>
-                    <p className="text-2xl font-bold text-[#2d2926]">
-                      {totalHours % 1 === 0 ? `${totalHours}h` : `${totalHours.toFixed(1)}h`}
-                    </p>
-                    <p className="text-xs font-medium text-[#8B7E74] mt-0.5">Total hours</p>
-                    <p className="text-[10px] text-[#b5aca4] mt-0.5">This year</p>
-                  </div>
-                ) : (
-                  <div className="bg-white border border-[#e8e5e0] rounded-2xl p-4 text-center">
-                    <div className="text-2xl mb-1">📸</div>
-                    <p className="text-2xl font-bold text-[#2d2926]">{memoriesCount}</p>
-                    <p className="text-xs font-medium text-[#8B7E74] mt-0.5">Memories captured</p>
-                    <p className="text-[10px] text-[#b5aca4] mt-0.5">This year</p>
-                  </div>
-                )}
-                <div className="bg-white border border-[#e8e5e0] rounded-2xl p-4 text-center">
-                  <div className="text-2xl mb-1">📖</div>
-                  <p className="text-2xl font-bold text-[#2d2926]">{booksCount}</p>
-                  <p className="text-xs font-medium text-[#8B7E74] mt-0.5">Books read</p>
-                  <p className="text-[10px] text-[#b5aca4] mt-0.5">This year</p>
-                </div>
-              </div>
-
-              <Link
-                href="/dashboard/reports"
-                className="flex items-center justify-between bg-white border border-[#e8e5e0] rounded-xl px-4 py-3 hover:bg-[#F8F7F4] transition-colors mt-3"
-              >
-                <div>
-                  <p className="text-sm font-semibold text-[#2d2926]">Export progress PDF</p>
-                  <p className="text-xs text-[#8B7E74] mt-0.5">Lessons, books, and hours by subject</p>
-                </div>
-                <span className="text-[#5c7f63] text-lg">↗</span>
-              </Link>
-              </>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* ── Growth Stages Timeline ────────────────────────── */}
-      {selectedChild && (
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
-            Growth Journey
-          </p>
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl p-4">
-            <div className="flex items-center justify-between gap-1">
-              {GROWTH_STAGES.map((stage, i) => {
-                const isReached = selectedLeaves >= stage.min;
-                const isCurrent = i === selectedStageIdx;
-                return (
-                  <div key={stage.name} className="flex flex-col items-center flex-1 min-w-0">
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all ${
-                        isCurrent
-                          ? "ring-2 ring-[#2D5A3D] ring-offset-1"
-                          : ""
-                      }`}
-                      style={{
-                        background: isReached ? "#e8f0e9" : "#f0ede8",
-                        opacity: isReached ? 1 : 0.4,
-                      }}
-                    >
-                      {stage.emoji}
-                    </div>
-                    <span className={`text-[8px] font-medium mt-1 text-center leading-tight ${
-                      isReached ? "text-[#2D5A3D]" : "text-[#b5aca4]"
-                    }`}>
-                      {stage.min}+
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            {/* Connecting line */}
-            <div className="relative mx-4 -mt-[26px] mb-4">
-              <div className="h-0.5 bg-[#e8e2d9] rounded-full" />
-              <div
-                className="absolute top-0 left-0 h-0.5 bg-[#2D5A3D] rounded-full transition-all duration-700"
-                style={{
-                  width: `${Math.min((selectedStageIdx / (GROWTH_STAGES.length - 1)) * 100, 100)}%`,
-                }}
-              />
-            </div>
-          </div>
-        </div>
       )}
 
       <div className="h-4" />
