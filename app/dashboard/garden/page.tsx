@@ -240,7 +240,7 @@ function getGardenTheme(date: Date): GardenTheme {
   // Spring (Mar–May)
   if (m >= 3 && m <= 5) return {
     name: "Spring",
-    groundEmojis: ["🌸", "🌷", "🌱", "🦋", "🌸", "🌷"],
+    groundEmojis: ["🌸", "🌷", "🌱", "🌼", "🌸", "🌷"],
     skyEmojis: ["🦋", "🦋"],
     treeEffect: "",
     skyGradient: "linear-gradient(180deg, #87CEEB 0%, #C8E8F8 60%, #dff0e8 82%, #7ab87a 100%)",
@@ -249,7 +249,7 @@ function getGardenTheme(date: Date): GardenTheme {
   // Summer (Jun–Aug)
   if (m >= 6 && m <= 8) return {
     name: "Summer",
-    groundEmojis: ["🌻", "🦋", "🐝", "🌻", "🐝"],
+    groundEmojis: ["🌻", "🌼", "🐝", "🌻", "🐝"],
     skyEmojis: ["☀️", "☀️"],
     treeEffect: "",
     skyGradient: "linear-gradient(180deg, #1E90FF 0%, #87CEEB 60%, #d4ecea 82%, #6aaa5a 100%)",

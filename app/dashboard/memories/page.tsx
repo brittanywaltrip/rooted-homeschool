@@ -671,20 +671,20 @@ export default function MemoriesPage() {
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
       {/* Header links */}
-      <div className="flex justify-end gap-4 -mt-2 mb--1">
+      <div className="flex justify-end gap-3 -mt-2 mb-1">
         <button
           type="button"
           onClick={() => {
             window.open('/family/preview', '_blank');
           }}
-          className="text-sm text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-[#f0f7f1] text-[#2D5A3D] border border-[#c8e0cc] hover:bg-[#e0f0e3] hover:border-[#5c7f63] transition-all cursor-pointer shadow-sm"
         >
-          👁 Preview family view
+          👁 Family View
         </button>
         <button
           type="button"
           onClick={() => alert("More memory types coming soon")}
-          className="text-sm text-[#5c7f63] cursor-pointer"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-white text-[#5c7f63] border border-[#e0ddd8] hover:border-[#5c7f63] transition-all cursor-pointer shadow-sm"
         >
           + Add memory
         </button>
@@ -694,15 +694,16 @@ export default function MemoriesPage() {
       {memories.length > 0 && (
         <Link
           href="/dashboard/memories/yearbook"
-          className="bg-white border border-[#e8e5e0] rounded-2xl p-3 flex items-center gap-3 hover:border-[#5c7f63] transition-colors"
+          className="group bg-gradient-to-r from-[#f8f5f0] to-[#f0ece4] border-2 border-[#d8cfc4] rounded-2xl p-4 flex items-center gap-4 hover:border-[#C4962A] hover:shadow-md transition-all"
         >
-          <span className="text-[20px]">📖</span>
-          <div>
-            <p className="text-[13px] font-semibold text-[var(--g-deep)]">Your family yearbook →</p>
-            <p className="text-[11px] text-[#9a8f85]">
+          <span className="text-[28px] group-hover:scale-110 transition-transform">📖</span>
+          <div className="flex-1">
+            <p className="text-[15px] font-bold text-[var(--g-deep)]">Your Family Yearbook</p>
+            <p className="text-[12px] text-[#9a8f85] mt-0.5">
               {memories.filter((m) => m.include_in_book).length} memories bookmarked this year
             </p>
           </div>
+          <span className="text-[#C4962A] text-lg font-bold group-hover:translate-x-1 transition-transform">&rarr;</span>
         </Link>
       )}
 
