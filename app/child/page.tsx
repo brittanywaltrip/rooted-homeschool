@@ -33,120 +33,6 @@ function getStageIndex(leaves: number) {
   return idx;
 }
 
-// ─── Tree SVG (scaled for 8 stages) ──────────────────────────────────────────
-
-function BigTree({ stageIndex }: { stageIndex: number }) {
-  const stage = stageIndex + 1; // 1-indexed for rendering
-  return (
-    <svg viewBox="0 0 100 120" className="w-full h-full overflow-visible" aria-hidden>
-      <ellipse cx="50" cy="113" rx="24" ry="5" fill="rgba(0,0,0,0.12)" />
-
-      {/* Stage 1: Seed */}
-      {stage === 1 && (
-        <g>
-          <path d="M44 96 Q50 84 56 96 Q50 108 44 96" fill="#8b6f47" className="leaf-shimmer" />
-          <path d="M50 85 Q53 76 50 68" stroke="#7a9e7e" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-          <ellipse cx="50" cy="65" rx="4" ry="3" fill="#7a9e7e" opacity="0.7" />
-        </g>
-      )}
-      {/* Stage 2: Sprouting */}
-      {stage === 2 && (
-        <g>
-          <rect x="48" y="80" width="4" height="32" rx="2" fill="#8b6f47" />
-          <path d="M50 86 Q36 76 40 60 Q50 72 50 86" fill="#7a9e7e" className="leaf-shimmer" />
-          <path d="M50 86 Q64 76 60 60 Q50 72 50 86" fill="#5c7f63" className="leaf-shimmer" />
-        </g>
-      )}
-      {/* Stage 3: Seedling */}
-      {stage === 3 && (
-        <g>
-          <rect x="47" y="72" width="6" height="40" rx="3" fill="#8b6f47" />
-          <path d="M50 82 Q33 70 38 54 Q50 64 50 82" fill="#7a9e7e" className="leaf-shimmer" />
-          <path d="M50 82 Q67 70 62 54 Q50 64 50 82" fill="#5c7f63" className="leaf-shimmer" />
-        </g>
-      )}
-      {/* Stage 4: Growing */}
-      {stage === 4 && (
-        <g>
-          <rect x="47" y="58" width="6" height="54" rx="3" fill="#8b6f47" />
-          <path d="M50 74 Q28 60 35 40 Q48 54 50 74" fill="#5c7f63" className="leaf-shimmer" />
-          <path d="M50 74 Q72 60 65 40 Q52 54 50 74" fill="#7a9e7e" className="leaf-shimmer" />
-          <circle cx="50" cy="36" r="17" fill="#5c7f63" opacity="0.9" />
-          <circle cx="50" cy="24" r="13" fill="#1a2c22" />
-        </g>
-      )}
-      {/* Stage 5: Young Tree */}
-      {stage === 5 && (
-        <g>
-          <rect x="46" y="56" width="8" height="56" rx="4" fill="#8b6f47" />
-          <path d="M50 70 Q22 54 30 30 Q46 46 50 70" fill="#5c7f63" className="leaf-shimmer" />
-          <path d="M50 70 Q78 54 70 30 Q54 46 50 70" fill="#7a9e7e" className="leaf-shimmer" />
-          <circle cx="32" cy="44" r="17" fill="#7a9e7e" />
-          <circle cx="68" cy="44" r="17" fill="#7a9e7e" />
-          <circle cx="50" cy="32" r="20" fill="#5c7f63" />
-          <circle cx="50" cy="18" r="14" fill="#1a2c22" />
-        </g>
-      )}
-      {/* Stage 6: Flourishing */}
-      {stage === 6 && (
-        <g>
-          <rect x="45" y="56" width="10" height="56" rx="5" fill="#8b6f47" />
-          <path d="M50 72 Q14 54 24 22 Q44 42 50 72" fill="#5c7f63" className="leaf-shimmer" />
-          <path d="M50 72 Q86 54 76 22 Q56 42 50 72" fill="#7a9e7e" className="leaf-shimmer" />
-          <circle cx="26" cy="50" r="19" fill="#7a9e7e" />
-          <circle cx="74" cy="50" r="19" fill="#7a9e7e" />
-          <circle cx="50" cy="34" r="23" fill="#5c7f63" />
-          <circle cx="50" cy="16" r="16" fill="#1a2c22" />
-          <circle cx="34" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
-          <circle cx="66" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
-        </g>
-      )}
-      {/* Stage 7: Blossoming */}
-      {stage === 7 && (
-        <g>
-          <rect x="45" y="56" width="10" height="56" rx="5" fill="#8b6f47" />
-          <path d="M50 72 Q14 54 24 22 Q44 42 50 72" fill="#5c7f63" className="leaf-shimmer" />
-          <path d="M50 72 Q86 54 76 22 Q56 42 50 72" fill="#7a9e7e" className="leaf-shimmer" />
-          <circle cx="26" cy="50" r="19" fill="#7a9e7e" />
-          <circle cx="74" cy="50" r="19" fill="#7a9e7e" />
-          <circle cx="50" cy="34" r="23" fill="#5c7f63" />
-          <circle cx="50" cy="16" r="16" fill="#1a2c22" />
-          <circle cx="34" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
-          <circle cx="66" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
-          {/* Blossoms */}
-          <circle cx="20" cy="36" r="3" fill="#ffb7c5" className="sparkle" style={{ animationDelay: "0s" }} />
-          <circle cx="80" cy="30" r="3" fill="#ffb7c5" className="sparkle" style={{ animationDelay: "0.6s" }} />
-          <circle cx="38" cy="14" r="2.5" fill="#ffc0cb" className="sparkle" style={{ animationDelay: "1.2s" }} />
-          <circle cx="62" cy="14" r="2.5" fill="#ffc0cb" className="sparkle" style={{ animationDelay: "0.3s" }} />
-          <circle cx="50" cy="6"  r="2" fill="#ffb7c5" className="sparkle" style={{ animationDelay: "0.9s" }} />
-        </g>
-      )}
-      {/* Stage 8: Bearing Fruit */}
-      {stage >= 8 && (
-        <g>
-          <rect x="45" y="56" width="10" height="56" rx="5" fill="#8b6f47" />
-          <path d="M50 72 Q14 54 24 22 Q44 42 50 72" fill="#5c7f63" className="leaf-shimmer" />
-          <path d="M50 72 Q86 54 76 22 Q56 42 50 72" fill="#7a9e7e" className="leaf-shimmer" />
-          <circle cx="26" cy="50" r="19" fill="#7a9e7e" />
-          <circle cx="74" cy="50" r="19" fill="#7a9e7e" />
-          <circle cx="38" cy="62" r="14" fill="#5c7f63" opacity="0.9" />
-          <circle cx="62" cy="62" r="14" fill="#5c7f63" opacity="0.9" />
-          <circle cx="50" cy="34" r="23" fill="#5c7f63" />
-          <circle cx="50" cy="16" r="16" fill="#1a2c22" />
-          <circle cx="34" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
-          <circle cx="66" cy="26" r="11" fill="#1a2c22" opacity="0.85" />
-          {/* Fruits */}
-          <circle cx="30" cy="54" r="4" fill="#e74c3c" className="sparkle" style={{ animationDelay: "0s" }} />
-          <circle cx="70" cy="48" r="4" fill="#e74c3c" className="sparkle" style={{ animationDelay: "0.5s" }} />
-          <circle cx="50" cy="22" r="3.5" fill="#e74c3c" className="sparkle" style={{ animationDelay: "1s" }} />
-          <circle cx="40" cy="36" r="3" fill="#f1c40f" className="sparkle" style={{ animationDelay: "0.3s" }} />
-          <circle cx="60" cy="38" r="3" fill="#f1c40f" className="sparkle" style={{ animationDelay: "0.8s" }} />
-        </g>
-      )}
-    </svg>
-  );
-}
-
 // ─── Inner page (needs Suspense for useSearchParams) ──────────────────────────
 
 function ChildPageInner() {
@@ -472,28 +358,29 @@ function ChildPageInner() {
 
         {/* Stage pill */}
         <div
-          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-black text-xl shadow-lg mb-4 cursor-pointer select-none active:scale-105 transition-transform"
+          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full font-black text-xl shadow-lg mb-2 cursor-pointer select-none active:scale-105 transition-transform"
           style={{ backgroundColor: childColor, color: "white" }}
         >
           <span>{stage.emoji}</span>
           <span>{stage.name}</span>
         </div>
 
-        {/* Tree — tappable with shake */}
+        {/* Tree — big emoji, tappable */}
         <div
-          className="relative cursor-pointer select-none"
+          className="cursor-pointer select-none mt-2"
           onClick={handleTreeTap}
           style={{ WebkitTapHighlightColor: "transparent" }}
         >
           <div
-            className={`garden-sway ${treeShaking ? "animate-[kidview-shake_0.6s_ease-in-out]" : ""}`}
+            className={`${treeShaking ? "animate-[kidview-shake_0.6s_ease-in-out]" : ""}`}
             style={{
-              width: "clamp(160px, 40vw, 240px)",
-              height: "clamp(180px, 44vw, 270px)",
-              transformOrigin: "center bottom",
+              fontSize: "clamp(100px, 28vw, 140px)",
+              lineHeight: 1,
+              filter: "drop-shadow(0 10px 24px rgba(0,0,0,0.2))",
+              transition: "transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
             }}
           >
-            <BigTree stageIndex={stageIdx} />
+            {stage.emoji}
           </div>
         </div>
 
@@ -526,6 +413,17 @@ function ChildPageInner() {
           </div>
         )}
 
+        {/* Streak */}
+        <div className="mt-5 flex items-center gap-3 bg-white/20 backdrop-blur-sm px-5 py-3 rounded-2xl cursor-pointer select-none active:scale-105 transition-transform">
+          <span className="text-3xl" style={{ animation: "kidview-fire 0.5s ease-in-out infinite alternate" }}>🔥</span>
+          <div>
+            <div className="text-white font-extrabold text-base" style={{ textShadow: "0 2px 6px rgba(0,0,0,0.15)" }}>
+              {leaves > 0 ? `${Math.min(leaves, 30)} day streak!` : "Start your streak!"}
+            </div>
+            <div className="text-white/80 text-xs font-semibold">Keep it going tomorrow! 💪</div>
+          </div>
+        </div>
+
         {/* Tiered Badges */}
         <div className="w-full max-w-sm mt-6">
           <p className="text-white font-extrabold text-sm text-center uppercase tracking-wide mb-3"
@@ -551,12 +449,12 @@ function ChildPageInner() {
                 return (
                   <div
                     key={`${cat.id}_${t.tier}`}
-                    className={`relative flex flex-col items-center rounded-2xl px-2.5 py-2.5 min-w-[68px] max-w-[76px] cursor-pointer select-none active:scale-95 transition-transform ${
+                    className={`relative flex flex-col items-center rounded-2xl px-3 py-3 min-w-[72px] max-w-[80px] cursor-pointer select-none active:scale-95 transition-transform ${
                       isEarned
-                        ? "bg-white/90 backdrop-blur-sm shadow-lg"
+                        ? "bg-white/95 backdrop-blur-md shadow-xl ring-2 ring-white/30"
                         : isNext
-                        ? "bg-white/35 backdrop-blur-sm border-2 border-white/80"
-                        : "bg-white/10"
+                        ? "bg-white/40 backdrop-blur-md border-2 border-white/90 shadow-md"
+                        : "bg-white/15 backdrop-blur-sm"
                     }`}
                     onClick={() => {
                       if (isEarned) {
@@ -578,7 +476,7 @@ function ChildPageInner() {
                         NEXT
                       </div>
                     )}
-                    <span className={`text-2xl mb-1 ${!isEarned && !isNext ? "opacity-15 grayscale" : isNext ? "opacity-55" : ""}`}>
+                    <span className={`text-3xl mb-1 ${!isEarned && !isNext ? "opacity-20 grayscale" : isNext ? "opacity-50" : ""}`}>
                       {t.emoji}
                     </span>
                     <span className={`text-[9px] font-bold text-center leading-tight ${
