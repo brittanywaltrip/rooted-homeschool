@@ -15,6 +15,7 @@ import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
+import ListsSection from "@/app/components/ListsSection";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -612,6 +613,10 @@ export default function TodayPage() {
   const [timePillValue, setTimePillValue] = useState("");
   const timePillTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Lists state
+  type ListRow = { id: string; name: string; emoji: string; sort_order: number; archived: boolean; created_at: string };
+  const [lists, setLists] = useState<ListRow[]>([]);
+
   // Activities state
   const [todayActivities, setTodayActivities] = useState<TodayActivity[]>([]);
   const [showRunningLate, setShowRunningLate] = useState(false);
@@ -1021,6 +1026,17 @@ export default function TodayPage() {
     // Today's story
     setTodayStory((todayStoryResult.data ?? []) as typeof todayStory);
 
+    // Lists — fetch via API route (handles auto-creation of default list)
+    try {
+      const { data: { session: listsSession } } = await supabase.auth.getSession();
+      if (listsSession?.access_token) {
+        const listsRes = await fetch("/api/lists", {
+          headers: { Authorization: `Bearer ${listsSession.access_token}` },
+        });
+        if (listsRes.ok) setLists(await listsRes.json());
+      }
+    } catch { /* non-critical — lists will load on next poll */ }
+
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
       setLoadError(true);
@@ -1148,6 +1164,11 @@ export default function TodayPage() {
       setTimeout(() => setFirstMemoryToast(null), 4000);
     }
   }, [totalMemories, loading, children]);
+
+  const getToken = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  }, []);
 
   async function refreshTodayStory() {
     if (!effectiveUserId) return;
@@ -2992,6 +3013,13 @@ export default function TodayPage() {
           </Link>
         );
       })()}
+
+      {/* ═══════════════════════════════════════════════════════════
+          MY LISTS — collapsible inline lists
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && lists.length > 0 && (
+        <ListsSection lists={lists} onListsChanged={loadData} getToken={getToken} />
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           TODAY'S STORY — all memories logged today
