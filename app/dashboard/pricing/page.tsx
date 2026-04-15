@@ -14,10 +14,9 @@ const features: FeatureRow[] = [
   { label: "Garden & growing trees",         free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Unlimited children",             free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Photo memories & book log",      free: "Up to 50 photos",    founding: "✓ Unlimited", standard: "✓ Unlimited" },
-  { label: "Full memory history",            free: "✓",              founding: "✓",            standard: "✓"           },
-  { label: "AI Year in Review",              free: "1 / year",       founding: "✓ Unlimited",  standard: "✓ Unlimited" },
+  { label: "Full memory timeline",            free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Hours & Attendance Log",         free: "View only",      founding: "✓ Download & print", standard: "✓ Download & print" },
-  { label: "Finish Line curriculum pacing",  free: "✓",              founding: "✓",            standard: "✓"           },
+  { label: "Curriculum progress tracking",   free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Family sharing portal",          free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Priority support",               free: "—",              founding: "✓",            standard: "—"           },
   { label: "Founding price locked forever",  free: "—",              founding: "Forever 🎁",   standard: "—",          foundingOnly: true },
@@ -157,7 +156,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#5c7f63] mt-0.5">≈ $3.25/month</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Rooted", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "Priority support", "Price locked forever ✦"].map(f => (
+            {["Everything in Rooted", "Unlimited photos", "Full memory timeline", "Full yearbook", "Priority support", "Price locked forever ✦"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[var(--g-deep)]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -190,7 +189,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#b5aca4] mt-0.5">≈ $4.92/month</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Rooted", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing"].map(f => (
+            {["Everything in Rooted", "Unlimited photos", "Full memory timeline", "Full yearbook"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -223,7 +222,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#b5aca4] mt-0.5">$6.99/mo · $83.88/yr</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Rooted", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing"].map(f => (
+            {["Everything in Rooted", "Unlimited photos", "Full memory timeline", "Full yearbook"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
