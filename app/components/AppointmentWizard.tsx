@@ -40,6 +40,15 @@ const DURATION_OPTIONS = [
 
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 
+const EMOJI_PICKER = [
+  "🩺", "🦷", "🧠", "👁️", "💊", "🏥", "🩻", "💉",
+  "📋", "🏫", "📝", "🎓", "📚", "✏️", "🧪", "🔬",
+  "🎵", "🎹", "🎸", "🎨", "🎭", "🎤", "📷", "🎬",
+  "🏃", "⚽", "🏀", "🏊", "🤸", "🧘", "🚴", "⛸️",
+  "🛒", "🏦", "✂️", "🚗", "✈️", "🏠", "🐾", "⛪",
+  "👨‍👩‍👧", "🤝", "🎂", "🎉", "❤️", "⭐", "✨", "📅",
+];
+
 const FREQ_OPTIONS: { label: string; value: "weekly" | "biweekly" | "monthly" }[] = [
   { label: "Weekly", value: "weekly" },
   { label: "Every 2 weeks", value: "biweekly" },
@@ -210,12 +219,22 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved }: Props) {
               </div>
 
               {selectedType === "Custom" && (
-                <div className="rounded-xl p-3 space-y-2 mb-4" style={{ border: "1.5px dashed #e0ddd8", background: "white" }}>
-                  <div className="flex gap-2">
-                    <input type="text" placeholder="Emoji" value={customEmoji} onChange={(e) => setCustomEmoji(e.target.value)}
-                      className="w-14 text-center text-lg border border-[#e8e2d9] rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#7C3AED]" maxLength={4} />
+                <div className="rounded-xl p-3 space-y-3 mb-4" style={{ border: "1.5px dashed #e0ddd8", background: "white" }}>
+                  {/* Selected emoji + name input */}
+                  <div className="flex gap-2 items-center">
+                    <span className="w-10 h-10 rounded-lg bg-[#f5f0ff] flex items-center justify-center text-xl shrink-0">{customEmoji || "✨"}</span>
                     <input type="text" placeholder="Appointment name" value={customTitle} onChange={(e) => setCustomTitle(e.target.value)}
-                      className="flex-1 text-sm border border-[#e8e2d9] rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:border-[#7C3AED]" autoFocus />
+                      className="flex-1 text-sm border border-[#e8e2d9] rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-[#7C3AED]" autoFocus />
+                  </div>
+                  {/* Emoji picker grid */}
+                  <div className="grid grid-cols-8 gap-1">
+                    {EMOJI_PICKER.map((e) => (
+                      <button key={e} type="button" onClick={() => setCustomEmoji(e)}
+                        className="w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-all"
+                        style={{ background: customEmoji === e ? ACCENT_BG : "transparent", boxShadow: customEmoji === e ? `0 0 0 1.5px ${ACCENT}` : "none" }}>
+                        {e}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
