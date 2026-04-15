@@ -33,7 +33,7 @@ function InlineBanner({ feature, valueProp, onDismiss }: UpgradePromptProps) {
               href="/upgrade"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-xs font-semibold transition-colors"
             >
-              Claim Founding Price — $39/yr →
+              Get Rooted+ — $39/yr →
             </Link>
             {days > 0 && (
               <span className="text-[11px] text-[#7a6f65]">
@@ -78,7 +78,7 @@ function ModalPrompt({ feature, valueProp, onDismiss }: UpgradePromptProps) {
             href="/upgrade"
             className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-semibold text-sm transition-colors shadow-sm w-full justify-center"
           >
-            Claim Founding Price — $39/yr →
+            Get Rooted+ — $39/yr →
           </Link>
           {days > 0 && (
             <p className="mt-3 text-xs text-[#7a6f65]">

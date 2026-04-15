@@ -72,7 +72,7 @@ export default function DashboardPricingPage() {
         </p>
         <h1 className="text-2xl font-bold text-[#2d2926]">Choose your plan 🌿</h1>
         <p className="text-sm text-[#7a6f65] mt-1">
-          Rooted is free to use. Upgrade for unlimited photos and PDF exports.
+          Rooted is free to use. Upgrade to Rooted+ for unlimited photos and PDF exports.
         </p>
       </div>
 
@@ -81,7 +81,7 @@ export default function DashboardPricingPage() {
         <div className="flex items-center gap-3 bg-[#e8f5ea] border border-[#b8d9bc] rounded-2xl px-5 py-3.5">
           <span className="text-lg">✨</span>
           <div>
-            <p className="text-sm font-semibold text-[var(--g-deep)]">You&apos;re on Rooted Pro</p>
+            <p className="text-sm font-semibold text-[var(--g-deep)]">You&apos;re on Rooted+</p>
             <p className="text-xs text-[#5c7f63]">You have full access to all features below.</p>
           </div>
         </div>
@@ -91,12 +91,12 @@ export default function DashboardPricingPage() {
       <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 w-fit">
         <span className="text-base">⏳</span>
         <p className="text-xs font-medium text-amber-800">
-          Founding Family pricing · Lock in $39/yr before it ends
+          Rooted+ Founding Family pricing · Lock in $39/yr before it ends
         </p>
       </div>
 
       {/* Plan cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
         {/* Free Forever */}
         <div className={`relative bg-[#fefcf9] border-2 rounded-2xl p-5 flex flex-col ${
@@ -108,8 +108,8 @@ export default function DashboardPricingPage() {
             </span>
           )}
           <div className="mb-4">
-            <p className="text-base font-bold text-[#2d2926] mb-1">Free Forever</p>
-            <p className="text-xs text-[#7a6f65] leading-relaxed">Lesson logging, garden, reports, and unlimited children — always free.</p>
+            <p className="text-base font-bold text-[#2d2926] mb-1">Rooted</p>
+            <p className="text-xs text-[#7a6f65] leading-relaxed">Lesson logging, garden, reports, and unlimited children — free forever.</p>
           </div>
           <div className="mb-5">
             <span className="text-3xl font-bold text-[#2d2926]">$0</span>
@@ -140,9 +140,9 @@ export default function DashboardPricingPage() {
           loaded && isPro ? "border-[#5c7f63]" : "border-[#5c7f63]"
         }`}>
           <div className="flex items-center gap-1.5 mb-1">
-            <p className="text-base font-bold text-[#2d2926]">Founding Family</p>
-            <span className="text-[9px] font-bold bg-[#5c7f63] text-white px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0">
-              Limited
+            <p className="text-base font-bold text-[#2d2926]">Rooted+</p>
+            <span className="text-[9px] font-bold bg-[#C4962A] text-white px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0">
+              Founding Family
             </span>
           </div>
           {loaded && isPro && (
@@ -150,14 +150,14 @@ export default function DashboardPricingPage() {
               Your current plan
             </span>
           )}
-          <p className="text-xs text-[#5c7f63] mb-4 leading-relaxed">Lock in forever — price never increases for you.</p>
+          <p className="text-xs text-[#5c7f63] mb-4 leading-relaxed">Founding Family pricing — locked in forever.</p>
           <div className="mb-5">
             <span className="text-3xl font-bold text-[#2d2926]">$39</span>
             <span className="text-sm text-[#7a6f65]">/yr</span>
             <p className="text-[10px] text-[#5c7f63] mt-0.5">≈ $3.25/month</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "Priority support", "Price locked forever ✦"].map(f => (
+            {["Everything in Rooted", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing", "Priority support", "Price locked forever ✦"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[var(--g-deep)]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -174,7 +174,7 @@ export default function DashboardPricingPage() {
                 href="/upgrade"
                 className="block w-full text-center py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-xs font-bold transition-colors shadow-sm"
               >
-                Subscribe — $39/yr →
+                Get Rooted+ — $39/yr →
               </Link>
             )}
           </div>
@@ -182,7 +182,7 @@ export default function DashboardPricingPage() {
 
         {/* Standard */}
         <div className="relative bg-[#fefcf9] border-2 border-[#e8e2d9] rounded-2xl p-5 flex flex-col">
-          <p className="text-base font-bold text-[#2d2926] mb-1">Standard</p>
+          <p className="text-base font-bold text-[#2d2926] mb-1">Rooted+</p>
           <p className="text-xs text-[#7a6f65] mb-4 leading-relaxed">Full access, billed annually.</p>
           <div className="mb-5">
             <span className="text-3xl font-bold text-[#2d2926]">$59</span>
@@ -190,7 +190,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#b5aca4] mt-0.5">≈ $4.92/month</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing"].map(f => (
+            {["Everything in Rooted", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -207,15 +207,15 @@ export default function DashboardPricingPage() {
                 href="/upgrade"
                 className="block w-full text-center py-2.5 rounded-xl bg-[#2d2926] hover:bg-[#1a1714] text-white text-xs font-bold transition-colors"
               >
-                Subscribe — $59/yr →
+                Get Rooted+ — $59/yr →
               </Link>
             )}
           </div>
         </div>
 
-        {/* Monthly */}
-        <div className="relative bg-[#fefcf9] border-2 border-[#e8e2d9] rounded-2xl p-5 flex flex-col">
-          <p className="text-base font-bold text-[#2d2926] mb-1">Monthly</p>
+        {/* Monthly — hidden during Founding Family window */}
+        {false && <div className="relative bg-[#fefcf9] border-2 border-[#e8e2d9] rounded-2xl p-5 flex flex-col">
+          <p className="text-base font-bold text-[#2d2926] mb-1">Rooted+ Monthly</p>
           <p className="text-xs text-[#7a6f65] mb-4 leading-relaxed">Most flexible — cancel anytime</p>
           <div className="mb-5">
             <span className="text-3xl font-bold text-[#2d2926]">$6.99</span>
@@ -223,7 +223,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#b5aca4] mt-0.5">$6.99/mo · $83.88/yr</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Free", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing"].map(f => (
+            {["Everything in Rooted", "Unlimited photos", "Full memory history", "Unlimited AI Year in Review", "Finish Line pacing"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -244,7 +244,7 @@ export default function DashboardPricingPage() {
               </Link>
             )}
           </div>
-        </div>
+        </div>}
 
       </div>
 
@@ -263,13 +263,13 @@ export default function DashboardPricingPage() {
                   Feature
                 </th>
                 <th className="py-3 px-4 text-center text-xs font-semibold text-[#7a6f65] uppercase tracking-wide">
-                  Free
+                  Rooted
                 </th>
-                <th className="py-3 px-4 text-center text-xs font-semibold text-[#5c7f63] uppercase tracking-wide">
-                  Founding
+                <th className="py-3 px-4 text-center text-xs font-semibold text-[#C4962A] uppercase tracking-wide">
+                  Rooted+ (Founding)
                 </th>
                 <th className="py-3 px-4 text-center text-xs font-semibold text-[#7a6f65] uppercase tracking-wide">
-                  Standard
+                  Rooted+
                 </th>
               </tr>
             </thead>
@@ -305,7 +305,7 @@ export default function DashboardPricingPage() {
             className="inline-flex items-center gap-2 px-6 py-3 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold rounded-xl transition-colors shadow-sm"
           >
             <span>✨</span>
-            Upgrade to Pro — $39/yr
+            Get Rooted+ — $39/yr
           </Link>
           <p className="text-xs text-[#b5aca4] mt-2">
             Secure checkout via Stripe · Cancel anytime

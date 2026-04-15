@@ -20,12 +20,11 @@ export default function PaywallCard({ feature, description }: PaywallCardProps) 
           href="/dashboard/pricing"
           className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-semibold text-sm transition-colors shadow-sm"
         >
-          ✨ Upgrade to Pro
+          ✨ Upgrade to Rooted+
         </Link>
         <p className="mt-4 text-xs text-[#7a9e7e]">
-          Founding Family plan · $39/yr locked forever
+          Rooted+ · Founding Family pricing · $39/yr locked forever
         </p>
-        <p className="text-xs text-[#7a6f65] mt-2">Starting at $6.99/mo or $39/yr</p>
       </div>
     </div>
   );
