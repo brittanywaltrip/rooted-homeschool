@@ -12,7 +12,6 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSaved: () => void;
-  token: string;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -60,7 +59,7 @@ function todayStr(): string {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function AppointmentWizard({ isOpen, onClose, onSaved, token }: Props) {
+export default function AppointmentWizard({ isOpen, onClose, onSaved }: Props) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [children, setChildren] = useState<Child[]>([]);
 
@@ -136,9 +135,11 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, token }: P
   async function handleSave() {
     setSaving(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setSaving(false); return; }
       const res = await fetch("/api/appointments", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
           title, emoji, date,
           time: allDay ? null : (time || null),

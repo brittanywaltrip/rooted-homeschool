@@ -16,6 +16,8 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import ListsSection from "@/app/components/ListsSection";
+import AppointmentsSection from "@/app/components/AppointmentsSection";
+import AppointmentWizard from "@/app/components/AppointmentWizard";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 // PageHero removed — replaced by Book Cover Card
 
@@ -618,6 +620,11 @@ export default function TodayPage() {
   type ListRow = { id: string; name: string; emoji: string; sort_order: number; archived: boolean; created_at: string };
   const [lists, setLists] = useState<ListRow[]>([]);
 
+  // Appointments state
+  type ApptRow = { id: string; title: string; emoji: string; date: string; time: string | null; duration_minutes: number; location: string | null; child_ids: string[]; completed: boolean; instance_date: string };
+  const [todayAppointments, setTodayAppointments] = useState<ApptRow[]>([]);
+  const [showApptWizard, setShowApptWizard] = useState(false);
+
   // Activities state
   const [todayActivities, setTodayActivities] = useState<TodayActivity[]>([]);
   const [showRunningLate, setShowRunningLate] = useState(false);
@@ -1027,16 +1034,18 @@ export default function TodayPage() {
     // Today's story
     setTodayStory((todayStoryResult.data ?? []) as typeof todayStory);
 
-    // Lists — fetch via API route (handles auto-creation of default list)
+    // Lists + Appointments — fetch via API routes
     try {
-      const { data: { session: listsSession } } = await supabase.auth.getSession();
-      if (listsSession?.access_token) {
-        const listsRes = await fetch("/api/lists", {
-          headers: { Authorization: `Bearer ${listsSession.access_token}` },
-        });
+      const { data: { session: apiSession } } = await supabase.auth.getSession();
+      if (apiSession?.access_token) {
+        const [listsRes, apptsRes] = await Promise.all([
+          fetch("/api/lists", { headers: { Authorization: `Bearer ${apiSession.access_token}` } }),
+          fetch(`/api/appointments?date=${today}`, { headers: { Authorization: `Bearer ${apiSession.access_token}` } }),
+        ]);
         if (listsRes.ok) setLists(await listsRes.json());
+        if (apptsRes.ok) setTodayAppointments(await apptsRes.json());
       }
-    } catch { /* non-critical — lists will load on next poll */ }
+    } catch { /* non-critical — will load on next poll */ }
 
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
@@ -3016,6 +3025,19 @@ export default function TodayPage() {
       })()}
 
       {/* ═══════════════════════════════════════════════════════════
+          APPOINTMENTS — today's appointments
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && (
+        <AppointmentsSection
+          appointments={todayAppointments}
+          children={children}
+          getToken={getToken}
+          onChanged={loadData}
+          onAddNew={() => setShowApptWizard(true)}
+        />
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
           MY LISTS — collapsible inline lists
          ═══════════════════════════════════════════════════════════ */}
       {!loading && lists.length > 0 && (
@@ -3413,6 +3435,7 @@ export default function TodayPage() {
           onClose={() => setShowCaptureMenu(false)}
           onLogLesson={() => { setShowExtraLessons(true); posthog.capture('log_extra_lessons_opened', { source: 'log_modal', user_plan: isPro ? 'paid' : 'free' }); }}
           onLogActivity={() => { router.push("/dashboard/plan"); }}
+          onAddAppointment={() => { setShowApptWizard(true); }}
           onCaptureMemory={(type) => {
             if (type === "photo") { captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); }
             else if (type === "drawing") { captureTypeRef.current = "drawing"; setShowDrawingSheet(true); }
@@ -3427,6 +3450,13 @@ export default function TodayPage() {
           onListItemAdded={loadData}
         />
       )}
+
+      {/* ── Appointment Wizard ────────────────────────────── */}
+      <AppointmentWizard
+        isOpen={showApptWizard}
+        onClose={() => setShowApptWizard(false)}
+        onSaved={loadData}
+      />
 
       {/* ── Extra lessons modal ────────────────────────────── */}
       {showExtraLessons && (

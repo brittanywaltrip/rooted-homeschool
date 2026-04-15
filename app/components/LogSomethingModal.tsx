@@ -12,6 +12,7 @@ interface Props {
   onClose: () => void;
   onLogLesson: () => void;
   onLogActivity: () => void;
+  onAddAppointment: () => void;
   onCaptureMemory: (type: "photo" | "drawing" | "win" | "book" | "field_trip" | "project") => void;
   lists: ListRow[];
   children: Child[];
@@ -22,7 +23,7 @@ interface Props {
 type Step = "main" | "capture" | "pick-list" | "add-item";
 
 export default function LogSomethingModal({
-  onClose, onLogLesson, onLogActivity, onCaptureMemory,
+  onClose, onLogLesson, onLogActivity, onAddAppointment, onCaptureMemory,
   lists, children, getToken, onListItemAdded,
 }: Props) {
   const [step, setStep] = useState<Step>("main");
@@ -122,20 +123,16 @@ export default function LogSomethingModal({
             {([
               { emoji: "📚", label: "Log a lesson",      sub: "Mark lessons complete",   action: () => { onClose(); onLogLesson(); } },
               { emoji: "🎯", label: "Log an activity",   sub: "Co-op, sports, music...", action: () => { onClose(); onLogActivity(); } },
-              { emoji: "📅", label: "Add appointment",   sub: "Coming soon",             disabled: true },
+              { emoji: "📅", label: "Add appointment",   sub: "Doctor, therapy, class...", action: () => { onClose(); onAddAppointment(); } },
               { emoji: "📝", label: "Add to a list",     sub: "To-do's, shopping...",    action: () => setStep("pick-list") },
               { emoji: "📸", label: "Capture a memory",  sub: "Photo, win, book...",     action: () => setStep("capture") },
-            ] as const).map((item) => (
+            ]).map((item) => (
               <button
                 key={item.label}
                 type="button"
-                onClick={"action" in item && item.action ? item.action : undefined}
-                disabled={"disabled" in item && item.disabled}
-                className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl border-[1.5px] transition-colors text-left disabled:opacity-40 disabled:cursor-default"
-                style={{
-                  borderColor: "#e8e5e0",
-                  background: "disabled" in item && item.disabled ? "#faf9f7" : "#fafaf8",
-                }}
+                onClick={item.action}
+                className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl border-[1.5px] transition-colors text-left"
+                style={{ borderColor: "#e8e5e0", background: "#fafaf8" }}
               >
                 <span className="text-[24px] shrink-0">{item.emoji}</span>
                 <div className="flex-1 min-w-0">
