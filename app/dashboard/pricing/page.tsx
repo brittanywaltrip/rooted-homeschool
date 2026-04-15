@@ -15,7 +15,7 @@ const features: FeatureRow[] = [
   { label: "Unlimited children",             free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Photo memories & book log",      free: "Up to 50 photos",    founding: "✓ Unlimited", standard: "✓ Unlimited" },
   { label: "Full memory timeline",            free: "✓",              founding: "✓",            standard: "✓"           },
-  { label: "Hours & Attendance Log",         free: "View only",      founding: "✓ Download & print", standard: "✓ Download & print" },
+  { label: "Hours & Attendance Log",         free: "✓",              founding: "✓",                  standard: "✓"                  },
   { label: "Curriculum progress tracking",   free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Family sharing portal",          free: "✓",              founding: "✓",            standard: "✓"           },
   { label: "Priority support",               free: "—",              founding: "✓",            standard: "—"           },
@@ -114,7 +114,7 @@ export default function DashboardPricingPage() {
             <span className="text-3xl font-bold text-[#2d2926]">$0</span>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Lesson logging", "Garden", "Unlimited children", "Up to 50 photos", "Full memory history", "Yearbook", "Family sharing", "Hours & Attendance Log (view)"].map(f => (
+            {["Lesson logging", "Garden", "Unlimited children", "Up to 50 photos", "Full memory timeline", "Yearbook", "Family sharing", "Hours & Attendance Log"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
