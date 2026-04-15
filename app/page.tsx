@@ -867,7 +867,7 @@ function HomeInner() {
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Free Forever</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Rooted</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
                 className="text-4xl font-bold text-[#2d2926]"
@@ -885,7 +885,6 @@ function HomeInner() {
                 "Family garden & badges",
                 "Curated resources",
                 "Yearbook preview (first 4 spreads)",
-                "1 progress summary per year (view only)",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
