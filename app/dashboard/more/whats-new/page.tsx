@@ -90,9 +90,9 @@ const UPDATES = [
   {
     date: "March 2026",
     emoji: "✨",
-    title: "Become a Founding Member",
+    title: "Introducing Rooted+",
     description:
-      "We redesigned the upgrade page to tell the real story — you're not just getting an app, you're joining a movement. Founding Family pricing is locked forever for the first 200 families.",
+      "We redesigned the upgrade page to tell the real story — you're not just getting an app, you're joining a movement. Rooted+ Founding Family pricing is locked forever for the first 200 families.",
     inspiredByFamily: false,
   },
   {

@@ -373,31 +373,22 @@ export default function ReportsPage() {
       </div>
 
       {/* Action buttons */}
-      {isPro ? (
-        <div className="flex gap-3">
-          <button
-            onClick={() => setShowPreview(!showPreview)}
-            className="flex-1 flex items-center justify-center gap-2 bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] text-[#2d2926] text-sm font-medium py-3 rounded-xl transition-colors"
-          >
-            <FileText size={16} className="text-[#5c7f63]" />
-            {showPreview ? "Hide Preview" : "Preview Log"}
-          </button>
-          <button
-            onClick={() => { posthog.capture('plan_pdf_downloaded', { user_plan: isPro ? 'paid' : 'free' }); setShowPreview(true); setTimeout(() => window.print(), 300); }}
-            className="flex-1 flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium py-3 rounded-xl transition-colors"
-          >
-            <Printer size={16} />
-            Print / Save PDF
-          </button>
-        </div>
-      ) : (
-        <Link
-          href="/upgrade"
-          className="block w-full text-center bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] text-[#5c7f63] text-sm font-medium py-3 rounded-xl transition-colors"
+      <div className="flex gap-3">
+        <button
+          onClick={() => setShowPreview(!showPreview)}
+          className="flex-1 flex items-center justify-center gap-2 bg-[#fefcf9] border border-[#e8e2d9] hover:border-[#5c7f63] text-[#2d2926] text-sm font-medium py-3 rounded-xl transition-colors"
         >
-          Upgrade to download and print your log →
-        </Link>
-      )}
+          <FileText size={16} className="text-[#5c7f63]" />
+          {showPreview ? "Hide Preview" : "Preview Log"}
+        </button>
+        <button
+          onClick={() => { posthog.capture('plan_pdf_downloaded', { user_plan: isPro ? 'paid' : 'free' }); setShowPreview(true); setTimeout(() => window.print(), 300); }}
+          className="flex-1 flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium py-3 rounded-xl transition-colors"
+        >
+          <Printer size={16} />
+          Print / Save PDF
+        </button>
+      </div>
 
       {/* Report preview */}
       {showPreview && (

@@ -46,7 +46,7 @@ export default function UpgradeBanner() {
         <span className="text-lg shrink-0">🌱</span>
         <div>
           <p className="text-white text-xs font-semibold leading-tight">
-            {daysLeft === 0 ? "Last chance — lock in $39/yr forever today" : `Founding Family pricing ends in ${daysLeft} day${daysLeft !== 1 ? "s" : ""} — lock in $39/yr forever`}
+            {daysLeft === 0 ? "Last chance — get Rooted+ at $39/yr forever" : `Rooted+ Founding Family pricing ends in ${daysLeft} day${daysLeft !== 1 ? "s" : ""} — $39/yr locked forever`}
           </p>
           <p className="text-white/70 text-[11px] leading-tight mt-0.5">
             Memories, reports, yearbook & more.

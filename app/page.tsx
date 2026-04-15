@@ -173,7 +173,7 @@ function WaitlistForm() {
         <div className="w-14 h-14 rounded-full bg-[#e8f0e9] flex items-center justify-center text-2xl">🌱</div>
         <p className="font-semibold text-[#2d2926]">You&apos;re on the list!</p>
         <p className="text-sm text-[#7a6f65] text-center max-w-xs">
-          We&apos;ll email <strong>{email}</strong> when founding family pricing is available.
+          We&apos;ll email <strong>{email}</strong> when Rooted+ Founding Family pricing is available.
         </p>
       </div>
     );
@@ -858,7 +858,7 @@ function HomeInner() {
           </h2>
           <p className="text-[#7a6f65] max-w-lg mx-auto">
             Start free — no credit card needed. Upgrade when you&apos;re ready — lock in
-            the founding price before it&apos;s gone.
+            the Rooted+ Founding Family price before it&apos;s gone.
           </p>
         </div>
 
@@ -905,11 +905,12 @@ function HomeInner() {
           <div className="relative bg-gradient-to-br from-[#eaf6ec] via-[#d6ecd9] to-[#c4e2ca] rounded-2xl p-6 text-center flex flex-col founding-glow">
             {/* Shimmer badge */}
             <div className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap founding-shimmer-badge text-white text-[11px] font-bold px-5 py-1.5 rounded-full shadow-md">
-              🌱 Best Value — Founding Price
+              🌱 Best Value — Rooted+
             </div>
-            <p className="text-xs font-bold uppercase tracking-widest text-[#5c7f63] mb-3 mt-2">
-              Founding Family
+            <p className="text-xs font-bold uppercase tracking-widest text-[#5c7f63] mb-1 mt-2">
+              Rooted+
             </p>
+            <p className="text-[10px] font-bold text-[#C4962A] uppercase tracking-wide mb-3">Founding Family Pricing</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
                 className="text-4xl font-bold text-[#2d2926]"
@@ -927,13 +928,12 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Unlimited Year in Review summaries",
-                "Printable progress reports — see exactly how much they've learned",
-                "Curriculum pacing guide — stay on track all year without the stress",
+                "Hours & Attendance Log — track and print your learning hours",
+                "Curriculum progress tracking — stay on track all year without the stress",
                 "Full family yearbook — every memory beautifully organized into a book",
                 "Share with family — send grandparents a private link to follow along in real time",
                 "Priority support",
-                "Lifetime founding price 🎁",
+                "Founding price locked forever 🎁",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#2d2926]">
                   <span className="text-[#5c7f63] mt-0.5 shrink-0 text-xs font-bold">✓</span>
@@ -945,10 +945,10 @@ function HomeInner() {
               href="/signup"
               className="block w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-3.5 rounded-xl transition-colors text-sm shadow-sm"
             >
-              Claim Founding Price →
+              Get Rooted+ →
             </Link>
             <p className="text-[11px] text-[#8b6f47] font-semibold mt-3">
-              🌱 Founding Family pricing ends April 30 — {(() => {
+              🌱 Rooted+ Founding Family pricing ends April 30 — {(() => {
                 const diff = Math.max(0, Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000));
                 return `${diff} day${diff !== 1 ? "s" : ""} left`;
               })()}
@@ -957,7 +957,7 @@ function HomeInner() {
 
           {/* Standard */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Standard</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Rooted+</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
                 className="text-4xl font-bold text-[#2d2926]"
@@ -967,15 +967,14 @@ function HomeInner() {
               </span>
               <span className="text-sm text-[#b5aca4] mb-1">/year</span>
             </div>
-            <p className="text-xs text-[#b5aca4] mb-6">After founding period ends</p>
+            <p className="text-xs text-[#b5aca4] mb-6">After Founding Family pricing ends</p>
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Unlimited Year in Review summaries",
-                "Printable progress reports — see exactly how much they've learned",
-                "Curriculum pacing guide — stay on track all year without the stress",
+                "Hours & Attendance Log — track and print your learning hours",
+                "Curriculum progress tracking — stay on track all year without the stress",
                 "Full family yearbook — every memory beautifully organized into a book",
                 "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
@@ -993,9 +992,9 @@ function HomeInner() {
             </Link>
           </div>
 
-          {/* Monthly */}
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Monthly</p>
+          {/* Monthly — hidden during Founding Family window */}
+          {false && <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
+            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Rooted+ Monthly</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
                 className="text-4xl font-bold text-[#2d2926]"
@@ -1011,9 +1010,8 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Unlimited Year in Review summaries",
-                "Printable progress reports — see exactly how much they've learned",
-                "Curriculum pacing guide — stay on track all year without the stress",
+                "Hours & Attendance Log — track and print your learning hours",
+                "Curriculum progress tracking — stay on track all year without the stress",
                 "Full family yearbook — every memory beautifully organized into a book",
                 "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
@@ -1029,7 +1027,7 @@ function HomeInner() {
             >
               Start Monthly →
             </Link>
-          </div>
+          </div>}
         </div>
 
         {/* Feature comparison table */}
@@ -1038,9 +1036,9 @@ function HomeInner() {
             <thead>
               <tr className="bg-[#f8f7f4] border-b border-[#e8e2d9]">
                 <th className="text-left px-4 py-3 font-semibold text-[#7a6f65]">Feature</th>
-                <th className="text-center px-4 py-3 font-semibold text-[#b5aca4]">Free</th>
-                <th className="text-center px-4 py-3 font-bold text-[#5c7f63] bg-[#f0f7f0]">Founding</th>
-                <th className="text-center px-4 py-3 font-semibold text-[#7a6f65]">Standard</th>
+                <th className="text-center px-4 py-3 font-semibold text-[#b5aca4]">Rooted</th>
+                <th className="text-center px-4 py-3 font-bold text-[#C4962A] bg-[#f0f7f0]">Rooted+</th>
+                <th className="text-center px-4 py-3 font-semibold text-[#7a6f65]">Rooted+</th>
               </tr>
             </thead>
             <tbody>
@@ -1050,10 +1048,8 @@ function HomeInner() {
                 { feature: "Garden & growth tree",   free: "✓",     founding: "✓",          standard: "✓"         },
                 { feature: "Photo memories",         free: "50",    founding: "✓ Unlimited", standard: "✓ Unlimited" },
                 { feature: "Memory timeline",        free: "30 days", founding: "✓ All time", standard: "✓ All time" },
-                { feature: "Year in Review",         free: "1 / year", founding: "✓ Unlimited", standard: "✓ Unlimited" },
-                { feature: "Progress reports",       free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Curriculum pacing guide", free: "—",    founding: "✓",          standard: "✓"         },
-                { feature: "Monthly family update",  free: "—",     founding: "✓",          standard: "✓"         },
+                { feature: "Hours & Attendance Log",  free: "✓",     founding: "✓",          standard: "✓"         },
+                { feature: "Curriculum progress tracking", free: "✓",    founding: "✓",          standard: "✓"         },
                 { feature: "Family yearbook",        free: "Preview only", founding: "✓ Full year", standard: "✓ Full year" },
                 { feature: "Share with family",      free: "—",     founding: "✓",          standard: "✓"         },
                 { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },

@@ -270,8 +270,8 @@ export default function PartnersPage() {
             {[
               {
                 emoji: "⭐",
-                title: "Free Founding Membership",
-                body: "Your subscription is on us — forever. You get full access to every feature so your content is always real and firsthand. No expiry, no strings.",
+                title: "Free Rooted+ Membership",
+                body: "Your Rooted+ subscription is on us — forever. You get full access to every feature so your content is always real and firsthand. No expiry, no strings.",
               },
               {
                 emoji: "🔗",
@@ -309,13 +309,13 @@ export default function PartnersPage() {
         <div className="max-w-3xl mx-auto text-center">
           <p className="text-xs font-semibold text-[var(--g-deep)] uppercase tracking-[0.2em] mb-3">What your followers get</p>
           <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
-            Founding Family — $39/yr, locked forever
+            Rooted+ — Founding Family pricing — $39/yr, locked forever
           </h2>
           <p className="text-sm text-[var(--g-deep)] leading-relaxed mb-4 max-w-lg mx-auto">
             {(() => {
               const diff = Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000);
               const deadline = diff <= 0 ? "" : diff === 1 ? " This offer ends tomorrow." : ` This offer ends in ${diff} days.`;
-              return `Your code gives them 15% off the Founding Family plan — $39/yr locked in forever, no matter how much Rooted grows.${deadline}`;
+              return `Your code gives them 15% off Rooted+ — $39/yr locked in forever, no matter how much Rooted grows.${deadline}`;
             })()}
           </p>
           <div className="inline-flex items-center gap-2 bg-white/70 border border-[#b8d9bc] rounded-xl px-4 py-2 text-sm text-[#2d2926] font-medium">

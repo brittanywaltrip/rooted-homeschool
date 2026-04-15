@@ -141,7 +141,7 @@ function UpgradePageInner() {
             Your family&apos;s story deserves to be kept forever.
           </h1>
           <p className="text-[#7a6f65] leading-relaxed max-w-md mx-auto text-base">
-            Unlimited photos + PDF exports + founding price locked forever.
+            Upgrade to Rooted+ for unlimited photos, full yearbook, and PDF exports.
           </p>
         </div>
 
@@ -171,7 +171,7 @@ function UpgradePageInner() {
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 flex flex-col">
             <div className="mb-5">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-base font-bold text-[#2d2926]">Free</span>
+                <span className="text-base font-bold text-[#2d2926]">Rooted</span>
                 {!isPaying && (
                   <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full uppercase tracking-wide">
                     Current plan
@@ -182,7 +182,7 @@ function UpgradePageInner() {
                 <span className="text-3xl font-bold text-[#2d2926]">$0</span>
                 <span className="text-sm text-[#b5aca4]">/ forever</span>
               </div>
-              <p className="text-sm text-[#7a6f65]">Get started</p>
+              <p className="text-sm text-[#7a6f65]">Free forever</p>
             </div>
             <ul className="space-y-2 mb-6 flex-1">
               {['All memory types (photos, books, wins, drawings, field trips)', 'Up to 50 photos', 'Daily lesson tracking', 'Family garden & badges', 'Curated resources', 'Yearbook preview (first 4 spreads)'].map(f => (
@@ -195,7 +195,7 @@ function UpgradePageInner() {
               disabled
               className="w-full py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-semibold text-[#b5aca4] bg-[#f8f7f4] cursor-not-allowed"
             >
-              Current Plan
+              Current plan
             </button>
           </div>
 
@@ -210,10 +210,10 @@ function UpgradePageInner() {
 
             <div className="mb-5 mt-1">
               <div className="flex items-center gap-2 mb-1">
-                <p className="text-base font-bold text-[#2d2926]">Founding Family</p>
+                <p className="text-base font-bold text-[#2d2926]">Rooted+</p>
                 {planType === 'founding_family' && (
-                  <span className="text-[10px] font-semibold bg-[#5c7f63] text-white px-2 py-0.5 rounded-full uppercase tracking-wide">
-                    ✓ Your Plan
+                  <span className="text-[10px] font-semibold bg-[#C4962A] text-white px-2 py-0.5 rounded-full uppercase tracking-wide">
+                    ✓ Founding Family
                   </span>
                 )}
               </div>
@@ -235,7 +235,7 @@ function UpgradePageInner() {
                 <p className="text-xs text-[#5c7f63] font-medium -mt-1 mb-1">with {refAffiliateName}&apos;s referral</p>
               )}
               <p className="text-sm text-[var(--g-deep)] leading-relaxed">
-                For the first 200 families who believe in where this is going
+                Founding Family pricing — for the first 200 families
               </p>
               {countdown && (
                 <p className="text-xs font-semibold mt-2 text-[#a08040]">
@@ -246,7 +246,7 @@ function UpgradePageInner() {
 
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                'Everything in Free, plus:',
+                'Everything in Rooted, plus:',
                 'Unlimited photos — no 50 photo cap',
                 'Hours & Attendance Log — download & print PDF',
                 'Full yearbook — all spreads, PDF export',
@@ -280,8 +280,8 @@ function UpgradePageInner() {
                   </>
                 ) : (
                   refCode && refAffiliateName
-                    ? 'Become a Founding Member → $33.15/yr'
-                    : 'Become a Founding Member → $39/yr'
+                    ? 'Get Rooted+ → $33.15/yr'
+                    : 'Get Rooted+ → $39/yr'
                 )}
               </button>
             )}
@@ -306,7 +306,7 @@ function UpgradePageInner() {
           </h2>
           <p className="text-sm text-[#7a6f65] leading-relaxed">
             The app is the foundation. We&apos;re building a community, resources, and partnerships with
-            the brands and creators homeschool families already love. Founding members are part of
+            the brands and creators homeschool families already love. Rooted+ members are part of
             that story from day one.
           </p>
         </div>

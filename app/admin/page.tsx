@@ -112,8 +112,8 @@ function formatRelativeDate(dateStr: string | null): string {
 
 function PlanPill({ plan }: { plan: string }) {
   const cls =
-    plan === "Founding"  ? "bg-amber-100 text-amber-800" :
-    plan === "Standard"  ? "bg-green-100 text-green-800" :
+    plan === "Rooted+ Founding"  ? "bg-amber-100 text-amber-800" :
+    plan === "Rooted+"  ? "bg-green-100 text-green-800" :
     plan === "Refunded"  ? "bg-red-100 text-red-600"     :
     plan === "Partner"   ? "bg-indigo-100 text-indigo-800" :
                            "bg-[#f0ede8] text-[#7a6f65] border border-[#e8e2d9]";
@@ -149,7 +149,7 @@ export default function AdminPage() {
   const router = useRouter();
   const [data,         setData]         = useState<AdminSummary | null>(null);
   const [error,        setError]        = useState<string | null>(null);
-  const [signupFilter, setSignupFilter] = useState<"All" | "Founding" | "Standard" | "Monthly" | "Free" | "Refunded" | "Partner">("All");
+  const [signupFilter, setSignupFilter] = useState<"All" | "Rooted+ Founding" | "Rooted+" | "Monthly" | "Rooted" | "Refunded" | "Partner">("All");
   const [refreshing,   setRefreshing]   = useState(false);
   const [emailsCopied, setEmailsCopied] = useState(false);
   const [hideTestUsers, setHideTestUsers] = useState(true);
@@ -480,10 +480,10 @@ export default function AdminPage() {
 
   const counts = {
     All:      realUsers.length,
-    Founding: realUsers.filter(u => u.plan === "Founding").length,
-    Standard: realUsers.filter(u => u.plan === "Standard").length,
+    "Rooted+ Founding": realUsers.filter(u => u.plan === "Rooted+ Founding").length,
+    "Rooted+": realUsers.filter(u => u.plan === "Rooted+").length,
     Monthly:  realUsers.filter(u => u.plan === "Monthly").length,
-    Free:     realUsers.filter(u => u.plan === "Free").length,
+    Rooted:   realUsers.filter(u => u.plan === "Rooted").length,
     Refunded: realUsers.filter(u => u.plan === "Refunded").length,
     Partner:  realUsers.filter(u => u.plan === "Partner").length,
   };
@@ -556,7 +556,7 @@ export default function AdminPage() {
             <StatCard label="Today"                value={data.last24hSignups} />
             <StatCard label="Yesterday"            value={data.yesterdaySignups} />
             <StatCard label="Paying Customers"     value={data.payingFoundingCount + data.stripeStandardCount}
-              sub={`${data.payingFoundingCount} founding · ${data.stripeStandardCount} standard · live from Stripe`} />
+              sub={`${data.payingFoundingCount} Rooted+ founding · ${data.stripeStandardCount} Rooted+ standard · live from Stripe`} />
             <StatCard label="Rooted Partners"      value={data.activeAffiliateCount}
               sub="Comped affiliates" />
             <StatCard label="Free Users"           value={data.freeUsers} />
@@ -986,15 +986,15 @@ export default function AdminPage() {
 
           {/* Filter tabs + Copy emails */}
           <div className="flex items-center gap-2 mb-4 flex-wrap">
-            {(["All", "Founding", "Standard", "Monthly", "Partner", "Free", "Refunded"] as const).map(tab => (
+            {(["All", "Rooted+ Founding", "Rooted+", "Monthly", "Partner", "Rooted", "Refunded"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setSignupFilter(tab)}
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
                   signupFilter === tab
-                    ? tab === "Founding"
+                    ? tab === "Rooted+ Founding"
                       ? "bg-amber-100 text-amber-800 border-amber-300"
-                      : tab === "Standard" || tab === "Monthly"
+                      : tab === "Rooted+" || tab === "Monthly"
                       ? "bg-blue-100 text-blue-800 border-blue-300"
                       : tab === "Partner"
                       ? "bg-indigo-100 text-indigo-800 border-indigo-300"
@@ -1032,8 +1032,8 @@ export default function AdminPage() {
                 <div
                   key={u.id}
                   className={`bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-4 ${
-                    u.plan === "Founding" ? "border-l-4 border-l-amber-400" :
-                    u.plan === "Standard" ? "border-l-4 border-l-green-500" :
+                    u.plan === "Rooted+ Founding" ? "border-l-4 border-l-amber-400" :
+                    u.plan === "Rooted+" ? "border-l-4 border-l-green-500" :
                     u.plan === "Refunded" ? "border-l-4 border-l-red-400"  : ""
                   }`}
                 >
@@ -1082,7 +1082,7 @@ export default function AdminPage() {
                       <tr
                         onClick={() => setSelectedUser(selectedUser === u.id ? null : u.id)}
                         className={`hover:brightness-95 transition-colors cursor-pointer ${
-                          u.plan === "Founding" ? "bg-amber-50" :
+                          u.plan === "Rooted+ Founding" ? "bg-amber-50" :
                           u.plan === "Refunded" ? "bg-red-50"   : ""
                         }`}
                       >
@@ -1137,9 +1137,9 @@ export default function AdminPage() {
                                 <p className="text-[#2d2926]">{formatRelativeDate(u.last_active)}</p>
                               </div>
                             </div>
-                            {u.plan === "Founding" && (
+                            {u.plan === "Rooted+ Founding" && (
                               <div className="mt-3 inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-xs font-bold">
-                                ⭐ Founding Member
+                                ⭐ Rooted+ Founding Member
                               </div>
                             )}
                           </td>
@@ -1168,12 +1168,12 @@ export default function AdminPage() {
               <p className="text-xs text-[#b5aca4] mt-1">If you issued a refund, cancel the subscription in Stripe to keep this accurate.</p>
             </div>
             <StatCard
-              label="Founding Members Paying"
+              label="Rooted+ Founding Paying"
               value={data.payingFoundingCount}
               sub={`$${(data.payingFoundingCount * 39).toLocaleString()} · $39/yr each`}
             />
             <StatCard
-              label="Standard Paying"
+              label="Rooted+ Standard Paying"
               value={data.stripeStandardCount}
               sub={`$${(data.stripeStandardCount * 59).toLocaleString()} · $59/yr each`}
             />
@@ -1183,7 +1183,7 @@ export default function AdminPage() {
                 {data.cancelledFoundingCount + data.cancelledStandardCount}
               </p>
               <p className="text-xs text-rose-500 mt-1">
-                {data.cancelledFoundingCount} founding · {data.cancelledStandardCount} standard
+                {data.cancelledFoundingCount} Rooted+ founding · {data.cancelledStandardCount} Rooted+ standard
               </p>
             </div>
           </div>
@@ -1192,7 +1192,7 @@ export default function AdminPage() {
         {/* ── Founding Members by Day ─────────────────────────────────── */}
         {foundingByDay.length > 0 && (
           <section>
-            <SectionHeader emoji="📈" title="Founding Members by Day" />
+            <SectionHeader emoji="📈" title="Rooted+ Members by Day" />
             <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
               <div className="flex items-center justify-between mb-4">
                 <p className="text-xs text-[#7a6f65]">Last 7 days</p>

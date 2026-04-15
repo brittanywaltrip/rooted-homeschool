@@ -17,7 +17,7 @@ const sections = [
       },
       {
         q: "Is Rooted free?",
-        a: "Yes — Rooted is free to use, no credit card needed. Everything — lessons, memories, garden, yearbook, curriculum planning, Hours & Attendance Log, and family sharing. The only limit on the free plan is 50 photos total. Upgrade to Founding Family ($39/yr) for unlimited photos and PDF exports.",
+        a: "Yes — Rooted is free to use, no credit card needed. Everything — lessons, memories, garden, yearbook, curriculum planning, Hours & Attendance Log, and family sharing. The only limit on the free plan is 50 photos total. Upgrade to Rooted+ ($39/yr Founding Family pricing) for unlimited photos and PDF exports.",
       },
       {
         q: "How do I set up my curriculum?",
@@ -120,19 +120,19 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "Everything — lessons, memories, garden, yearbook, curriculum planning, Hours & Attendance Log, and family sharing. The only limit on the free plan is 50 photos total. A paid plan gives you unlimited photos and downloadable PDF exports.",
+        a: "Everything — lessons, memories, garden, yearbook, curriculum planning, Hours & Attendance Log, and family sharing. The only limit on the free plan is 50 photos total. Rooted+ gives you unlimited photos and downloadable PDF exports.",
       },
       {
         q: "What is the Founding Family price?",
-        a: "Founding Families get lifetime access to Rooted for $39/year — locked in forever, even as the price increases. This is our way of thanking early supporters who helped us build and improve the app. The Founding Family price is only available for a limited time while we're in early access. We also offer a monthly option at $6.99/mo if you prefer not to commit annually.",
+        a: "Rooted+ with Founding Family pricing is $39/year — locked in forever, even as the price increases. This is our way of thanking early supporters who helped us build and improve the app. Founding Family pricing is only available for a limited time while we're in early access.",
       },
       {
         q: "When does the founding price end?",
-        a: "The Founding Family pricing ($39/year) is available during our early access period. The standard annual price is $59/year. Founding Families keep their $39/year rate permanently — even as we add more features and the price increases.",
+        a: "Rooted+ Founding Family pricing ($39/year) is available during our early access period. The standard Rooted+ price is $59/year. Founding Families keep their $39/year rate permanently — even as we add more features and the price increases.",
       },
       {
         q: "How do I upgrade to a paid plan?",
-        a: 'Click Upgrade in your sidebar or visit the pricing section on the homepage. Choose from three options: $39/yr Founding Family (limited time, price locked forever), $59/yr Standard, or $6.99/mo monthly. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account is upgraded instantly — no waiting, no manual review.',
+        a: 'Click Upgrade in your sidebar or visit the pricing section on the homepage. Choose Rooted+ at $39/yr (Founding Family pricing, limited time, locked forever) or $59/yr after the founding period. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account is upgraded instantly — no waiting, no manual review.',
       },
       {
         q: "How do I cancel?",
