@@ -267,6 +267,8 @@ export default function PlanPage() {
   const [viewMode,     setViewMode]     = useState<"week" | "month">("week");
   const [monthStart,   setMonthStart]   = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
   const [monthLessons, setMonthLessons] = useState<Lesson[]>([]);
+  type MonthAppt = { id: string; title: string; emoji: string; time: string | null; duration_minutes: number; location: string | null; child_ids: string[]; completed: boolean; instance_date: string; is_recurring: boolean };
+  const [monthAppts, setMonthAppts] = useState<MonthAppt[]>([]);
   const [lessons,          setLessons]          = useState<Lesson[]>([]);
   const [children,         setChildren]         = useState<Child[]>([]);
   const [selectedChild,    setSelectedChild]    = useState<string | null>(null);
@@ -488,6 +490,17 @@ export default function PlanPage() {
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setMonthLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
+
+    // Fetch appointments for the month
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        const res = await fetch(`/api/appointments?date=${s}&end=${e}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) setMonthAppts(await res.json());
+      }
+    } catch { /* non-critical */ }
   }, [monthStart, effectiveUserId]);
 
   useEffect(() => { loadData(); },           [loadData]);
@@ -859,6 +872,14 @@ export default function PlanPage() {
     const key = l.scheduled_date ?? l.date ?? "";
     if (!monthLessonMap[key]) monthLessonMap[key] = [];
     monthLessonMap[key].push(l);
+  });
+
+  // Month appointment map
+  const monthApptMap: Record<string, MonthAppt[]> = {};
+  monthAppts.forEach((a) => {
+    const key = a.instance_date;
+    if (!monthApptMap[key]) monthApptMap[key] = [];
+    monthApptMap[key].push(a);
   });
 
   // Lessons for the selected day (works for both week and month views)
@@ -1460,7 +1481,7 @@ export default function PlanPage() {
                   let count = 0;
                   for (let dd = new Date(weekStart); dd <= weekEnd && dd.getMonth() === month; dd.setDate(dd.getDate() + 1)) {
                     const k = toDateStr(dd);
-                    count += (monthLessonMap[k] ?? []).length + activityCountForDay(k);
+                    count += (monthLessonMap[k] ?? []).length + activityCountForDay(k) + (monthApptMap[k] ?? []).length;
                   }
                   weekCounts.push({ start: weekStart, end: weekEnd, count });
                 }
@@ -1486,6 +1507,8 @@ export default function PlanPage() {
                   const dayLessons = monthLessonMap[key] ?? [];
                   const lessonCount = dayLessons.length;
                   const actCount = activityCountForDay(key);
+                  const dayAppts = monthApptMap[key] ?? [];
+                  const apptCount = dayAppts.length;
                   const totalItems = lessonCount + actCount;
                   const holiday = holidays[key];
                   const isPopoverOpen = monthPopoverDay === key;
@@ -1498,9 +1521,11 @@ export default function PlanPage() {
                   } else if (isVacation) {
                     cellBg = "bg-[#fef3e0]";
                     cellBorder = "border border-[#f0c878]";
-                  } else if (holiday && totalItems === 0) {
+                  } else if (holiday && totalItems === 0 && apptCount === 0) {
                     cellBg = "bg-[#fef9f0]";
-                  } else if (totalItems > 0) {
+                  } else if (apptCount > 0 && totalItems === 0) {
+                    cellBg = "bg-[#f5f0ff]";
+                  } else if (totalItems > 0 || apptCount > 0) {
                     cellBg = "bg-[#f0f7f2]";
                   }
                   if (isSelected && !isToday && !isVacation) {
@@ -1530,10 +1555,16 @@ export default function PlanPage() {
                         <div className="flex items-center justify-center gap-0.5 mt-1 min-h-[10px]">
                           {isVacation ? (
                             <span className="text-[10px]">🌴</span>
-                          ) : totalItems > 0 && !isToday ? (
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#2D5A3D]" />
-                          ) : totalItems > 0 && isToday ? (
-                            <span className="w-1.5 h-1.5 rounded-full bg-white/60" />
+                          ) : (totalItems > 0 || apptCount > 0) && !isToday ? (
+                            <>
+                              {totalItems > 0 && <span className="w-1.5 h-1.5 rounded-full bg-[#2D5A3D]" />}
+                              {apptCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-[#7C3AED]" />}
+                            </>
+                          ) : (totalItems > 0 || apptCount > 0) && isToday ? (
+                            <>
+                              {totalItems > 0 && <span className="w-1.5 h-1.5 rounded-full bg-white/60" />}
+                              {apptCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-[#c4b5fd]" />}
+                            </>
                           ) : holiday ? (
                             <span className="text-[10px]">{holiday.split(" ")[0]}</span>
                           ) : null}
@@ -1563,8 +1594,8 @@ export default function PlanPage() {
                             {isVacation && vacName && (
                               <p className="text-xs text-[#7a5000] mb-1">🌴 {vacName}</p>
                             )}
-                            {lessonCount === 0 && actCount === 0 && !isVacation && (
-                              <p className="text-[11px] text-[#b5aca4]">No lessons or activities</p>
+                            {lessonCount === 0 && actCount === 0 && apptCount === 0 && !isVacation && (
+                              <p className="text-[11px] text-[#b5aca4]">Nothing scheduled</p>
                             )}
                             {lessonCount > 0 && (
                               <div className="mb-1.5">
@@ -1585,6 +1616,18 @@ export default function PlanPage() {
                                 {activities.filter(a => a.is_active && a.days.includes((day.getDay() + 6) % 7)).map(a => (
                                   <p key={a.id} className="text-[11px] text-[#2d2926] truncate">{a.emoji} {a.name}</p>
                                 ))}
+                              </div>
+                            )}
+                            {apptCount > 0 && (
+                              <div className="mb-1.5">
+                                {(lessonCount > 0 || actCount > 0) && <p className="text-[10px] font-medium text-[#7C3AED] mt-1 mb-0.5">Appointments</p>}
+                                {dayAppts.slice(0, 4).map((a) => (
+                                  <p key={`${a.id}-${a.instance_date}`} className="text-[11px] text-[#2d2926] truncate">
+                                    {a.emoji} {a.title}
+                                    {a.time && <span className="text-[#7C3AED] ml-1">{a.time.slice(0, 5)}</span>}
+                                  </p>
+                                ))}
+                                {apptCount > 4 && <p className="text-[10px] text-[#b5aca4]">+{apptCount - 4} more</p>}
                               </div>
                             )}
                             {!isVacation && (
@@ -1631,6 +1674,34 @@ export default function PlanPage() {
       {schoolYearMilestones[selectedDay] && (
         <div className="bg-[#f0f7f2] border border-[#c5dbc9] rounded-xl px-3 py-2 mb-1">
           <p className="text-sm font-semibold text-[#2D5A3D]">{schoolYearMilestones[selectedDay]}</p>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          SECTION — APPOINTMENTS FOR SELECTED DAY
+      ══════════════════════════════════════════════════ */}
+      {viewMode === "month" && (monthApptMap[selectedDay] ?? []).length > 0 && (
+        <div className="mb-3">
+          <p className="text-[11px] font-medium uppercase tracking-wide mb-2 pl-1" style={{ color: "#7C3AED" }}>
+            Appointments
+          </p>
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
+            {(monthApptMap[selectedDay] ?? []).map((a) => (
+              <div key={`${a.id}-${a.instance_date}`} className={`flex items-center gap-3 px-4 py-2.5 ${a.completed ? "opacity-50" : ""}`}>
+                <span className="text-base shrink-0">{a.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-medium truncate ${a.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>{a.title}</span>
+                    <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0" style={{ background: "#f5f0ff", color: "#7C3AED", border: "1px solid #c4b5fd" }}>Appt</span>
+                  </div>
+                  <p className="text-xs text-[#7a6f65]">
+                    {a.time ? (() => { const [h, m] = a.time!.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; })() : "All day"}
+                    {a.location && <span className="text-[#b5aca4]"> · 📍 {a.location}</span>}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

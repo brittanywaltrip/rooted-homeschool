@@ -119,12 +119,15 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const dateParam = req.nextUrl.searchParams.get('date')
+  const endParam = req.nextUrl.searchParams.get('end')
 
   // Determine query range
   const today = new Date()
   const rangeStart = dateParam ?? `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   let rangeEnd: string
-  if (dateParam) {
+  if (endParam) {
+    rangeEnd = endParam
+  } else if (dateParam) {
     rangeEnd = dateParam
   } else {
     const end = new Date(today)
