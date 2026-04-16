@@ -38,6 +38,7 @@ type Lesson = {
   lesson_number?: number | null;
   goal_id?: string | null;
   icon_emoji?: string | null;
+  notes?: string | null;
 };
 
 type TodayEvent = {
@@ -796,7 +797,7 @@ export default function TodayPage() {
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id").eq("user_id", effectiveUserId).or(`date.eq.${today},scheduled_date.eq.${today}`),
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id, notes").eq("user_id", effectiveUserId).or(`date.eq.${today},scheduled_date.eq.${today}`),
       supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
       supabase.from("lessons").select("date, scheduled_date, completed").eq("user_id", effectiveUserId).gte("scheduled_date", localDateStr(thirtyDaysAgo)),
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),

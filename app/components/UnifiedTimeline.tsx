@@ -7,7 +7,7 @@ import { Pencil, Trash2 } from "lucide-react";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Child = { id: string; name: string; color: string | null };
-type Lesson = { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null; icon_emoji?: string | null };
+type Lesson = { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null; icon_emoji?: string | null; notes?: string | null };
 type Activity = { id: string; name: string; emoji: string; duration_minutes: number; scheduled_start_time: string | null; child_ids: string[]; completed: boolean };
 type Appointment = { id: string; title: string; emoji: string; time: string | null; duration_minutes: number; location: string | null; notes?: string | null; child_ids: string[]; completed: boolean; instance_date: string };
 
@@ -196,7 +196,13 @@ export default function UnifiedTimeline({
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [statusCat, setStatusCat] = useState<StatusCategory | null>(null);
   const prevMsgRef = useRef<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const [localLessons, setLocalLessons] = useState(lessons);
+  const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { setLocalLessons(lessons); }, [lessons]);
 
   useEffect(() => {
     const interval = setInterval(() => { const d = new Date(); setNowMinutes(d.getHours() * 60 + d.getMinutes()); }, 60000);
@@ -205,7 +211,7 @@ export default function UnifiedTimeline({
 
   // Build unified items
   const items: TimelineItem[] = [
-    ...lessons.map(l => ({ kind: "lesson" as const, lesson: l, timeMinutes: null as number | null })),
+    ...localLessons.map(l => ({ kind: "lesson" as const, lesson: l, timeMinutes: null as number | null })),
     ...activities.map(a => ({ kind: "activity" as const, activity: a, timeMinutes: parseTime(a.scheduled_start_time) })),
     ...appointments.map(a => ({ kind: "appointment" as const, appointment: a, timeMinutes: parseTime(a.time) })),
   ];
@@ -278,6 +284,43 @@ export default function UnifiedTimeline({
     else onToggleAppointment(item.appointment.id, item.appointment.completed);
   }
 
+  function handleExpandToggle(itemId: string, isExpanded: boolean) {
+    if (isExpanded) {
+      // If collapsing this card and it has the active note editor, cancel editing
+      if (editingNoteId) {
+        // Extract the lesson id from the itemId (format: "l-<lessonId>")
+        const lessonId = itemId.startsWith("l-") ? itemId.slice(2) : null;
+        if (lessonId === editingNoteId) {
+          setEditingNoteId(null);
+          setEditingNoteText("");
+        }
+      }
+      setExpandedIds(prev => { const next = new Set(prev); next.delete(itemId); return next; });
+    } else {
+      setExpandedIds(prev => { const next = new Set(prev); next.add(itemId); return next; });
+    }
+  }
+
+  function startEditingNote(lessonId: string, currentNotes: string | null | undefined) {
+    setEditingNoteId(lessonId);
+    setEditingNoteText(currentNotes ?? "");
+    setTimeout(() => noteTextareaRef.current?.focus(), 0);
+  }
+
+  function cancelEditingNote() {
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  }
+
+  async function saveNote(lessonId: string) {
+    const trimmed = editingNoteText.trim();
+    const value = trimmed.length > 0 ? trimmed : null;
+    await supabase.from("lessons").update({ notes: value }).eq("id", lessonId);
+    setLocalLessons(prev => prev.map(l => l.id === lessonId ? { ...l, notes: value } : l));
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  }
+
   function renderItem(item: TimelineItem, isPast: boolean) {
     const done = isDone(item);
     const title = item.kind === "lesson" ? item.lesson.title : item.kind === "activity" ? item.activity.name : item.appointment.title;
@@ -294,7 +337,7 @@ export default function UnifiedTimeline({
     const borderColor = done ? "#f0ece6" : isLesson ? "#cef0d4" : "#e8deff";
     const timeLabel = item.kind === "appointment" ? fmtApptTime(item.appointment.time) : null;
     const itemId = getItemId(item);
-    const isExpanded = expandedId === itemId;
+    const isExpanded = expandedIds.has(itemId);
 
     return (
       <div className="rounded-[14px] mb-1.5 transition-all duration-200"
@@ -307,7 +350,7 @@ export default function UnifiedTimeline({
             {done && <span className="text-white text-[12px] font-medium">{"\u2713"}</span>}
           </button>
           {/* Card content — tap to expand/collapse */}
-          <button type="button" onClick={() => setExpandedId(isExpanded ? null : itemId)}
+          <button type="button" onClick={() => handleExpandToggle(itemId, isExpanded)}
             className="flex-1 flex items-center gap-3 text-left min-w-0">
             <span className="text-xl shrink-0">{emoji}</span>
             <div className="flex-1 min-w-0">
@@ -321,6 +364,9 @@ export default function UnifiedTimeline({
                   {timeLabel && sub ? " \u00b7 " : ""}
                   {sub}
                 </p>
+              )}
+              {!isExpanded && item.kind === "lesson" && item.lesson.notes && (
+                <p className="line-clamp-1 text-[12px] text-[#8b8680] italic mt-0.5">{item.lesson.notes}</p>
               )}
             </div>
           </button>
@@ -367,6 +413,33 @@ export default function UnifiedTimeline({
                     {(() => { const c = children.find(ch => ch.id === item.lesson.child_id); return c ? <span className="text-[#8a8580]">{c.name}</span> : null; })()}
                   </div>
                   <p className="text-[14px] font-medium text-[#2a2520] mt-1">{item.lesson.title}</p>
+                  {/* Notes display & editor */}
+                  {editingNoteId === item.lesson.id ? (
+                    <div className="mt-2">
+                      <textarea
+                        ref={noteTextareaRef}
+                        value={editingNoteText}
+                        onChange={e => setEditingNoteText(e.target.value)}
+                        placeholder="Prep items, extra activities, reminders..."
+                        className="w-full min-h-[60px] max-h-[120px] rounded-lg border border-[#cef0d4] bg-white p-2.5 text-[13px] text-[#3c3a37] resize-none focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/30"
+                      />
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <button type="button" onClick={() => saveNote(item.lesson.id)} className="bg-[#2D5A3D] text-white text-[12px] font-semibold px-3 py-1 rounded-lg">Save</button>
+                        <button type="button" onClick={cancelEditingNote} className="text-[12px] text-[#8a8580] font-medium">Cancel</button>
+                      </div>
+                    </div>
+                  ) : item.lesson.notes ? (
+                    <div className="mt-2">
+                      <div className="bg-white/50 rounded-lg p-2.5 border-l-2 border-[#2D5A3D]">
+                        <p className="text-[13px] text-[#6b6560] italic">{item.lesson.notes}</p>
+                      </div>
+                      {!isPartner && (
+                        <button type="button" onClick={() => startEditingNote(item.lesson.id, item.lesson.notes)} className="text-[12px] text-[#2D5A3D] font-medium mt-1.5">{"\u270F\uFE0F"} Edit</button>
+                      )}
+                    </div>
+                  ) : !isPartner ? (
+                    <button type="button" onClick={() => startEditingNote(item.lesson.id, null)} className="text-[12px] text-[#2D5A3D] font-medium mt-2">{"\u{1F4DD}"} Add a note...</button>
+                  ) : null}
                 </>
               )}
               {item.kind === "activity" && (
