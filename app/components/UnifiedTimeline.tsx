@@ -9,7 +9,7 @@ import { Pencil, Trash2 } from "lucide-react";
 type Child = { id: string; name: string; color: string | null };
 type Lesson = { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null; icon_emoji?: string | null };
 type Activity = { id: string; name: string; emoji: string; duration_minutes: number; scheduled_start_time: string | null; child_ids: string[]; completed: boolean };
-type Appointment = { id: string; title: string; emoji: string; time: string | null; duration_minutes: number; location: string | null; child_ids: string[]; completed: boolean; instance_date: string };
+type Appointment = { id: string; title: string; emoji: string; time: string | null; duration_minutes: number; location: string | null; notes?: string | null; child_ids: string[]; completed: boolean; instance_date: string };
 
 export type TimelineItem =
   | { kind: "lesson"; lesson: Lesson; timeMinutes: number | null }
@@ -52,6 +52,17 @@ function fmtDur(mins: number): string {
   if (mins < 60) return `${mins} min`;
   if (mins % 60 === 0) return `${mins / 60} hr`;
   return `${(mins / 60).toFixed(1)} hr`;
+}
+
+function fmtApptTime(t: string | null): string {
+  if (!t) return "All day";
+  const parts = t.split(":");
+  if (parts.length < 2) return "All day";
+  const h24 = parseInt(parts[0]);
+  const m = parseInt(parts[1]);
+  const ampm = h24 >= 12 ? "PM" : "AM";
+  const h = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+  return m > 0 ? `${h}:${String(m).padStart(2, "0")} ${ampm}` : `${h} ${ampm}`;
 }
 
 // ─── Smart Status Messages ──────────────────────────────────────────────────
@@ -185,6 +196,7 @@ export default function UnifiedTimeline({
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [statusCat, setStatusCat] = useState<StatusCategory | null>(null);
   const prevMsgRef = useRef<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => { const d = new Date(); setNowMinutes(d.getHours() * 60 + d.getMinutes()); }, 60000);
@@ -255,6 +267,10 @@ export default function UnifiedTimeline({
     return item.kind === "lesson" ? item.lesson.completed : item.kind === "activity" ? item.activity.completed : item.appointment.completed;
   }
 
+  function getItemId(item: TimelineItem): string {
+    return item.kind === "lesson" ? `l-${item.lesson.id}` : item.kind === "activity" ? `a-${item.activity.id}` : `ap-${item.appointment.id}`;
+  }
+
   function handleTap(item: TimelineItem) {
     if (isPartner) return;
     if (item.kind === "lesson") onToggleLesson(item.lesson.id, item.lesson.completed);
@@ -276,24 +292,97 @@ export default function UnifiedTimeline({
     const checkColor = isLesson ? "#2D5A3D" : "#7C3AED";
     const cardBg = done ? "#fafaf8" : isLesson ? "linear-gradient(135deg, #f0faf3, #e8f5ec)" : "linear-gradient(135deg, #f5f0ff, #ede5ff)";
     const borderColor = done ? "#f0ece6" : isLesson ? "#cef0d4" : "#e8deff";
+    const timeLabel = item.kind === "appointment" ? fmtApptTime(item.appointment.time) : null;
+    const itemId = getItemId(item);
+    const isExpanded = expandedId === itemId;
 
     return (
-      <button type="button" onClick={() => handleTap(item)}
-        className="w-full flex items-center gap-3 text-left transition-all duration-200 rounded-[14px] mb-1.5 px-3.5 py-3"
-        style={{ background: cardBg, border: `1.5px solid ${borderColor}`, opacity: done ? 0.55 : isPast ? 0.75 : 1 }}>
-        <div className="w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 transition-all"
-          style={{ border: done ? "none" : `2px solid ${checkColor}`, background: done ? checkColor : "white" }}>
-          {done && <span className="text-white text-[12px] font-medium">✓</span>}
+      <div className="rounded-[14px] mb-1.5 transition-all duration-200"
+        style={{ background: cardBg, border: `1.5px solid ${borderColor}`, opacity: done ? 0.55 : isPast ? 0.75 : 1, boxShadow: isExpanded ? "0 2px 8px rgba(0,0,0,0.06)" : "none" }}>
+        <div className="flex items-center gap-3 px-3.5 py-3">
+          {/* Checkbox — toggles done */}
+          <button type="button" onClick={() => handleTap(item)}
+            className="w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 transition-all"
+            style={{ border: done ? "none" : `2px solid ${checkColor}`, background: done ? checkColor : "white" }}>
+            {done && <span className="text-white text-[12px] font-medium">{"\u2713"}</span>}
+          </button>
+          {/* Card content — tap to expand/collapse */}
+          <button type="button" onClick={() => setExpandedId(isExpanded ? null : itemId)}
+            className="flex-1 flex items-center gap-3 text-left min-w-0">
+            <span className="text-xl shrink-0">{emoji}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={`text-[14px] font-medium truncate ${done ? "line-through text-[#999]" : "text-[#2a2520]"}`} style={{ letterSpacing: "-0.2px" }}>{title}</span>
+                <Badge kind={item.kind} />
+              </div>
+              {(sub || timeLabel) && (
+                <p className={`text-[12px] truncate mt-0.5 ${done ? "text-[#bbb]" : "text-[#8a8580]"}`}>
+                  {timeLabel && <span className="font-semibold">{timeLabel}</span>}
+                  {timeLabel && sub ? " \u00b7 " : ""}
+                  {sub}
+                </p>
+              )}
+            </div>
+          </button>
+          {/* Chevron indicator */}
+          <span className="text-[16px] text-[#c4beb6] shrink-0 transition-transform duration-200"
+            style={{ transform: isExpanded ? "rotate(90deg)" : "none" }}>{"\u203A"}</span>
         </div>
-        <span className="text-xl shrink-0">{emoji}</span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`text-[14px] font-medium truncate ${done ? "line-through text-[#999]" : "text-[#2a2520]"}`} style={{ letterSpacing: "-0.2px" }}>{title}</span>
-            <Badge kind={item.kind} />
+
+        {/* Expanded detail section */}
+        {isExpanded && (
+          <div className="px-3.5 pb-3">
+            <div className="pt-2 mt-0 border-t border-[#e8e3dc]/50">
+              {item.kind === "appointment" && (
+                <>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] mb-2">
+                    <span className="font-semibold text-[#5b21b6]">{fmtApptTime(item.appointment.time)}</span>
+                    {item.appointment.duration_minutes > 0 && <span className="text-[#8a8580]">{fmtDur(item.appointment.duration_minutes)}</span>}
+                    {item.appointment.location && <span className="text-[#8a8580]">{"\u{1F4CD}"} {item.appointment.location}</span>}
+                  </div>
+                  {item.appointment.child_ids.length > 0 && (
+                    <div className="flex gap-1.5 mb-2">
+                      {item.appointment.child_ids.map(id => {
+                        const c = children.find(ch => ch.id === id);
+                        return c ? <span key={id} className="text-[11px] font-medium text-[#7C3AED] bg-[#f5f0ff] px-2 py-0.5 rounded-lg">{c.name}</span> : null;
+                      })}
+                    </div>
+                  )}
+                  {item.appointment.notes && (
+                    <div className="bg-white/50 rounded-lg p-2.5 mt-2 border-l-2 border-[#7C3AED]">
+                      <p className="text-[13px] text-[#6b6560] italic">{item.appointment.notes}</p>
+                    </div>
+                  )}
+                  {!isPartner && (
+                    <div className="flex justify-end mt-2">
+                      <button type="button" onClick={onManage} className="text-[12px] text-[#7C3AED] font-medium">{"\u270F\uFE0F"} Edit</button>
+                    </div>
+                  )}
+                </>
+              )}
+              {item.kind === "lesson" && (
+                <>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] mb-1">
+                    {item.lesson.subjects?.name && <span className="text-[#2D5A3D] font-medium">{item.lesson.subjects.name}</span>}
+                    {(() => { const c = children.find(ch => ch.id === item.lesson.child_id); return c ? <span className="text-[#8a8580]">{c.name}</span> : null; })()}
+                  </div>
+                  <p className="text-[14px] font-medium text-[#2a2520] mt-1">{item.lesson.title}</p>
+                </>
+              )}
+              {item.kind === "activity" && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] mb-1">
+                  <span className="text-[#8a8580]">{fmtDur(item.activity.duration_minutes)}</span>
+                  {item.activity.child_ids.length > 0 && (
+                    <span className="text-[#8a8580]">
+                      {item.activity.child_ids.map(id => children.find(c => c.id === id)?.name).filter(Boolean).join(", ")}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          {sub && <p className={`text-[12px] truncate mt-0.5 ${done ? "text-[#bbb]" : "text-[#8a8580]"}`}>{sub}</p>}
-        </div>
-      </button>
+        )}
+      </div>
     );
   }
 
@@ -442,8 +531,7 @@ function InlineScheduleTabs({ children: kids, onManage }: { children: { id: stri
                     <span className="text-[9px] font-medium uppercase tracking-[0.5px] px-[7px] py-0.5 rounded-md bg-[#7C3AED] text-white shrink-0">Appt</span>
                   </div>
                   <p className="text-[11px] text-[#8a8580] mt-0.5">
-                    {fmtRelDate(a.instance_date ?? a.date)}
-                    {a.time && (() => { const [h, m] = a.time!.split(":").map(Number); return ` · ${h % 12 || 12}${m > 0 ? `:${String(m).padStart(2, "0")}` : ""} ${h >= 12 ? "PM" : "AM"}`; })()}
+                    {fmtRelDate(a.instance_date ?? a.date)}, <span className="font-semibold">{fmtApptTime(a.time)}</span>
                     {a.location && ` · 📍 ${a.location}`}
                   </p>
                 </div>
