@@ -2450,21 +2450,18 @@ export default function TodayPage() {
 
         return (
           <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-end px-5 pt-3 pb-2">
-              <div className="flex items-center gap-2">
-                {useTimeline && !isPartner && (
-                  <button
-                    type="button"
-                    onClick={() => setShowRunningLate(true)}
-                    className="text-xs text-[#5c7f63] font-semibold bg-[#eef3ef] border-none px-2.5 py-1.5 rounded-lg"
-                  >
-                    ⏩ Running late?
-                  </button>
-                )}
-                {/* Duplicate removed — "+ Log an extra lesson" is in UnifiedTimeline header */}
+            {/* Header — only shown in timeline mode */}
+            {useTimeline && !isPartner && (
+              <div className="flex items-center justify-end px-5 pt-3 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRunningLate(true)}
+                  className="text-xs text-[#5c7f63] font-semibold bg-[#eef3ef] border-none px-2.5 py-1.5 rounded-lg"
+                >
+                  ⏩ Running late?
+                </button>
               </div>
-            </div>
+            )}
 
             {/* ── TIMELINE VIEW ──────────────────────────────────── */}
             {useTimeline && combinedTotal > 0 && !combinedAllDone && (
