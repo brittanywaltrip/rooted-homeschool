@@ -31,6 +31,7 @@ type CurriculumGoal = {
   created_at: string | null;
   default_minutes?: number | null;
   scheduled_start_time?: string | null;
+  icon_emoji?: string | null;
 };
 type Lesson  = {
   id: string;
@@ -430,7 +431,7 @@ export default function PlanPage() {
       supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji").eq("user_id", effectiveUserId).order("created_at"),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
@@ -1601,8 +1602,10 @@ export default function PlanPage() {
                               <div className="mb-1.5">
                                 {dayLessons.slice(0, 5).map((l) => {
                                   const childName = l.child_id ? children.find(c => c.id === l.child_id)?.name : null;
+                                  const lEmoji = l.curriculum_goal_id ? (curriculumGoals.find(g => g.id === l.curriculum_goal_id)?.icon_emoji ?? "📚") : "📚";
                                   return (
                                     <p key={l.id} className="text-[11px] text-[#2d2926] truncate">
+                                      <span className="mr-0.5">{lEmoji}</span>
                                       {childName && <span className="text-[#5c7f63]">{childName}: </span>}
                                       {l.subjects?.name ?? l.title}
                                     </p>
@@ -1772,7 +1775,7 @@ export default function PlanPage() {
                     {/* Name + subject */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ fontSize: 12, fontWeight: 700, color: "#2d2926", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {child?.name ?? "Unassigned"} · {group.curricName}
+                        {group.goalData?.icon_emoji ?? "📚"} {child?.name ?? "Unassigned"} · {group.curricName}
                       </p>
                       <p style={{ fontSize: 10, color: "#b5aca4", margin: "1px 0 0" }}>
                         {displaySubject} · {displayCompleted} of {displayTotal}

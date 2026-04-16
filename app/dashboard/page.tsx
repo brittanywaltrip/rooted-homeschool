@@ -37,6 +37,7 @@ type Lesson = {
   curriculum_goal_id?: string | null;
   lesson_number?: number | null;
   goal_id?: string | null;
+  icon_emoji?: string | null;
 };
 
 type TodayEvent = {
@@ -790,6 +791,7 @@ export default function TodayPage() {
       tier1Result,
       todayStoryResult,
       prevMonthResult,
+      goalEmojiResult,
     ] = await Promise.all([
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
@@ -816,6 +818,7 @@ export default function TodayPage() {
       nowForSY.getDate() <= 15
         ? supabase.from("lessons").select("id").eq("user_id", effectiveUserId).eq("completed", true).gte("date", prevStart).lte("date", prevEnd)
         : Promise.resolve({ data: null }),
+      supabase.from("curriculum_goals").select("id, icon_emoji").eq("user_id", effectiveUserId),
     ]);
 
     // ── Phase 2: Process all results (no awaits) ────────────────────────
@@ -930,9 +933,16 @@ export default function TodayPage() {
     const childrenData = childrenResult.data;
     setChildren(capitalizeChildNames(childrenData ?? []));
 
-    // Today's lessons
+    // Today's lessons — enrich with curriculum emoji
     const lessonsData = todayLessonsResult.data;
-    const loadedLessons = (lessonsData as unknown as Lesson[]) ?? [];
+    const emojiMap = new Map<string, string>();
+    for (const g of (goalEmojiResult.data ?? []) as { id: string; icon_emoji: string | null }[]) {
+      if (g.icon_emoji) emojiMap.set(g.id, g.icon_emoji);
+    }
+    const loadedLessons = ((lessonsData as unknown as Lesson[]) ?? []).map(l => ({
+      ...l,
+      icon_emoji: l.curriculum_goal_id ? (emojiMap.get(l.curriculum_goal_id) ?? "📚") : null,
+    }));
     setLessons(loadedLessons);
     setHasAnyLessons((allLessonsResult.data?.length ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
@@ -2342,7 +2352,7 @@ export default function TodayPage() {
          ═══════════════════════════════════════════════════════════ */}
       {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && todayAppointments.length > 0 && (
         <UnifiedTimeline
-          lessons={lessons as { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null }[]}
+          lessons={lessons as { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null; icon_emoji?: string | null }[]}
           activities={todayActivities}
           appointments={todayAppointments}
           children={children}

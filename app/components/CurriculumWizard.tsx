@@ -44,6 +44,21 @@ interface Props {
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+function guessEmoji(name: string): string {
+  const n = name.toLowerCase();
+  if (/math|algebra|geometry|calculus/.test(n)) return "📐";
+  if (/language art|english|reading|writing|grammar|spelling|phonics|literature/.test(n)) return "📖";
+  if (/science|biology|chemistry|physics|nature/.test(n)) return "🔬";
+  if (/history|social stud|geography|civics|government/.test(n)) return "🌍";
+  if (/\bart\b|drawing|painting|craft/.test(n)) return "🎨";
+  if (/music|piano|guitar|violin|instrument/.test(n)) return "🎵";
+  if (/\bpe\b|physical ed|sport|gym/.test(n)) return "⚽";
+  if (/spanish|french|latin|german|foreign|language$/.test(n)) return "🗣️";
+  if (/bible|religion|faith|theology/.test(n)) return "✝️";
+  if (/computer|coding|tech|programming/.test(n)) return "💻";
+  return "📚";
+}
+
 const SUBJECT_CHIPS = [
   { label: "Math",          bg: "#e4f0f4", text: "#1a4a5a" },
   { label: "Reading",       bg: "#f0e8f4", text: "#4a2a5a" },
@@ -394,6 +409,7 @@ export default function CurriculumWizard({
         default_minutes: parseInt(defaultMinutes) || 30,
         scheduled_start_time: lessonStartTime || null,
         school_year_id: schoolYearId || null,
+        icon_emoji: guessEmoji(saveName),
         updated_at: new Date().toISOString(),
       })
       .select("id")
@@ -625,6 +641,7 @@ export default function CurriculumWizard({
         school_days: booleanToDays(schoolDays),
         default_minutes: parseInt(defaultMinutes) || 30,
         scheduled_start_time: lessonStartTime || null,
+        icon_emoji: guessEmoji(saveName),
         updated_at: new Date().toISOString(),
       };
       const { error: updateErr } = await supabase
@@ -650,6 +667,7 @@ export default function CurriculumWizard({
           default_minutes: parseInt(defaultMinutes) || 30,
           scheduled_start_time: lessonStartTime || null,
           school_year_id: schoolYearId || null,
+          icon_emoji: guessEmoji(saveName),
           updated_at: new Date().toISOString(),
         })
         .select("id")

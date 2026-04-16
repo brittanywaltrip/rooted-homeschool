@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Child = { id: string; name: string; color: string | null };
-type Lesson = { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null };
+type Lesson = { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null; icon_emoji?: string | null };
 type Activity = { id: string; name: string; emoji: string; duration_minutes: number; scheduled_start_time: string | null; child_ids: string[]; completed: boolean };
 type Appointment = { id: string; title: string; emoji: string; time: string | null; duration_minutes: number; location: string | null; child_ids: string[]; completed: boolean; instance_date: string };
 
@@ -143,7 +143,7 @@ export default function UnifiedTimeline({
     const done = isDone(item);
     const key = item.kind === "lesson" ? `l-${item.lesson.id}` : item.kind === "activity" ? `a-${item.activity.id}` : `ap-${item.appointment.id}`;
     const title = item.kind === "lesson" ? item.lesson.title : item.kind === "activity" ? item.activity.name : item.appointment.title;
-    const emoji = item.kind === "lesson" ? null : item.kind === "activity" ? item.activity.emoji : item.appointment.emoji;
+    const emoji = item.kind === "lesson" ? (item.lesson.icon_emoji || "📚") : item.kind === "activity" ? item.activity.emoji : item.appointment.emoji;
     const opacity = (isPast && !done) ? "opacity-60" : done ? "opacity-50" : "";
 
     const sub = item.kind === "lesson"
