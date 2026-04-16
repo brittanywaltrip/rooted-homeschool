@@ -70,10 +70,10 @@ export default function UpgradeBanner() {
           ) : (
             <>
               <p className="text-white text-xs font-semibold leading-tight">
-                Keep everything you&apos;ve built — upgrade to Rooted+
+                Rooted+ is $39/yr now — goes to $59 after April 30
               </p>
               <p className="text-white/70 text-[11px] leading-tight mt-0.5">
-                Unlimited photos, PDF exports, and family sharing · $39/yr
+                Unlimited photos, PDF exports, and family sharing. Lock it in forever.
               </p>
             </>
           )}
