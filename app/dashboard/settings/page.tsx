@@ -84,7 +84,7 @@ type AffiliateRow = { id: string; name: string; code: string; stripe_coupon_id: 
 function AffiliateStatCell({ couponId, code, field, prefix = "" }: { couponId: string; code: string; field: "totalRedemptions" | "payingCount" | "revenueDriven"; prefix?: string }) {
   const [val, setVal] = useState<number | null>(null);
   useEffect(() => {
-    fetch(`/api/stripe/affiliate-stats?coupon_id=${couponId}&code=${encodeURIComponent(code)}`)
+    fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(code)}`)
       .then(r => r.json())
       .then(d => setVal(d[field] ?? 0))
       .catch(() => setVal(0));
@@ -95,7 +95,7 @@ function AffiliateStatCell({ couponId, code, field, prefix = "" }: { couponId: s
 function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string }) {
   const [stats, setStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
   useEffect(() => {
-    fetch(`/api/stripe/affiliate-stats?coupon_id=${couponId}&code=${encodeURIComponent(code)}`)
+    fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(code)}`)
       .then(r => r.json())
       .then(setStats)
       .catch(() => {});
@@ -456,7 +456,7 @@ export default function SettingsPage() {
     if (affData) {
       setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
       try {
-        const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${affData.stripe_coupon_id}&code=${encodeURIComponent(affData.code)}`);
+        const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(affData.code)}`);
         const stats = await r.json();
         setAffiliateStats(stats);
       } catch {}
@@ -471,7 +471,7 @@ export default function SettingsPage() {
     setPreviewStats(null);
     setShowAffiliatePreview(true);
     try {
-      const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${first.stripe_coupon_id}&code=${encodeURIComponent(first.code)}`);
+      const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(first.code)}`);
       const stats = await r.json();
       setPreviewStats(stats);
     } catch {}
@@ -483,7 +483,7 @@ export default function SettingsPage() {
     setPreviewAffiliate({ ...aff });
     setPreviewStats(null);
     try {
-      const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${aff.stripe_coupon_id}&code=${encodeURIComponent(aff.code)}`);
+      const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(aff.code)}`);
       const stats = await r.json();
       setPreviewStats(stats);
     } catch {}
@@ -491,7 +491,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (affiliateData?.stripe_coupon_id && affiliateData?.code) {
-      fetch(`/api/stripe/affiliate-stats?coupon_id=${affiliateData.stripe_coupon_id}&code=${encodeURIComponent(affiliateData.code)}`)
+      fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(affiliateData.code)}`)
         .then(r => r.json())
         .then(setAffiliateStats)
         .catch(() => {});
@@ -1876,7 +1876,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="px-3 py-4 text-center">
                       <p className="text-2xl font-bold text-[#2d2926]">{previewStats?.totalRedemptions ?? '—'}</p>
-                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Families reached</p>
+                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Signups</p>
                     </div>
                     <div className="px-3 py-4 text-center">
                       <p className="text-2xl font-bold text-[var(--g-deep)]">{previewStats?.payingCount ?? '—'}</p>
@@ -2080,7 +2080,7 @@ export default function SettingsPage() {
               </div>
               <div className="px-3 py-4 text-center">
                 <p className="text-2xl font-bold text-[#2d2926]">{affiliateStats?.totalRedemptions ?? '—'}</p>
-                <p className="text-[11px] text-[#7a6f65] mt-0.5">Families reached</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Signups</p>
               </div>
               <div className="px-3 py-4 text-center">
                 <p className="text-2xl font-bold text-[var(--g-deep)]">{affiliateStats?.payingCount ?? '—'}</p>
