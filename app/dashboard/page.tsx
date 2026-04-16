@@ -2448,6 +2448,12 @@ export default function TodayPage() {
           return shifted >= 1440 ? null : shifted; // past midnight → flexible
         };
 
+        // Don't render the card when all items are done or nothing to show
+        // (UnifiedTimeline already covers status + items)
+        const hasTimelineContent = useTimeline && combinedTotal > 0 && !combinedAllDone;
+        const hasChecklistContent = !useTimeline && combinedTotal > 0 && !combinedAllDone;
+        if (!hasTimelineContent && !hasChecklistContent) return null;
+
         return (
           <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
             {/* Header — only shown in timeline mode */}
