@@ -248,9 +248,9 @@ function UpgradePageInner() {
               {[
                 'Everything in Rooted, plus:',
                 'Unlimited photos — keep every memory',
-                'All PDF exports — transcripts, hours log, yearbook, reports',
-                'Clean versions — no watermark',
-                'Family sharing — invite grandma & family',
+                'All PDF exports — transcripts, hours log, reports',
+                'Clean yearbook + transcript — no watermark (print coming soon!)',
+                'Family sharing — invite grandparents, family & friends',
                 'Priority support from Brittany',
                 'Founding price locked forever 🎁',
               ].map((label) => (

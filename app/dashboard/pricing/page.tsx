@@ -17,10 +17,10 @@ const features: FeatureRow[] = [
   { label: "Scheduling & appointments",      free: "✓",              pro: "✓" },
   { label: "Memories (books, wins, etc.)",   free: "✓",              pro: "✓" },
   { label: "Photos",                         free: "Up to 50",       pro: "✓ Unlimited" },
-  { label: "Yearbook",                       free: "Preview",        pro: "✓ Full + export" },
+  { label: "Yearbook",                       free: "Preview",        pro: "✓ Full — no watermark" },
   { label: "Transcript builder",             free: "Preview",        pro: "✓ Full + export" },
   { label: "Hours & Attendance",             free: "View only",      pro: "✓ + PDF export" },
-  { label: "PDF exports (all)",              free: "—",              pro: "✓" },
+  { label: "PDF exports (transcripts, hours, reports)", free: "—",   pro: "✓" },
   { label: "Family sharing",                 free: "—",              pro: "✓" },
 ];
 
@@ -158,7 +158,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#5c7f63] mt-0.5">≈ $3.25/month</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Rooted, plus:", "Unlimited photos", "All PDF exports", "Clean yearbook + transcript (no watermark)", "Family sharing", "Priority support", "Founding price locked forever 🎁"].map(f => (
+            {["Everything in Rooted, plus:", "Unlimited photos", "All PDF exports (transcripts, hours, reports)", "Clean yearbook + transcript — no watermark", "Family sharing", "Priority support", "Founding price locked forever 🎁"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[var(--g-deep)]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}

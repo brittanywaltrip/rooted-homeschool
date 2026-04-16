@@ -120,7 +120,7 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "Rooted+ gives you unlimited photos, all PDF exports (transcripts, hours log, attendance, yearbook, reports), clean versions without watermarks, and the ability to share your journey with family. Everything else — lessons, memories, garden, curriculum planning, scheduling — is free.",
+        a: "Everything for daily use — lessons, memories, garden, yearbook preview, transcript builder, curriculum planning, and scheduling. The free plan has a 50-photo limit, and yearbook and transcript show a preview watermark. PDF exports and family sharing require Rooted+.",
       },
       {
         q: "What is the Founding Family price?",
@@ -188,7 +188,7 @@ const sections = [
       },
       {
         q: "Do free users get a yearbook?",
-        a: "Yes — free users get the full yearbook with all their memories. The yearbook builds itself automatically from your captured memories. Your yearbook text — the letter, child interviews, and future notes — is always saved regardless of plan.",
+        a: "Yes — free users can build and view their yearbook on screen. It fills in automatically from your memories, and your text (letter, child interviews, future notes) is always saved. The free version shows a preview watermark. Upgrade to Rooted+ for a clean version with no watermark. A print option is coming soon — stay Rooted!",
       },
       {
         q: "Are my archived yearbooks saved if I cancel my subscription?",
@@ -202,7 +202,7 @@ const sections = [
     items: [
       {
         q: "What is Share With Family?",
-        a: "Share With Family lets you give grandparents, aunts, uncles, cousins, or your co-parent a private link to view your memories and yearbook. They can see your photos and memories, react with emojis, and leave comments — without downloading any app.",
+        a: "Share With Family is a Rooted+ feature that lets you give grandparents, family, and friends a private link to view your memories and yearbook. They can see your photos and memories, react with emojis, and leave comments — without downloading any app.",
       },
       {
         q: "Who can I share with?",
@@ -222,7 +222,7 @@ const sections = [
       },
       {
         q: "How do I set up Share With Family?",
-        a: "Go to Settings \u2192 Share With Family. You\u2019ll get a private link to copy and share however you like — text, email, whatever works for your family.",
+        a: "Share With Family is included with Rooted+. Go to Settings \u2192 Share With Family to get a private link you can copy and share however you like \u2014 text, email, whatever works for your family.",
       },
     ],
   },

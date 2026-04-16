@@ -1415,7 +1415,7 @@ export default function SettingsPage() {
               Share your journey with family
             </h3>
             <p className="text-sm text-[#7a6f65] leading-relaxed mb-1">
-              Invite grandma, your partner, or anyone who wants to follow along.
+              Invite grandparents, family, or friends to follow along.
             </p>
             <p className="text-xs text-[#b5aca4] mb-5">
               They&apos;ll see your memories, lessons, and garden — and can leave reactions.
