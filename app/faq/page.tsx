@@ -17,7 +17,7 @@ const sections = [
       },
       {
         q: "Is Rooted free?",
-        a: "Yes — Rooted is free to use, no credit card needed. Everything — lessons, memories, garden, yearbook, curriculum planning, Hours & Attendance Log, and family sharing. The only limit on the free plan is 50 photos total. Upgrade to Rooted+ ($39/yr Founding Family pricing) for unlimited photos and PDF exports.",
+        a: "Yes — Rooted is free to use, no credit card needed. Everything — lessons, memories, garden, yearbook preview, transcript builder, curriculum planning, scheduling, and resources. The free plan has a 50 photo limit, and yearbook and transcript show a preview watermark. PDF exports and family sharing require Rooted+ ($39/yr Founding Family pricing).",
       },
       {
         q: "How do I set up my curriculum?",
@@ -120,7 +120,7 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "Everything — lessons, memories, garden, yearbook, curriculum planning, Hours & Attendance Log, and family sharing. The only limit on the free plan is 50 photos total. Rooted+ gives you unlimited photos and downloadable PDF exports.",
+        a: "Rooted+ gives you unlimited photos, all PDF exports (transcripts, hours log, attendance, yearbook, reports), clean versions without watermarks, and the ability to share your journey with family. Everything else — lessons, memories, garden, curriculum planning, scheduling — is free.",
       },
       {
         q: "What is the Founding Family price?",
@@ -132,7 +132,7 @@ const sections = [
       },
       {
         q: "How do I upgrade to a paid plan?",
-        a: 'Click Upgrade in your sidebar or visit the pricing section on the homepage. Choose Rooted+ at $39/yr (Founding Family pricing, limited time, locked forever) or $59/yr after the founding period. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account is upgraded instantly — no waiting, no manual review.',
+        a: 'Tap "Get Rooted+" in the app or visit the upgrade page. Rooted+ Founding Family pricing is $39/yr — locked in forever. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account upgrades instantly.',
       },
       {
         q: "How do I cancel?",
