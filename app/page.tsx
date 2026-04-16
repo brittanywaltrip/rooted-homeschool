@@ -884,7 +884,8 @@ function HomeInner() {
                 "Daily lesson tracking",
                 "Family garden & badges",
                 "Curated resources",
-                "Yearbook preview (first 4 spreads)",
+                "Yearbook preview (watermark)",
+                "Transcript preview (watermark)",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -927,9 +928,9 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Hours & Attendance Log — track and print your learning hours",
+                "Hours & Attendance Log — track and export your learning hours",
                 "Curriculum progress tracking — stay on track all year without the stress",
-                "Full family yearbook — every memory beautifully organized into a book",
+                "Full yearbook — no watermark (print coming soon!)",
                 "Share with family — send grandparents a private link to follow along in real time",
                 "Priority support",
                 "Founding price locked forever 🎁",
@@ -972,9 +973,9 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Hours & Attendance Log — track and print your learning hours",
+                "Hours & Attendance Log — track and export your learning hours",
                 "Curriculum progress tracking — stay on track all year without the stress",
-                "Full family yearbook — every memory beautifully organized into a book",
+                "Full yearbook — no watermark (print coming soon!)",
                 "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
@@ -1009,9 +1010,9 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Hours & Attendance Log — track and print your learning hours",
+                "Hours & Attendance Log — track and export your learning hours",
                 "Curriculum progress tracking — stay on track all year without the stress",
-                "Full family yearbook — every memory beautifully organized into a book",
+                "Full yearbook — no watermark (print coming soon!)",
                 "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
