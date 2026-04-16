@@ -6,7 +6,6 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import type { YearStats, YearReviewResponse } from "@/app/api/year-in-review/route";
-import UpgradePrompt from "@/components/UpgradePrompt";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -237,11 +236,6 @@ export default function YearInReviewPage() {
           <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">Your Family&apos;s</p>
           <h1 className="text-2xl font-bold text-[#2d2926]">Year in Review ✨</h1>
         </div>
-        <UpgradePrompt
-          inline
-          feature="AI Year in Review"
-          valueProp="Get a beautiful AI-written summary of your family's entire homeschool year — lessons, books, milestones, and memories."
-        />
       </div>
     );
   }

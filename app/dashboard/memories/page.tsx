@@ -8,7 +8,6 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
-import UpgradePrompt from "@/components/UpgradePrompt";
 import MilestonePrompt from "@/components/MilestonePrompt";
 import { compressImage } from "@/lib/compress-image";
 import { posthog } from "@/lib/posthog";
