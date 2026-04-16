@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, ChevronLeft, ChevronDown, ChevronUp, X, Check } from "lucide-react";
+import { Plus, Trash2, ChevronLeft, ChevronDown, ChevronUp, X, Check, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import PageHero from "@/app/components/PageHero";
 import { SUBJECT_CATEGORIES, CREDIT_TYPES, GRADE_OPTIONS, SEMESTERS, getSchoolYearOptions } from "@/lib/transcript/constants";
@@ -41,7 +41,7 @@ type Course = {
   external_provider: string | null;
 };
 
-type CurriculumGoal = { id: string; curriculum_name: string; icon_emoji: string | null };
+type CurriculumGoal = { id: string; curriculum_name: string; icon_emoji: string | null; subject_label: string | null; school_year: string | null; default_minutes: number };
 
 type Tab = "courses" | "gpa" | "preview";
 
@@ -81,6 +81,37 @@ function subjectLabel(val: string) {
   return SUBJECT_CATEGORIES.find(c => c.value === val)?.label ?? val;
 }
 
+// ─── Subject mapping ────────────────────────────────────────────────────────
+
+const SUBJECT_NAME_MAP: Record<string, string> = {
+  math: "math", mathematics: "math", algebra: "math", geometry: "math", calculus: "math",
+  english: "english", "language arts": "english", "ela": "english", reading: "english", writing: "english", literature: "english", grammar: "english",
+  science: "science", biology: "science", chemistry: "science", physics: "science",
+  history: "social_studies", "social studies": "social_studies", geography: "social_studies", government: "social_studies", civics: "social_studies", economics: "social_studies",
+  spanish: "foreign_language", french: "foreign_language", latin: "foreign_language", german: "foreign_language", "foreign language": "foreign_language",
+  art: "arts", music: "arts", "fine arts": "arts", drama: "arts", theater: "arts",
+  pe: "pe", "physical education": "pe", health: "pe", sports: "pe",
+  bible: "bible", theology: "bible", religion: "bible",
+  technology: "technology", "computer science": "technology", coding: "technology", programming: "technology",
+};
+
+function mapSubjectToCategory(label: string | null): string {
+  if (!label) return "other";
+  const lower = label.toLowerCase().trim();
+  if (SUBJECT_NAME_MAP[lower]) return SUBJECT_NAME_MAP[lower];
+  // Partial match
+  for (const [key, value] of Object.entries(SUBJECT_NAME_MAP)) {
+    if (lower.includes(key) || key.includes(lower)) return value;
+  }
+  return "other";
+}
+
+function calculateCreditsFromHours(hours: number): number {
+  if (hours <= 0) return 0.5;
+  const raw = Math.round((hours / 120) * 2) / 2;
+  return Math.max(0.5, raw);
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function TranscriptBuilderPage() {
@@ -112,6 +143,128 @@ export default function TranscriptBuilderPage() {
   const [toast, setToast] = useState<string | null>(null);
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 2500); }
 
+  // Sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncingInitial, setSyncingInitial] = useState(false);
+  const hasSyncedRef = useRef(false);
+
+  // ── Sync courses from Plan ────────────────────────────────────────────────
+
+  async function syncCoursesFromPlan(uid: string, cId: string, existingCourses: Course[], allGoals: CurriculumGoal[]): Promise<number> {
+    if (allGoals.length === 0) return 0;
+
+    // Find which goals already have linked transcript courses
+    const linkedGoalIds = new Set(existingCourses.filter(c => c.curriculum_goal_id).map(c => c.curriculum_goal_id));
+    const newGoals = allGoals.filter(g => !linkedGoalIds.has(g.id));
+    if (newGoals.length === 0) {
+      // Still refresh hours for existing linked courses
+      await refreshLinkedCourseHours(uid, existingCourses);
+      return 0;
+    }
+
+    // Fetch lesson data for new goals in bulk
+    const goalIds = newGoals.map(g => g.id);
+    const { data: lessonData } = await supabase
+      .from("lessons")
+      .select("curriculum_goal_id, minutes_spent, completed")
+      .in("curriculum_goal_id", goalIds)
+      .eq("completed", true);
+
+    // Group lessons by goal
+    const lessonsByGoal: Record<string, { count: number; totalMinutes: number }> = {};
+    for (const l of (lessonData ?? [])) {
+      const gid = l.curriculum_goal_id;
+      if (!gid) continue;
+      if (!lessonsByGoal[gid]) lessonsByGoal[gid] = { count: 0, totalMinutes: 0 };
+      lessonsByGoal[gid].count++;
+      lessonsByGoal[gid].totalMinutes += (l.minutes_spent ?? 45);
+    }
+
+    const currentYear = getSchoolYearOptions()[3] || getSchoolYearOptions()[0];
+    const inserts = newGoals.map(goal => {
+      const lessons = lessonsByGoal[goal.id];
+      const hours = lessons ? Math.round(lessons.totalMinutes / 60) : 0;
+      const credits = lessons ? calculateCreditsFromHours(hours) : 1.0;
+
+      return {
+        user_id: uid,
+        child_id: cId,
+        course_name: goal.curriculum_name || goal.subject_label || "Untitled Course",
+        subject_category: mapSubjectToCategory(goal.subject_label),
+        credit_type: "standard" as const,
+        credits_earned: credits,
+        hours_logged: hours || null,
+        grade_letter: null,
+        grade_points: null,
+        school_year: goal.school_year || currentYear,
+        grade_level: null,
+        semester: "full_year" as const,
+        course_description: null,
+        curriculum_goal_id: goal.id,
+        is_external: false,
+        external_provider: null,
+      };
+    });
+
+    if (inserts.length > 0) {
+      await supabase.from("transcript_courses").insert(inserts);
+    }
+
+    // Also refresh hours for existing linked courses
+    await refreshLinkedCourseHours(uid, existingCourses);
+
+    return inserts.length;
+  }
+
+  async function refreshLinkedCourseHours(uid: string, existingCourses: Course[]) {
+    const linkedCourses = existingCourses.filter(c => c.curriculum_goal_id);
+    if (linkedCourses.length === 0) return;
+
+    const goalIds = linkedCourses.map(c => c.curriculum_goal_id!);
+    const { data: lessonData } = await supabase
+      .from("lessons")
+      .select("curriculum_goal_id, minutes_spent, completed")
+      .in("curriculum_goal_id", goalIds)
+      .eq("completed", true);
+
+    const lessonsByGoal: Record<string, number> = {};
+    for (const l of (lessonData ?? [])) {
+      const gid = l.curriculum_goal_id;
+      if (!gid) continue;
+      lessonsByGoal[gid] = (lessonsByGoal[gid] || 0) + (l.minutes_spent ?? 45);
+    }
+
+    for (const course of linkedCourses) {
+      const totalMinutes = lessonsByGoal[course.curriculum_goal_id!] || 0;
+      const newHours = Math.round(totalMinutes / 60);
+      if (newHours === (course.hours_logged || 0)) continue;
+
+      const newCredits = calculateCreditsFromHours(newHours);
+      // Don't overwrite credits if mom has manually set them (heuristic: credits differ AND grade is assigned)
+      const creditsManuallySet = course.grade_letter && course.credits_earned !== calculateCreditsFromHours(course.hours_logged || 0);
+
+      const update: Record<string, unknown> = { hours_logged: newHours || null, updated_at: new Date().toISOString() };
+      if (!creditsManuallySet) update.credits_earned = newCredits;
+
+      await supabase.from("transcript_courses").update(update).eq("id", course.id);
+    }
+  }
+
+  async function handleManualSync() {
+    if (!userId || syncing) return;
+    setSyncing(true);
+    const count = await syncCoursesFromPlan(userId, childId, courses, goals);
+    // Re-fetch courses after sync
+    const { data: coursesData } = await supabase.from("transcript_courses").select("*").eq("user_id", userId).eq("child_id", childId).order("school_year", { ascending: false }).order("course_name");
+    setCourses((coursesData ?? []) as Course[]);
+    setSyncing(false);
+    if (count > 0) {
+      showToast(`${count} course${count > 1 ? "s" : ""} imported from Plan`);
+    } else {
+      showToast("Everything is up to date");
+    }
+  }
+
   // ── Load data ─────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -123,14 +276,31 @@ export default function TranscriptBuilderPage() {
       supabase.from("children").select("id, name, color").eq("id", childId).maybeSingle(),
       supabase.from("transcript_settings").select("*").eq("user_id", user.id).eq("child_id", childId).maybeSingle(),
       supabase.from("transcript_courses").select("*").eq("user_id", user.id).eq("child_id", childId).order("school_year", { ascending: false }).order("course_name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, icon_emoji").eq("user_id", user.id).eq("child_id", childId),
+      supabase.from("curriculum_goals").select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes").eq("user_id", user.id).eq("child_id", childId),
       supabase.from("profiles").select("display_name, first_name, last_name, state").eq("id", user.id).maybeSingle(),
     ]);
 
     if (!childData) { router.replace("/dashboard/transcript"); return; }
     setChild(childData as Child);
-    setCourses((coursesData ?? []) as Course[]);
-    setGoals((goalsData ?? []) as CurriculumGoal[]);
+    const loadedCourses = (coursesData ?? []) as Course[];
+    const loadedGoals = (goalsData ?? []) as CurriculumGoal[];
+    setCourses(loadedCourses);
+    setGoals(loadedGoals);
+
+    // Auto-sync from Plan on first load
+    if (!hasSyncedRef.current && loadedGoals.length > 0) {
+      hasSyncedRef.current = true;
+      const needsInitialSync = loadedCourses.length === 0 && loadedGoals.length > 0;
+      if (needsInitialSync) setSyncingInitial(true);
+
+      const count = await syncCoursesFromPlan(user.id, childId, loadedCourses, loadedGoals);
+      if (count > 0 || loadedCourses.some(c => c.curriculum_goal_id)) {
+        // Re-fetch after sync/refresh
+        const { data: refreshed } = await supabase.from("transcript_courses").select("*").eq("user_id", user.id).eq("child_id", childId).order("school_year", { ascending: false }).order("course_name");
+        setCourses((refreshed ?? []) as Course[]);
+      }
+      setSyncingInitial(false);
+    }
 
     if (settingsData) {
       setSettings({
@@ -389,10 +559,20 @@ export default function TranscriptBuilderPage() {
           {/* ─── Tab: Courses ────────────────────────────────────────────── */}
           {tab === "courses" && (
             <div className="p-4">
-              {courses.length === 0 ? (
+              {syncingInitial ? (
+                <div className="text-center py-10">
+                  <RefreshCw size={20} className="mx-auto mb-2 text-[#2D5A3D] animate-spin" />
+                  <p className="text-[14px] font-medium text-[#3c3a37] mb-1">Setting up your transcript from your lesson plan...</p>
+                  <p className="text-[13px] text-[#8a8580]">Importing courses and calculating hours.</p>
+                </div>
+              ) : courses.length === 0 ? (
                 <div className="text-center py-10">
                   <p className="text-[15px] font-medium text-[#3c3a37] mb-1">No courses yet</p>
-                  <p className="text-[13px] text-[#8a8580] mb-4">Start building {child.name}'s transcript by adding their first course.</p>
+                  <p className="text-[13px] text-[#8a8580] mb-4">
+                    {goals.length > 0
+                      ? "Your lesson plan courses will appear here automatically. Or add courses manually below."
+                      : "Start by adding subjects in the Plan tab, and they'll automatically appear here. Or add courses manually below."}
+                  </p>
                   <button type="button" onClick={openAddCourse}
                     className="inline-flex items-center gap-1.5 bg-[#2D5A3D] text-white text-[13px] font-medium px-5 py-2.5 rounded-xl hover:opacity-90 transition-opacity">
                     <Plus size={16} /> Add first course
@@ -400,6 +580,16 @@ export default function TranscriptBuilderPage() {
                 </div>
               ) : (
                 <>
+                  {/* Sync button */}
+                  {goals.length > 0 && (
+                    <div className="flex items-center justify-end mb-3">
+                      <button type="button" onClick={handleManualSync} disabled={syncing}
+                        className="inline-flex items-center gap-1.5 border border-[#cef0d4] text-[#2D5A3D] text-[13px] font-medium rounded-lg px-3 py-1.5 hover:bg-[#f0faf3] transition-colors disabled:opacity-60">
+                        <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+                        {syncing ? "Syncing..." : "Sync from Plan"}
+                      </button>
+                    </div>
+                  )}
                   {sortedYears.map(year => {
                     const yearCourses = coursesByYear[year];
                     const gradeLevel = yearCourses.find(c => c.grade_level)?.grade_level;
@@ -411,11 +601,16 @@ export default function TranscriptBuilderPage() {
                         <div className="space-y-1.5">
                           {yearCourses.map(course => {
                             const badge = subjectBadgeColor(course.subject_category);
+                            const isFromPlan = !!course.curriculum_goal_id;
+                            const needsGrade = isFromPlan && !course.grade_letter;
                             return (
                               <button key={course.id} type="button" onClick={() => openEditCourse(course)}
                                 className="w-full text-left rounded-xl px-3.5 py-2.5 hover:bg-[#faf8f4] transition-colors border border-[#f0ece6]">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-[14px] font-medium text-[#3c3a37] flex-1 min-w-0 truncate">{course.course_name}</span>
+                                  {isFromPlan && (
+                                    <span className="text-[10px] text-[#8b8680] bg-[#f5f3f0] rounded px-1.5 py-0.5 shrink-0">From Plan</span>
+                                  )}
                                   <span className="text-[10px] font-medium px-2 py-0.5 rounded-md shrink-0" style={{ background: badge.bg, color: badge.text }}>
                                     {subjectLabel(course.subject_category)}
                                   </span>
@@ -425,7 +620,10 @@ export default function TranscriptBuilderPage() {
                                     </span>
                                   )}
                                   <span className="text-[12px] text-[#8a8580] shrink-0 w-12 text-right">{course.credits_earned} cr</span>
-                                  <span className="text-[13px] font-medium text-[#3c3a37] shrink-0 w-8 text-right">{course.grade_letter || "—"}</span>
+                                  {needsGrade
+                                    ? <span className="text-[11px] text-amber-600 font-medium shrink-0">Needs grade</span>
+                                    : <span className="text-[13px] font-medium text-[#3c3a37] shrink-0 w-8 text-right">{course.grade_letter || "—"}</span>
+                                  }
                                 </div>
                               </button>
                             );
