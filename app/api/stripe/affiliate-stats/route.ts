@@ -11,53 +11,62 @@ export async function GET(req: NextRequest) {
   if (!couponId) return NextResponse.json({ error: 'Missing coupon_id' }, { status: 400 })
 
   try {
-    // If affiliate code provided, look up that specific promo code in Stripe.
-    // Otherwise fall back to listing all promo codes for the coupon (admin view).
-    let promoCodes: Stripe.PromotionCode[] = []
+    // Get promo code redemption count (families reached)
+    let totalRedemptions = 0
     if (affiliateCode) {
       const result = await stripe.promotionCodes.list({ code: affiliateCode, limit: 1 })
-      promoCodes = result.data
+      for (const pc of result.data) {
+        totalRedemptions += pc.times_redeemed
+      }
     } else {
       const result = await stripe.promotionCodes.list({ coupon: couponId, limit: 100 })
-      promoCodes = result.data
+      for (const pc of result.data) {
+        totalRedemptions += pc.times_redeemed
+      }
     }
 
-    let totalRedemptions = 0
+    // Now check invoices for actual paying customers (like the admin payout route does)
     let payingCount = 0
     let revenueDriven = 0
+    const countedCustomers = new Set<string>()
 
-    for (const promoCode of promoCodes) {
-      totalRedemptions += promoCode.times_redeemed
-    }
-
-    const promoIds = new Set(promoCodes.map(p => p.id))
-
-    // Paginate through all active subscriptions to find matches
+    // Paginate through all paid invoices
     let hasMore = true
     let startingAfter: string | undefined
     while (hasMore) {
-      const params: Stripe.SubscriptionListParams = { limit: 100, status: 'active' }
+      const params: Stripe.InvoiceListParams = { limit: 100, status: 'paid' }
       if (startingAfter) params.starting_after = startingAfter
-      const subscriptions = await stripe.subscriptions.list(params)
+      const invoices = await stripe.invoices.list(params)
 
-      for (const sub of subscriptions.data) {
-        const hasMatch = sub.discounts?.some(d => {
-          if (typeof d === 'string') return false
-          return d.promotion_code && promoIds.has(d.promotion_code as string)
-        })
-        if (hasMatch) {
-          payingCount++
-          revenueDriven += (sub.items.data[0]?.price?.unit_amount ?? 0) / 100
+      for (const invoice of invoices.data) {
+        const invoiceAny = invoice as any
+        // Check both discount formats (singular and array)
+        const coupon = invoiceAny.discount?.coupon?.id
+          ?? invoiceAny.discounts?.[0]?.coupon?.id
+          ?? null
+
+        if (coupon === couponId) {
+          revenueDriven += (invoice.total ?? 0) / 100
+          // Count unique customers for payingCount
+          const custId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id
+          if (custId && !countedCustomers.has(custId)) {
+            countedCustomers.add(custId)
+            payingCount++
+          }
         }
       }
 
-      hasMore = subscriptions.has_more
-      if (subscriptions.data.length > 0) {
-        startingAfter = subscriptions.data[subscriptions.data.length - 1].id
+      hasMore = invoices.has_more
+      if (invoices.data.length > 0) {
+        startingAfter = invoices.data[invoices.data.length - 1].id
       }
     }
 
-    return NextResponse.json({ totalRedemptions, payingCount, revenueDriven: Math.round(revenueDriven) })
+    return NextResponse.json({
+      totalRedemptions,
+      payingCount,
+      revenueDriven: Math.round(revenueDriven * 100) / 100,
+    })
   } catch (err) {
     console.error('[affiliate-stats]', err)
     return NextResponse.json({ totalRedemptions: 0, payingCount: 0, revenueDriven: 0 })

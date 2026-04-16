@@ -2099,9 +2099,17 @@ export default function SettingsPage() {
               const thisMonthPaid = affiliatePayments
                 .filter((p) => p.month === thisMonthLabel)
                 .reduce((s, p) => s + Number(p.amount), 0);
+              const estimatedCommission = (affiliateStats?.revenueDriven ?? 0) * 0.20;
               return (
                 <div>
                   <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your Earnings</p>
+                  {estimatedCommission > 0 && allTimePaid === 0 && (
+                    <div className="bg-[#fef9ee] border border-[#f0d68a] rounded-xl px-4 py-3 text-center mb-3">
+                      <p className="text-2xl font-bold text-[#b8860b]">${estimatedCommission.toFixed(2)}</p>
+                      <p className="text-[10px] text-[#7a6f65] mt-0.5">Estimated commission (20%)</p>
+                      <p className="text-[9px] text-[#a09080] mt-1">Payouts processed on the 1st of each month</p>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
                       <p className="text-2xl font-bold text-[var(--g-deep)]">${thisMonthPaid.toFixed(2)}</p>

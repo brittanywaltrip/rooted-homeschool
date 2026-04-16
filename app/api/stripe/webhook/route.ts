@@ -55,7 +55,7 @@ async function sendEmail(to: string, subject: string, text: string, from = 'Root
 
 
 // Helper: find user by email and activate their account
-async function activateByEmail(email: string, plan: string, stripeCustomerId: string, sessionId: string): Promise<{ userId: string; firstName: string; wasAlreadyActive: boolean } | null> {
+async function activateByEmail(email: string, plan: string, stripeCustomerId: string, sessionId: string, stripeSubscriptionId?: string | null): Promise<{ userId: string; firstName: string; wasAlreadyActive: boolean } | null> {
   console.log('[webhook] activateByEmail called — email:', email, 'plan:', plan, 'stripeCustomerId:', stripeCustomerId)
 
   // Find user by email — paginated search through auth users
@@ -90,12 +90,13 @@ async function activateByEmail(email: string, plan: string, stripeCustomerId: st
     console.log('[webhook] profile already active for:', email, '— skipping activation (idempotent retry)')
   }
 
-  const updateData = {
+  const updateData: Record<string, unknown> = {
     is_pro: true,
     subscription_status: 'active',
     plan_type: plan,
     stripe_customer_id: stripeCustomerId,
   }
+  if (stripeSubscriptionId) updateData.stripe_subscription_id = stripeSubscriptionId
   const { error: updateErr } = await supabase.from('profiles').update(updateData).eq('id', matchedUser.id)
   if (updateErr) {
     console.error('[webhook] FAILED to update profile for:', email, 'userId:', matchedUser.id, 'error:', updateErr.message)
@@ -256,6 +257,7 @@ export async function POST(req: NextRequest) {
         subscription_status: 'active',
         plan_type: plan,
         stripe_customer_id: stripeCustomerId,
+        stripe_subscription_id: (session.subscription as string) ?? null,
       }
       const { error } = await supabase.from('profiles').update(updateData).eq('id', metaUserId)
       if (error) {
@@ -270,7 +272,7 @@ export async function POST(req: NextRequest) {
 
     // Path 2: email fallback (always try if path 1 failed or was missing)
     if (!activated && customerEmail) {
-      const result = await activateByEmail(customerEmail, plan, stripeCustomerId, session.id)
+      const result = await activateByEmail(customerEmail, plan, stripeCustomerId, session.id, (session.subscription as string) ?? null)
       if (result) {
         activated = true
         activatedUserId = result.userId
