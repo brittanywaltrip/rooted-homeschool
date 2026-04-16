@@ -26,6 +26,7 @@ interface Props {
   onManage: () => void;
   onAddAppt: () => void;
   isPartner: boolean;
+  upcomingDays?: { date: string; count: number }[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -176,7 +177,7 @@ function Badge({ kind }: { kind: "lesson" | "activity" | "appointment" }) {
 export default function UnifiedTimeline({
   lessons, activities, appointments, children,
   onToggleLesson, onToggleActivity, onToggleAppointment,
-  onLogExtra, onManage, onAddAppt, isPartner,
+  onLogExtra, onManage, onAddAppt, isPartner, upcomingDays,
 }: Props) {
   const [nowMinutes, setNowMinutes] = useState(() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); });
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -368,6 +369,24 @@ export default function UnifiedTimeline({
                 ))}
               </div>
             </>
+          )}
+
+          {/* Coming Up */}
+          {upcomingDays && upcomingDays.length > 0 && (
+            <div className="border-t border-[#f0ece6] mt-3 pt-3">
+              <p className="text-[11px] uppercase tracking-wide text-[#b5aca4] font-medium mb-2">Coming up</p>
+              <div className="flex flex-wrap gap-2">
+                {upcomingDays.map(({ date, count }) => {
+                  const d = new Date(date + "T12:00:00");
+                  const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
+                  return (
+                    <a key={date} href="/dashboard/plan" className="text-[12px] px-3 py-1.5 rounded-full bg-[#f5f2ed] text-[#7a6f65] font-medium hover:bg-[#ece8e0] transition-colors">
+                      {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
       </div>

@@ -2396,6 +2396,7 @@ export default function TodayPage() {
           onManage={() => setShowManageSchedule(true)}
           onAddAppt={() => setShowApptWizard(true)}
           isPartner={isPartner}
+          upcomingDays={upcomingDays}
         />
       )}
 
@@ -2684,79 +2685,7 @@ export default function TodayPage() {
               );
             })()}
 
-            {/* STATE: All done */}
-            {combinedTotal > 0 && combinedAllDone && (
-              <div className="px-5 pb-4">
-                <div className="text-center py-4">
-                  <p className="text-[14px] font-semibold text-[#5c7f63]">All done for today! 🎉</p>
-                  <p className="text-[12px] text-[#b5aca4] mt-1">
-                    {combinedDone} item{combinedDone !== 1 ? "s" : ""} completed{uniqueChildIds.size > 1 ? ` across ${uniqueChildIds.size} kids` : ""}
-                  </p>
-                </div>
-                {upcomingDays.length > 0 && (
-                  <>
-                    <div className="border-t border-[#f0ede8] my-3" />
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9a8f85] mb-2">Coming Up</p>
-                    <div className="flex gap-2">
-                      {upcomingDays.map(({ date, count }) => {
-                        const d = new Date(date + "T12:00:00");
-                        const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
-                        return (
-                          <Link key={date} href="/dashboard/plan" className="text-[11px] font-medium text-[#7a6f65] bg-[#f5f3ef] rounded-full px-3 py-1 hover:bg-[#ece8e0] transition-colors">
-                            {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* STATE: No items today */}
-            {combinedTotal === 0 && (
-              <div className="px-5 pb-4">
-                <div className="bg-[#f5f3ef] rounded-lg py-3.5 px-4 text-center">
-                  <p className="text-[14px] text-[#7a6f65]">
-                    {(() => { const dow = new Date().getDay(); return dow === 0 || dow === 6 ? "Enjoy your day off! 🌿" : "No lessons scheduled today 🌿"; })()}
-                  </p>
-                </div>
-                {upcomingDays.length > 0 && (
-                  <>
-                    <div className="border-t border-[#f0ede8] my-3" />
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9a8f85] mb-2">Coming Up</p>
-                    <div className="flex gap-2">
-                      {upcomingDays.map(({ date, count }) => {
-                        const d = new Date(date + "T12:00:00");
-                        const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
-                        return (
-                          <Link key={date} href="/dashboard/plan" className="text-[11px] font-medium text-[#7a6f65] bg-[#f5f3ef] rounded-full px-3 py-1 hover:bg-[#ece8e0] transition-colors">
-                            {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Progress bar footer */}
-            {combinedTotal > 0 && (
-              <div className="px-4 pb-4">
-                <div className="flex items-center gap-3 bg-[#faf9f7] rounded-[10px] p-3 mt-0.5">
-                  <div className="flex-1 h-1.5 rounded-full bg-[#e8e5e0]">
-                    <div
-                      className="h-full rounded-full bg-[#2D5A3D] transition-all duration-300"
-                      style={{ width: `${combinedPct}%` }}
-                    />
-                  </div>
-                  <span className="text-xs font-semibold text-[#5c7f63] shrink-0">
-                    {combinedDone} of {combinedTotal} done
-                  </span>
-                </div>
-              </div>
-            )}
+            {/* Redundant sections removed — covered by UnifiedTimeline status line + header counter */}
           </div>
         );
       })()}
