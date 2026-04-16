@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
+import { Pencil, Trash2 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -157,16 +159,16 @@ function getCategory(total: number, done: number, hour: number, soonAppt: { name
 // ─── Badge ───────────────────────────────────────────────────────────────────
 
 const BADGE_STYLES = {
-  lesson:      { bg: "#e8f0e9", color: "#2D5A3D", border: "#c2dbc5", label: "Lesson" },
-  activity:    { bg: "#fef3e0", color: "#a16207", border: "#f0c878", label: "Activity" },
-  appointment: { bg: "#f5f0ff", color: "#7C3AED", border: "#c4b5fd", label: "Appt" },
+  lesson:      { bg: "#2D5A3D", color: "white", label: "Lesson" },
+  activity:    { bg: "#a16207", color: "white", label: "Activity" },
+  appointment: { bg: "#7C3AED", color: "white", label: "Appt" },
 };
 
 function Badge({ kind }: { kind: "lesson" | "activity" | "appointment" }) {
   const s = BADGE_STYLES[kind];
   return (
-    <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0"
-      style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+    <span className="text-[9px] font-medium uppercase tracking-[0.5px] px-[7px] py-0.5 rounded-md shrink-0"
+      style={{ background: s.bg, color: s.color }}>
       {s.label}
     </span>
   );
@@ -264,26 +266,32 @@ export default function UnifiedTimeline({
     const done = isDone(item);
     const title = item.kind === "lesson" ? item.lesson.title : item.kind === "activity" ? item.activity.name : item.appointment.title;
     const emoji = item.kind === "lesson" ? (item.lesson.icon_emoji || "\u{1F4DA}") : item.kind === "activity" ? item.activity.emoji : item.appointment.emoji;
-    const opacity = (isPast && !done) ? "opacity-60" : done ? "opacity-50" : "";
+    const isLesson = item.kind === "lesson" || item.kind === "activity";
     const sub = item.kind === "lesson"
       ? [item.lesson.subjects?.name, children.find(c => c.id === item.lesson.child_id)?.name].filter(Boolean).join(" \u00b7 ")
       : item.kind === "activity"
         ? [fmtDur(item.activity.duration_minutes), ...item.activity.child_ids.map(id => children.find(c => c.id === id)?.name).filter(Boolean)].join(" \u00b7 ")
         : [item.appointment.location ? `\u{1F4CD} ${item.appointment.location}` : null, item.appointment.child_ids.length === 0 ? "Me" : item.appointment.child_ids.map(id => children.find(c => c.id === id)?.name).filter(Boolean).join(", ")].filter(Boolean).join(" \u00b7 ");
 
+    const checkColor = isLesson ? "#2D5A3D" : "#7C3AED";
+    const cardBg = done ? "#fafaf8" : isLesson ? "linear-gradient(135deg, #f0faf3, #e8f5ec)" : "linear-gradient(135deg, #f5f0ff, #ede5ff)";
+    const borderColor = done ? "#f0ece6" : isLesson ? "#cef0d4" : "#e8deff";
+
     return (
       <button type="button" onClick={() => handleTap(item)}
-        className={`w-full flex items-center gap-3 py-2.5 px-1 text-left transition-all duration-300 ${opacity}`}>
-        <div className={`w-[20px] h-[20px] rounded-full border-[1.5px] flex items-center justify-center shrink-0 transition-all ${done ? "border-[#2D5A3D] bg-[#2D5A3D]" : "border-[#d4d0ca]"}`}>
-          {done && <svg viewBox="0 0 10 8" className="w-2.5 h-2 fill-none"><path d="M1 4l2.5 2.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+        className="w-full flex items-center gap-3 text-left transition-all duration-200 rounded-[14px] mb-1.5 px-3.5 py-3"
+        style={{ background: cardBg, border: `1.5px solid ${borderColor}`, opacity: done ? 0.55 : isPast ? 0.75 : 1 }}>
+        <div className="w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 transition-all"
+          style={{ border: done ? "none" : `2px solid ${checkColor}`, background: done ? checkColor : "white" }}>
+          {done && <span className="text-white text-[12px] font-medium">✓</span>}
         </div>
+        <span className="text-xl shrink-0">{emoji}</span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            {emoji && <span className="text-sm shrink-0">{emoji}</span>}
-            <p className={`text-[14px] font-medium truncate ${done ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>{title}</p>
+          <div className="flex items-center gap-2">
+            <span className={`text-[14px] font-medium truncate ${done ? "line-through text-[#999]" : "text-[#2a2520]"}`} style={{ letterSpacing: "-0.2px" }}>{title}</span>
             <Badge kind={item.kind} />
           </div>
-          {sub && <p className="text-[11px] text-[#7a6f65] truncate mt-0.5">{sub}</p>}
+          {sub && <p className={`text-[12px] truncate mt-0.5 ${done ? "text-[#bbb]" : "text-[#8a8580]"}`}>{sub}</p>}
         </div>
       </button>
     );
@@ -296,100 +304,207 @@ export default function UnifiedTimeline({
     <div>
       {/* Header row */}
       <div className="flex items-center justify-between px-0.5 -mb-1">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">Today&apos;s schedule</p>
+        <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">Today&apos;s schedule</p>
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-[#b5aca4]">{doneItems} of {totalItems} done</span>
-          <button type="button" onClick={onManage} className="flex items-center gap-1 text-[11px] font-medium text-white rounded-full px-3 py-1 transition-opacity hover:opacity-80" style={{ background: "#7C3AED" }}>
+          <span className="text-[12px] text-[#b5aca4]">{doneItems} of {totalItems} done</span>
+          <button type="button" onClick={onManage} className="flex items-center gap-1 text-[12px] font-medium text-white rounded-full px-3.5 py-1.5 transition-opacity hover:opacity-80" style={{ background: "#2D5A3D" }}>
             📅 Manage
           </button>
         </div>
       </div>
 
       {/* Card */}
-      <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden mt-2">
+      <div className="bg-white rounded-2xl overflow-hidden mt-2" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}>
         {/* Status line + actions */}
-        <div className="px-5 pt-4 pb-2">
-          {statusMsg && <p className="text-sm text-[#7a6f65] mb-2 transition-opacity duration-300">{statusMsg}</p>}
+        <div className="px-[18px] pt-4 pb-3 border-b border-[#f0ece6]">
+          {statusMsg && (
+            <div className="flex items-center gap-2 rounded-xl px-3.5 py-2.5 mb-2.5 transition-opacity duration-300" style={{ background: "linear-gradient(135deg, #f0faf3, #e8f5ec)" }}>
+              <span className="text-sm text-[#2D5A3D] font-medium">{statusMsg}</span>
+            </div>
+          )}
           {!isPartner && (
             <div className="flex items-center gap-2">
-              <button type="button" onClick={onAddAppt} className="text-[11px] font-medium text-[#7C3AED] bg-[#f5f0ff] px-2.5 py-1.5 rounded-lg">+ Appt</button>
-              <button type="button" onClick={onLogExtra} className="text-[13px] text-[#5c7f63] hover:text-[var(--g-deep)] font-medium transition-colors">+ Log extra</button>
+              <button type="button" onClick={onAddAppt} className="text-[12px] font-medium text-[#7C3AED] rounded-full px-3.5 py-1.5" style={{ background: "#f5f0ff", border: "1px solid #e8deff" }}>+ Appt</button>
+              <button type="button" onClick={onLogExtra} className="text-[12px] font-medium text-[#7a6f65] rounded-full px-3.5 py-1.5" style={{ background: "#f5f2ed", border: "1px solid #e8e3dc" }}>+ Log an extra lesson</button>
             </div>
           )}
         </div>
 
-        {/* Timeline */}
-        <div className="px-4 pb-4">
-          {timed.length > 0 && (
-            <div className="relative">
-              <div className="absolute left-[9px] top-[14px] bottom-[14px] w-[2px] bg-[#e8e5e0]" />
-              {timed.map((item, idx) => {
-                const isPast = (item.timeMinutes ?? 0) < nowMinutes;
-                const showNow = idx === nowIdx;
-                return (
-                  <div key={item.kind === "lesson" ? `l-${item.lesson.id}` : item.kind === "activity" ? `a-${item.activity.id}` : `ap-${item.appointment.id}`}>
-                    {showNow && (
-                      <div className="flex items-center gap-2 my-1 relative z-10">
-                        <div className="w-[20px] flex justify-center"><div className="w-2 h-2 rounded-full bg-[#ef4444]" /></div>
-                        <div className="flex-1 h-[1.5px] bg-[#ef4444]" />
-                        <span className="text-[10px] font-medium text-[#ef4444] shrink-0">{fmtTime(nowMinutes)}</span>
-                      </div>
-                    )}
-                    <div className="flex items-start gap-2">
-                      <span className="text-[10px] font-medium text-[#b5aca4] w-[50px] text-right shrink-0 pt-3">{fmtTime(item.timeMinutes!)}</span>
-                      <div className="flex-1">{renderItem(item, isPast)}</div>
-                    </div>
-                  </div>
-                );
-              })}
-              {nowIdx === timed.length && timed.length > 0 && (
-                <div className="flex items-center gap-2 my-1 relative z-10">
-                  <div className="w-[20px] flex justify-center"><div className="w-2 h-2 rounded-full bg-[#ef4444]" /></div>
-                  <div className="flex-1 h-[1.5px] bg-[#ef4444]" />
-                  <span className="text-[10px] font-medium text-[#ef4444] shrink-0">{fmtTime(nowMinutes)}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {anytime.length > 0 && (
-            <>
-              {timed.length > 0 && (
-                <div className="flex items-center gap-2 my-2 px-1">
-                  <div className="flex-1 h-px bg-[#e8e5e0]" />
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-[#b5aca4]">Anytime</span>
-                  <div className="flex-1 h-px bg-[#e8e5e0]" />
-                </div>
-              )}
-              <div className="divide-y divide-[#f5f3ef]">
-                {anytime.map((item) => (
-                  <div key={item.kind === "lesson" ? `l-${item.lesson.id}` : item.kind === "activity" ? `a-${item.activity.id}` : `ap-${item.appointment.id}`}>
-                    {renderItem(item, false)}
-                  </div>
-                ))}
+        {/* Item list */}
+        <div className="px-3 py-2.5">
+          {[...timed, ...anytime].map((item) => {
+            const isPast = item.timeMinutes != null && item.timeMinutes < nowMinutes;
+            return (
+              <div key={item.kind === "lesson" ? `l-${item.lesson.id}` : item.kind === "activity" ? `a-${item.activity.id}` : `ap-${item.appointment.id}`}>
+                {renderItem(item, isPast)}
               </div>
-            </>
-          )}
-
-          {/* Coming Up */}
-          {upcomingDays && upcomingDays.length > 0 && (
-            <div className="border-t border-[#f0ece6] mt-3 pt-3">
-              <p className="text-[11px] uppercase tracking-wide text-[#b5aca4] font-medium mb-2">Coming up</p>
-              <div className="flex flex-wrap gap-2">
-                {upcomingDays.map(({ date, count }) => {
-                  const d = new Date(date + "T12:00:00");
-                  const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
-                  return (
-                    <a key={date} href="/dashboard/plan" className="text-[12px] px-3 py-1.5 rounded-full bg-[#f5f2ed] text-[#7a6f65] font-medium hover:bg-[#ece8e0] transition-colors">
-                      {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
-                    </a>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+            );
+          })}
         </div>
+
+        {/* Inline schedule tabs */}
+        <InlineScheduleTabs children={children} onManage={onManage} />
       </div>
     </div>
+  );
+}
+
+// ─── Inline Schedule Tabs ────────────────────────────────────────────────────
+
+type TabAppt = { id: string; title: string; emoji: string; date: string; time: string | null; location: string | null; child_ids: string[]; is_recurring: boolean; recurrence_rule: { frequency: string; days: number[] } | null; completed: boolean; instance_date?: string };
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function InlineScheduleTabs({ children: kids, onManage }: { children: { id: string; name: string; color: string | null }[]; onManage: () => void }) {
+  const [tab, setTab] = useState<"upcoming" | "recurring" | "past">("upcoming");
+  const [upcoming, setUpcoming] = useState<TabAppt[]>([]);
+  const [recurring, setRecurring] = useState<TabAppt[]>([]);
+  const [past, setPast] = useState<TabAppt[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const token = session.access_token;
+      const [upRes, recRes, pastRes] = await Promise.all([
+        fetch("/api/appointments", { headers: { Authorization: `Bearer ${token}` } }),
+        supabase.from("appointments").select("*").eq("user_id", user.id).eq("is_recurring", true).order("created_at", { ascending: false }),
+        supabase.from("appointments").select("*").eq("user_id", user.id).eq("completed", true).gte("date", (() => { const d = new Date(); d.setDate(d.getDate() - 7); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })()).order("date", { ascending: false }),
+      ]);
+      if (upRes.ok) { const all: TabAppt[] = await upRes.json(); setUpcoming(all.filter(a => !a.completed).slice(0, 7)); }
+      setRecurring((recRes.data ?? []) as TabAppt[]);
+      setPast((pastRes.data ?? []) as TabAppt[]);
+      setLoaded(true);
+    })();
+  }, []);
+
+  async function handleDelete(id: string) {
+    setDeleteConfirm(null);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+    await fetch("/api/appointments", { method: "DELETE", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ id }) });
+    setUpcoming(prev => prev.filter(a => a.id !== id));
+    setRecurring(prev => prev.filter(a => a.id !== id));
+    setPast(prev => prev.filter(a => a.id !== id));
+  }
+
+  function fmtRelDate(d: string): string {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const target = new Date(d + "T12:00:00");
+    const diff = Math.round((target.getTime() - today.getTime()) / 86400000);
+    if (diff === 1) return "Tomorrow";
+    if (diff >= 2 && diff <= 6) return target.toLocaleDateString("en-US", { weekday: "short" });
+    return target.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  function freqLabel(a: TabAppt): string {
+    if (!a.recurrence_rule) return "";
+    const r = a.recurrence_rule;
+    const freq = r.frequency === "weekly" ? "Weekly" : r.frequency === "biweekly" ? "Every 2 weeks" : "Monthly";
+    const days = (r.days ?? []).map((d: number) => DAY_NAMES[d]).join(", ");
+    return days ? `${freq} · ${days}` : freq;
+  }
+
+  const TABS: { key: typeof tab; label: string }[] = [
+    { key: "upcoming", label: "Upcoming" },
+    { key: "recurring", label: "Recurring" },
+    { key: "past", label: "Past" },
+  ];
+
+  return (
+    <>
+      <div className="flex border-t border-[#f0ece6]">
+        {TABS.map(t => (
+          <button key={t.key} type="button" onClick={() => setTab(t.key)}
+            className="flex-1 py-3 text-center text-[12px] font-medium cursor-pointer transition-all"
+            style={{ color: tab === t.key ? "#2D5A3D" : "#b5aca4", borderBottom: tab === t.key ? "2.5px solid #2D5A3D" : "2.5px solid transparent" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="px-3 py-3 max-h-[200px] overflow-y-auto bg-[#fafaf8]">
+        {!loaded ? (
+          <p className="text-[12px] text-[#b5aca4] text-center py-3">Loading...</p>
+        ) : tab === "upcoming" ? (
+          upcoming.length === 0 ? (
+            <p className="text-[13px] text-[#b5aca4] text-center py-4">Nothing coming up — enjoy the break! ☀️</p>
+          ) : (
+            upcoming.map(a => (
+              <div key={`${a.id}-${a.instance_date ?? a.date}`} className="rounded-xl p-2.5 mb-1.5 flex items-center gap-2.5" style={{ background: "linear-gradient(135deg, #f5f0ff, #ede5ff)", border: "1.5px solid #e8deff" }}>
+                <span className="text-lg shrink-0">{a.emoji || "📅"}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-[#5b21b6] truncate">{a.title}</span>
+                    <span className="text-[9px] font-medium uppercase tracking-[0.5px] px-[7px] py-0.5 rounded-md bg-[#7C3AED] text-white shrink-0">Appt</span>
+                  </div>
+                  <p className="text-[11px] text-[#8a8580] mt-0.5">
+                    {fmtRelDate(a.instance_date ?? a.date)}
+                    {a.time && (() => { const [h, m] = a.time!.split(":").map(Number); return ` · ${h % 12 || 12}${m > 0 ? `:${String(m).padStart(2, "0")}` : ""} ${h >= 12 ? "PM" : "AM"}`; })()}
+                    {a.location && ` · 📍 ${a.location}`}
+                  </p>
+                </div>
+                {a.child_ids.length > 0 && (() => {
+                  const c = kids.find(ch => ch.id === a.child_ids[0]);
+                  return c ? <span className="text-[11px] font-medium text-[#b5aca4] bg-[#f0ece6] px-2 py-0.5 rounded-lg shrink-0">{c.name}</span> : null;
+                })()}
+              </div>
+            ))
+          )
+        ) : tab === "recurring" ? (
+          recurring.length === 0 ? (
+            <p className="text-[13px] text-[#b5aca4] text-center py-4">No recurring appointments</p>
+          ) : (
+            recurring.map(a => (
+              <div key={a.id} className="bg-white rounded-xl p-2.5 mb-1.5 flex items-center gap-2.5" style={{ border: "1.5px solid #f0ece6" }}>
+                <span className="text-lg shrink-0">{a.emoji || "📅"}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-[#2a2520] truncate">{a.title}</span>
+                  </div>
+                  <p className="text-[11px] text-[#8a8580] mt-0.5">{freqLabel(a)}{a.location ? ` · 📍 ${a.location}` : ""}</p>
+                </div>
+                {a.child_ids.length > 0 && (() => {
+                  const c = kids.find(ch => ch.id === a.child_ids[0]);
+                  return c ? <span className="text-[11px] font-medium text-[#7C3AED] bg-[#f5f0ff] px-2 py-0.5 rounded-lg shrink-0">{c.name}</span> : null;
+                })()}
+                <div className="flex gap-1.5 shrink-0">
+                  <button type="button" onClick={onManage} className="opacity-40 hover:opacity-100 transition-opacity">✏️</button>
+                  {deleteConfirm === a.id ? (
+                    <>
+                      <button type="button" onClick={() => handleDelete(a.id)} className="text-[9px] font-medium text-red-500 px-1.5 py-0.5 rounded bg-red-50">Del</button>
+                      <button type="button" onClick={() => setDeleteConfirm(null)} className="text-[9px] text-[#7a6f65] px-1">✕</button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => setDeleteConfirm(a.id)} className="opacity-40 hover:opacity-100 transition-opacity">🗑️</button>
+                  )}
+                </div>
+              </div>
+            ))
+          )
+        ) : (
+          past.length === 0 ? (
+            <p className="text-[13px] text-[#b5aca4] text-center py-4">No past appointments yet</p>
+          ) : (
+            past.map(a => (
+              <div key={a.id} className="bg-white rounded-xl p-2.5 mb-1.5 flex items-center gap-2.5 opacity-50" style={{ border: "1.5px solid #f0ece6" }}>
+                <span className="text-lg shrink-0">{a.emoji || "📅"}</span>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[13px] font-medium text-[#999] line-through truncate">{a.title}</span>
+                  <p className="text-[11px] text-[#bbb] mt-0.5">{fmtRelDate(a.date)}{a.location ? ` · 📍 ${a.location}` : ""}</p>
+                </div>
+                {a.child_ids.length > 0 && (() => {
+                  const c = kids.find(ch => ch.id === a.child_ids[0]);
+                  return c ? <span className="text-[11px] font-medium text-[#b5aca4] bg-[#f0ece6] px-2 py-0.5 rounded-lg shrink-0">{c.name}</span> : null;
+                })()}
+              </div>
+            ))
+          )
+        )}
+      </div>
+    </>
   );
 }

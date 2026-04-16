@@ -2448,27 +2448,26 @@ export default function TodayPage() {
           return shifted >= 1440 ? null : shifted; // past midnight → flexible
         };
 
+        // Don't render the card when all items are done or nothing to show
+        // (UnifiedTimeline already covers status + items)
+        const hasTimelineContent = useTimeline && combinedTotal > 0 && !combinedAllDone;
+        const hasChecklistContent = !useTimeline && combinedTotal > 0 && !combinedAllDone;
+        if (!hasTimelineContent && !hasChecklistContent) return null;
+
         return (
           <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-end px-5 pt-3 pb-2">
-              <div className="flex items-center gap-2">
-                {useTimeline && !isPartner && (
-                  <button
-                    type="button"
-                    onClick={() => setShowRunningLate(true)}
-                    className="text-xs text-[#5c7f63] font-semibold bg-[#eef3ef] border-none px-2.5 py-1.5 rounded-lg"
-                  >
-                    ⏩ Running late?
-                  </button>
-                )}
-                {!isPartner && (
-                  <button type="button" onClick={openExtraLessons} className="text-[13px] text-[#5c7f63] hover:text-[var(--g-deep)] font-medium transition-colors">
-                    + Log extra
-                  </button>
-                )}
+            {/* Header — only shown in timeline mode */}
+            {useTimeline && !isPartner && (
+              <div className="flex items-center justify-end px-5 pt-3 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRunningLate(true)}
+                  className="text-xs text-[#5c7f63] font-semibold bg-[#eef3ef] border-none px-2.5 py-1.5 rounded-lg"
+                >
+                  ⏩ Running late?
+                </button>
               </div>
-            </div>
+            )}
 
             {/* ── TIMELINE VIEW ──────────────────────────────────── */}
             {useTimeline && combinedTotal > 0 && !combinedAllDone && (
