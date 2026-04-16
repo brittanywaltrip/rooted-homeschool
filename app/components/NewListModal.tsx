@@ -11,6 +11,15 @@ interface Props {
   getToken: () => Promise<string | null>;
 }
 
+const LIST_EMOJIS = [
+  "📝", "📋", "✅", "📌", "🗒️", "📎", "🏷️", "📐",
+  "🛒", "🛍️", "🧹", "🧺", "🧴", "🪣", "🧽", "🏠",
+  "📚", "✏️", "🎒", "🏫", "🎓", "📖", "🖍️", "🧪",
+  "🍎", "🥗", "🧁", "☕", "🍕", "🥦", "🍳", "🛎️",
+  "🎯", "💡", "🌱", "🌿", "💪", "⭐", "❤️", "✨",
+  "🎵", "🎨", "📷", "🎉", "🐾", "🚗", "💊", "📅",
+];
+
 const TEMPLATES = [
   { emoji: "📋", name: "To-Do's" },
   { emoji: "🛒", name: "Shopping" },
@@ -95,24 +104,26 @@ export default function NewListModal({ onClose, onCreated, getToken }: Props) {
 
           {/* Custom fields */}
           {isCustom && (
-            <div className="rounded-xl p-3 space-y-2" style={{ border: "1.5px dashed #e0ddd8", background: "white" }}>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Emoji"
-                  value={customEmoji}
-                  onChange={(e) => setCustomEmoji(e.target.value)}
-                  className="w-14 text-center text-lg border border-[#e8e2d9] rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-[#5c7f63]"
-                  maxLength={4}
-                />
+            <div className="rounded-xl p-3 space-y-3" style={{ border: "1.5px dashed #e0ddd8", background: "white" }}>
+              <div className="flex gap-2 items-center">
+                <span className="w-10 h-10 rounded-lg bg-[#f0f6f1] flex items-center justify-center text-xl shrink-0">{customEmoji || "📝"}</span>
                 <input
                   type="text"
                   placeholder="List name"
                   value={customName}
                   onChange={(e) => setCustomName(e.target.value)}
-                  className="flex-1 text-sm border border-[#e8e2d9] rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:border-[#5c7f63]"
+                  className="flex-1 text-sm border border-[#e8e2d9] rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-[#5c7f63]"
                   autoFocus
                 />
+              </div>
+              <div className="grid grid-cols-8 gap-1">
+                {LIST_EMOJIS.map((e) => (
+                  <button key={e} type="button" onClick={() => setCustomEmoji(e)}
+                    className="w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-all"
+                    style={{ background: customEmoji === e ? "#f0f6f1" : "transparent", boxShadow: customEmoji === e ? "0 0 0 1.5px #2D5A3D" : "none" }}>
+                    {e}
+                  </button>
+                ))}
               </div>
             </div>
           )}
