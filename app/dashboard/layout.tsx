@@ -480,7 +480,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             </div>
           )}
 
-          <div className="flex-1 pb-24 md:pb-0">{children}</div>
+          <div className="flex-1 pb-28 md:pb-0">{children}</div>
         </main>
 
         {/* Mobile bottom nav bar — 5 tabs */}
@@ -493,7 +493,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                 key={href}
                 href={href}
                 className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[9px] font-medium transition-colors ${
-                  active ? "text-[var(--g-deep)]" : "text-[#c8bfb5]"
+                  active ? "text-[#2D5A3D]" : "text-[#c8bfb5]"
                 }`}
               >
                 <div className="relative">
@@ -503,6 +503,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                   )}
                 </div>
                 {label}
+                {active && <span className="w-1 h-1 rounded-full bg-[#2D5A3D] -mt-0.5" />}
               </Link>
             );
           })}

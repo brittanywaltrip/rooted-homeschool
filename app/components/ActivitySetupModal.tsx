@@ -30,6 +30,7 @@ type ActivityConfig = {
   hasStartTime: boolean;
   childIds: string[];
   onceDate: string;
+  location: string;
 };
 
 interface Props {
@@ -189,6 +190,7 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: P
       hasStartTime: false,
       childIds: children.map((c) => c.id),
       onceDate: todayStr,
+      location: "",
     }));
     setConfigs(initial);
     setConfigIdx(0);
@@ -257,6 +259,7 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: P
           child_ids: cfg.childIds,
           is_active: true,
           school_year_id: schoolYearId || null,
+          location: cfg.location.trim() || null,
         }));
 
         const { error } = await supabase.from("activities").insert(rows);
@@ -280,6 +283,7 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: P
           child_ids: cfg.childIds,
           is_active: false, // Not recurring — mark inactive so it doesn't show on future days
           school_year_id: schoolYearId || null,
+          location: cfg.location.trim() || null,
         }).select("id").single();
 
         if (actErr || !actRow) {
@@ -668,6 +672,18 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: P
               )}
               {!cfg.hasStartTime && <div className="mb-5" />}
 
+              {/* Location */}
+              <label className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] block mb-2">
+                Location (optional)
+              </label>
+              <input
+                type="text"
+                value={cfg.location}
+                onChange={(e) => updateConfig({ location: e.target.value })}
+                placeholder="e.g., YMCA, Community Center"
+                className="w-full border-[1.5px] border-[#e8e5e0] rounded-xl py-3 px-3.5 text-[14px] bg-white text-[#2d2926] placeholder:text-[#c8c0b8] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 mb-5"
+              />
+
               {/* Which kids */}
               {children.length > 0 && (
                 <>
@@ -756,6 +772,9 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: P
                       <p className="text-xs text-[#7a6f65] mt-1">
                         {buildScheduleSummary(cfg)}
                       </p>
+                      {cfg.location.trim() && (
+                        <p className="text-xs text-[#b5aca4] mt-0.5">📍 {cfg.location.trim()}</p>
+                      )}
                       {cfg.childIds.length > 0 &&
                         cfg.childIds.length < children.length && (
                           <p className="text-xs text-[#b5aca4] mt-0.5">

@@ -15,6 +15,11 @@ import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
+import ListsSection from "@/app/components/ListsSection";
+import AppointmentWizard from "@/app/components/AppointmentWizard";
+import ManageScheduleModal from "@/app/components/ManageScheduleModal";
+import UnifiedTimeline from "@/app/components/UnifiedTimeline";
+import LogSomethingModal from "@/app/components/LogSomethingModal";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -32,6 +37,7 @@ type Lesson = {
   curriculum_goal_id?: string | null;
   lesson_number?: number | null;
   goal_id?: string | null;
+  icon_emoji?: string | null;
 };
 
 type TodayEvent = {
@@ -576,6 +582,7 @@ export default function TodayPage() {
   const [drawingPreview, setDrawingPreview] = useState<string | null>(null);
   const drawingFileRef = useRef<HTMLInputElement>(null);
   const [showCaptureMenu, setShowCaptureMenu] = useState(false);
+  const [showMemoryPicker, setShowMemoryPicker] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [showExtraLessons, setShowExtraLessons] = useState(false);
   type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; subjects: { name: string; color: string | null } | null };
@@ -612,6 +619,17 @@ export default function TodayPage() {
   const [timePillValue, setTimePillValue] = useState("");
   const timePillTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Lists state
+  type ListRow = { id: string; name: string; emoji: string; sort_order: number; archived: boolean; created_at: string };
+  const [lists, setLists] = useState<ListRow[]>([]);
+
+  // Appointments state
+  type ApptRow = { id: string; title: string; emoji: string; date: string; time: string | null; duration_minutes: number; location: string | null; child_ids: string[]; completed: boolean; instance_date: string };
+  const [todayAppointments, setTodayAppointments] = useState<ApptRow[]>([]);
+  const [showApptWizard, setShowApptWizard] = useState(false);
+  const [showManageSchedule, setShowManageSchedule] = useState(false);
+  const [allDoneCelebration, setAllDoneCelebration] = useState(false);
+
   // Activities state
   const [todayActivities, setTodayActivities] = useState<TodayActivity[]>([]);
   const [showRunningLate, setShowRunningLate] = useState(false);
@@ -635,7 +653,7 @@ export default function TodayPage() {
   // ── Open capture menu from URL param (used by other pages) ─────────────────
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.search.includes("capture=1")) {
-      setShowCaptureMenu(true);
+      setShowMemoryPicker(true);
       // Clean up URL
       const url = new URL(window.location.href);
       url.searchParams.delete("capture");
@@ -773,6 +791,7 @@ export default function TodayPage() {
       tier1Result,
       todayStoryResult,
       prevMonthResult,
+      goalEmojiResult,
     ] = await Promise.all([
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
@@ -799,6 +818,7 @@ export default function TodayPage() {
       nowForSY.getDate() <= 15
         ? supabase.from("lessons").select("id").eq("user_id", effectiveUserId).eq("completed", true).gte("date", prevStart).lte("date", prevEnd)
         : Promise.resolve({ data: null }),
+      supabase.from("curriculum_goals").select("id, icon_emoji").eq("user_id", effectiveUserId),
     ]);
 
     // ── Phase 2: Process all results (no awaits) ────────────────────────
@@ -913,9 +933,16 @@ export default function TodayPage() {
     const childrenData = childrenResult.data;
     setChildren(capitalizeChildNames(childrenData ?? []));
 
-    // Today's lessons
+    // Today's lessons — enrich with curriculum emoji
     const lessonsData = todayLessonsResult.data;
-    const loadedLessons = (lessonsData as unknown as Lesson[]) ?? [];
+    const emojiMap = new Map<string, string>();
+    for (const g of (goalEmojiResult.data ?? []) as { id: string; icon_emoji: string | null }[]) {
+      if (g.icon_emoji) emojiMap.set(g.id, g.icon_emoji);
+    }
+    const loadedLessons = ((lessonsData as unknown as Lesson[]) ?? []).map(l => ({
+      ...l,
+      icon_emoji: l.curriculum_goal_id ? (emojiMap.get(l.curriculum_goal_id) ?? "📚") : null,
+    }));
     setLessons(loadedLessons);
     setHasAnyLessons((allLessonsResult.data?.length ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
@@ -1020,6 +1047,19 @@ export default function TodayPage() {
 
     // Today's story
     setTodayStory((todayStoryResult.data ?? []) as typeof todayStory);
+
+    // Lists + Appointments — fetch via API routes
+    try {
+      const { data: { session: apiSession } } = await supabase.auth.getSession();
+      if (apiSession?.access_token) {
+        const [listsRes, apptsRes] = await Promise.all([
+          fetch("/api/lists", { headers: { Authorization: `Bearer ${apiSession.access_token}` } }),
+          fetch(`/api/appointments?date=${today}`, { headers: { Authorization: `Bearer ${apiSession.access_token}` } }),
+        ]);
+        if (listsRes.ok) setLists(await listsRes.json());
+        if (apptsRes.ok) setTodayAppointments(await apptsRes.json());
+      }
+    } catch { /* non-critical — will load on next poll */ }
 
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
@@ -1148,6 +1188,11 @@ export default function TodayPage() {
       setTimeout(() => setFirstMemoryToast(null), 4000);
     }
   }, [totalMemories, loading, children]);
+
+  const getToken = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token ?? null;
+  }, []);
 
   async function refreshTodayStory() {
     if (!effectiveUserId) return;
@@ -2163,6 +2208,23 @@ export default function TodayPage() {
   const totalItems = lessons.length + todayActivities.length;
   const doneItems = lessons.filter(l => l.completed).length + todayActivities.filter(a => a.completed).length;
 
+  // Unified all-done (lessons + activities + appointments)
+  const unifiedTotal = totalItems + todayAppointments.length;
+  const unifiedDone = doneItems + todayAppointments.filter(a => a.completed).length;
+  const unifiedAllDone = unifiedTotal > 0 && unifiedDone === unifiedTotal;
+  const prevUnifiedDoneRef = useRef(0);
+  useEffect(() => {
+    if (!loading && unifiedAllDone && prevUnifiedDoneRef.current < unifiedTotal) {
+      const todayKey = `rooted_alldone_${today}`;
+      if (!localStorage.getItem(todayKey)) {
+        localStorage.setItem(todayKey, "1");
+        setAllDoneCelebration(true);
+        setTimeout(() => setAllDoneCelebration(false), 3000);
+      }
+    }
+    prevUnifiedDoneRef.current = unifiedDone;
+  }, [unifiedAllDone, unifiedDone, unifiedTotal, loading, today]);
+
   // Expanded child panel for lesson swipe
   const [expandedChild, setExpandedChild] = useState<string | null>(null);
 
@@ -2286,14 +2348,60 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          SCHEDULE — label + card
+          WHAT'S NEW — dismissible card for existing users
          ═══════════════════════════════════════════════════════════ */}
-      {(hasAnyLessons || todayActivities.length > 0) && (
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] px-0.5 -mb-1">Today&apos;s Schedule</p>
+      {!loading && onboarded === true && (() => {
+        if (typeof window === "undefined") return null;
+        if (localStorage.getItem("rooted_whats_new_v1") === "1") return null;
+        return (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 relative">
+            <p className="text-[15px] font-medium text-[#2d2926] mb-2.5" style={{ fontFamily: "var(--font-display)" }}>
+              New stuff just dropped
+            </p>
+            <div className="space-y-1.5 text-[13px] text-[#5C5346]">
+              <p>📋 My Lists — to-do&apos;s, shopping lists, whatever you need</p>
+              <p>📅 Appointments — track the dentist, co-op, guitar, all of it</p>
+              <p>🧠 Smart schedule — your whole day in one spot with a vibe check</p>
+              <p>🎉 Check something off — trust us, just try it</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { localStorage.setItem("rooted_whats_new_v1", "1"); forceUpdate(prev => prev + 1); }}
+              className="mt-4 px-5 py-2 rounded-xl bg-[#2D5A3D] text-white text-sm font-medium hover:opacity-90 transition-colors"
+            >
+              Got it!
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════
+          UNIFIED TIMELINE — lessons + activities + appointments
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && (
+        <UnifiedTimeline
+          lessons={lessons as { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null; icon_emoji?: string | null }[]}
+          activities={todayActivities}
+          appointments={todayAppointments}
+          children={children}
+          onToggleLesson={(id, completed) => { if (!isPartner) openCheckOffModal(id, completed); }}
+          onToggleActivity={(a) => { if (!isPartner) toggleActivity(a); }}
+          onToggleAppointment={async (id, completed) => {
+            const token = await getToken();
+            if (!token) return;
+            await fetch("/api/appointments", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ id, completed: !completed }) });
+            loadData();
+          }}
+          onLogExtra={openExtraLessons}
+          onManage={() => setShowManageSchedule(true)}
+          onAddAppt={() => setShowApptWizard(true)}
+          isPartner={isPartner}
+          upcomingDays={upcomingDays}
+        />
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          SCHEDULE CARD — checklist or timeline + activities
+          SCHEDULE CARD — detailed lesson management (child tabs, check-off, reschedule)
          ═══════════════════════════════════════════════════════════ */}
       {(hasAnyLessons || todayActivities.length > 0) && (() => {
         const totalLessons = lessons.length;
@@ -2577,79 +2685,7 @@ export default function TodayPage() {
               );
             })()}
 
-            {/* STATE: All done */}
-            {combinedTotal > 0 && combinedAllDone && (
-              <div className="px-5 pb-4">
-                <div className="text-center py-4">
-                  <p className="text-[14px] font-semibold text-[#5c7f63]">All done for today! 🎉</p>
-                  <p className="text-[12px] text-[#b5aca4] mt-1">
-                    {combinedDone} item{combinedDone !== 1 ? "s" : ""} completed{uniqueChildIds.size > 1 ? ` across ${uniqueChildIds.size} kids` : ""}
-                  </p>
-                </div>
-                {upcomingDays.length > 0 && (
-                  <>
-                    <div className="border-t border-[#f0ede8] my-3" />
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9a8f85] mb-2">Coming Up</p>
-                    <div className="flex gap-2">
-                      {upcomingDays.map(({ date, count }) => {
-                        const d = new Date(date + "T12:00:00");
-                        const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
-                        return (
-                          <Link key={date} href="/dashboard/plan" className="text-[11px] font-medium text-[#7a6f65] bg-[#f5f3ef] rounded-full px-3 py-1 hover:bg-[#ece8e0] transition-colors">
-                            {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* STATE: No items today */}
-            {combinedTotal === 0 && (
-              <div className="px-5 pb-4">
-                <div className="bg-[#f5f3ef] rounded-lg py-3.5 px-4 text-center">
-                  <p className="text-[14px] text-[#7a6f65]">
-                    {(() => { const dow = new Date().getDay(); return dow === 0 || dow === 6 ? "Enjoy your day off! 🌿" : "No lessons scheduled today 🌿"; })()}
-                  </p>
-                </div>
-                {upcomingDays.length > 0 && (
-                  <>
-                    <div className="border-t border-[#f0ede8] my-3" />
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9a8f85] mb-2">Coming Up</p>
-                    <div className="flex gap-2">
-                      {upcomingDays.map(({ date, count }) => {
-                        const d = new Date(date + "T12:00:00");
-                        const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
-                        return (
-                          <Link key={date} href="/dashboard/plan" className="text-[11px] font-medium text-[#7a6f65] bg-[#f5f3ef] rounded-full px-3 py-1 hover:bg-[#ece8e0] transition-colors">
-                            {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Progress bar footer */}
-            {combinedTotal > 0 && (
-              <div className="px-4 pb-4">
-                <div className="flex items-center gap-3 bg-[#faf9f7] rounded-[10px] p-3 mt-0.5">
-                  <div className="flex-1 h-1.5 rounded-full bg-[#e8e5e0]">
-                    <div
-                      className="h-full rounded-full bg-[#2D5A3D] transition-all duration-300"
-                      style={{ width: `${combinedPct}%` }}
-                    />
-                  </div>
-                  <span className="text-xs font-semibold text-[#5c7f63] shrink-0">
-                    {combinedDone} of {combinedTotal} done
-                  </span>
-                </div>
-              </div>
-            )}
+            {/* Redundant sections removed — covered by UnifiedTimeline status line + header counter */}
           </div>
         );
       })()}
@@ -2787,6 +2823,52 @@ export default function TodayPage() {
       })()}
 
       {/* ═══════════════════════════════════════════════════════════
+          SELFIE NUDGE — warm reminder for mom to get in the picture
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && !isPartner && totalMemories > 0 && (() => {
+        if (typeof window === "undefined") return null;
+        const dayNum = new Date().getDate();
+        if (dayNum % 3 !== 0) return null;
+        if (localStorage.getItem(`rooted_selfie_${today}`) === "1") return null;
+        if (todayStory.some(m => m.type === "photo")) return null;
+        const msgs = [
+          "Hey mama \u2014 get in the picture today. Snap a selfie with your little besties. Messy bun and all. \u{1F49B}",
+          "You\u2019re always behind the camera. Get in front of it today \u2014 they won\u2019t remember your hair, they\u2019ll remember you were there. \u{1F4F8}",
+          "Quick \u2014 grab your phone and take a selfie with your kids right now. No filter needed. \u{1F49B}",
+          "Future you will be so glad you did this. Take a pic with your babies today. \u{1F4F8}",
+          "Messy house, no makeup, who cares. Snap a photo with your crew. These are the ones you\u2019ll treasure. \u{1F49B}",
+          "Your kids don\u2019t see the mess. They see their mom. Get in the picture today. \u{1F4F8}",
+        ];
+        const msg = msgs[dayNum % msgs.length];
+        return (
+          <div className="relative rounded-2xl p-5 overflow-hidden" style={{ background: "linear-gradient(135deg, #fef2f2, #fce7f3, #fdf2f8)" }}>
+            <button
+              type="button"
+              onClick={() => { localStorage.setItem(`rooted_selfie_${today}`, "1"); forceUpdate(prev => prev + 1); }}
+              className="absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center text-[#d4a0a0] hover:text-[#b07070] hover:bg-white/40 transition-colors text-xs"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+            <p className="text-[13px] text-[#6b4343] leading-relaxed pr-6">{msg}</p>
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.setItem(`rooted_selfie_${today}`, "1");
+                forceUpdate(prev => prev + 1);
+                captureTypeRef.current = "photo";
+                requestAnimationFrame(() => captureFileRef.current?.click());
+              }}
+              className="mt-3 px-4 py-2 rounded-xl text-sm font-medium text-white transition-colors hover:opacity-90"
+              style={{ background: "#c2616b" }}
+            >
+              📸 Take a selfie
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════
           CAPTURE BUTTON — compact for returning users, big for new
          ═══════════════════════════════════════════════════════════ */}
       {!loading && !isPartner && (
@@ -2803,7 +2885,7 @@ export default function TodayPage() {
             </p>
             <button
               type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMemoryPicker(true); }}
               className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
             >
               ✚ Capture a memory
@@ -2815,7 +2897,7 @@ export default function TodayPage() {
         ) : (
           <button
             type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMemoryPicker(true); }}
             className="w-full py-3 rounded-xl text-center font-medium text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
           >
             ✚ Capture a memory
@@ -2993,6 +3075,15 @@ export default function TodayPage() {
         );
       })()}
 
+      {/* Appointments section removed — merged into unified timeline above */}
+
+      {/* ═══════════════════════════════════════════════════════════
+          MY LISTS — collapsible inline lists
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && lists.length > 0 && (
+        <ListsSection lists={lists} onListsChanged={loadData} getToken={getToken} />
+      )}
+
       {/* ═══════════════════════════════════════════════════════════
           TODAY'S STORY — all memories logged today
          ═══════════════════════════════════════════════════════════ */}
@@ -3162,6 +3253,7 @@ export default function TodayPage() {
               const file = e.target.files?.[0];
               if (!file) return;
               setShowCaptureMenu(false);
+              setShowMemoryPicker(false);
               try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) { console.error("[Photo capture] No user session"); return; }
@@ -3378,37 +3470,46 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* ── Capture menu bottom sheet — 3×2 grid ─────────── */}
+      {/* ── Log Something modal — replaces old capture menu ── */}
       {showCaptureMenu && (
+        <LogSomethingModal
+          onClose={() => setShowCaptureMenu(false)}
+          onLogLesson={() => { setShowExtraLessons(true); posthog.capture('log_extra_lessons_opened', { source: 'log_modal', user_plan: isPro ? 'paid' : 'free' }); }}
+          onLogActivity={() => { router.push("/dashboard/plan"); }}
+          onAddAppointment={() => { setShowApptWizard(true); }}
+          lists={lists}
+          children={children}
+          getToken={getToken}
+          onListItemAdded={loadData}
+        />
+      )}
+
+      {/* ── Memory Picker — direct capture bottom sheet ──── */}
+      {showMemoryPicker && (
         <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowCaptureMenu(false)} />
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowMemoryPicker(false)} />
           <div className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-xl" style={{ maxWidth: 420, margin: "0 auto", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
             <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
             <div className="flex items-center justify-between px-5 pb-2">
-              <h2 className="text-[18px] font-bold text-[#2D2A26]">Capture a memory</h2>
-              <button onClick={() => setShowCaptureMenu(false)} className="w-8 h-8 rounded-full bg-[#f2f0ec] flex items-center justify-center text-[#8B7E74] hover:bg-[#e8e5e0] text-sm transition-colors">✕</button>
+              <h2 className="text-[18px] font-medium text-[#2D2A26]">Capture a memory</h2>
+              <button onClick={() => setShowMemoryPicker(false)} className="w-8 h-8 rounded-full bg-[#f2f0ec] flex items-center justify-center text-[#8B7E74] hover:bg-[#e8e5e0] text-sm transition-colors">✕</button>
             </div>
-            {/* Leaf banner */}
             <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mx-4 mb-2">
               <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Every memory earns a leaf for your garden!</span>
             </div>
-            {/* 3×2 grid */}
             <div className="grid grid-cols-3 gap-2.5 px-4 pb-6">
               {([
-                { emoji: "📸", label: "Photo",      sub: "Snap a moment",      action: () => { setShowCaptureMenu(false); captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); } },
-                { emoji: "🎨", label: "Drawing",    sub: "Save their art",     action: () => { setShowCaptureMenu(false); setShowDrawingSheet(true); } },
-                { emoji: "🏆", label: "Win",        sub: "Celebrate a win",    action: () => { setShowCaptureMenu(false); setShowWinSheet(true); } },
-                { emoji: "📖", label: "Book",       sub: "Log a read",         action: () => { setShowCaptureMenu(false); setShowBookModal(true); } },
-                { emoji: "🗺️", label: "Field Trip", sub: "We went somewhere",  action: () => { setShowCaptureMenu(false); setFtType("field_trip"); setShowFieldTripSheet(true); } },
-                { emoji: "🔨", label: "Project",    sub: "We made something",  action: () => { setShowCaptureMenu(false); setFtType("project"); setShowFieldTripSheet(true); } },
+                { emoji: "📸", label: "Photo",      sub: "Snap a moment",      action: () => { setShowMemoryPicker(false); captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); } },
+                { emoji: "🎨", label: "Drawing",    sub: "Save their art",     action: () => { setShowMemoryPicker(false); setShowDrawingSheet(true); } },
+                { emoji: "🏆", label: "Win",        sub: "Celebrate a win",    action: () => { setShowMemoryPicker(false); setShowWinSheet(true); } },
+                { emoji: "📖", label: "Book",       sub: "Log a read",         action: () => { setShowMemoryPicker(false); setShowBookModal(true); } },
+                { emoji: "🗺️", label: "Field Trip", sub: "We went somewhere",  action: () => { setShowMemoryPicker(false); setFtType("field_trip"); setShowFieldTripSheet(true); } },
+                { emoji: "🔨", label: "Project",    sub: "We made something",  action: () => { setShowMemoryPicker(false); setFtType("project"); setShowFieldTripSheet(true); } },
               ] as const).map(tile => (
-                <button
-                  key={tile.label}
-                  onClick={tile.action}
-                  className="flex flex-col items-center justify-center py-5 px-2.5 rounded-2xl border-[1.5px] border-[#e8e5e0] bg-[#fafaf8] hover:border-[#2D5A3D] hover:bg-[#f0f7f2] transition-colors text-center"
-                >
+                <button key={tile.label} onClick={tile.action}
+                  className="flex flex-col items-center justify-center py-5 px-2.5 rounded-2xl border-[1.5px] border-[#e8e5e0] bg-[#fafaf8] hover:border-[#2D5A3D] hover:bg-[#f0f7f2] transition-colors text-center">
                   <span className="text-[28px] mb-1.5">{tile.emoji}</span>
-                  <span className="text-[13px] font-semibold text-[#2D2A26]">{tile.label}</span>
+                  <span className="text-[13px] font-medium text-[#2D2A26]">{tile.label}</span>
                   <span className="text-[10px] text-[#8B7E74]">{tile.sub}</span>
                 </button>
               ))}
@@ -3416,6 +3517,22 @@ export default function TodayPage() {
           </div>
         </>
       )}
+
+      {/* ── Appointment Wizard ────────────────────────────── */}
+      <AppointmentWizard
+        isOpen={showApptWizard}
+        onClose={() => setShowApptWizard(false)}
+        onSaved={loadData}
+      />
+
+      {/* ── Manage Schedule Modal ─────────────────────────── */}
+      <ManageScheduleModal
+        isOpen={showManageSchedule}
+        onClose={() => setShowManageSchedule(false)}
+        onAddAppt={() => setShowApptWizard(true)}
+        onChanged={loadData}
+        children={children}
+      />
 
       {/* ── Extra lessons modal ────────────────────────────── */}
       {showExtraLessons && (
@@ -4128,6 +4245,19 @@ export default function TodayPage() {
       )}
 
       <FloatingLeaves active={celebrating} />
+
+      {/* All-done celebration overlay */}
+      {allDoneCelebration && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setAllDoneCelebration(false)}>
+          <div className="bg-white rounded-2xl p-8 text-center shadow-2xl max-w-xs mx-4">
+            <span className="text-5xl block mb-3">🎉</span>
+            <p className="text-lg font-medium text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
+              {["You crushed today!", "Another day in the books!", "Homeschool hero!", "Amazing day, mama!"][Math.floor(Math.random() * 4)]}
+            </p>
+            <p className="text-sm text-[#7a6f65]">Everything done for the day</p>
+          </div>
+        </div>
+      )}
 
       {/* ── Tier 2: Child done toast ──────────────────────── */}
       {childDoneToast && (
