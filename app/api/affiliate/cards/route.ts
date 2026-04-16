@@ -57,7 +57,7 @@ function printCardHtml(name: string, code: string, url: string, qrDataUrl: strin
         <div class="feat"><span>📸</span>Memories & photos</div>
         <div class="feat"><span>📚</span>Lesson tracking</div>
         <div class="feat"><span>🌳</span>Family garden</div>
-        <div class="feat"><span>📄</span>Grades & transcripts</div>
+        <div class="feat"><span>📋</span>Homeschool planner</div>
       </div>
     </div>
     <div class="qr-wrap">
