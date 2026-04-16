@@ -27,6 +27,7 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
   const [adding, setAdding] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteListId, setDeleteListId] = useState<string | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch items for a specific list
@@ -110,6 +111,18 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
     onListsChanged();
   }
 
+  async function deleteList(listId: string) {
+    setDeleteListId(null);
+    const token = await getToken();
+    if (!token) return;
+    await fetch("/api/lists", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ id: listId }),
+    });
+    onListsChanged();
+  }
+
   function handleLongPressStart(itemId: string) {
     longPressTimer.current = setTimeout(() => setDeleteId(itemId), 500);
   }
@@ -153,24 +166,34 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
             return (
               <div key={list.id}>
                 {/* Mini list row */}
-                <button
-                  type="button"
-                  onClick={() => toggleExpand(list.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#faf8f4] transition-colors"
-                >
-                  <span className="text-lg shrink-0">{list.emoji}</span>
-                  <span className="flex-1 text-sm font-medium text-[#2d2926] truncate">{list.name}</span>
-                  {isExpanded && totalCount > 0 && (
-                    <span className="text-xs font-medium" style={{ color: "var(--g-accent, #5c7f63)" }}>
-                      {doneCount}/{totalCount}
-                    </span>
-                  )}
-                  <ChevronDown
-                    size={14}
-                    className="text-[#b5aca4] shrink-0 transition-transform"
-                    style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
-                  />
-                </button>
+                {deleteListId === list.id ? (
+                  <div className="flex items-center gap-2 px-4 py-3">
+                    <span className="text-sm text-[#2d2926] flex-1">Delete this list and all its items?</span>
+                    <button type="button" onClick={() => deleteList(list.id)} className="text-[11px] font-medium text-red-500 px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100">Delete</button>
+                    <button type="button" onClick={() => setDeleteListId(null)} className="text-[11px] text-[#7a6f65] px-2 py-1">Cancel</button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 px-4 py-3 hover:bg-[#faf8f4] transition-colors">
+                    <button type="button" onClick={() => toggleExpand(list.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                      <span className="text-lg shrink-0">{list.emoji}</span>
+                      <span className="flex-1 text-sm font-medium text-[#2d2926] truncate">{list.name}</span>
+                      {isExpanded && totalCount > 0 && (
+                        <span className="text-xs font-medium" style={{ color: "var(--g-accent, #5c7f63)" }}>
+                          {doneCount}/{totalCount}
+                        </span>
+                      )}
+                    </button>
+                    <button type="button" onClick={() => setDeleteListId(list.id)} className="w-7 h-7 rounded-full flex items-center justify-center text-[#d4d0ca] hover:text-red-400 hover:bg-red-50 transition-colors shrink-0">
+                      <Trash2 size={13} />
+                    </button>
+                    <ChevronDown
+                      size={14}
+                      className="text-[#b5aca4] shrink-0 transition-transform cursor-pointer"
+                      style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
+                      onClick={() => toggleExpand(list.id)}
+                    />
+                  </div>
+                )}
 
                 {/* Expanded items */}
                 <div
