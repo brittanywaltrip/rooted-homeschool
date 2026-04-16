@@ -581,6 +581,7 @@ export default function TodayPage() {
   const [drawingPreview, setDrawingPreview] = useState<string | null>(null);
   const drawingFileRef = useRef<HTMLInputElement>(null);
   const [showCaptureMenu, setShowCaptureMenu] = useState(false);
+  const [showMemoryPicker, setShowMemoryPicker] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [showExtraLessons, setShowExtraLessons] = useState(false);
   type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; subjects: { name: string; color: string | null } | null };
@@ -650,7 +651,7 @@ export default function TodayPage() {
   // ── Open capture menu from URL param (used by other pages) ─────────────────
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.search.includes("capture=1")) {
-      setShowCaptureMenu(true);
+      setShowMemoryPicker(true);
       // Clean up URL
       const url = new URL(window.location.href);
       url.searchParams.delete("capture");
@@ -2841,7 +2842,7 @@ export default function TodayPage() {
             </p>
             <button
               type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMemoryPicker(true); }}
               className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
             >
               ✚ Capture a memory
@@ -2853,7 +2854,7 @@ export default function TodayPage() {
         ) : (
           <button
             type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCaptureMenu(true); }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMemoryPicker(true); }}
             className="w-full py-3 rounded-xl text-center font-medium text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
           >
             ✚ Capture a memory
@@ -3220,6 +3221,7 @@ export default function TodayPage() {
               const file = e.target.files?.[0];
               if (!file) return;
               setShowCaptureMenu(false);
+              setShowMemoryPicker(false);
               try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) { console.error("[Photo capture] No user session"); return; }
@@ -3443,19 +3445,45 @@ export default function TodayPage() {
           onLogLesson={() => { setShowExtraLessons(true); posthog.capture('log_extra_lessons_opened', { source: 'log_modal', user_plan: isPro ? 'paid' : 'free' }); }}
           onLogActivity={() => { router.push("/dashboard/plan"); }}
           onAddAppointment={() => { setShowApptWizard(true); }}
-          onCaptureMemory={(type) => {
-            if (type === "photo") { captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); }
-            else if (type === "drawing") { captureTypeRef.current = "drawing"; setShowDrawingSheet(true); }
-            else if (type === "win") { setShowWinSheet(true); }
-            else if (type === "book") { setShowBookModal(true); }
-            else if (type === "field_trip") { setFtType("field_trip"); setShowFieldTripSheet(true); }
-            else if (type === "project") { setFtType("project"); setShowFieldTripSheet(true); }
-          }}
           lists={lists}
           children={children}
           getToken={getToken}
           onListItemAdded={loadData}
         />
+      )}
+
+      {/* ── Memory Picker — direct capture bottom sheet ──── */}
+      {showMemoryPicker && (
+        <>
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowMemoryPicker(false)} />
+          <div className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-xl" style={{ maxWidth: 420, margin: "0 auto", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="flex items-center justify-between px-5 pb-2">
+              <h2 className="text-[18px] font-medium text-[#2D2A26]">Capture a memory</h2>
+              <button onClick={() => setShowMemoryPicker(false)} className="w-8 h-8 rounded-full bg-[#f2f0ec] flex items-center justify-center text-[#8B7E74] hover:bg-[#e8e5e0] text-sm transition-colors">✕</button>
+            </div>
+            <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mx-4 mb-2">
+              <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Every memory earns a leaf for your garden!</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2.5 px-4 pb-6">
+              {([
+                { emoji: "📸", label: "Photo",      sub: "Snap a moment",      action: () => { setShowMemoryPicker(false); captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); } },
+                { emoji: "🎨", label: "Drawing",    sub: "Save their art",     action: () => { setShowMemoryPicker(false); setShowDrawingSheet(true); } },
+                { emoji: "🏆", label: "Win",        sub: "Celebrate a win",    action: () => { setShowMemoryPicker(false); setShowWinSheet(true); } },
+                { emoji: "📖", label: "Book",       sub: "Log a read",         action: () => { setShowMemoryPicker(false); setShowBookModal(true); } },
+                { emoji: "🗺️", label: "Field Trip", sub: "We went somewhere",  action: () => { setShowMemoryPicker(false); setFtType("field_trip"); setShowFieldTripSheet(true); } },
+                { emoji: "🔨", label: "Project",    sub: "We made something",  action: () => { setShowMemoryPicker(false); setFtType("project"); setShowFieldTripSheet(true); } },
+              ] as const).map(tile => (
+                <button key={tile.label} onClick={tile.action}
+                  className="flex flex-col items-center justify-center py-5 px-2.5 rounded-2xl border-[1.5px] border-[#e8e5e0] bg-[#fafaf8] hover:border-[#2D5A3D] hover:bg-[#f0f7f2] transition-colors text-center">
+                  <span className="text-[28px] mb-1.5">{tile.emoji}</span>
+                  <span className="text-[13px] font-medium text-[#2D2A26]">{tile.label}</span>
+                  <span className="text-[10px] text-[#8B7E74]">{tile.sub}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── Appointment Wizard ────────────────────────────── */}

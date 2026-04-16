@@ -6,24 +6,21 @@ import { X, ChevronLeft, Send } from "lucide-react";
 type ListRow = { id: string; name: string; emoji: string; sort_order: number };
 type Child = { id: string; name: string; color: string | null };
 
-type MemoryTile = { emoji: string; label: string; sub: string; action: () => void };
-
 interface Props {
   onClose: () => void;
   onLogLesson: () => void;
   onLogActivity: () => void;
   onAddAppointment: () => void;
-  onCaptureMemory: (type: "photo" | "drawing" | "win" | "book" | "field_trip" | "project") => void;
   lists: ListRow[];
   children: Child[];
   getToken: () => Promise<string | null>;
   onListItemAdded: () => void;
 }
 
-type Step = "main" | "capture" | "pick-list" | "add-item";
+type Step = "main" | "pick-list" | "add-item";
 
 export default function LogSomethingModal({
-  onClose, onLogLesson, onLogActivity, onAddAppointment, onCaptureMemory,
+  onClose, onLogLesson, onLogActivity, onAddAppointment,
   lists, children, getToken, onListItemAdded,
 }: Props) {
   const [step, setStep] = useState<Step>("main");
@@ -58,19 +55,9 @@ export default function LogSomethingModal({
     setSaving(false);
   }
 
-  const memoryTiles: MemoryTile[] = [
-    { emoji: "📸", label: "Photo",      sub: "Snap a moment",     action: () => { onClose(); onCaptureMemory("photo"); } },
-    { emoji: "🎨", label: "Drawing",    sub: "Save their art",    action: () => { onClose(); onCaptureMemory("drawing"); } },
-    { emoji: "🏆", label: "Win",        sub: "Celebrate a win",   action: () => { onClose(); onCaptureMemory("win"); } },
-    { emoji: "📖", label: "Book",       sub: "Log a read",        action: () => { onClose(); onCaptureMemory("book"); } },
-    { emoji: "🗺️", label: "Field Trip", sub: "We went somewhere", action: () => { onClose(); onCaptureMemory("field_trip"); } },
-    { emoji: "🔨", label: "Project",    sub: "We made something", action: () => { onClose(); onCaptureMemory("project"); } },
-  ];
-
   // ── Title + back button logic ──────────────────────────────────────────────
 
   const title = step === "main" ? "Log something"
-    : step === "capture" ? "Capture a memory"
     : step === "pick-list" ? "Add to a list"
     : `${selectedList?.emoji} ${selectedList?.name}`;
 
@@ -78,7 +65,7 @@ export default function LogSomethingModal({
 
   function goBack() {
     if (step === "add-item") setStep("pick-list");
-    else if (step === "pick-list" || step === "capture") setStep("main");
+    else if (step === "pick-list") setStep("main");
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -125,7 +112,6 @@ export default function LogSomethingModal({
               { emoji: "🎯", label: "Log an activity",   sub: "Co-op, sports, music...", action: () => { onClose(); onLogActivity(); } },
               { emoji: "📅", label: "Add appointment",   sub: "Doctor, therapy, class...", action: () => { onClose(); onAddAppointment(); } },
               { emoji: "📝", label: "Add to a list",     sub: "To-do's, shopping...",    action: () => setStep("pick-list") },
-              { emoji: "📸", label: "Capture a memory",  sub: "Photo, win, book...",     action: () => setStep("capture") },
             ]).map((item) => (
               <button
                 key={item.label}
@@ -141,31 +127,6 @@ export default function LogSomethingModal({
                 </div>
               </button>
             ))}
-          </div>
-        )}
-
-        {/* ── CAPTURE SUB-MENU (existing memory types) ── */}
-        {step === "capture" && (
-          <div className="px-4 pb-6">
-            {/* Leaf banner */}
-            <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mb-3">
-              <span className="text-[12px] text-[#2D5A3D] font-medium">
-                🌿 Every memory earns a leaf for your garden!
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-2.5">
-              {memoryTiles.map((tile) => (
-                <button
-                  key={tile.label}
-                  onClick={tile.action}
-                  className="flex flex-col items-center justify-center py-5 px-2.5 rounded-2xl border-[1.5px] border-[#e8e5e0] bg-[#fafaf8] hover:border-[#2D5A3D] hover:bg-[#f0f7f2] transition-colors text-center"
-                >
-                  <span className="text-[28px] mb-1.5">{tile.emoji}</span>
-                  <span className="text-[13px] font-medium text-[#2D2A26]">{tile.label}</span>
-                  <span className="text-[10px] text-[#8B7E74]">{tile.sub}</span>
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
