@@ -2462,11 +2462,7 @@ export default function TodayPage() {
                     ⏩ Running late?
                   </button>
                 )}
-                {!isPartner && (
-                  <button type="button" onClick={openExtraLessons} className="text-[13px] text-[#5c7f63] hover:text-[var(--g-deep)] font-medium transition-colors">
-                    + Log extra
-                  </button>
-                )}
+                {/* Duplicate removed — "+ Log an extra lesson" is in UnifiedTimeline header */}
               </div>
             </div>
 

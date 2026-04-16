@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
+import { Pencil, Trash2 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -313,7 +315,7 @@ export default function UnifiedTimeline({
           {!isPartner && (
             <div className="flex items-center gap-2">
               <button type="button" onClick={onAddAppt} className="text-[11px] font-medium text-[#7C3AED] bg-[#f5f0ff] px-2.5 py-1.5 rounded-lg">+ Appt</button>
-              <button type="button" onClick={onLogExtra} className="text-[13px] text-[#5c7f63] hover:text-[var(--g-deep)] font-medium transition-colors">+ Log extra</button>
+              <button type="button" onClick={onLogExtra} className="text-[13px] text-[#5c7f63] hover:text-[var(--g-deep)] font-medium transition-colors">+ Log an extra lesson</button>
             </div>
           )}
         </div>
@@ -371,25 +373,162 @@ export default function UnifiedTimeline({
             </>
           )}
 
-          {/* Coming Up */}
-          {upcomingDays && upcomingDays.length > 0 && (
-            <div className="border-t border-[#f0ece6] mt-3 pt-3">
-              <p className="text-[11px] uppercase tracking-wide text-[#b5aca4] font-medium mb-2">Coming up</p>
-              <div className="flex flex-wrap gap-2">
-                {upcomingDays.map(({ date, count }) => {
-                  const d = new Date(date + "T12:00:00");
-                  const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
-                  return (
-                    <a key={date} href="/dashboard/plan" className="text-[12px] px-3 py-1.5 rounded-full bg-[#f5f2ed] text-[#7a6f65] font-medium hover:bg-[#ece8e0] transition-colors">
-                      {dayLabel} · {count} lesson{count !== 1 ? "s" : ""}
-                    </a>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* Inline schedule tabs */}
+        <InlineScheduleTabs children={children} onManage={onManage} />
       </div>
     </div>
+  );
+}
+
+// ─── Inline Schedule Tabs ────────────────────────────────────────────────────
+
+type TabAppt = { id: string; title: string; emoji: string; date: string; time: string | null; location: string | null; child_ids: string[]; is_recurring: boolean; recurrence_rule: { frequency: string; days: number[] } | null; completed: boolean; instance_date?: string };
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function InlineScheduleTabs({ children: kids, onManage }: { children: { id: string; name: string; color: string | null }[]; onManage: () => void }) {
+  const [tab, setTab] = useState<"upcoming" | "recurring" | "past">("upcoming");
+  const [upcoming, setUpcoming] = useState<TabAppt[]>([]);
+  const [recurring, setRecurring] = useState<TabAppt[]>([]);
+  const [past, setPast] = useState<TabAppt[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const token = session.access_token;
+      const [upRes, recRes, pastRes] = await Promise.all([
+        fetch("/api/appointments", { headers: { Authorization: `Bearer ${token}` } }),
+        supabase.from("appointments").select("*").eq("user_id", user.id).eq("is_recurring", true).order("created_at", { ascending: false }),
+        supabase.from("appointments").select("*").eq("user_id", user.id).eq("completed", true).gte("date", (() => { const d = new Date(); d.setDate(d.getDate() - 7); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })()).order("date", { ascending: false }),
+      ]);
+      if (upRes.ok) { const all: TabAppt[] = await upRes.json(); setUpcoming(all.filter(a => !a.completed).slice(0, 7)); }
+      setRecurring((recRes.data ?? []) as TabAppt[]);
+      setPast((pastRes.data ?? []) as TabAppt[]);
+      setLoaded(true);
+    })();
+  }, []);
+
+  async function handleDelete(id: string) {
+    setDeleteConfirm(null);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+    await fetch("/api/appointments", { method: "DELETE", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ id }) });
+    setUpcoming(prev => prev.filter(a => a.id !== id));
+    setRecurring(prev => prev.filter(a => a.id !== id));
+    setPast(prev => prev.filter(a => a.id !== id));
+  }
+
+  function fmtRelDate(d: string): string {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const target = new Date(d + "T12:00:00");
+    const diff = Math.round((target.getTime() - today.getTime()) / 86400000);
+    if (diff === 1) return "Tomorrow";
+    if (diff >= 2 && diff <= 6) return target.toLocaleDateString("en-US", { weekday: "short" });
+    return target.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+
+  function freqLabel(a: TabAppt): string {
+    if (!a.recurrence_rule) return "";
+    const r = a.recurrence_rule;
+    const freq = r.frequency === "weekly" ? "Weekly" : r.frequency === "biweekly" ? "Every 2 weeks" : "Monthly";
+    const days = (r.days ?? []).map((d: number) => DAY_NAMES[d]).join(", ");
+    return days ? `${freq} · ${days}` : freq;
+  }
+
+  const TABS: { key: typeof tab; label: string }[] = [
+    { key: "upcoming", label: "Upcoming" },
+    { key: "recurring", label: "Recurring" },
+    { key: "past", label: "Past" },
+  ];
+
+  return (
+    <>
+      <div className="flex gap-0 border-t border-[#f0ece6] mt-0">
+        {TABS.map(t => (
+          <button key={t.key} type="button" onClick={() => setTab(t.key)}
+            className={`flex-1 py-2.5 text-center text-[12px] font-medium cursor-pointer transition-colors ${tab === t.key ? "text-[#2D5A3D] border-b-2 border-[#2D5A3D]" : "text-[#b5aca4]"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="px-3 py-3 max-h-[200px] overflow-y-auto">
+        {!loaded ? (
+          <p className="text-[12px] text-[#b5aca4] text-center py-3">Loading...</p>
+        ) : tab === "upcoming" ? (
+          upcoming.length === 0 ? (
+            <p className="text-[13px] text-[#b5aca4] text-center py-4">Nothing coming up — enjoy the break! ☀️</p>
+          ) : (
+            upcoming.map(a => (
+              <div key={`${a.id}-${a.instance_date ?? a.date}`} className="bg-[#ede9fe] rounded-lg p-2.5 mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">{a.emoji || "📅"}</span>
+                  <span className="text-[12px] font-medium text-[#2d2926] truncate flex-1">{a.title}</span>
+                  <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[#f5f0ff] text-[#7C3AED] shrink-0">Appt</span>
+                </div>
+                <p className="text-[11px] text-[#6d28d9] mt-0.5">
+                  {fmtRelDate(a.instance_date ?? a.date)}
+                  {a.time && (() => { const [h, m] = a.time!.split(":").map(Number); return ` · ${h % 12 || 12}${m > 0 ? `:${String(m).padStart(2, "0")}` : ""} ${h >= 12 ? "PM" : "AM"}`; })()}
+                  {a.location && ` · 📍 ${a.location}`}
+                </p>
+              </div>
+            ))
+          )
+        ) : tab === "recurring" ? (
+          recurring.length === 0 ? (
+            <p className="text-[13px] text-[#b5aca4] text-center py-4">No recurring appointments</p>
+          ) : (
+            recurring.map(a => (
+              <div key={a.id} className="bg-[#ede9fe] rounded-lg p-2.5 mb-1.5 flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm">{a.emoji || "📅"}</span>
+                    <span className="text-[12px] font-medium text-[#2d2926] truncate">{a.title}</span>
+                    <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[#f5f0ff] text-[#7C3AED] shrink-0">Appt</span>
+                  </div>
+                  <p className="text-[11px] text-[#8a8580] mt-0.5">{freqLabel(a)}{a.location ? ` · 📍 ${a.location}` : ""}</p>
+                  {a.child_ids.length > 0 && (
+                    <div className="flex gap-1 mt-1">
+                      {a.child_ids.map(cid => { const c = kids.find(ch => ch.id === cid); return c ? <span key={cid} className="text-[9px] font-medium px-1.5 py-0.5 rounded-full text-white" style={{ background: c.color || "#7C3AED" }}>{c.name}</span> : null; })}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-1 shrink-0 mt-0.5">
+                  <button type="button" onClick={onManage} className="w-6 h-6 rounded-full flex items-center justify-center text-[#c8c0b8] hover:text-[#7C3AED] hover:bg-[#f5f0ff] transition-colors"><Pencil size={11} /></button>
+                  {deleteConfirm === a.id ? (
+                    <>
+                      <button type="button" onClick={() => handleDelete(a.id)} className="text-[9px] font-medium text-red-500 px-1.5 py-0.5 rounded bg-red-50">Del</button>
+                      <button type="button" onClick={() => setDeleteConfirm(null)} className="text-[9px] text-[#7a6f65] px-1">✕</button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => setDeleteConfirm(a.id)} className="w-6 h-6 rounded-full flex items-center justify-center text-[#c8c0b8] hover:text-red-400 hover:bg-red-50 transition-colors"><Trash2 size={11} /></button>
+                  )}
+                </div>
+              </div>
+            ))
+          )
+        ) : (
+          past.length === 0 ? (
+            <p className="text-[13px] text-[#b5aca4] text-center py-4">No past appointments yet</p>
+          ) : (
+            past.map(a => (
+              <div key={a.id} className="rounded-lg p-2.5 mb-1.5 opacity-60">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">{a.emoji || "📅"}</span>
+                  <span className="text-[12px] font-medium text-[#2d2926] line-through truncate flex-1">{a.title}</span>
+                  <span className="text-[10px] text-[#b5aca4]">{fmtRelDate(a.date)}</span>
+                </div>
+              </div>
+            ))
+          )
+        )}
+      </div>
+    </>
   );
 }
