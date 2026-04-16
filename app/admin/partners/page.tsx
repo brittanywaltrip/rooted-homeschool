@@ -428,7 +428,11 @@ export default function AdminPartnersPage() {
                       <td className="px-4 py-3 font-medium text-[#2d2926]">{r.user_name}</td>
                       <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{r.affiliate_code}</td>
                       <td className="px-4 py-3 text-xs text-[#7a6f65]">{r.user_plan === "founding_family" ? "Founding ($39/yr)" : r.user_plan === "standard" ? "Standard ($59/yr)" : r.user_plan === "monthly" ? "Monthly ($6.99/mo)" : r.user_plan}</td>
-                      <td className="px-4 py-3 font-medium text-[#2d2926]">{r.converted ? "$7.80" : "$0"}</td>
+                      <td className="px-4 py-3 font-medium text-[#2d2926]">
+                        {r.converted
+                          ? `$${(((r.user_plan === "monthly" ? 7.99 : r.user_plan === "standard" ? 49 : 39) * 0.85) * 0.20).toFixed(2)}`
+                          : "$0"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -1,63 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
+import { createClient } from '@supabase/supabase-js'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-02-25.clover',
-})
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
+const PLAN_PRICES: Record<string, number> = {
+  founding_family: 39,
+  standard: 49,
+  monthly: 7.99,
+}
+
+const DISCOUNT_MULTIPLIER = 0.85
 
 export async function GET(req: NextRequest) {
-  const couponId = req.nextUrl.searchParams.get('coupon_id')
   const affiliateCode = req.nextUrl.searchParams.get('code')?.toUpperCase()
-  if (!couponId) return NextResponse.json({ error: 'Missing coupon_id' }, { status: 400 })
+  if (!affiliateCode) {
+    return NextResponse.json({ error: 'Missing code' }, { status: 400 })
+  }
 
   try {
-    // If affiliate code provided, look up that specific promo code in Stripe.
-    // Otherwise fall back to listing all promo codes for the coupon (admin view).
-    let promoCodes: Stripe.PromotionCode[] = []
-    if (affiliateCode) {
-      const result = await stripe.promotionCodes.list({ code: affiliateCode, limit: 1 })
-      promoCodes = result.data
-    } else {
-      const result = await stripe.promotionCodes.list({ coupon: couponId, limit: 100 })
-      promoCodes = result.data
+    const { data: referred, error } = await supabase
+      .from('profiles')
+      .select('is_pro, plan_type, subscription_status')
+      .eq('referred_by', affiliateCode)
+
+    if (error) {
+      console.error('[affiliate-stats] DB error:', error.message)
+      return NextResponse.json({ totalRedemptions: 0, payingCount: 0, revenueDriven: 0 })
     }
 
-    let totalRedemptions = 0
-    let payingCount = 0
+    const totalRedemptions = referred?.length ?? 0
+
+    const paying = referred?.filter(
+      (p) => p.is_pro && p.subscription_status === 'active'
+    ) ?? []
+    const payingCount = paying.length
+
     let revenueDriven = 0
-
-    for (const promoCode of promoCodes) {
-      totalRedemptions += promoCode.times_redeemed
+    for (const p of paying) {
+      const basePrice = PLAN_PRICES[p.plan_type ?? ''] ?? 0
+      revenueDriven += Math.round(basePrice * DISCOUNT_MULTIPLIER * 100) / 100
     }
 
-    const promoIds = new Set(promoCodes.map(p => p.id))
-
-    // Paginate through all active subscriptions to find matches
-    let hasMore = true
-    let startingAfter: string | undefined
-    while (hasMore) {
-      const params: Stripe.SubscriptionListParams = { limit: 100, status: 'active' }
-      if (startingAfter) params.starting_after = startingAfter
-      const subscriptions = await stripe.subscriptions.list(params)
-
-      for (const sub of subscriptions.data) {
-        const hasMatch = sub.discounts?.some(d => {
-          if (typeof d === 'string') return false
-          return d.promotion_code && promoIds.has(d.promotion_code as string)
-        })
-        if (hasMatch) {
-          payingCount++
-          revenueDriven += (sub.items.data[0]?.price?.unit_amount ?? 0) / 100
-        }
-      }
-
-      hasMore = subscriptions.has_more
-      if (subscriptions.data.length > 0) {
-        startingAfter = subscriptions.data[subscriptions.data.length - 1].id
-      }
-    }
-
-    return NextResponse.json({ totalRedemptions, payingCount, revenueDriven: Math.round(revenueDriven) })
+    return NextResponse.json({
+      totalRedemptions,
+      payingCount,
+      revenueDriven: Math.round(revenueDriven * 100) / 100,
+    })
   } catch (err) {
     console.error('[affiliate-stats]', err)
     return NextResponse.json({ totalRedemptions: 0, payingCount: 0, revenueDriven: 0 })

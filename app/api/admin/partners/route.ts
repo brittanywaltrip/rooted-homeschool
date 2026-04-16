@@ -78,7 +78,19 @@ export async function GET(req: Request) {
       (r) => r.affiliate_code?.toUpperCase() === a.code?.toUpperCase() && r.converted === true
     );
     const rate = a.commission_rate ?? 20;
-    const commissionOwed = convertedReferrals.length * 39 * (rate / 100);
+    const PLAN_PRICES: Record<string, number> = {
+      founding_family: 39,
+      standard: 49,
+      monthly: 7.99,
+    };
+    const DISCOUNT_MULTIPLIER = 0.85;
+    let commissionOwed = 0;
+    for (const ref of convertedReferrals) {
+      const prof = profileMap.get(ref.user_id);
+      const basePrice = PLAN_PRICES[prof?.plan_type ?? ''] ?? 39;
+      commissionOwed += basePrice * DISCOUNT_MULTIPLIER * (rate / 100);
+    }
+    commissionOwed = Math.round(commissionOwed * 100) / 100;
 
     return {
       ...a,

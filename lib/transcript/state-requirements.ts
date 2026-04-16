@@ -1,0 +1,758 @@
+export type StateRequirements = {
+  name: string;
+  regulationLevel: 'none' | 'low' | 'moderate' | 'high';
+  requiresNotification: boolean;
+  requiresCurriculumApproval: boolean;
+  requiresQuarterlyReports: boolean;
+  requiresAttendanceHours: boolean;
+  annualHours?: { grades_1_6?: number; grades_7_12?: number };
+  requiresAnnualAssessment: boolean;
+  assessmentOptions?: string[];
+  standardizedTestGrades?: number[];
+  requiresAnnualEvaluator: boolean;
+  requiresLocalApproval: boolean;
+  requiredSubjects?: string[];
+  notes?: string;
+};
+
+export const STATE_REQUIREMENTS: Record<string, StateRequirements> = {
+  AL: {
+    name: 'Alabama',
+    regulationLevel: 'low',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'Church school or private tutor options available. Church school option requires enrollment with a church school cover.'
+  },
+  AK: {
+    name: 'Alaska',
+    regulationLevel: 'none',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+  },
+  AZ: {
+    name: 'Arizona',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'File an affidavit of intent with your county school superintendent within 30 days of beginning homeschooling.'
+  },
+  AR: {
+    name: 'Arkansas',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'File a written notice of intent with your local superintendent by August 15 or 14 days before starting.'
+  },
+  CA: {
+    name: 'California',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 175, grades_7_12: 175 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'social_studies', 'science', 'health', 'pe', 'arts'],
+    notes: 'File a Private School Affidavit (PSA) between October 1-15 each year. 175 days of instruction required. Teacher must be "capable of teaching."'
+  },
+  CO: {
+    name: 'Colorado',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 968, grades_7_12: 968 },
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'qualified_person_evaluation', 'portfolio_review'],
+    standardizedTestGrades: [3, 5, 7, 9, 11],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'history', 'constitution'],
+    notes: 'File notice of intent 14 days before starting. 172 days minimum. Standardized test or evaluation in grades 3, 5, 7, 9, 11.'
+  },
+  CT: {
+    name: 'Connecticut',
+    regulationLevel: 'low',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'writing', 'english', 'math', 'science', 'social_studies', 'constitution'],
+    notes: 'No notification required by state law, but some districts may request it. Required subjects must be taught but no verification process.'
+  },
+  DE: {
+    name: 'Delaware',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 1060, grades_7_12: 1060 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'Enroll with the DOE or join a homeschool association. 180 days of instruction required.'
+  },
+  DC: {
+    name: 'District of Columbia',
+    regulationLevel: 'low',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 900 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: '181 days of instruction required. No formal notification process.'
+  },
+  FL: {
+    name: 'Florida',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'certified_teacher_evaluation', 'portfolio_review'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'File notice of intent with the county superintendent within 30 days of starting. Maintain a portfolio and provide annual evaluation. Must keep records for 2 years.'
+  },
+  GA: {
+    name: 'Georgia',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 810, grades_7_12: 810 },
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test'],
+    standardizedTestGrades: [3, 6, 9, 12],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'english', 'math', 'science', 'social_studies'],
+    notes: 'File a declaration of intent by September 1 or within 30 days of starting. Standardized test every 3 years starting grade 3. Annual progress reports to superintendent.'
+  },
+  HI: {
+    name: 'Hawaii',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: true,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'portfolio_review', 'certified_teacher_evaluation'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'health', 'pe'],
+    notes: 'Submit a notice of intent and curriculum plan. Annual report with test results or alternative assessment. Records must be maintained.'
+  },
+  ID: {
+    name: 'Idaho',
+    regulationLevel: 'none',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies'],
+    notes: 'Subjects must be taught comparable to public school but no verification or reporting required.'
+  },
+  IL: {
+    name: 'Illinois',
+    regulationLevel: 'low',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'health', 'pe', 'arts', 'constitution'],
+    notes: 'Teach in English. Required subjects must be taught but no reporting or testing required.'
+  },
+  IN: {
+    name: 'Indiana',
+    regulationLevel: 'low',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 900 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: '180 days of instruction required. Attendance records must be kept. Teach in English.'
+  },
+  IA: {
+    name: 'Iowa',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 900 },
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'portfolio_review'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'reading'],
+    notes: 'File CPI (Competent Private Instruction) report by September 1. Two options: independent instruction with annual assessment, or work with a licensed teacher.'
+  },
+  KS: {
+    name: 'Kansas',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 1116, grades_7_12: 1116 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'Register as a non-accredited private school with the State Board of Education. 186 days minimum.'
+  },
+  KY: {
+    name: 'Kentucky',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 1062, grades_7_12: 1062 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'writing', 'english', 'math', 'science', 'social_studies', 'health', 'pe', 'arts'],
+    notes: 'Notify the local board of education within the first two weeks of school. 177 days minimum. Keep attendance records and scholarship reports.'
+  },
+  LA: {
+    name: 'Louisiana',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: true,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 900 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'reading'],
+    notes: 'Submit application to Board of Education within 15 days of starting. Curriculum must be of quality at least equal to public school. 180 days required.'
+  },
+  ME: {
+    name: 'Maine',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'portfolio_review', 'certified_teacher_review', 'local_school_review'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'health', 'pe', 'arts', 'library_skills', 'computer_skills'],
+    notes: 'File a letter of intent with the school board 10 days before starting. Annual assessment required.'
+  },
+  MD: {
+    name: 'Maryland',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'arts', 'health', 'pe'],
+    notes: 'File notice with local superintendent at least 15 days before starting. Portfolio review by the school system at least every 2 years. Instruction must be regular and thorough.'
+  },
+  MA: {
+    name: 'Massachusetts',
+    regulationLevel: 'high',
+    requiresNotification: true,
+    requiresCurriculumApproval: true,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'portfolio_review', 'progress_report'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: true,
+    requiredSubjects: ['reading', 'writing', 'english', 'math', 'science', 'social_studies', 'history', 'constitution', 'health', 'pe', 'arts', 'music'],
+    notes: 'Curriculum must be approved by your local school district BEFORE you begin homeschooling. Submit annual progress report.'
+  },
+  MI: {
+    name: 'Michigan',
+    regulationLevel: 'low',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'english', 'math', 'science', 'social_studies', 'constitution'],
+    notes: 'No notification required. Required subjects must be taught but no reporting mechanism.'
+  },
+  MN: {
+    name: 'Minnesota',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'writing', 'math', 'science', 'social_studies', 'health', 'pe', 'arts'],
+    notes: 'File a report with the local superintendent by October 1. Standardized testing required annually. Parent must meet instructor qualifications or be supervised by a licensed teacher.'
+  },
+  MS: {
+    name: 'Mississippi',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'File a certificate of enrollment with the school attendance officer by September 15.'
+  },
+  MO: {
+    name: 'Missouri',
+    regulationLevel: 'low',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 1000, grades_7_12: 1000 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'math', 'social_studies', 'english', 'science'],
+    notes: '1,000 hours of instruction required (600 in core subjects). Maintain records of subjects, activities, and evaluations. No filing required.'
+  },
+  MT: {
+    name: 'Montana',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 720, grades_7_12: 720 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'File a notification of intent with the county superintendent before starting. 180 days or 720 hours minimum. Maintain attendance and immunization records.'
+  },
+  NE: {
+    name: 'Nebraska',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 1032, grades_7_12: 1080 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'health'],
+    notes: 'File information statement with State Commissioner of Education by August 1. Teach in English.'
+  },
+  NV: {
+    name: 'Nevada',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 900 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies'],
+    notes: 'File a notice of intent with the local school district. 180 days of instruction required.'
+  },
+  NH: {
+    name: 'New Hampshire',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'certified_teacher_evaluation', 'portfolio_review', 'state_assessment'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'history', 'health', 'pe', 'arts'],
+    notes: 'Notify participating agency within 5 days of starting. Annual evaluation by July 1. Keep records available for inspection.'
+  },
+  NJ: {
+    name: 'New Jersey',
+    regulationLevel: 'low',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'No notification or approval required. Instruction must be "equivalent" to public school education.'
+  },
+  NM: {
+    name: 'New Mexico',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 900 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'english', 'math', 'science', 'social_studies'],
+    notes: 'File a notice of intent within 30 days of starting and annually thereafter. 180 days required. Maintain immunization records.'
+  },
+  NY: {
+    name: 'New York',
+    regulationLevel: 'high',
+    requiresNotification: true,
+    requiresCurriculumApproval: true,
+    requiresQuarterlyReports: true,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 990 },
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'certified_teacher_narrative'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'arts', 'health', 'pe', 'foreign_language', 'library_skills', 'fire_safety', 'highway_safety', 'substance_abuse'],
+    notes: 'Must file Individualized Home Instruction Plan (IHIP). Quarterly reports due every 3 months with hours and subject descriptions. Final quarterly report includes annual assessment.'
+  },
+  NC: {
+    name: 'North Carolina',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'File a notice of intent with the state. Standardized test required annually. Keep attendance and immunization records for at least one year.'
+  },
+  ND: {
+    name: 'North Dakota',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 952, grades_7_12: 952 },
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test'],
+    standardizedTestGrades: [4, 6, 8, 10],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'health', 'pe'],
+    notes: 'File a statement of intent 14 days before starting. Standardized testing in grades 4, 6, 8, 10. If parent has no degree, must be monitored by a licensed teacher for first 2 years.'
+  },
+  OH: {
+    name: 'Ohio',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 900 },
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'portfolio_review', 'certified_teacher_narrative'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'health', 'pe', 'arts', 'first_aid'],
+    notes: 'File notification with local superintendent annually. 900 hours of instruction required. Annual assessment required.'
+  },
+  OK: {
+    name: 'Oklahoma',
+    regulationLevel: 'none',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 900 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: '180 days of instruction required. No notification or approval required.'
+  },
+  OR: {
+    name: 'Oregon',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test'],
+    standardizedTestGrades: [3, 5, 8, 10],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'Notify your local ESD within 10 days of withdrawal. Standardized testing in grades 3, 5, 8, 10. If scores are low, additional assessment may be required.'
+  },
+  PA: {
+    name: 'Pennsylvania',
+    regulationLevel: 'high',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 990 },
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'evaluator_review'],
+    standardizedTestGrades: [3, 5, 8],
+    requiresAnnualEvaluator: true,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'health', 'pe', 'arts', 'music', 'fire_safety'],
+    notes: 'File a notarized affidavit before starting. Annual evaluation by a state-approved evaluator. Standardized testing required in grades 3, 5, and 8.'
+  },
+  RI: {
+    name: 'Rhode Island',
+    regulationLevel: 'high',
+    requiresNotification: true,
+    requiresCurriculumApproval: true,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'portfolio_review'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: true,
+    notes: 'Locally administered — requirements vary by district. Submit letter of intent, course of instruction must be approved by local school committee. Some districts request portfolios and quarterly reports.'
+  },
+  SC: {
+    name: 'South Carolina',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 900 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'writing', 'math', 'science', 'social_studies', 'composition'],
+    notes: 'Three options for legal homeschooling. Option 1 requires approval from local school board. Option 2 through SCAIHS. Option 3 through an accountability association. 180 days required.'
+  },
+  SD: {
+    name: 'South Dakota',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test'],
+    standardizedTestGrades: [2, 4, 8, 11],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies'],
+    notes: 'File a notification with the local school district. Standardized testing in grades 2, 4, 8, 11.'
+  },
+  TN: {
+    name: 'Tennessee',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 720, grades_7_12: 720 },
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies'],
+    notes: 'Notify local LEA before starting and by August 1 each year. 180 days or 4 hours/day minimum. Standardized testing in grades 5, 7, 9. Grades 9-12 have additional registration requirements.'
+  },
+  TX: {
+    name: 'Texas',
+    regulationLevel: 'none',
+    requiresNotification: false,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'math', 'english', 'spelling', 'citizenship'],
+    notes: 'Homeschools are treated as private schools. Must pursue a course in good faith, use a written curriculum, and cover five basic subjects. No notification or testing required.'
+  },
+  UT: {
+    name: 'Utah',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'arts', 'health'],
+    notes: 'File an affidavit with the local school board before starting. Must provide instruction in required subjects.'
+  },
+  VT: {
+    name: 'Vermont',
+    regulationLevel: 'high',
+    requiresNotification: true,
+    requiresCurriculumApproval: true,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['certified_teacher_assessment', 'portfolio_report', 'standardized_test'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'writing', 'math', 'citizenship', 'history', 'literature', 'science', 'arts', 'health', 'pe', 'english', 'foreign_language'],
+    notes: 'Must submit detailed outline covering at least 12 subjects. Curriculum must be state-approved. Annual assessment required.'
+  },
+  VA: {
+    name: 'Virginia',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'portfolio_review'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    notes: 'File a notice of intent by August 15. Annual evidence of progress required (standardized test or evaluation). Parent must have a bachelor\'s degree, be a teacher, use an approved curriculum, or demonstrate ability to teach.'
+  },
+  WA: {
+    name: 'Washington',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 900, grades_7_12: 900 },
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'certified_teacher_evaluation'],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'writing', 'math', 'science', 'social_studies', 'history', 'health', 'pe', 'arts'],
+    notes: 'File a declaration of intent by September 15 or within 2 weeks of starting. 180 days required. Annual assessment required. Parent must be supervised by a certified teacher or have 45 college credits or take a qualifying course.'
+  },
+  WV: {
+    name: 'West Virginia',
+    regulationLevel: 'moderate',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: false,
+    requiresAnnualAssessment: true,
+    assessmentOptions: ['standardized_test', 'portfolio_review', 'certified_teacher_evaluation'],
+    standardizedTestGrades: [3, 5, 8, 11],
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['english', 'math', 'science', 'social_studies', 'health', 'pe', 'arts', 'reading'],
+    notes: 'File a notice of intent with the local board and county superintendent. Standardized test or portfolio assessment. If standardized test is below 40th percentile, remediation plan required.'
+  },
+  WI: {
+    name: 'Wisconsin',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: false,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 875, grades_7_12: 875 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'english', 'math', 'science', 'social_studies', 'health'],
+    notes: 'File a statement of enrollment with the Department of Public Instruction by October 15. 875 hours minimum. Must provide a sequentially progressive curriculum.'
+  },
+  WY: {
+    name: 'Wyoming',
+    regulationLevel: 'low',
+    requiresNotification: true,
+    requiresCurriculumApproval: true,
+    requiresQuarterlyReports: false,
+    requiresAttendanceHours: true,
+    annualHours: { grades_1_6: 875, grades_7_12: 875 },
+    requiresAnnualAssessment: false,
+    requiresAnnualEvaluator: false,
+    requiresLocalApproval: false,
+    requiredSubjects: ['reading', 'writing', 'math', 'science', 'social_studies', 'health', 'pe', 'constitution'],
+    notes: 'Submit a curriculum to the local board of trustees annually. 175 days required. Curriculum must provide a sequentially progressive program.'
+  },
+};
+
+// ─── Name ↔ Code lookups ────────────────────────────────────────────────────
+
+export const STATE_NAME_TO_CODE: Record<string, string> = Object.fromEntries(
+  Object.entries(STATE_REQUIREMENTS).map(([code, s]) => [s.name, code])
+);
+
+export const STATE_CODE_TO_NAME: Record<string, string> = Object.fromEntries(
+  Object.entries(STATE_REQUIREMENTS).map(([code, s]) => [code, s.name])
+);
+
+/** Convert a profile state value (full name, code, or null) to a 2-letter code */
+export function resolveStateCode(profileState: string | null | undefined): string | null {
+  if (!profileState) return null;
+  const trimmed = profileState.trim();
+  if (trimmed.toLowerCase() === 'outside the us') return null;
+  // Already a code?
+  if (STATE_REQUIREMENTS[trimmed.toUpperCase()]) return trimmed.toUpperCase();
+  // Full name?
+  return STATE_NAME_TO_CODE[trimmed] ?? null;
+}
+
+// Helper to get a friendly compliance checklist for UI display
+export function getComplianceChecklist(stateCode: string): { label: string; required: boolean; description: string }[] {
+  const reqs = STATE_REQUIREMENTS[stateCode];
+  if (!reqs) return [];
+
+  const items: { label: string; required: boolean; description: string }[] = [];
+
+  if (reqs.requiresNotification) items.push({ label: 'File notice of intent', required: true, description: 'Notify your school district or state that you are homeschooling.' });
+  if (reqs.requiresCurriculumApproval) items.push({ label: 'Get curriculum approved', required: true, description: 'Submit your curriculum plan for approval before starting.' });
+  if (reqs.requiresAttendanceHours) items.push({ label: 'Track attendance hours', required: true, description: `Log ${reqs.annualHours?.grades_7_12 || 'required'} hours per year for high schoolers.` });
+  if (reqs.requiresQuarterlyReports) items.push({ label: 'Submit quarterly reports', required: true, description: 'File reports every quarter with hours and subject descriptions.' });
+  if (reqs.requiresAnnualAssessment) items.push({ label: 'Annual assessment', required: true, description: `Options: ${reqs.assessmentOptions?.join(', ') || 'varies by state'}.` });
+  if (reqs.requiresAnnualEvaluator) items.push({ label: 'Annual evaluator review', required: true, description: 'A state-approved evaluator must review your child\'s work.' });
+  if (reqs.requiresLocalApproval) items.push({ label: 'Local district approval', required: true, description: 'Your local school committee must approve your homeschool plan.' });
+  if (reqs.requiredSubjects?.length) items.push({ label: `Cover required subjects (${reqs.requiredSubjects.length})`, required: true, description: reqs.requiredSubjects.join(', ') });
+
+  return items;
+}

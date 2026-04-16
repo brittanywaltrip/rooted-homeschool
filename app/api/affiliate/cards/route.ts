@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import QRCode from 'qrcode'
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function printCardHtml(name: string, code: string, url: string): string {
-  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent('https://' + url)}`
+function printCardHtml(name: string, code: string, url: string, qrDataUrl: string): string {
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Rooted Partner Card — ${esc(name)}</title>
@@ -57,11 +57,11 @@ function printCardHtml(name: string, code: string, url: string): string {
         <div class="feat"><span>📸</span>Memories & photos</div>
         <div class="feat"><span>📚</span>Lesson tracking</div>
         <div class="feat"><span>🌳</span>Family garden</div>
-        <div class="feat"><span>✨</span>Family yearbook</div>
+        <div class="feat"><span>📋</span>Homeschool planner</div>
       </div>
     </div>
     <div class="qr-wrap">
-      <img src="${qr}" alt="QR Code">
+      <img src="${qrDataUrl}" alt="QR Code">
     </div>
   </div>
   <div class="url">Scan or visit <a href="https://${esc(url)}">${esc(url)}</a></div>
@@ -69,8 +69,7 @@ function printCardHtml(name: string, code: string, url: string): string {
 </body></html>`
 }
 
-function shareCardHtml(name: string, code: string, url: string): string {
-  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent('https://' + url)}`
+function shareCardHtml(name: string, code: string, url: string, qrDataUrl: string): string {
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Rooted — ${esc(code)}</title>
@@ -96,10 +95,10 @@ function shareCardHtml(name: string, code: string, url: string): string {
 <div class="card">
   <div class="top">
     <div class="logo">Rooted 🌿</div>
-    <div class="sub">The homeschool memory book + planner</div>
+    <div class="sub">Capture. Plan. Remember.</div>
   </div>
   <div class="mid">
-    <div class="qr"><img src="${qr}" alt="QR Code"></div>
+    <div class="qr"><img src="${qrDataUrl}" alt="QR Code"></div>
     <div class="code-pill">${esc(code)}</div>
     <div class="discount">15% off — forever</div>
     <div class="by">Shared by <strong>${esc(name)}</strong></div>
@@ -116,8 +115,16 @@ export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code') ?? 'ROOTED'
   const url = req.nextUrl.searchParams.get('url') ?? `rootedhomeschoolapp.com/upgrade?ref=${code}`
 
+  const fullUrl = 'https://' + url
+
+  const [printQr, shareQr] = await Promise.all([
+    QRCode.toDataURL(fullUrl, { width: 260, margin: 1, color: { dark: '#2d5a3d', light: '#ffffff' } }),
+    QRCode.toDataURL(fullUrl, { width: 400, margin: 1, color: { dark: '#2d5a3d', light: '#ffffff' } }),
+  ])
+
   return NextResponse.json({
-    cardHtml: printCardHtml(name, code, url),
-    shareHtml: shareCardHtml(name, code, url),
+    cardHtml: printCardHtml(name, code, url, printQr),
+    shareHtml: shareCardHtml(name, code, url, shareQr),
+    qrDataUrl: printQr,
   })
 }

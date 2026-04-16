@@ -84,18 +84,19 @@ type AffiliateRow = { id: string; name: string; code: string; stripe_coupon_id: 
 function AffiliateStatCell({ couponId, code, field, prefix = "" }: { couponId: string; code: string; field: "totalRedemptions" | "payingCount" | "revenueDriven"; prefix?: string }) {
   const [val, setVal] = useState<number | null>(null);
   useEffect(() => {
-    fetch(`/api/stripe/affiliate-stats?coupon_id=${couponId}&code=${encodeURIComponent(code)}`)
+    fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(code)}`)
       .then(r => r.json())
       .then(d => setVal(d[field] ?? 0))
       .catch(() => setVal(0));
   }, [couponId, code, field]);
-  return <span className="text-[#2d2926] font-medium">{val === null ? "—" : `${prefix}${val}`}</span>;
+  const display = val === null ? "—" : field === "revenueDriven" ? `${prefix}${(val * 0.20).toFixed(2)}` : `${prefix}${val}`;
+  return <span className="text-[#2d2926] font-medium">{display}</span>;
 }
 
 function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string }) {
   const [stats, setStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
   useEffect(() => {
-    fetch(`/api/stripe/affiliate-stats?coupon_id=${couponId}&code=${encodeURIComponent(code)}`)
+    fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(code)}`)
       .then(r => r.json())
       .then(setStats)
       .catch(() => {});
@@ -111,8 +112,8 @@ function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string 
         <p className="text-[10px] text-[#7a6f65]">Paying</p>
       </div>
       <div className="px-3 py-3 text-center">
-        <p className="text-lg font-bold text-[#2d2926]">${stats?.revenueDriven ?? '—'}</p>
-        <p className="text-[10px] text-[#7a6f65]">Revenue</p>
+        <p className="text-lg font-bold text-[#2d2926]">${stats ? ((stats.revenueDriven * 0.20).toFixed(2)) : '—'}</p>
+        <p className="text-[10px] text-[#7a6f65]">Earned</p>
       </div>
     </div>
   );
@@ -456,7 +457,7 @@ export default function SettingsPage() {
     if (affData) {
       setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
       try {
-        const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${affData.stripe_coupon_id}&code=${encodeURIComponent(affData.code)}`);
+        const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(affData.code)}`);
         const stats = await r.json();
         setAffiliateStats(stats);
       } catch {}
@@ -471,7 +472,7 @@ export default function SettingsPage() {
     setPreviewStats(null);
     setShowAffiliatePreview(true);
     try {
-      const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${first.stripe_coupon_id}&code=${encodeURIComponent(first.code)}`);
+      const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(first.code)}`);
       const stats = await r.json();
       setPreviewStats(stats);
     } catch {}
@@ -483,7 +484,7 @@ export default function SettingsPage() {
     setPreviewAffiliate({ ...aff });
     setPreviewStats(null);
     try {
-      const r = await fetch(`/api/stripe/affiliate-stats?coupon_id=${aff.stripe_coupon_id}&code=${encodeURIComponent(aff.code)}`);
+      const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(aff.code)}`);
       const stats = await r.json();
       setPreviewStats(stats);
     } catch {}
@@ -491,7 +492,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (affiliateData?.stripe_coupon_id && affiliateData?.code) {
-      fetch(`/api/stripe/affiliate-stats?coupon_id=${affiliateData.stripe_coupon_id}&code=${encodeURIComponent(affiliateData.code)}`)
+      fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(affiliateData.code)}`)
         .then(r => r.json())
         .then(setAffiliateStats)
         .catch(() => {});
@@ -1876,15 +1877,15 @@ export default function SettingsPage() {
                     </div>
                     <div className="px-3 py-4 text-center">
                       <p className="text-2xl font-bold text-[#2d2926]">{previewStats?.totalRedemptions ?? '—'}</p>
-                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Families reached</p>
+                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Signups</p>
                     </div>
                     <div className="px-3 py-4 text-center">
                       <p className="text-2xl font-bold text-[var(--g-deep)]">{previewStats?.payingCount ?? '—'}</p>
                       <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
                     </div>
                     <div className="px-3 py-4 text-center">
-                      <p className="text-2xl font-bold text-[#2d2926]">${previewStats?.revenueDriven ?? '—'}</p>
-                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Revenue driven</p>
+                      <p className="text-2xl font-bold text-[#2d2926]">${previewStats ? ((previewStats.revenueDriven * 0.20).toFixed(2)) : '—'}</p>
+                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Earned</p>
                     </div>
                   </div>
                   {/* QR Code */}
@@ -1893,7 +1894,7 @@ export default function SettingsPage() {
                     <div className="flex justify-center">
                       <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
                         <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`}
+                          src={`/api/affiliate/qr?size=200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`}
                           alt="Referral QR code"
                           width={160}
                           height={160}
@@ -1927,7 +1928,7 @@ export default function SettingsPage() {
                     <th className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Referral Link</th>
                     <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Clicks</th>
                     <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Families</th>
-                    <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Revenue</th>
+                    <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Earned</th>
                     <th className="text-center px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Status</th>
                     <th className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Since</th>
                   </tr>
@@ -1995,7 +1996,7 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-2 gap-2 text-xs text-[#7a6f65]">
                     <span>{aff.clicks ?? 0} clicks</span>
                     <span>Families: <AffiliateStatCell couponId={aff.stripe_coupon_id} code={aff.code} field="totalRedemptions" /></span>
-                    <span>Revenue: <AffiliateStatCell couponId={aff.stripe_coupon_id} code={aff.code} field="revenueDriven" prefix="$" /></span>
+                    <span>Earned: <AffiliateStatCell couponId={aff.stripe_coupon_id} code={aff.code} field="revenueDriven" prefix="$" /></span>
                     <span>Since {new Date(aff.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
                   </div>
                 </div>
@@ -2080,15 +2081,15 @@ export default function SettingsPage() {
               </div>
               <div className="px-3 py-4 text-center">
                 <p className="text-2xl font-bold text-[#2d2926]">{affiliateStats?.totalRedemptions ?? '—'}</p>
-                <p className="text-[11px] text-[#7a6f65] mt-0.5">Families reached</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Signups</p>
               </div>
               <div className="px-3 py-4 text-center">
                 <p className="text-2xl font-bold text-[var(--g-deep)]">{affiliateStats?.payingCount ?? '—'}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
               </div>
               <div className="px-3 py-4 text-center">
-                <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats?.revenueDriven ?? '—'}</p>
-                <p className="text-[11px] text-[#7a6f65] mt-0.5">Revenue driven</p>
+                <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats ? ((affiliateStats.revenueDriven * 0.20).toFixed(2)) : '—'}</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Earned</p>
               </div>
             </div>
 
@@ -2099,9 +2100,17 @@ export default function SettingsPage() {
               const thisMonthPaid = affiliatePayments
                 .filter((p) => p.month === thisMonthLabel)
                 .reduce((s, p) => s + Number(p.amount), 0);
+              const estimatedCommission = (affiliateStats?.revenueDriven ?? 0) * 0.20;
               return (
                 <div>
                   <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your Earnings</p>
+                  {estimatedCommission > 0 && allTimePaid === 0 && (
+                    <div className="bg-[#fef9ee] border border-[#f0d68a] rounded-xl px-4 py-3 text-center mb-3">
+                      <p className="text-2xl font-bold text-[#b8860b]">${estimatedCommission.toFixed(2)}</p>
+                      <p className="text-[10px] text-[#7a6f65] mt-0.5">Estimated commission (20%)</p>
+                      <p className="text-[9px] text-[#a09080] mt-1">Payouts processed on the 1st of each month</p>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
                       <p className="text-2xl font-bold text-[var(--g-deep)]">${thisMonthPaid.toFixed(2)}</p>
@@ -2146,7 +2155,7 @@ export default function SettingsPage() {
               <div className="flex justify-center">
                 <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`}
+                    src={`/api/affiliate/qr?size=200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`}
                     alt="Referral QR code"
                     width={160}
                     height={160}
