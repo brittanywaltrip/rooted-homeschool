@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 import PageHero from "@/app/components/PageHero";
 import { SUBJECT_CATEGORIES, CREDIT_TYPES, GRADE_OPTIONS, SEMESTERS, getSchoolYearOptions } from "@/lib/transcript/constants";
 import { calculateGPA, getCreditsBySubject, COLLEGE_READY_TARGETS, GRADE_POINTS } from "@/lib/transcript/gpa";
-import { STATE_REQUIREMENTS } from "@/lib/transcript/state-requirements";
+import { STATE_REQUIREMENTS, resolveStateCode } from "@/lib/transcript/state-requirements";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -127,6 +127,7 @@ export default function TranscriptBuilderPage() {
   const [settings, setSettings] = useState<Settings>({ school_name: null, state: null, graduation_year: null, use_weighted_gpa: false, principal_name: null });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [stateAutoDetected, setStateAutoDetected] = useState(false);
 
   // Courses
   const [courses, setCourses] = useState<Course[]>([]);
@@ -315,11 +316,14 @@ export default function TranscriptBuilderPage() {
       // Default settings from profile
       const lastName = (profile as any)?.last_name || (profile as any)?.display_name || "";
       const firstName = (profile as any)?.first_name || "";
+      const profileStateRaw = (profile as any)?.state as string | null;
+      const resolvedCode = resolveStateCode(profileStateRaw);
+      if (resolvedCode) setStateAutoDetected(true);
       setSettings(prev => ({
         ...prev,
         school_name: lastName ? `${lastName} Home Academy` : null,
         principal_name: [firstName, lastName].filter(Boolean).join(" ") || null,
-        state: (profile as any)?.state || null,
+        state: resolvedCode,
       }));
       setSettingsOpen(true); // Show settings on first visit
     }
@@ -511,11 +515,12 @@ export default function TranscriptBuilderPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[12px] font-medium text-[#6b6560] block mb-1">State</label>
-                  <select value={settings.state || ""} onChange={e => setSettings(s => ({ ...s, state: e.target.value || null }))}
+                  <select value={settings.state || ""} onChange={e => { setSettings(s => ({ ...s, state: e.target.value || null })); setStateAutoDetected(false); }}
                     className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]">
                     <option value="">Select your state</option>
                     {STATE_LIST.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                   </select>
+                  {stateAutoDetected && settings.state && <p className="text-[11px] text-[#8a8580] mt-0.5">Auto-detected from your profile</p>}
                 </div>
                 <div>
                   <label className="text-[12px] font-medium text-[#6b6560] block mb-1">Graduation year</label>

@@ -717,6 +717,27 @@ export const STATE_REQUIREMENTS: Record<string, StateRequirements> = {
   },
 };
 
+// ─── Name ↔ Code lookups ────────────────────────────────────────────────────
+
+export const STATE_NAME_TO_CODE: Record<string, string> = Object.fromEntries(
+  Object.entries(STATE_REQUIREMENTS).map(([code, s]) => [s.name, code])
+);
+
+export const STATE_CODE_TO_NAME: Record<string, string> = Object.fromEntries(
+  Object.entries(STATE_REQUIREMENTS).map(([code, s]) => [code, s.name])
+);
+
+/** Convert a profile state value (full name, code, or null) to a 2-letter code */
+export function resolveStateCode(profileState: string | null | undefined): string | null {
+  if (!profileState) return null;
+  const trimmed = profileState.trim();
+  if (trimmed.toLowerCase() === 'outside the us') return null;
+  // Already a code?
+  if (STATE_REQUIREMENTS[trimmed.toUpperCase()]) return trimmed.toUpperCase();
+  // Full name?
+  return STATE_NAME_TO_CODE[trimmed] ?? null;
+}
+
 // Helper to get a friendly compliance checklist for UI display
 export function getComplianceChecklist(stateCode: string): { label: string; required: boolean; description: string }[] {
   const reqs = STATE_REQUIREMENTS[stateCode];
