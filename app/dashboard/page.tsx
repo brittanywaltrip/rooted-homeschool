@@ -2348,6 +2348,34 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
+          WHAT'S NEW — dismissible card for existing users
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && onboarded === true && (() => {
+        if (typeof window === "undefined") return null;
+        if (localStorage.getItem("rooted_whats_new_v1") === "1") return null;
+        return (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 relative">
+            <p className="text-[15px] font-medium text-[#2d2926] mb-2.5" style={{ fontFamily: "var(--font-display)" }}>
+              New stuff just dropped
+            </p>
+            <div className="space-y-1.5 text-[13px] text-[#5C5346]">
+              <p>📋 My Lists — to-do&apos;s, shopping lists, whatever you need</p>
+              <p>📅 Appointments — track the dentist, co-op, guitar, all of it</p>
+              <p>🧠 Smart schedule — your whole day in one spot with a vibe check</p>
+              <p>🎉 Check something off — trust us, just try it</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { localStorage.setItem("rooted_whats_new_v1", "1"); forceUpdate(prev => prev + 1); }}
+              className="mt-4 px-5 py-2 rounded-xl bg-[#2D5A3D] text-white text-sm font-medium hover:opacity-90 transition-colors"
+            >
+              Got it!
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════
           UNIFIED TIMELINE — lessons + activities + appointments
          ═══════════════════════════════════════════════════════════ */}
       {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && todayAppointments.length > 0 && (
