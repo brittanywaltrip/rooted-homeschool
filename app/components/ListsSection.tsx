@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { Plus, Send, Trash2, ChevronDown } from "lucide-react";
 import NewListModal from "./NewListModal";
+import { useCelebration, CelebrationCheckbox, CelebrationToast } from "./CompletionCelebration";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ interface Props {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ListsSection({ lists, onListsChanged, getToken }: Props) {
+  const { activeId, toast, toastOut, celebrate } = useCelebration();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [itemsByList, setItemsByList] = useState<Record<string, ItemRow[]>>({});
   const [loadingLists, setLoadingLists] = useState<Set<string>>(new Set());
@@ -57,6 +59,7 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
   }
 
   async function toggleItem(item: ItemRow) {
+    if (!item.done) celebrate(item.id);
     // Optimistic update
     setItemsByList((prev) => ({
       ...prev,
@@ -190,25 +193,18 @@ export default function ListsSection({ lists, onListsChanged, getToken }: Props)
                               onPointerUp={handleLongPressEnd}
                               onPointerLeave={handleLongPressEnd}
                             >
+                              {activeId === item.id && <CelebrationToast toast={toast} toastOut={toastOut} />}
                               {/* Checkbox */}
-                              <button
-                                type="button"
-                                onClick={() => toggleItem(item)}
-                                className="w-5 h-5 rounded-full border-[1.5px] flex items-center justify-center shrink-0 transition-all"
-                                style={{
-                                  borderColor: item.done ? "var(--g-brand, #2d5a3d)" : "#d4d0ca",
-                                  backgroundColor: item.done ? "var(--g-brand, #2d5a3d)" : "transparent",
-                                }}
-                              >
-                                {item.done && (
-                                  <svg viewBox="0 0 10 8" className="w-2.5 h-2 fill-none">
-                                    <path d="M1 4l2.5 2.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                  </svg>
-                                )}
-                              </button>
+                              <CelebrationCheckbox
+                                checked={item.done}
+                                onToggle={() => toggleItem(item)}
+                                itemId={item.id}
+                                accentColor="var(--g-brand, #2d5a3d)"
+                                celebrating={activeId === item.id}
+                              />
 
                               {/* Text */}
-                              <span className={`flex-1 text-[13px] leading-snug ${item.done ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                              <span className={`flex-1 text-[13px] leading-snug transition-all duration-300 ${item.done ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
                                 {item.text}
                               </span>
 

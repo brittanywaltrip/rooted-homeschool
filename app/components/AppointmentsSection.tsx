@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Plus } from "lucide-react";
+import { useCelebration, CelebrationCheckbox, CelebrationToast } from "./CompletionCelebration";
 
 const ACCENT = "#7C3AED";
 const ACCENT_BG = "#f5f0ff";
@@ -37,8 +38,11 @@ function formatTime12(t: string): string {
 
 export default function AppointmentsSection({ appointments, children, getToken, onChanged, onAddNew }: Props) {
   const [collapsed, setCollapsed] = useState(false);
+  const { activeId, toast, toastOut, celebrate } = useCelebration();
 
   async function toggleCompleted(appt: AppointmentRow) {
+    const completing = !appt.completed;
+    if (completing) celebrate(appt.id);
     const token = await getToken();
     if (!token) return;
     await fetch("/api/appointments", {
@@ -104,24 +108,19 @@ export default function AppointmentsSection({ appointments, children, getToken, 
               return (
                 <div
                   key={`${appt.id}-${appt.instance_date}`}
-                  className={`flex items-start gap-3 px-4 py-3 transition-opacity ${appt.completed ? "opacity-50" : ""}`}
+                  className={`flex items-start gap-3 px-4 py-3 relative transition-all duration-300 ${appt.completed ? "opacity-50" : ""}`}
                 >
+                  {activeId === appt.id && <CelebrationToast toast={toast} toastOut={toastOut} />}
                   {/* Checkbox */}
-                  <button
-                    type="button"
-                    onClick={() => toggleCompleted(appt)}
-                    className="w-5 h-5 rounded-full border-[1.5px] flex items-center justify-center shrink-0 mt-0.5 transition-all"
-                    style={{
-                      borderColor: appt.completed ? ACCENT : "#d4d0ca",
-                      backgroundColor: appt.completed ? ACCENT : "transparent",
-                    }}
-                  >
-                    {appt.completed && (
-                      <svg viewBox="0 0 10 8" className="w-2.5 h-2 fill-none">
-                        <path d="M1 4l2.5 2.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </button>
+                  <div className="mt-0.5">
+                    <CelebrationCheckbox
+                      checked={appt.completed}
+                      onToggle={() => toggleCompleted(appt)}
+                      itemId={appt.id}
+                      accentColor={ACCENT}
+                      celebrating={activeId === appt.id}
+                    />
+                  </div>
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
