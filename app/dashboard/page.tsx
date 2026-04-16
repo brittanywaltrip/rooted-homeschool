@@ -19,6 +19,7 @@ import ListsSection from "@/app/components/ListsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import UnifiedTimeline from "@/app/components/UnifiedTimeline";
+import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 // PageHero removed — replaced by Book Cover Card
 
@@ -503,6 +504,7 @@ export default function TodayPage() {
   const [savingBook,        setSavingBook]        = useState(false);
 
   const [isPro,            setIsPro]            = useState(false);
+  const [trialStartedAt,   setTrialStartedAt]   = useState<string | null>(null);
   const [planType,         setPlanType]         = useState<string | null>(null);
   const [yearbookCount,    setYearbookCount]    = useState(0);
   const [upgradeDismissed, setUpgradeDismissed] = useState(false);
@@ -794,7 +796,7 @@ export default function TodayPage() {
       prevMonthResult,
       goalEmojiResult,
     ] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id, notes").eq("user_id", effectiveUserId).or(`date.eq.${today},scheduled_date.eq.${today}`),
@@ -831,6 +833,7 @@ export default function TodayPage() {
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
     setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setTrialStartedAt((profile as any)?.trial_started_at ?? null);
     const pt = (profile as { plan_type?: string } | null)?.plan_type ?? null;
     setPlanType(pt);
     const isFreeUser = !pt || pt === "free";
@@ -2372,6 +2375,22 @@ export default function TodayPage() {
             >
               Got it!
             </button>
+          </div>
+        );
+      })()}
+
+      {/* Trial badge — subtle info during first 22 days, UpgradeBanner handles last 8 */}
+      {(() => {
+        const access = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+        if (access !== 'trial') return null;
+        const left = getTrialDaysLeft(trialStartedAt);
+        if (left <= 8) return null;
+        return (
+          <div className="flex items-center gap-2 bg-[#f0f7f0] border border-[#c8dfc8] rounded-xl px-3 py-2 mb-3">
+            <span className="text-sm">🌿</span>
+            <p className="text-[11px] text-[#5c7f63] font-medium">
+              You&apos;re on your free Rooted+ trial · {left} day{left !== 1 ? 's' : ''} left
+            </p>
           </div>
         );
       })()}

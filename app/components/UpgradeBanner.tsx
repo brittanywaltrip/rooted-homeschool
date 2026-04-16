@@ -55,10 +55,16 @@ export default function UpgradeBanner() {
           {bannerState === "trial" ? (
             <>
               <p className="text-white text-xs font-semibold leading-tight">
-                Your Rooted+ trial ends in {daysLeft} day{daysLeft !== 1 ? "s" : ""}
+                {daysLeft <= 1
+                  ? "Your Rooted+ trial ends today"
+                  : `Your Rooted+ trial ends in ${daysLeft} days`}
               </p>
               <p className="text-white/70 text-[11px] leading-tight mt-0.5">
-                Keep unlimited photos, exports, and family sharing.
+                {daysLeft <= 1
+                  ? "Upgrade now to keep unlimited photos, exports, and family sharing."
+                  : daysLeft <= 3
+                  ? "Don't lose your exports, unlimited photos, and family sharing."
+                  : "Keep unlimited photos, exports, and family sharing."}
               </p>
             </>
           ) : (

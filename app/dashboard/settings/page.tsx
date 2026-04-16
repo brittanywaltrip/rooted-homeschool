@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Pencil, Trash2, Check, X, Plus, GripVertical, Camera, Sprout } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useProfile } from "@/lib/profile-context";
-import { canShareFamily } from "@/lib/user-access";
+import { canShareFamily, getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { posthog } from "@/lib/posthog";
 import { capitalizeName, capitalizeChildNames } from "@/lib/utils";
 
@@ -1653,11 +1653,16 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-[#2d2926]">
-                {planType === 'founding_family'
-                  ? '🌱 Rooted+ — $39/yr locked forever (Founding Family)'
-                  : planType === 'standard'
-                  ? '🌿 Rooted+ — $59/yr'
-                  : '🪴 Rooted (Free)'}
+                {(() => {
+                  const access = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+                  if (planType === 'founding_family') return '🌱 Rooted+ — $39/yr locked forever (Founding Family)';
+                  if (planType === 'standard') return '🌿 Rooted+ — $59/yr';
+                  if (access === 'trial') {
+                    const left = getTrialDaysLeft(trialStartedAt);
+                    return `🌿 Rooted+ Trial — ${left} day${left !== 1 ? 's' : ''} remaining`;
+                  }
+                  return '🪴 Rooted (Free)';
+                })()}
               </p>
               {currentPeriodEnd && subscriptionStatus === 'active' && (
                 <p className="text-xs text-[#7a6f65] mt-1">
@@ -1686,7 +1691,7 @@ export default function SettingsPage() {
                 href="/upgrade"
                 className="shrink-0 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium transition-colors"
               >
-                Get Rooted+ →
+                {getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt }) === 'trial' ? 'Upgrade now \u2192' : 'Get Rooted+ \u2192'}
               </a>
             )}
           </div>
