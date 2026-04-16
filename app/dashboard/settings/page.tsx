@@ -1893,7 +1893,7 @@ export default function SettingsPage() {
                     <div className="flex justify-center">
                       <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
                         <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`}
+                          src={`/api/affiliate/qr?size=200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`}
                           alt="Referral QR code"
                           width={160}
                           height={160}
@@ -2146,7 +2146,7 @@ export default function SettingsPage() {
               <div className="flex justify-center">
                 <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`}
+                    src={`/api/affiliate/qr?size=200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`}
                     alt="Referral QR code"
                     width={160}
                     height={160}
