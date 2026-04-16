@@ -2449,11 +2449,10 @@ export default function TodayPage() {
           return shifted >= 1440 ? null : shifted; // past midnight → flexible
         };
 
-        // Don't render the card when all items are done or nothing to show
-        // (UnifiedTimeline already covers status + items)
+        // Only render this card for timeline view (activities with scheduled start times).
+        // The checklist view is fully covered by UnifiedTimeline above.
         const hasTimelineContent = useTimeline && combinedTotal > 0 && !combinedAllDone;
-        const hasChecklistContent = !useTimeline && combinedTotal > 0 && !combinedAllDone;
-        if (!hasTimelineContent && !hasChecklistContent) return null;
+        if (!hasTimelineContent) return null;
 
         return (
           <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">

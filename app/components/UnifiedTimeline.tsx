@@ -514,6 +514,7 @@ export default function UnifiedTimeline({
 // ─── Inline Schedule Tabs ────────────────────────────────────────────────────
 
 type TabAppt = { id: string; title: string; emoji: string; date: string; time: string | null; location: string | null; child_ids: string[]; is_recurring: boolean; recurrence_rule: { frequency: string; days: number[] } | null; completed: boolean; instance_date?: string };
+type TabLesson = { id: string; title: string; child_id: string; scheduled_date: string; subjects: { name: string; color: string | null } | null };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -522,6 +523,7 @@ function InlineScheduleTabs({ children: kids, onManage }: { children: { id: stri
   const [upcoming, setUpcoming] = useState<TabAppt[]>([]);
   const [recurring, setRecurring] = useState<TabAppt[]>([]);
   const [past, setPast] = useState<TabAppt[]>([]);
+  const [upcomingLessons, setUpcomingLessons] = useState<TabLesson[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
@@ -540,6 +542,24 @@ function InlineScheduleTabs({ children: kids, onManage }: { children: { id: stri
       if (upRes.ok) { const all: TabAppt[] = await upRes.json(); setUpcoming(all.filter(a => !a.completed).slice(0, 7)); }
       setRecurring((recRes.data ?? []) as TabAppt[]);
       setPast((pastRes.data ?? []) as TabAppt[]);
+
+      // Fetch upcoming lessons (next 3 school days)
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const threeDaysOut = new Date();
+      threeDaysOut.setDate(threeDaysOut.getDate() + 3);
+      const fmtD = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+      const { data: lessonData } = await supabase
+        .from("lessons")
+        .select("id, title, child_id, scheduled_date, subjects(name, color)")
+        .eq("user_id", user.id)
+        .eq("completed", false)
+        .gte("scheduled_date", fmtD(tomorrow))
+        .lte("scheduled_date", fmtD(threeDaysOut))
+        .order("scheduled_date")
+        .order("title");
+      setUpcomingLessons((lessonData ?? []) as unknown as TabLesson[]);
+
       setLoaded(true);
     })();
   }, []);
@@ -592,28 +612,67 @@ function InlineScheduleTabs({ children: kids, onManage }: { children: { id: stri
         {!loaded ? (
           <p className="text-[12px] text-[#b5aca4] text-center py-3">Loading...</p>
         ) : tab === "upcoming" ? (
-          upcoming.length === 0 ? (
+          upcoming.length === 0 && upcomingLessons.length === 0 ? (
             <p className="text-[13px] text-[#b5aca4] text-center py-4">Nothing coming up — enjoy the break! ☀️</p>
           ) : (
-            upcoming.map(a => (
-              <div key={`${a.id}-${a.instance_date ?? a.date}`} className="rounded-xl p-2.5 mb-1.5 flex items-center gap-2.5" style={{ background: "linear-gradient(135deg, #f5f0ff, #ede5ff)", border: "1.5px solid #e8deff" }}>
-                <span className="text-lg shrink-0">{a.emoji || "📅"}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[13px] font-medium text-[#5b21b6] truncate">{a.title}</span>
-                    <span className="text-[9px] font-medium uppercase tracking-[0.5px] px-[7px] py-0.5 rounded-md bg-[#7C3AED] text-white shrink-0">Appt</span>
+            <>
+              {upcoming.map(a => (
+                <div key={`${a.id}-${a.instance_date ?? a.date}`} className="rounded-xl p-2.5 mb-1.5 flex items-center gap-2.5" style={{ background: "linear-gradient(135deg, #f5f0ff, #ede5ff)", border: "1.5px solid #e8deff" }}>
+                  <span className="text-lg shrink-0">{a.emoji || "📅"}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[13px] font-medium text-[#5b21b6] truncate">{a.title}</span>
+                      <span className="text-[9px] font-medium uppercase tracking-[0.5px] px-[7px] py-0.5 rounded-md bg-[#7C3AED] text-white shrink-0">Appt</span>
+                    </div>
+                    <p className="text-[11px] text-[#8a8580] mt-0.5">
+                      {fmtRelDate(a.instance_date ?? a.date)}, <span className="font-semibold">{fmtApptTime(a.time)}</span>
+                      {a.location && ` · 📍 ${a.location}`}
+                    </p>
                   </div>
-                  <p className="text-[11px] text-[#8a8580] mt-0.5">
-                    {fmtRelDate(a.instance_date ?? a.date)}, <span className="font-semibold">{fmtApptTime(a.time)}</span>
-                    {a.location && ` · 📍 ${a.location}`}
-                  </p>
+                  {a.child_ids.length > 0 && (() => {
+                    const c = kids.find(ch => ch.id === a.child_ids[0]);
+                    return c ? <span className="text-[11px] font-medium text-[#b5aca4] bg-[#f0ece6] px-2 py-0.5 rounded-lg shrink-0">{c.name}</span> : null;
+                  })()}
                 </div>
-                {a.child_ids.length > 0 && (() => {
-                  const c = kids.find(ch => ch.id === a.child_ids[0]);
-                  return c ? <span className="text-[11px] font-medium text-[#b5aca4] bg-[#f0ece6] px-2 py-0.5 rounded-lg shrink-0">{c.name}</span> : null;
-                })()}
-              </div>
-            ))
+              ))}
+              {/* Tomorrow's lessons */}
+              {upcomingLessons.length > 0 && (() => {
+                const byDate = new Map<string, TabLesson[]>();
+                for (const l of upcomingLessons) {
+                  const d = l.scheduled_date;
+                  if (!byDate.has(d)) byDate.set(d, []);
+                  byDate.get(d)!.push(l);
+                }
+                const firstDate = Array.from(byDate.keys())[0];
+                if (!firstDate) return null;
+                const lessonsForDay = byDate.get(firstDate)!;
+                const dateLabel = fmtRelDate(firstDate);
+                return (
+                  <>
+                    <div className="flex items-center gap-2 my-2">
+                      <div className="flex-1 h-px bg-[#e8e3dc]" />
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-[#b5aca4]">{dateLabel} · {lessonsForDay.length} lesson{lessonsForDay.length !== 1 ? "s" : ""}</span>
+                      <div className="flex-1 h-px bg-[#e8e3dc]" />
+                    </div>
+                    {lessonsForDay.map(l => (
+                      <div key={l.id} className="rounded-xl p-2.5 mb-1.5 flex items-center gap-2.5" style={{ background: "linear-gradient(135deg, #f0faf3, #e8f5ec)", border: "1.5px solid #cef0d4" }}>
+                        <span className="text-lg shrink-0">📚</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[13px] font-medium text-[#2D5A3D] truncate">{l.title}</span>
+                          </div>
+                          <p className="text-[11px] text-[#8a8580] mt-0.5">
+                            {l.subjects?.name ?? ""}
+                            {l.subjects?.name && l.child_id ? " · " : ""}
+                            {(() => { const c = kids.find(ch => ch.id === l.child_id); return c ? c.name : ""; })()}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                );
+              })()}
+            </>
           )
         ) : tab === "recurring" ? (
           recurring.length === 0 ? (
