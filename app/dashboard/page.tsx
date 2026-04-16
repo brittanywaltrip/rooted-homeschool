@@ -2894,6 +2894,52 @@ export default function TodayPage() {
       })()}
 
       {/* ═══════════════════════════════════════════════════════════
+          SELFIE NUDGE — warm reminder for mom to get in the picture
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && !isPartner && totalMemories > 0 && (() => {
+        if (typeof window === "undefined") return null;
+        const dayNum = new Date().getDate();
+        if (dayNum % 3 !== 0) return null;
+        if (localStorage.getItem(`rooted_selfie_${today}`) === "1") return null;
+        if (todayStory.some(m => m.type === "photo")) return null;
+        const msgs = [
+          "Hey mama \u2014 get in the picture today. Snap a selfie with your little besties. Messy bun and all. \u{1F49B}",
+          "You\u2019re always behind the camera. Get in front of it today \u2014 they won\u2019t remember your hair, they\u2019ll remember you were there. \u{1F4F8}",
+          "Quick \u2014 grab your phone and take a selfie with your kids right now. No filter needed. \u{1F49B}",
+          "Future you will be so glad you did this. Take a pic with your babies today. \u{1F4F8}",
+          "Messy house, no makeup, who cares. Snap a photo with your crew. These are the ones you\u2019ll treasure. \u{1F49B}",
+          "Your kids don\u2019t see the mess. They see their mom. Get in the picture today. \u{1F4F8}",
+        ];
+        const msg = msgs[dayNum % msgs.length];
+        return (
+          <div className="relative rounded-2xl p-5 overflow-hidden" style={{ background: "linear-gradient(135deg, #fef2f2, #fce7f3, #fdf2f8)" }}>
+            <button
+              type="button"
+              onClick={() => { localStorage.setItem(`rooted_selfie_${today}`, "1"); forceUpdate(prev => prev + 1); }}
+              className="absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center text-[#d4a0a0] hover:text-[#b07070] hover:bg-white/40 transition-colors text-xs"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+            <p className="text-[13px] text-[#6b4343] leading-relaxed pr-6">{msg}</p>
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.setItem(`rooted_selfie_${today}`, "1");
+                forceUpdate(prev => prev + 1);
+                captureTypeRef.current = "photo";
+                requestAnimationFrame(() => captureFileRef.current?.click());
+              }}
+              className="mt-3 px-4 py-2 rounded-xl text-sm font-medium text-white transition-colors hover:opacity-90"
+              style={{ background: "#c2616b" }}
+            >
+              📸 Take a selfie
+            </button>
+          </div>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════
           CAPTURE BUTTON — compact for returning users, big for new
          ═══════════════════════════════════════════════════════════ */}
       {!loading && !isPartner && (
