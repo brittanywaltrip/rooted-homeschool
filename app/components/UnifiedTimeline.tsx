@@ -54,6 +54,17 @@ function fmtDur(mins: number): string {
   return `${(mins / 60).toFixed(1)} hr`;
 }
 
+function fmtApptTime(t: string | null): string {
+  if (!t) return "All day";
+  const parts = t.split(":");
+  if (parts.length < 2) return "All day";
+  const h24 = parseInt(parts[0]);
+  const m = parseInt(parts[1]);
+  const ampm = h24 >= 12 ? "PM" : "AM";
+  const h = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+  return m > 0 ? `${h}:${String(m).padStart(2, "0")} ${ampm}` : `${h} ${ampm}`;
+}
+
 // ─── Smart Status Messages ──────────────────────────────────────────────────
 
 type StatusCategory = "allDone" | "apptSoon" | "almostDone" | "fellBehind" | "pastHalf" | "earlyProgress" | "morningEmpty" | "morningBig" | "morningMed" | "morningLight" | "evening" | "fallback";
@@ -276,6 +287,7 @@ export default function UnifiedTimeline({
     const checkColor = isLesson ? "#2D5A3D" : "#7C3AED";
     const cardBg = done ? "#fafaf8" : isLesson ? "linear-gradient(135deg, #f0faf3, #e8f5ec)" : "linear-gradient(135deg, #f5f0ff, #ede5ff)";
     const borderColor = done ? "#f0ece6" : isLesson ? "#cef0d4" : "#e8deff";
+    const timeLabel = item.kind === "appointment" ? fmtApptTime(item.appointment.time) : null;
 
     return (
       <button type="button" onClick={() => handleTap(item)}
@@ -291,7 +303,13 @@ export default function UnifiedTimeline({
             <span className={`text-[14px] font-medium truncate ${done ? "line-through text-[#999]" : "text-[#2a2520]"}`} style={{ letterSpacing: "-0.2px" }}>{title}</span>
             <Badge kind={item.kind} />
           </div>
-          {sub && <p className={`text-[12px] truncate mt-0.5 ${done ? "text-[#bbb]" : "text-[#8a8580]"}`}>{sub}</p>}
+          {(sub || timeLabel) && (
+            <p className={`text-[12px] truncate mt-0.5 ${done ? "text-[#bbb]" : "text-[#8a8580]"}`}>
+              {timeLabel && <span className="font-semibold">{timeLabel}</span>}
+              {timeLabel && sub ? " · " : ""}
+              {sub}
+            </p>
+          )}
         </div>
       </button>
     );
@@ -442,8 +460,7 @@ function InlineScheduleTabs({ children: kids, onManage }: { children: { id: stri
                     <span className="text-[9px] font-medium uppercase tracking-[0.5px] px-[7px] py-0.5 rounded-md bg-[#7C3AED] text-white shrink-0">Appt</span>
                   </div>
                   <p className="text-[11px] text-[#8a8580] mt-0.5">
-                    {fmtRelDate(a.instance_date ?? a.date)}
-                    {a.time && (() => { const [h, m] = a.time!.split(":").map(Number); return ` · ${h % 12 || 12}${m > 0 ? `:${String(m).padStart(2, "0")}` : ""} ${h >= 12 ? "PM" : "AM"}`; })()}
+                    {fmtRelDate(a.instance_date ?? a.date)}, <span className="font-semibold">{fmtApptTime(a.time)}</span>
                     {a.location && ` · 📍 ${a.location}`}
                   </p>
                 </div>
