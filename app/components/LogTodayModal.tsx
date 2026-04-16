@@ -152,7 +152,7 @@ export default function LogTodayModal({
         if (!isPro) {
           const { data: countProfile } = await supabase.from("profiles").select("photo_count").eq("id", user.id).single();
           if ((countProfile?.photo_count ?? 0) >= 50) {
-            setUploadError("You've reached the 50-photo limit on the free plan. Upgrade to upload unlimited photos.");
+            setUploadError("You've reached your memory limit 🤍 New photo memories won't be saved until you upgrade.");
             setSaving(false);
             return;
           }

@@ -884,7 +884,8 @@ function HomeInner() {
                 "Daily lesson tracking",
                 "Family garden & badges",
                 "Curated resources",
-                "Yearbook preview (first 4 spreads)",
+                "Yearbook preview (watermark)",
+                "Transcript preview (watermark)",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -927,9 +928,9 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Hours & Attendance Log — track and print your learning hours",
+                "Hours & Attendance Log — track and export your learning hours",
                 "Curriculum progress tracking — stay on track all year without the stress",
-                "Full family yearbook — every memory beautifully organized into a book",
+                "Full yearbook — no watermark (print coming soon!)",
                 "Share with family — send grandparents a private link to follow along in real time",
                 "Priority support",
                 "Founding price locked forever 🎁",
@@ -972,9 +973,9 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Hours & Attendance Log — track and print your learning hours",
+                "Hours & Attendance Log — track and export your learning hours",
                 "Curriculum progress tracking — stay on track all year without the stress",
-                "Full family yearbook — every memory beautifully organized into a book",
+                "Full yearbook — no watermark (print coming soon!)",
                 "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
@@ -1009,9 +1010,9 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Hours & Attendance Log — track and print your learning hours",
+                "Hours & Attendance Log — track and export your learning hours",
                 "Curriculum progress tracking — stay on track all year without the stress",
-                "Full family yearbook — every memory beautifully organized into a book",
+                "Full yearbook — no watermark (print coming soon!)",
                 "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
@@ -1037,22 +1038,22 @@ function HomeInner() {
                 <th className="text-left px-4 py-3 font-semibold text-[#7a6f65]">Feature</th>
                 <th className="text-center px-4 py-3 font-semibold text-[#b5aca4]">Rooted</th>
                 <th className="text-center px-4 py-3 font-bold text-[#C4962A] bg-[#f0f7f0]">Rooted+</th>
-                <th className="text-center px-4 py-3 font-semibold text-[#7a6f65]">Rooted+</th>
               </tr>
             </thead>
             <tbody>
               {[
-                { feature: "Children",               free: "Unlimited", founding: "Unlimited",  standard: "Unlimited" },
-                { feature: "Lesson tracking",        free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Garden & growth tree",   free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Photo memories",         free: "50",    founding: "✓ Unlimited", standard: "✓ Unlimited" },
-                { feature: "Memory timeline",        free: "30 days", founding: "✓ All time", standard: "✓ All time" },
-                { feature: "Hours & Attendance Log",  free: "✓",     founding: "✓",          standard: "✓"         },
-                { feature: "Curriculum progress tracking", free: "✓",    founding: "✓",          standard: "✓"         },
-                { feature: "Family yearbook",        free: "Preview only", founding: "✓ Full year", standard: "✓ Full year" },
-                { feature: "Share with family",      free: "—",     founding: "✓",          standard: "✓"         },
-                { feature: "Priority support",       free: "—",     founding: "✓",          standard: "—"         },
-                { feature: "Founding price locked",  free: "—",     founding: "Forever 🎁", standard: "—"         },
+                { feature: "Children",                  free: "Unlimited",    founding: "Unlimited"       },
+                { feature: "Lesson tracking",           free: "✓",            founding: "✓"               },
+                { feature: "Garden & growth tree",      free: "✓",            founding: "✓"               },
+                { feature: "Curriculum planning",       free: "✓",            founding: "✓"               },
+                { feature: "Scheduling",                free: "✓",            founding: "✓"               },
+                { feature: "Photos",                    free: "50",           founding: "✓ Unlimited"     },
+                { feature: "Yearbook",                  free: "Preview",      founding: "✓ Full — no watermark" },
+                { feature: "Transcript builder",        free: "Preview",      founding: "✓ Full + export" },
+                { feature: "PDF exports (transcripts, hours, reports)", free: "—", founding: "✓"          },
+                { feature: "Family sharing",            free: "—",            founding: "✓"               },
+                { feature: "Hours & Attendance Log",    free: "View only",    founding: "✓ + PDF export"  },
+                { feature: "Founding price locked",     free: "—",            founding: "Forever 🎁"      },
               ].map((row, i) => (
                 <tr
                   key={row.feature}
@@ -1061,7 +1062,6 @@ function HomeInner() {
                   <td className="px-4 py-3 text-[#2d2926] font-medium">{row.feature}</td>
                   <td className="px-4 py-3 text-center text-[#b5aca4]">{row.free}</td>
                   <td className="px-4 py-3 text-center text-[#3d5c42] font-medium bg-[#f0f7f0]">{row.founding}</td>
-                  <td className="px-4 py-3 text-center text-[#7a6f65]">{row.standard}</td>
                 </tr>
               ))}
             </tbody>

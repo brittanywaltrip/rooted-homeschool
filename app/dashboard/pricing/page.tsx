@@ -7,19 +7,21 @@ import { supabase } from "@/lib/supabase";
 
 // ─── Feature comparison data ──────────────────────────────────────────────────
 
-type FeatureRow = { label: string; free: string; founding: string; standard: string; foundingOnly?: boolean };
+type FeatureRow = { label: string; free: string; pro: string };
 
 const features: FeatureRow[] = [
-  { label: "Daily lesson logging",           free: "✓",              founding: "✓",            standard: "✓"           },
-  { label: "Garden & growing trees",         free: "✓",              founding: "✓",            standard: "✓"           },
-  { label: "Unlimited children",             free: "✓",              founding: "✓",            standard: "✓"           },
-  { label: "Photo memories & book log",      free: "Up to 50 photos",    founding: "✓ Unlimited", standard: "✓ Unlimited" },
-  { label: "Full memory timeline",            free: "✓",              founding: "✓",            standard: "✓"           },
-  { label: "Hours & Attendance Log",         free: "✓",              founding: "✓",                  standard: "✓"                  },
-  { label: "Curriculum progress tracking",   free: "✓",              founding: "✓",            standard: "✓"           },
-  { label: "Family sharing portal",          free: "✓",              founding: "✓",            standard: "✓"           },
-  { label: "Priority support",               free: "—",              founding: "✓",            standard: "—"           },
-  { label: "Founding price locked forever",  free: "—",              founding: "Forever 🎁",   standard: "—",          foundingOnly: true },
+  { label: "Daily lesson logging",           free: "✓",              pro: "✓" },
+  { label: "Curriculum planning",            free: "✓",              pro: "✓" },
+  { label: "Garden & badges",               free: "✓",              pro: "✓" },
+  { label: "Unlimited children",             free: "✓",              pro: "✓" },
+  { label: "Scheduling & appointments",      free: "✓",              pro: "✓" },
+  { label: "Memories (books, wins, etc.)",   free: "✓",              pro: "✓" },
+  { label: "Photos",                         free: "Up to 50",       pro: "✓ Unlimited" },
+  { label: "Yearbook",                       free: "Preview",        pro: "✓ Full — no watermark" },
+  { label: "Transcript builder",             free: "Preview",        pro: "✓ Full + export" },
+  { label: "Hours & Attendance",             free: "View only",      pro: "✓ + PDF export" },
+  { label: "PDF exports (transcripts, hours, reports)", free: "—",   pro: "✓" },
+  { label: "Family sharing",                 free: "—",              pro: "✓" },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -71,7 +73,7 @@ export default function DashboardPricingPage() {
         </p>
         <h1 className="text-2xl font-bold text-[#2d2926]">Choose your plan 🌿</h1>
         <p className="text-sm text-[#7a6f65] mt-1">
-          Rooted is free to use. Upgrade to Rooted+ for unlimited photos and PDF exports.
+          Rooted is free to use. Rooted+ unlocks exports, unlimited photos, and family sharing.
         </p>
       </div>
 
@@ -95,7 +97,7 @@ export default function DashboardPricingPage() {
       </div>
 
       {/* Plan cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
         {/* Free Forever */}
         <div className={`relative bg-[#fefcf9] border-2 rounded-2xl p-5 flex flex-col ${
@@ -114,7 +116,7 @@ export default function DashboardPricingPage() {
             <span className="text-3xl font-bold text-[#2d2926]">$0</span>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Lesson logging", "Garden", "Unlimited children", "Up to 50 photos", "Full memory timeline", "Yearbook", "Family sharing", "Hours & Attendance Log"].map(f => (
+            {["Lesson logging", "Curriculum planning", "Garden & badges", "Unlimited children", "Scheduling", "Memories (50 photos)", "Yearbook preview", "Transcript preview", "Hours & attendance (view)"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -156,7 +158,7 @@ export default function DashboardPricingPage() {
             <p className="text-[10px] text-[#5c7f63] mt-0.5">≈ $3.25/month</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Rooted", "Unlimited photos", "Full memory timeline", "Full yearbook", "Priority support", "Price locked forever ✦"].map(f => (
+            {["Everything in Rooted, plus:", "Unlimited photos", "All PDF exports (transcripts, hours, reports)", "Clean yearbook + transcript — no watermark", "Family sharing", "Priority support", "Founding price locked forever 🎁"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[var(--g-deep)]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -174,39 +176,6 @@ export default function DashboardPricingPage() {
                 className="block w-full text-center py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-xs font-bold transition-colors shadow-sm"
               >
                 Get Rooted+ — $39/yr →
-              </Link>
-            )}
-          </div>
-        </div>
-
-        {/* Standard */}
-        <div className="relative bg-[#fefcf9] border-2 border-[#e8e2d9] rounded-2xl p-5 flex flex-col">
-          <p className="text-base font-bold text-[#2d2926] mb-1">Rooted+</p>
-          <p className="text-xs text-[#7a6f65] mb-4 leading-relaxed">Full access, billed annually.</p>
-          <div className="mb-5">
-            <span className="text-3xl font-bold text-[#2d2926]">$59</span>
-            <span className="text-sm text-[#7a6f65]">/yr</span>
-            <p className="text-[10px] text-[#b5aca4] mt-0.5">≈ $4.92/month</p>
-          </div>
-          <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Rooted", "Unlimited photos", "Full memory timeline", "Full yearbook"].map(f => (
-              <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
-                <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
-                {f}
-              </div>
-            ))}
-          </div>
-          <div className="mt-auto">
-            {loaded && isPro ? (
-              <div className="w-full text-center py-2.5 rounded-xl bg-[#f0ede8] text-xs font-medium text-[#b5aca4]">
-                Standard plan
-              </div>
-            ) : (
-              <Link
-                href="/upgrade"
-                className="block w-full text-center py-2.5 rounded-xl bg-[#2d2926] hover:bg-[#1a1714] text-white text-xs font-bold transition-colors"
-              >
-                Get Rooted+ — $59/yr →
               </Link>
             )}
           </div>
@@ -265,9 +234,6 @@ export default function DashboardPricingPage() {
                   Rooted
                 </th>
                 <th className="py-3 px-4 text-center text-xs font-semibold text-[#C4962A] uppercase tracking-wide">
-                  Rooted+ (Founding)
-                </th>
-                <th className="py-3 px-4 text-center text-xs font-semibold text-[#7a6f65] uppercase tracking-wide">
                   Rooted+
                 </th>
               </tr>
@@ -278,17 +244,9 @@ export default function DashboardPricingPage() {
                   key={f.label}
                   className={`border-b border-[#f0ede8] last:border-0 ${i % 2 === 0 ? "" : "bg-[#faf8f5]"}`}
                 >
-                  <td className="py-3 px-4 text-xs text-[#5c5248] font-medium">
-                    {f.label}
-                    {f.foundingOnly && (
-                      <span className="ml-1.5 text-[9px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full uppercase">
-                        Founding only
-                      </span>
-                    )}
-                  </td>
+                  <td className="py-3 px-4 text-xs text-[#5c5248] font-medium">{f.label}</td>
                   <Cell value={f.free} />
-                  <Cell value={f.founding} highlight />
-                  <Cell value={f.standard} />
+                  <Cell value={f.pro} highlight />
                 </tr>
               ))}
             </tbody>

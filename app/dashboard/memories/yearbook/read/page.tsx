@@ -6,6 +6,8 @@ import { useSwipeable } from "react-swipeable";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
+import { getUserAccess } from "@/lib/user-access";
+import PreviewWatermark from "@/app/components/PreviewWatermark";
 import Link from "next/link";
 import {
   buildYearInNumbersSpread,
@@ -197,7 +199,7 @@ export default function YearbookReadPage() {
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [children, setChildren] = useState<Child[]>([]);
   const [contentMap, setContentMap] = useState<Record<string, string>>({});
-  const [profile, setProfile] = useState<{ display_name?: string; yearbook_opened_at?: string; yearbook_closed_at?: string; family_photo_url?: string | null; plan_type?: string | null }>({});
+  const [profile, setProfile] = useState<{ display_name?: string; yearbook_opened_at?: string; yearbook_closed_at?: string; family_photo_url?: string | null; plan_type?: string | null; is_pro?: boolean | null; trial_started_at?: string | null }>({});
   const [yearbookKey, setYearbookKey] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
   const [direction, setDirection] = useState(1);
@@ -238,7 +240,7 @@ export default function YearbookReadPage() {
     (async () => {
       const { data: prof } = await supabase
         .from("profiles")
-        .select("display_name, yearbook_opened_at, yearbook_closed_at, family_photo_url, yearbook_settings, plan_type")
+        .select("display_name, yearbook_opened_at, yearbook_closed_at, family_photo_url, yearbook_settings, plan_type, is_pro, trial_started_at")
         .eq("id", effectiveUserId)
         .single();
 
@@ -1035,6 +1037,7 @@ export default function YearbookReadPage() {
 
         {/* Book page area */}
         <div className="flex-1 min-h-0 relative" {...swipeHandlers}>
+          {getUserAccess(profile) === 'free' && <PreviewWatermark />}
           <AnimatePresence mode="wait" custom={direction} initial={false}>
             <motion.div
               key={safePage}
@@ -1138,9 +1141,10 @@ export default function YearbookReadPage() {
               animate="center"
               exit="exit"
               transition={pageTransition}
-              className="flex rounded-lg overflow-hidden"
+              className="flex rounded-lg overflow-hidden relative"
               style={{ width: 800, height: 560, boxShadow: "0 4px 30px rgba(0,0,0,0.15)", background: "#FAFAF7" }}
             >
+              {getUserAccess(profile) === 'free' && <PreviewWatermark />}
               <div className="w-1/2 h-full">{spreads[spreadIndex]?.leftContent}</div>
               <Spine />
               <div className="w-1/2 h-full">{spreads[spreadIndex]?.rightContent}</div>

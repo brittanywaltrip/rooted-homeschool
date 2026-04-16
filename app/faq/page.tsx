@@ -17,7 +17,7 @@ const sections = [
       },
       {
         q: "Is Rooted free?",
-        a: "Yes — Rooted is free to use, no credit card needed. Everything — lessons, memories, garden, yearbook, curriculum planning, Hours & Attendance Log, and family sharing. The only limit on the free plan is 50 photos total. Upgrade to Rooted+ ($39/yr Founding Family pricing) for unlimited photos and PDF exports.",
+        a: "Yes — Rooted is free to use, no credit card needed. Everything — lessons, memories, garden, yearbook preview, transcript builder, curriculum planning, scheduling, and resources. The free plan has a 50 photo limit, and yearbook and transcript show a preview watermark. PDF exports and family sharing require Rooted+ ($39/yr Founding Family pricing).",
       },
       {
         q: "How do I set up my curriculum?",
@@ -120,7 +120,7 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "Everything — lessons, memories, garden, yearbook, curriculum planning, Hours & Attendance Log, and family sharing. The only limit on the free plan is 50 photos total. Rooted+ gives you unlimited photos and downloadable PDF exports.",
+        a: "Everything for daily use — lessons, memories, garden, yearbook preview, transcript builder, curriculum planning, and scheduling. The free plan has a 50-photo limit, and yearbook and transcript show a preview watermark. PDF exports and family sharing require Rooted+.",
       },
       {
         q: "What is the Founding Family price?",
@@ -132,7 +132,7 @@ const sections = [
       },
       {
         q: "How do I upgrade to a paid plan?",
-        a: 'Click Upgrade in your sidebar or visit the pricing section on the homepage. Choose Rooted+ at $39/yr (Founding Family pricing, limited time, locked forever) or $59/yr after the founding period. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account is upgraded instantly — no waiting, no manual review.',
+        a: 'Tap "Get Rooted+" in the app or visit the upgrade page. Rooted+ Founding Family pricing is $39/yr — locked in forever. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account upgrades instantly.',
       },
       {
         q: "How do I cancel?",
@@ -188,7 +188,7 @@ const sections = [
       },
       {
         q: "Do free users get a yearbook?",
-        a: "Yes — free users get the full yearbook with all their memories. The yearbook builds itself automatically from your captured memories. Your yearbook text — the letter, child interviews, and future notes — is always saved regardless of plan.",
+        a: "Yes — free users can build and view their yearbook on screen. It fills in automatically from your memories, and your text (letter, child interviews, future notes) is always saved. The free version shows a preview watermark. Upgrade to Rooted+ for a clean version with no watermark. A print option is coming soon — stay Rooted!",
       },
       {
         q: "Are my archived yearbooks saved if I cancel my subscription?",
@@ -202,7 +202,7 @@ const sections = [
     items: [
       {
         q: "What is Share With Family?",
-        a: "Share With Family lets you give grandparents, aunts, uncles, cousins, or your co-parent a private link to view your memories and yearbook. They can see your photos and memories, react with emojis, and leave comments — without downloading any app.",
+        a: "Share With Family is a Rooted+ feature that lets you give grandparents, family, and friends a private link to view your memories and yearbook. They can see your photos and memories, react with emojis, and leave comments — without downloading any app.",
       },
       {
         q: "Who can I share with?",
@@ -222,7 +222,7 @@ const sections = [
       },
       {
         q: "How do I set up Share With Family?",
-        a: "Go to Settings \u2192 Share With Family. You\u2019ll get a private link to copy and share however you like — text, email, whatever works for your family.",
+        a: "Share With Family is included with Rooted+. Go to Settings \u2192 Share With Family to get a private link you can copy and share however you like \u2014 text, email, whatever works for your family.",
       },
     ],
   },

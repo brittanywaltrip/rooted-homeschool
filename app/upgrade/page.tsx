@@ -138,10 +138,10 @@ function UpgradePageInner() {
         <div className="text-center mb-12">
           <div className="text-5xl mb-5">🌿</div>
           <h1 className="text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: 'var(--font-display)' }}>
-            Your family&apos;s story deserves to be kept forever.
+            Keep everything you&apos;ve built 🌿
           </h1>
           <p className="text-[#7a6f65] leading-relaxed max-w-md mx-auto text-base">
-            Upgrade to Rooted+ for unlimited photos, full yearbook, and PDF exports.
+            Your homeschool, organized, saved, and ready whenever you need it.
           </p>
         </div>
 
@@ -185,7 +185,7 @@ function UpgradePageInner() {
               <p className="text-sm text-[#7a6f65]">Free forever</p>
             </div>
             <ul className="space-y-2 mb-6 flex-1">
-              {['All memory types (photos, books, wins, drawings, field trips)', 'Up to 50 photos', 'Daily lesson tracking', 'Family garden & badges', 'Curated resources', 'Yearbook preview (first 4 spreads)'].map(f => (
+              {['Lesson logging & curriculum planning', 'Garden, badges, & scheduling', 'Memories (50 photos, unlimited books & wins)', 'Yearbook + transcript preview', 'Hours & attendance (view only)', 'Resources'].map(f => (
                 <li key={f} className="flex items-center gap-2 text-sm text-[#7a6f65]">
                   <span className="text-[#c8bfb5] shrink-0">✓</span>{f}
                 </li>
@@ -247,9 +247,10 @@ function UpgradePageInner() {
             <ul className="space-y-2 mb-6 flex-1">
               {[
                 'Everything in Rooted, plus:',
-                'Unlimited photos — no 50 photo cap',
-                'Hours & Attendance Log — download & print PDF',
-                'Full yearbook — all spreads, PDF export',
+                'Unlimited photos — keep every memory',
+                'All PDF exports — transcripts, hours log, reports',
+                'Clean yearbook + transcript — no watermark (print coming soon!)',
+                'Family sharing — invite grandparents, family & friends',
                 'Priority support from Brittany',
                 'Founding price locked forever 🎁',
               ].map((label) => (

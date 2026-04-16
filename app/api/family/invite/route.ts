@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
+import { canShareFamily } from "@/lib/user-access";
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,6 +15,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const ownerUserId = user.id;
+
+    // Gate: check if user can share
+    const { data: ownerProfile } = await supabaseAdmin
+      .from("profiles")
+      .select("is_pro, trial_started_at")
+      .eq("id", ownerUserId)
+      .maybeSingle();
+
+    if (!canShareFamily({ is_pro: ownerProfile?.is_pro, trial_started_at: ownerProfile?.trial_started_at })) {
+      return NextResponse.json({ error: "Family sharing requires Rooted+" }, { status: 403 });
+    }
 
     const { email, viewerName, resend: isResend } = await req.json();
 
