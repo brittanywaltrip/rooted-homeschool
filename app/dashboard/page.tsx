@@ -3069,7 +3069,7 @@ export default function TodayPage() {
             href="/upgrade"
             className="block bg-[#faf6f0] border border-[#e8e2d9] rounded-xl px-4 py-3 text-sm text-[#7a6f65] hover:bg-[#f5f0e8] transition-colors"
           >
-            You&apos;re almost at your 50 photo limit — upgrade to keep capturing memories →
+            You have {50 - totalPhotos} photo{50 - totalPhotos !== 1 ? "s" : ""} left before new memories stop saving. Keep everything with Rooted+ →
           </Link>
         );
       })()}

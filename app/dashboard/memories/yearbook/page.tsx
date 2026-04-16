@@ -398,34 +398,22 @@ export default function YearbookPage() {
         ) : (
           <div className="mt-8 rounded-2xl border-[1.5px] border-[#e4ddd0] p-6 text-center relative overflow-hidden"
             style={{ background: "linear-gradient(135deg, #fdfbf7, #f7f0e4)" }}>
-            <div className="absolute -top-5 -right-5 w-24 h-24 rounded-full"
-              style={{ background: "radial-gradient(circle, rgba(196,150,42,0.1) 0%, transparent 70%)" }} />
-            <p className="text-[11px] font-bold uppercase tracking-[1.2px] text-[#C4962A] mb-2.5 relative z-10">
-              Yearbook Access
+            <p className="text-[11px] font-bold uppercase tracking-[1.2px] text-[#C4962A] mb-2.5">
+              Preview Mode
             </p>
-            <div className="grid grid-cols-2 gap-3 mb-[18px] relative z-10">
-              <div className="bg-white border border-[#e8e5e0] rounded-xl p-4 text-center">
-                <p className="text-[12px] font-bold uppercase tracking-wide text-[#8B7E74] mb-1.5">Rooted</p>
-                <p className="text-[14px] font-semibold text-[#5c5248] leading-snug">Up to 50 memories in your yearbook</p>
-                <p className="text-[11px] text-[#a89a88] mt-1">Free forever</p>
-              </div>
-              <div className="rounded-xl p-4 text-center text-white"
-                style={{ background: "linear-gradient(135deg, #2D5A3D, #3a7050)" }}>
-                <p className="text-[12px] font-bold uppercase tracking-wide text-white/70 mb-1.5">Rooted+</p>
-                <p className="text-[14px] font-semibold text-white leading-snug">Unlimited memories</p>
-                <p className="text-[11px] text-white/65 mt-1">Your complete year, beautifully preserved</p>
-              </div>
-            </div>
+            <p className="text-[15px] font-bold text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+              Your yearbook is something special 🌿
+            </p>
+            <p className="text-sm text-[#7a6f65] leading-relaxed mb-5">
+              Upgrade to remove the watermark and download your yearbook forever.
+            </p>
             <a
-              href="/dashboard/pricing"
-              className="relative z-10 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-[10px] text-[13px] font-bold text-white shadow-[0_2px_8px_rgba(196,150,42,0.2)] hover:-translate-y-0.5 transition-all"
+              href="/upgrade"
+              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-[10px] text-[13px] font-bold text-white shadow-[0_2px_8px_rgba(196,150,42,0.2)] hover:-translate-y-0.5 transition-all"
               style={{ background: "#C4962A" }}
             >
-              Lock in Founding Family pricing — $39/year &rarr;
+              Download My Yearbook →
             </a>
-            <p className="text-[11px] text-[#a89a88] mt-2 relative z-10">
-              Price goes to <strong className="text-[#C4962A] font-bold">$59/year</strong> on May 1st
-            </p>
           </div>
         )}
 
