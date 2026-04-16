@@ -16,9 +16,9 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import ListsSection from "@/app/components/ListsSection";
-import AppointmentsSection from "@/app/components/AppointmentsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
+import UnifiedTimeline from "@/app/components/UnifiedTimeline";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 // PageHero removed — replaced by Book Cover Card
 
@@ -627,6 +627,7 @@ export default function TodayPage() {
   const [todayAppointments, setTodayAppointments] = useState<ApptRow[]>([]);
   const [showApptWizard, setShowApptWizard] = useState(false);
   const [showManageSchedule, setShowManageSchedule] = useState(false);
+  const [allDoneCelebration, setAllDoneCelebration] = useState(false);
 
   // Activities state
   const [todayActivities, setTodayActivities] = useState<TodayActivity[]>([]);
@@ -2197,6 +2198,23 @@ export default function TodayPage() {
   const totalItems = lessons.length + todayActivities.length;
   const doneItems = lessons.filter(l => l.completed).length + todayActivities.filter(a => a.completed).length;
 
+  // Unified all-done (lessons + activities + appointments)
+  const unifiedTotal = totalItems + todayAppointments.length;
+  const unifiedDone = doneItems + todayAppointments.filter(a => a.completed).length;
+  const unifiedAllDone = unifiedTotal > 0 && unifiedDone === unifiedTotal;
+  const prevUnifiedDoneRef = useRef(0);
+  useEffect(() => {
+    if (!loading && unifiedAllDone && prevUnifiedDoneRef.current < unifiedTotal) {
+      const todayKey = `rooted_alldone_${today}`;
+      if (!localStorage.getItem(todayKey)) {
+        localStorage.setItem(todayKey, "1");
+        setAllDoneCelebration(true);
+        setTimeout(() => setAllDoneCelebration(false), 3000);
+      }
+    }
+    prevUnifiedDoneRef.current = unifiedDone;
+  }, [unifiedAllDone, unifiedDone, unifiedTotal, loading, today]);
+
   // Expanded child panel for lesson swipe
   const [expandedChild, setExpandedChild] = useState<string | null>(null);
 
@@ -2320,9 +2338,33 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          SCHEDULE — label + card
+          UNIFIED TIMELINE — lessons + activities + appointments
          ═══════════════════════════════════════════════════════════ */}
-      {(hasAnyLessons || todayActivities.length > 0) && (
+      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && todayAppointments.length > 0 && (
+        <UnifiedTimeline
+          lessons={lessons as { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null }[]}
+          activities={todayActivities}
+          appointments={todayAppointments}
+          children={children}
+          onToggleLesson={(id, completed) => { if (!isPartner) openCheckOffModal(id, completed); }}
+          onToggleActivity={(a) => { if (!isPartner) toggleActivity(a); }}
+          onToggleAppointment={async (id, completed) => {
+            const token = await getToken();
+            if (!token) return;
+            await fetch("/api/appointments", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ id, completed: !completed }) });
+            loadData();
+          }}
+          onLogExtra={openExtraLessons}
+          onManage={() => setShowManageSchedule(true)}
+          onAddAppt={() => setShowApptWizard(true)}
+          isPartner={isPartner}
+        />
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          SCHEDULE — label + card (shown when no appointments — preserves all existing lesson/activity UI)
+         ═══════════════════════════════════════════════════════════ */}
+      {(hasAnyLessons || todayActivities.length > 0) && todayAppointments.length === 0 && (
         <div className="flex items-center justify-between px-0.5 -mb-1">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">Today&apos;s Schedule</p>
           <button type="button" onClick={() => setShowManageSchedule(true)} className="flex items-center gap-1 text-[11px] font-medium text-white rounded-full px-3 py-1 transition-opacity hover:opacity-80" style={{ background: "#7C3AED" }}>
@@ -2332,9 +2374,9 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          SCHEDULE CARD — checklist or timeline + activities
+          SCHEDULE CARD — checklist or timeline + activities (shown when no appointments)
          ═══════════════════════════════════════════════════════════ */}
-      {(hasAnyLessons || todayActivities.length > 0) && (() => {
+      {(hasAnyLessons || todayActivities.length > 0) && todayAppointments.length === 0 && (() => {
         const totalLessons = lessons.length;
         const doneLessons = lessons.filter(l => l.completed).length;
         const doneActivities = todayActivities.filter(a => a.completed).length;
@@ -3032,18 +3074,7 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* ═══════════════════════════════════════════════════════════
-          APPOINTMENTS — today's appointments
-         ═══════════════════════════════════════════════════════════ */}
-      {!loading && (
-        <AppointmentsSection
-          appointments={todayAppointments}
-          children={children}
-          getToken={getToken}
-          onChanged={loadData}
-          onAddNew={() => setShowApptWizard(true)}
-        />
-      )}
+      {/* Appointments section removed — merged into unified timeline above */}
 
       {/* ═══════════════════════════════════════════════════════════
           MY LISTS — collapsible inline lists
@@ -4213,6 +4244,19 @@ export default function TodayPage() {
       )}
 
       <FloatingLeaves active={celebrating} />
+
+      {/* All-done celebration overlay */}
+      {allDoneCelebration && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setAllDoneCelebration(false)}>
+          <div className="bg-white rounded-2xl p-8 text-center shadow-2xl max-w-xs mx-4">
+            <span className="text-5xl block mb-3">🎉</span>
+            <p className="text-lg font-medium text-[#2d2926] mb-1" style={{ fontFamily: "var(--font-display)" }}>
+              {["You crushed today!", "Another day in the books!", "Homeschool hero!", "Amazing day, mama!"][Math.floor(Math.random() * 4)]}
+            </p>
+            <p className="text-sm text-[#7a6f65]">Everything done for the day</p>
+          </div>
+        </div>
+      )}
 
       {/* ── Tier 2: Child done toast ──────────────────────── */}
       {childDoneToast && (
