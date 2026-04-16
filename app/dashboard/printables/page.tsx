@@ -8,6 +8,8 @@ import PageHero from "@/app/components/PageHero";
 import { AWARD_META } from "@/lib/certificate-templates";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { canExport } from "@/lib/user-access";
+import ExportGateModal from "@/app/components/ExportGateModal";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -397,9 +399,9 @@ function PhotoUpload({ photoUrl, onChange }: {
 // ─── ID card editor ──────────────────────────────────────────────────────────
 
 function IDCardEditor({
-  style, fields, onChange, cardLabel,
+  style, fields, onChange, cardLabel, onGateExport,
 }: {
-  style: StyleId; fields: CardFields; onChange: (f: CardFields) => void; cardLabel: string;
+  style: StyleId; fields: CardFields; onChange: (f: CardFields) => void; cardLabel: string; onGateExport?: () => boolean;
 }) {
   const [downloading, setDownloading] = useState(false);
   const [downloadingSheet, setDownloadingSheet] = useState(false);
@@ -412,6 +414,7 @@ function IDCardEditor({
 
   async function handleDownload() {
     if (!photoUrl) return;
+    if (onGateExport && !onGateExport()) return;
     setDownloading(true);
     try { await downloadIdCard(style, fields, photoUrl, cardLabel, back); }
     catch (e) { console.error(e); alert("Download failed. Please try again."); }
@@ -420,6 +423,7 @@ function IDCardEditor({
 
   async function handlePrintSheet() {
     if (!photoUrl) return;
+    if (onGateExport && !onGateExport()) return;
     setDownloadingSheet(true);
     try { await downloadIdPrintSheet(style, fields, photoUrl, back); }
     catch (e) { console.error(e); alert("Download failed. Please try again."); }
@@ -559,6 +563,8 @@ export default function PrintablesPage() {
   const [childFields, setChildFields] = useState<Record<string, CardFields>>({});
   // Award states
   const [downloadingAward, setDownloadingAward] = useState<string | null>(null);
+  const [showExportGate, setShowExportGate] = useState(false);
+  const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
 
   // Custom certificate
   const [customName, setCustomName] = useState("");
@@ -585,7 +591,7 @@ export default function PrintablesPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, state, is_pro, printable_style")
+        .select("display_name, state, is_pro, printable_style, trial_started_at")
         .eq("id", uid)
         .maybeSingle();
 
@@ -593,6 +599,7 @@ export default function PrintablesPage() {
       const st = (profile as Record<string, string> | null)?.state || "";
       const savedStyle = (profile as Record<string, string> | null)?.printable_style;
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
+      setTrialStartedAt((profile as any)?.trial_started_at ?? null);
       setFamilyName(fName);
       setStateCode(st);
       setParentFields(makeParentDefaults(fName, st));
@@ -663,6 +670,7 @@ export default function PrintablesPage() {
   }
 
   async function handleCatalogDownload(awardType: string, recipientName: string, isEducator: boolean, note: string, date: string) {
+    if (!checkExportAccess()) return;
     const key = `${awardType}-${recipientName}`;
     setDownloadingAward(key);
     try {
@@ -684,6 +692,7 @@ export default function PrintablesPage() {
 
   async function handleCustomDownload() {
     if (!customName.trim()) return;
+    if (!checkExportAccess()) return;
     setCustomDownloading(true);
     try {
       await downloadCertificate("custom", activeStyle, {
@@ -697,6 +706,7 @@ export default function PrintablesPage() {
   async function handleManualGraduation() {
     const child = children.find(c => c.id === gradChild);
     if (!child) return;
+    if (!checkExportAccess()) return;
     setDownloadingAward("manual-grad");
     try {
       const data = {
@@ -712,6 +722,7 @@ export default function PrintablesPage() {
   async function handleManualSubject() {
     const child = children.find(c => c.id === subjectChild);
     if (!child || !subjectName.trim()) return;
+    if (!checkExportAccess()) return;
     setDownloadingAward("manual-subject");
     try {
       const data = {
@@ -728,6 +739,14 @@ export default function PrintablesPage() {
     const msg = e instanceof Error ? e.message : "Download failed — please try again";
     setErrorToast(msg);
     setTimeout(() => setErrorToast(null), 5000);
+  }
+
+  function checkExportAccess(): boolean {
+    if (!canExport({ is_pro: isPro, trial_started_at: trialStartedAt })) {
+      setShowExportGate(true);
+      return false;
+    }
+    return true;
   }
 
   const schoolName = familyName ? `${familyName} Academy` : "Family Academy";
@@ -873,7 +892,7 @@ export default function PrintablesPage() {
         </div>
 
         {parentFields ? (
-          <IDCardEditor style={activeStyle} fields={parentFields} onChange={setParentFields} cardLabel="Parent Homeschool Administrator ID" />
+          <IDCardEditor style={activeStyle} fields={parentFields} onChange={setParentFields} cardLabel="Parent Homeschool Administrator ID" onGateExport={checkExportAccess} />
         ) : (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-6 py-8 flex items-center justify-center">
             <span className="text-2xl animate-pulse">🌿</span>
@@ -886,7 +905,7 @@ export default function PrintablesPage() {
           return (
             <IDCardEditor key={child.id} style={activeStyle} fields={fields}
               onChange={(f) => updateChildField(child.id, f)}
-              cardLabel={`${child.name}'s Student ID`} />
+              cardLabel={`${child.name}'s Student ID`} onGateExport={checkExportAccess} />
           );
         })}
 
@@ -906,6 +925,15 @@ export default function PrintablesPage() {
       )}
 
     </div>
+
+    {showExportGate && (
+      <ExportGateModal
+        title="Keep this for your records"
+        body="Download a clean, printable copy for your homeschool files."
+        cta="Get My Copy"
+        onClose={() => setShowExportGate(false)}
+      />
+    )}
     </>
   );
 }

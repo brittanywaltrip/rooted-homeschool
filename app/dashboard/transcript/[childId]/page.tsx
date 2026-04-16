@@ -9,6 +9,9 @@ import PageHero from "@/app/components/PageHero";
 import { SUBJECT_CATEGORIES, CREDIT_TYPES, GRADE_OPTIONS, SEMESTERS, getSchoolYearOptions } from "@/lib/transcript/constants";
 import { calculateGPA, getCreditsBySubject, COLLEGE_READY_TARGETS, GRADE_POINTS } from "@/lib/transcript/gpa";
 import { STATE_REQUIREMENTS, resolveStateCode } from "@/lib/transcript/state-requirements";
+import { getUserAccess, canExport } from "@/lib/user-access";
+import PreviewWatermark from "@/app/components/PreviewWatermark";
+import ExportGateModal from "@/app/components/ExportGateModal";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -128,6 +131,8 @@ export default function TranscriptBuilderPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [stateAutoDetected, setStateAutoDetected] = useState(false);
+  const [showExportGate, setShowExportGate] = useState(false);
+  const [profileAccess, setProfileAccess] = useState<{ is_pro?: boolean | null; trial_started_at?: string | null }>({});
 
   // Courses
   const [courses, setCourses] = useState<Course[]>([]);
@@ -278,7 +283,7 @@ export default function TranscriptBuilderPage() {
       supabase.from("transcript_settings").select("*").eq("user_id", user.id).eq("child_id", childId).maybeSingle(),
       supabase.from("transcript_courses").select("*").eq("user_id", user.id).eq("child_id", childId).order("school_year", { ascending: false }).order("course_name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes").eq("user_id", user.id).eq("child_id", childId),
-      supabase.from("profiles").select("display_name, first_name, last_name, state").eq("id", user.id).maybeSingle(),
+      supabase.from("profiles").select("display_name, first_name, last_name, state, is_pro, trial_started_at").eq("id", user.id).maybeSingle(),
     ]);
 
     if (!childData) { router.replace("/dashboard/transcript"); return; }
@@ -314,6 +319,7 @@ export default function TranscriptBuilderPage() {
       });
     } else {
       // Default settings from profile
+      setProfileAccess({ is_pro: (profile as any)?.is_pro, trial_started_at: (profile as any)?.trial_started_at });
       const lastName = (profile as any)?.last_name || (profile as any)?.display_name || "";
       const firstName = (profile as any)?.first_name || "";
       const profileStateRaw = (profile as any)?.state as string | null;
@@ -739,7 +745,8 @@ export default function TranscriptBuilderPage() {
               ) : (
                 <>
                   {/* Print-ready layout */}
-                  <div className="border border-[#e8e2d9] rounded-xl p-6 bg-white text-[#3c3a37]">
+                  <div className="border border-[#e8e2d9] rounded-xl p-6 bg-white text-[#3c3a37] relative">
+                    {getUserAccess(profileAccess) === 'free' && <PreviewWatermark />}
                     <div className="text-center mb-5 pb-4 border-b border-[#e8e2d9]">
                       <p className="text-[18px] font-bold" style={{ fontFamily: "var(--font-display)" }}>{settings.school_name || "Home School"}</p>
                       <p className="text-[13px] text-[#6b6560] mt-0.5">Official Transcript</p>
@@ -800,7 +807,10 @@ export default function TranscriptBuilderPage() {
                     </div>
                   </div>
 
-                  <button type="button" onClick={() => showToast("PDF export coming soon!")}
+                  <button type="button" onClick={() => {
+                    if (!canExport(profileAccess)) { setShowExportGate(true); return; }
+                    showToast("PDF export coming soon!");
+                  }}
                     className="mt-4 w-full bg-[#2D5A3D] text-white text-[13px] font-medium py-3 rounded-xl hover:opacity-90 transition-opacity">
                     Export PDF
                   </button>
@@ -973,6 +983,15 @@ export default function TranscriptBuilderPage() {
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
           <div className="bg-[#1a2c22] text-white text-[13px] font-medium px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">{toast}</div>
         </div>
+      )}
+
+      {showExportGate && (
+        <ExportGateModal
+          title="Your transcript is ready"
+          body="You've already done the hard part. Get a clean, official copy for your records."
+          cta="Get My Transcript"
+          onClose={() => setShowExportGate(false)}
+        />
       )}
     </>
   );

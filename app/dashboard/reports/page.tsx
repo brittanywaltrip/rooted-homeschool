@@ -7,6 +7,8 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { canExport } from "@/lib/user-access";
+import ExportGateModal from "@/app/components/ExportGateModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,6 +207,8 @@ export default function ReportsPage() {
   const [dateFrom,      setDateFrom]      = useState(schoolYearStart());
   const [dateTo,        setDateTo]        = useState(toDateStr(new Date()));
   const [showPreview,   setShowPreview]   = useState(false);
+  const [showExportGate, setShowExportGate] = useState(false);
+  const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
 
   useEffect(() => { document.title = "Hours & Attendance Log \u00b7 Rooted"; localStorage.setItem("rooted_visited_reports", "1"); posthog.capture('page_viewed', { page: 'reports' }); }, []);
 
@@ -226,7 +230,7 @@ export default function ReportsPage() {
         supabase.from("attendance").select("id, child_id, day, present").eq("user_id", effectiveUserId),
         supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
         supabase.from("memories").select("child_id, type, date, duration_minutes").eq("user_id", effectiveUserId).not("duration_minutes", "is", null).in("type", ["field_trip", "project", "activity", "win"]),
-        supabase.from("profiles").select("is_pro").eq("id", effectiveUserId).single(),
+        supabase.from("profiles").select("is_pro, trial_started_at").eq("id", effectiveUserId).single(),
       ]);
 
       setChildren(capitalizeChildNames(kids ?? []));
@@ -236,6 +240,7 @@ export default function ReportsPage() {
       setBooks((bookEvts as unknown as BookEvent[]) ?? []);
       setActivities((memActivities as unknown as MemoryActivity[]) ?? []);
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
+      setTrialStartedAt((profile as any)?.trial_started_at ?? null);
       setLoading(false);
     }
     load();
@@ -382,7 +387,10 @@ export default function ReportsPage() {
           {showPreview ? "Hide Preview" : "Preview Log"}
         </button>
         <button
-          onClick={() => { posthog.capture('plan_pdf_downloaded', { user_plan: isPro ? 'paid' : 'free' }); setShowPreview(true); setTimeout(() => window.print(), 300); }}
+          onClick={() => {
+            if (!canExport({ is_pro: isPro, trial_started_at: trialStartedAt })) { setShowExportGate(true); return; }
+            posthog.capture('plan_pdf_downloaded', { user_plan: isPro ? 'paid' : 'free' }); setShowPreview(true); setTimeout(() => window.print(), 300);
+          }}
           className="flex-1 flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium py-3 rounded-xl transition-colors"
         >
           <Printer size={16} />
@@ -415,6 +423,15 @@ export default function ReportsPage() {
       </div>
 
       <div className="h-4" />
+
+      {showExportGate && (
+        <ExportGateModal
+          title="Save your progress"
+          body="Download a polished summary of your homeschool plan and progress."
+          cta="Download Report"
+          onClose={() => setShowExportGate(false)}
+        />
+      )}
     </div>
   );
 }
