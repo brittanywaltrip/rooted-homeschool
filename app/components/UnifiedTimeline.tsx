@@ -196,7 +196,7 @@ export default function UnifiedTimeline({
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [statusCat, setStatusCat] = useState<StatusCategory | null>(null);
   const prevMsgRef = useRef<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
   const [localLessons, setLocalLessons] = useState(lessons);
@@ -286,11 +286,18 @@ export default function UnifiedTimeline({
 
   function handleExpandToggle(itemId: string, isExpanded: boolean) {
     if (isExpanded) {
-      setEditingNoteId(null);
-      setExpandedId(null);
+      // If collapsing this card and it has the active note editor, cancel editing
+      if (editingNoteId) {
+        // Extract the lesson id from the itemId (format: "l-<lessonId>")
+        const lessonId = itemId.startsWith("l-") ? itemId.slice(2) : null;
+        if (lessonId === editingNoteId) {
+          setEditingNoteId(null);
+          setEditingNoteText("");
+        }
+      }
+      setExpandedIds(prev => { const next = new Set(prev); next.delete(itemId); return next; });
     } else {
-      setEditingNoteId(null);
-      setExpandedId(itemId);
+      setExpandedIds(prev => { const next = new Set(prev); next.add(itemId); return next; });
     }
   }
 
@@ -330,7 +337,7 @@ export default function UnifiedTimeline({
     const borderColor = done ? "#f0ece6" : isLesson ? "#cef0d4" : "#e8deff";
     const timeLabel = item.kind === "appointment" ? fmtApptTime(item.appointment.time) : null;
     const itemId = getItemId(item);
-    const isExpanded = expandedId === itemId;
+    const isExpanded = expandedIds.has(itemId);
 
     return (
       <div className="rounded-[14px] mb-1.5 transition-all duration-200"
@@ -357,6 +364,9 @@ export default function UnifiedTimeline({
                   {timeLabel && sub ? " \u00b7 " : ""}
                   {sub}
                 </p>
+              )}
+              {!isExpanded && item.kind === "lesson" && item.lesson.notes && (
+                <p className="line-clamp-1 text-[12px] text-[#8b8680] italic mt-0.5">{item.lesson.notes}</p>
               )}
             </div>
           </button>
