@@ -2378,7 +2378,7 @@ export default function TodayPage() {
       {/* ═══════════════════════════════════════════════════════════
           UNIFIED TIMELINE — lessons + activities + appointments
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && todayAppointments.length > 0 && (
+      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && (
         <UnifiedTimeline
           lessons={lessons as { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null; icon_emoji?: string | null }[]}
           activities={todayActivities}
@@ -2400,21 +2400,9 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          SCHEDULE — label + card (shown when no appointments — preserves all existing lesson/activity UI)
+          SCHEDULE CARD — detailed lesson management (child tabs, check-off, reschedule)
          ═══════════════════════════════════════════════════════════ */}
-      {(hasAnyLessons || todayActivities.length > 0) && todayAppointments.length === 0 && (
-        <div className="flex items-center justify-between px-0.5 -mb-1">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">Today&apos;s Schedule</p>
-          <button type="button" onClick={() => setShowManageSchedule(true)} className="flex items-center gap-1 text-[11px] font-medium text-white rounded-full px-3 py-1 transition-opacity hover:opacity-80" style={{ background: "#7C3AED" }}>
-            📅 Manage
-          </button>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════
-          SCHEDULE CARD — checklist or timeline + activities (shown when no appointments)
-         ═══════════════════════════════════════════════════════════ */}
-      {(hasAnyLessons || todayActivities.length > 0) && todayAppointments.length === 0 && (() => {
+      {(hasAnyLessons || todayActivities.length > 0) && (() => {
         const totalLessons = lessons.length;
         const doneLessons = lessons.filter(l => l.completed).length;
         const doneActivities = todayActivities.filter(a => a.completed).length;

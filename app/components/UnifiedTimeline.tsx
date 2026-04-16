@@ -272,7 +272,7 @@ export default function UnifiedTimeline({
 
     return (
       <button type="button" onClick={() => handleTap(item)}
-        className={`w-full flex items-center gap-3 py-2.5 px-1 text-left transition-all ${opacity}`}>
+        className={`w-full flex items-center gap-3 py-2.5 px-1 text-left transition-all duration-300 ${opacity}`}>
         <div className={`w-[20px] h-[20px] rounded-full border-[1.5px] flex items-center justify-center shrink-0 transition-all ${done ? "border-[#2D5A3D] bg-[#2D5A3D]" : "border-[#d4d0ca]"}`}>
           {done && <svg viewBox="0 0 10 8" className="w-2.5 h-2 fill-none"><path d="M1 4l2.5 2.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
         </div>
@@ -308,7 +308,7 @@ export default function UnifiedTimeline({
       <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden mt-2">
         {/* Status line + actions */}
         <div className="px-5 pt-4 pb-2">
-          {statusMsg && <p className="text-sm text-[#7a6f65] mb-2">{statusMsg}</p>}
+          {statusMsg && <p className="text-sm text-[#7a6f65] mb-2 transition-opacity duration-300">{statusMsg}</p>}
           {!isPartner && (
             <div className="flex items-center gap-2">
               <button type="button" onClick={onAddAppt} className="text-[11px] font-medium text-[#7C3AED] bg-[#f5f0ff] px-2.5 py-1.5 rounded-lg">+ Appt</button>
