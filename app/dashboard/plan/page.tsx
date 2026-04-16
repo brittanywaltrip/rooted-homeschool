@@ -1494,11 +1494,83 @@ export default function PlanPage() {
             // First day of each vacation block for label
             const vacStartDates = new Set(vacationBlocks.map(b => b.start_date));
 
+            // Build event pill items per day
+            type PillItem = { name: string; emoji: string; type: "lesson" | "appt"; time?: string };
+            const dayPillsMap: Record<string, PillItem[]> = {};
+            for (const [dateKey, lessons] of Object.entries(monthLessonMap)) {
+              const pills: PillItem[] = [];
+              const seen = new Set<string>();
+              for (const l of lessons) {
+                const goal = l.curriculum_goal_id ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) : null;
+                const name = goal?.curriculum_name ?? l.title.split(" — ")[0] ?? "Lesson";
+                if (seen.has(name)) continue;
+                seen.add(name);
+                pills.push({ name, emoji: goal?.icon_emoji ?? "📚", type: "lesson" });
+              }
+              dayPillsMap[dateKey] = pills;
+            }
+            for (const [dateKey, appts] of Object.entries(monthApptMap)) {
+              if (!dayPillsMap[dateKey]) dayPillsMap[dateKey] = [];
+              for (const a of appts) {
+                let timeStr: string | undefined;
+                if (a.time) { const [h, m] = a.time.split(":").map(Number); timeStr = `${h % 12 || 12}${m > 0 ? `:${String(m).padStart(2, "0")}` : ""} ${h >= 12 ? "PM" : "AM"}`; }
+                dayPillsMap[dateKey].push({ name: a.title, emoji: a.emoji || "📅", type: "appt", time: timeStr });
+              }
+            }
+
+            // Vacation streak detection
+            const openStreaks: number[][] = [];
+            let currentStreak: number[] = [];
+            for (let d = 1; d <= daysInMonth; d++) {
+              const ds = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+              const items = dayPillsMap[ds] ?? [];
+              const isVac = isDateInBlocks(ds, vacationBlocks);
+              if (items.length === 0 && !isVac && activityCountForDay(ds) === 0) {
+                currentStreak.push(d);
+              } else {
+                if (currentStreak.length >= 3) openStreaks.push([...currentStreak]);
+                currentStreak = [];
+              }
+            }
+            if (currentStreak.length >= 3) openStreaks.push([...currentStreak]);
+
+            const selfCareSuggestions = [
+              "Do absolutely nothing. You\u2019ve earned it.",
+              "Self care day \u2014 no lessons, no guilt.",
+              "Finally start that hobby you keep putting off.",
+              "Make yourself a cup of tea and just sit.",
+              "Organize that one thing that\u2019s been bugging you.",
+              "Read a book. A real one. For you.",
+              "Pajama day. The kids will love it too.",
+              "Bake something with the kids \u2014 or without them.",
+              "Take a drive. No destination needed.",
+              "Catch up with a friend you\u2019ve been meaning to call.",
+              "Get outside. Even 20 minutes counts.",
+              "Do something creative \u2014 just for fun, not for school.",
+            ];
+
+            // Month stats
+            const monthLessonTotal = Object.values(monthLessonMap).reduce((s, arr) => s + arr.length, 0);
+            const monthApptTotal = Object.values(monthApptMap).reduce((s, arr) => s + arr.length, 0);
+            let monthOpenDays = 0;
+            for (let d = 1; d <= daysInMonth; d++) {
+              const ds = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+              if ((dayPillsMap[ds] ?? []).length === 0 && activityCountForDay(ds) === 0 && !isDateInBlocks(ds, vacationBlocks)) monthOpenDays++;
+            }
+
+            // Set of open-streak days for styling
+            const openStreakDays = new Set<number>();
+            for (const streak of openStreaks) for (const d of streak) openStreakDays.add(d);
+
             return (
               <>
-              <div className="grid grid-cols-7 gap-1">
+              {/* Month stats */}
+              <p className="text-center text-[13px] text-[#8a8580] -mt-1 mb-2">
+                {monthLessonTotal} lesson{monthLessonTotal !== 1 ? "s" : ""} · {monthApptTotal} appointment{monthApptTotal !== 1 ? "s" : ""} · {monthOpenDays} open day{monthOpenDays !== 1 ? "s" : ""}
+              </p>
+              <div className="grid grid-cols-7 gap-[3px]">
                 {cells.map((day, idx) => {
-                  if (!day) return <div key={`empty-${idx}`} className="min-h-[48px]" />;
+                  if (!day) return <div key={`empty-${idx}`} className="min-h-[78px]" />;
                   const key = toDateStr(day);
                   const isToday = key === todayStr;
                   const isPast = day < todayMidnight && !isToday;
@@ -1514,6 +1586,9 @@ export default function PlanPage() {
                   const holiday = holidays[key];
                   const isPopoverOpen = monthPopoverDay === key;
                   const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                  const pills = dayPillsMap[key] ?? [];
+                  const allItems = pills.length + actCount;
+                  const isOpenStreak = openStreakDays.has(day.getDate());
 
                   let cellBg = "";
                   let cellBorder = "";
@@ -1522,15 +1597,13 @@ export default function PlanPage() {
                   } else if (isVacation) {
                     cellBg = "bg-[#fef3e0]";
                     cellBorder = "border border-[#f0c878]";
-                  } else if (holiday && totalItems === 0 && apptCount === 0) {
+                  } else if (isSelected) {
+                    cellBg = "bg-[#f0faf3]";
+                    cellBorder = "ring-2 ring-[#2D5A3D]";
+                  } else if (isOpenStreak) {
                     cellBg = "bg-[#fef9f0]";
-                  } else if (apptCount > 0 && totalItems === 0) {
-                    cellBg = "bg-[#f5f0ff]";
-                  } else if (totalItems > 0 || apptCount > 0) {
-                    cellBg = "bg-[#f0f7f2]";
-                  }
-                  if (isSelected && !isToday && !isVacation) {
-                    cellBorder = "ring-2 ring-[#2D5A3D] ring-inset";
+                  } else if (allItems === 0 && !holiday) {
+                    cellBg = "bg-[#fafaf8]";
                   }
 
                   return (
@@ -1540,39 +1613,45 @@ export default function PlanPage() {
                           setSelectedDay(key);
                           setMonthPopoverDay(isPopoverOpen ? null : key);
                         }}
-                        className={`w-full min-h-[48px] rounded-xl flex flex-col items-center justify-start py-2 px-1 cursor-pointer transition-colors ${cellBg} ${cellBorder}`}
+                        className={`w-full min-h-[78px] rounded-xl flex flex-col items-center justify-start p-1 cursor-pointer transition-colors ${cellBg} ${cellBorder}`}
                         style={{ opacity: isPast ? 0.75 : 1 }}
                       >
                         {/* Date number */}
-                        <span className={`text-[15px] leading-none ${
-                          isToday ? "text-white font-semibold"
-                            : isWeekend && totalItems === 0 ? "text-[#8B7E74] font-medium"
-                            : isPast ? "text-[#5C5346] font-medium"
-                            : "text-[#2D2A26] font-semibold"
-                        }`}>
-                          {day.getDate()}
-                        </span>
-                        {/* Indicators */}
-                        <div className="flex items-center justify-center gap-0.5 mt-1 min-h-[10px]">
+                        {isToday ? (
+                          <span className="bg-[#2D5A3D] text-white rounded-full w-6 h-6 inline-flex items-center justify-center text-[13px] font-medium">{day.getDate()}</span>
+                        ) : (
+                          <span className={`text-[13px] leading-none ${
+                            allItems > 0 ? "font-medium text-[#2D2A26]"
+                            : isWeekend ? "font-medium text-[#c4beb6]"
+                            : "font-medium text-[#c4beb6]"
+                          }`}>{day.getDate()}</span>
+                        )}
+                        {/* Event pills */}
+                        <div className="flex flex-col gap-[1px] mt-0.5 w-full">
                           {isVacation ? (
-                            <span className="text-[10px]">🌴</span>
-                          ) : (totalItems > 0 || apptCount > 0) && !isToday ? (
+                            <span className="text-[8px] text-center">🌴</span>
+                          ) : isOpenStreak && allItems === 0 ? (
+                            <span className="text-[8px] text-center opacity-40">☀️</span>
+                          ) : holiday && allItems === 0 ? (
+                            <span className="text-[8px] text-center">{holiday.split(" ")[0]}</span>
+                          ) : (
                             <>
-                              {totalItems > 0 && <span className="w-1.5 h-1.5 rounded-full bg-[#2D5A3D]" />}
-                              {apptCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-[#7C3AED]" />}
+                              {pills.slice(0, 3).map((p, pi) => (
+                                <span key={pi}
+                                  className={`text-[8px] font-medium px-1 py-[1.5px] rounded leading-tight truncate ${
+                                    p.type === "lesson" ? "bg-[#dcfce7] text-[#15803d]" : "bg-[#ede9fe] text-[#6d28d9]"
+                                  }`}
+                                  style={{ letterSpacing: "0.1px" }}>
+                                  {p.emoji} {p.name}
+                                </span>
+                              ))}
+                              {pills.length > 3 && (
+                                <span className="text-[7.5px] text-[#999] text-center font-medium">+{pills.length - 3}</span>
+                              )}
                             </>
-                          ) : (totalItems > 0 || apptCount > 0) && isToday ? (
-                            <>
-                              {totalItems > 0 && <span className="w-1.5 h-1.5 rounded-full bg-white/60" />}
-                              {apptCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-[#c4b5fd]" />}
-                            </>
-                          ) : holiday ? (
-                            <span className="text-[10px]">{holiday.split(" ")[0]}</span>
-                          ) : null}
+                          )}
                           {schoolYearMilestones[key] && !isVacation && (
-                            <span className="text-[8px] font-bold text-[#2D5A3D] leading-tight">
-                              {schoolYearMilestones[key].split(" ")[0]}
-                            </span>
+                            <span className="text-[7px] font-medium text-[#2D5A3D] text-center leading-tight">{schoolYearMilestones[key].split(" ")[0]}</span>
                           )}
                         </div>
                       </button>
@@ -1665,6 +1744,21 @@ export default function PlanPage() {
                   </p>
                 </div>
               )}
+
+              {/* Vacation streak callouts */}
+              {openStreaks.map((streak, si) => {
+                const mName = monthStart.toLocaleDateString("en-US", { month: "short" });
+                const suggestion = selfCareSuggestions[streak[0] % selfCareSuggestions.length];
+                return (
+                  <div key={si} className="mt-2 rounded-2xl p-3.5 flex items-start gap-3" style={{ background: "linear-gradient(to bottom right, #fffbeb, #fef3c7)", border: "1px solid #fde68a" }}>
+                    <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-xl" style={{ background: "linear-gradient(to bottom right, #fbbf24, #f59e0b)" }}>🌴</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#92400e]">{mName} {streak[0]}–{streak[streak.length - 1]} is wide open</p>
+                      <p className="text-xs text-[#b45309] mt-0.5">{streak.length} days free — {suggestion}</p>
+                    </div>
+                  </div>
+                );
+              })}
               </>
             );
           })()}
@@ -1681,23 +1775,47 @@ export default function PlanPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          SECTION — APPOINTMENTS FOR SELECTED DAY
+          SECTION — SELECTED DAY ITEMS (lessons + appointments)
       ══════════════════════════════════════════════════ */}
-      {viewMode === "month" && (monthApptMap[selectedDay] ?? []).length > 0 && (
-        <div className="mb-3">
-          <p className="text-[11px] font-medium uppercase tracking-wide mb-2 pl-1" style={{ color: "#7C3AED" }}>
-            Appointments
-          </p>
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
-            {(monthApptMap[selectedDay] ?? []).map((a) => (
-              <div key={`${a.id}-${a.instance_date}`} className={`flex items-center gap-3 px-4 py-2.5 ${a.completed ? "opacity-50" : ""}`}>
-                <span className="text-base shrink-0">{a.emoji}</span>
+      {viewMode === "month" && (() => {
+        const selLessons = monthLessonMap[selectedDay] ?? [];
+        const selAppts = monthApptMap[selectedDay] ?? [];
+        const selEmpty = selLessons.length === 0 && selAppts.length === 0;
+        const selSuggestions = ["Do absolutely nothing. You\u2019ve earned it.", "Self care day \u2014 no lessons, no guilt.", "Read a book. A real one. For you.", "Pajama day. The kids will love it too.", "Get outside. Even 20 minutes counts."];
+        const selDayNum = parseInt(selectedDay.split("-")[2]) || 1;
+        if (selEmpty && !isDateInBlocks(selectedDay, vacationBlocks)) return (
+          <div className="mb-3 rounded-2xl p-4 text-center" style={{ background: "linear-gradient(to bottom right, #fffbeb, #fef3c7)", border: "1px solid #fde68a" }}>
+            <span className="text-2xl">☀️</span>
+            <p className="text-sm font-medium text-[#92400e] mt-1">Wide open!</p>
+            <p className="text-xs text-[#b45309] mt-0.5">{selSuggestions[selDayNum % selSuggestions.length]}</p>
+          </div>
+        );
+        return (
+          <div className="mb-3 space-y-2">
+            {selLessons.map((l) => {
+              const goal = l.curriculum_goal_id ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) : null;
+              return (
+                <div key={l.id} className="flex items-center gap-3 px-4 py-2.5 rounded-xl" style={{ background: "linear-gradient(to bottom right, #eefbf0, #e0f8e6)", border: "1px solid #cef0d4" }}>
+                  <span className="text-xl shrink-0">{goal?.icon_emoji ?? "📚"}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[14px] font-medium text-[#2d2926] truncate">{goal?.curriculum_name ?? l.title}</span>
+                      <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#dcfce7] text-[#15803d]">Lesson</span>
+                    </div>
+                    {l.subjects?.name && <p className="text-xs text-[#7a6f65] mt-0.5">{l.subjects.name}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p>}
+                  </div>
+                </div>
+              );
+            })}
+            {selAppts.map((a) => (
+              <div key={`${a.id}-${a.instance_date}`} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl ${a.completed ? "opacity-50" : ""}`} style={{ background: "linear-gradient(to bottom right, #f5f0ff, #ede5ff)", border: "1px solid #e8deff" }}>
+                <span className="text-xl shrink-0">{a.emoji || "📅"}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={`text-sm font-medium truncate ${a.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>{a.title}</span>
-                    <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0" style={{ background: "#f5f0ff", color: "#7C3AED", border: "1px solid #c4b5fd" }}>Appt</span>
+                    <span className={`text-[14px] font-medium truncate ${a.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>{a.title}</span>
+                    <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#ede9fe] text-[#6d28d9]">Appt</span>
                   </div>
-                  <p className="text-xs text-[#7a6f65]">
+                  <p className="text-xs text-[#7a6f65] mt-0.5">
                     {a.time ? (() => { const [h, m] = a.time!.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; })() : "All day"}
                     {a.location && <span className="text-[#b5aca4]"> · 📍 {a.location}</span>}
                   </p>
@@ -1705,8 +1823,8 @@ export default function PlanPage() {
               </div>
             ))}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ══════════════════════════════════════════════════
           SECTION — CURRICULUM
