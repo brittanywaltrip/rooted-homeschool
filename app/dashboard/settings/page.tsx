@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Pencil, Trash2, Check, X, Plus, GripVertical, Camera, Sprout } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useProfile } from "@/lib/profile-context";
+import { canShareFamily } from "@/lib/user-access";
 import { posthog } from "@/lib/posthog";
 import { capitalizeName, capitalizeChildNames } from "@/lib/utils";
 
@@ -201,6 +202,7 @@ export default function SettingsPage() {
 
   // Subscription
   const [isPro,               setIsPro]               = useState(false);
+  const [trialStartedAt,      setTrialStartedAt]      = useState<string | null>(null);
   const [planType,            setPlanType]            = useState<string | null>(null);
   const [currentPeriodEnd,    setCurrentPeriodEnd]    = useState<string | null>(null);
   const [subscriptionStatus,  setSubscriptionStatus]  = useState<string | null>(null);
@@ -270,7 +272,7 @@ export default function SettingsPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status, first_name, last_name, school_start_time")
+      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status, first_name, last_name, school_start_time, trial_started_at")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -285,6 +287,7 @@ export default function SettingsPage() {
     setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
     setHomeschoolState((profile as { state?: string } | null)?.state ?? "");
     setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setTrialStartedAt((profile as any)?.trial_started_at ?? null);
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
     setCurrentPeriodEnd((profile as { current_period_end?: string } | null)?.current_period_end ?? null);
     setSubscriptionStatus((profile as { subscription_status?: string } | null)?.subscription_status ?? null);
@@ -1405,6 +1408,26 @@ export default function SettingsPage() {
           <span className="h-px flex-1 bg-[#e8e2d9]" />
         </div>
 
+        {!canShareFamily({ is_pro: isPro, trial_started_at: trialStartedAt }) ? (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center">
+            <div className="text-4xl mb-3">👨‍👩‍👧‍👦</div>
+            <h3 className="text-base font-bold text-[#2d2926] mb-2" style={{ fontFamily: "Georgia, serif" }}>
+              Share your journey with family
+            </h3>
+            <p className="text-sm text-[#7a6f65] leading-relaxed mb-1">
+              Invite grandma, your partner, or anyone who wants to follow along.
+            </p>
+            <p className="text-xs text-[#b5aca4] mb-5">
+              They&apos;ll see your memories, lessons, and garden — and can leave reactions.
+            </p>
+            <a
+              href="/upgrade"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#C4962A] hover:bg-[#a67d1f] text-white font-semibold text-sm transition-colors shadow-sm"
+            >
+              Upgrade to share 🌿
+            </a>
+          </div>
+        ) : (
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
           {/* Viewer count */}
           {(() => {
@@ -1585,6 +1608,7 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
+        )}
       </section>}
 
       {/* ── School Year ─────────────────────────────────────── */}
