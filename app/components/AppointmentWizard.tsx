@@ -8,10 +8,18 @@ import { supabase } from "@/lib/supabase";
 
 type Child = { id: string; name: string; color: string | null };
 
+export type EditableAppointment = {
+  id: string; title: string; emoji: string; date: string; time: string | null;
+  duration_minutes: number; location: string | null; notes: string | null;
+  child_ids: string[]; is_recurring: boolean;
+  recurrence_rule: { frequency: string; days: number[] } | null;
+};
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSaved: () => void;
+  editingAppointment?: EditableAppointment | null;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -68,7 +76,8 @@ function todayStr(): string {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function AppointmentWizard({ isOpen, onClose, onSaved }: Props) {
+export default function AppointmentWizard({ isOpen, onClose, onSaved, editingAppointment }: Props) {
+  const isEdit = !!editingAppointment;
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [children, setChildren] = useState<Child[]>([]);
 
@@ -105,13 +114,26 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved }: Props) {
         .eq("user_id", user.id).eq("archived", false).order("sort_order");
       setChildren(data ?? []);
     })();
-    // Reset state on open
-    setStep(1); setSelectedType(null); setEmoji("📅"); setTitle("");
-    setCustomEmoji(""); setCustomTitle(""); setDate(todayStr());
-    setAllDay(true); setTime(""); setDuration(60); setCustomDuration("");
-    setLocation(""); setJustMe(true); setChildIds([]); setIsRecurring(false);
-    setFrequency("weekly"); setDays([]); setNotes(""); setSaving(false); setSaved(false);
-  }, [isOpen]);
+    // Reset or pre-fill state on open
+    setSaving(false); setSaved(false);
+    const ea = editingAppointment;
+    if (ea) {
+      setStep(2); setSelectedType("Custom"); setEmoji(ea.emoji); setTitle(ea.title);
+      setCustomEmoji(ea.emoji); setCustomTitle(ea.title); setDate(ea.date);
+      setAllDay(!ea.time); setTime(ea.time ?? ""); setDuration(ea.duration_minutes);
+      setCustomDuration(""); setLocation(ea.location ?? "");
+      setJustMe(ea.child_ids.length === 0); setChildIds(ea.child_ids);
+      setIsRecurring(ea.is_recurring);
+      setFrequency((ea.recurrence_rule?.frequency as "weekly" | "biweekly" | "monthly") ?? "weekly");
+      setDays(ea.recurrence_rule?.days ?? []); setNotes(ea.notes ?? "");
+    } else {
+      setStep(1); setSelectedType(null); setEmoji("📅"); setTitle("");
+      setCustomEmoji(""); setCustomTitle(""); setDate(todayStr());
+      setAllDay(true); setTime(""); setDuration(60); setCustomDuration("");
+      setLocation(""); setJustMe(true); setChildIds([]); setIsRecurring(false);
+      setFrequency("weekly"); setDays([]); setNotes("");
+    }
+  }, [isOpen, editingAppointment]);
 
   if (!isOpen) return null;
 
@@ -146,19 +168,21 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved }: Props) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) { setSaving(false); return; }
+      const payload = {
+        ...(isEdit ? { id: editingAppointment!.id } : {}),
+        title, emoji, date,
+        time: allDay ? null : (time || null),
+        duration_minutes: effectiveDuration,
+        location: location.trim() || null,
+        notes: notes.trim() || null,
+        child_ids: justMe ? [] : childIds,
+        is_recurring: isRecurring,
+        recurrence_rule: isRecurring ? { frequency, days } : null,
+      };
       const res = await fetch("/api/appointments", {
-        method: "POST",
+        method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({
-          title, emoji, date,
-          time: allDay ? null : (time || null),
-          duration_minutes: effectiveDuration,
-          location: location.trim() || null,
-          notes: notes.trim() || null,
-          child_ids: justMe ? [] : childIds,
-          is_recurring: isRecurring,
-          recurrence_rule: isRecurring ? { frequency, days } : null,
-        }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         setSaved(true);
@@ -184,7 +208,7 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved }: Props) {
               Appt
             </span>
             <h2 className="text-base font-medium text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-              {step === 1 && "New appointment"}
+              {step === 1 && (isEdit ? "Edit appointment" : "New appointment")}
               {step === 2 && `${emoji} ${title}`}
               {step === 3 && "Review"}
             </h2>
@@ -403,7 +427,7 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved }: Props) {
                   <div className="flex flex-col gap-2">
                     <button onClick={handleSave} disabled={saving}
                       className="w-full py-3 rounded-xl text-white text-sm font-medium transition-colors disabled:opacity-50" style={{ background: ACCENT }}>
-                      {saving ? "Saving..." : "Save appointment"}
+                      {saving ? "Saving..." : isEdit ? "Save changes" : "Save appointment"}
                     </button>
                     <button onClick={() => setStep(2)} className="text-sm text-[#8B7E74] hover:text-[#2d2926] transition-colors text-center">&larr; Back</button>
                   </div>

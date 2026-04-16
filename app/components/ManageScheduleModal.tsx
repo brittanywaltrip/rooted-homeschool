@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { X, Plus, Trash2 } from "lucide-react";
+import { X, Plus, Trash2, Pencil } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import AppointmentWizard, { type EditableAppointment } from "./AppointmentWizard";
 
 const ACCENT = "#7C3AED";
 const ACCENT_BG = "#f5f0ff";
@@ -12,7 +13,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 type Child = { id: string; name: string; color: string | null };
 type Appointment = {
   id: string; title: string; emoji: string; date: string; time: string | null;
-  duration_minutes: number; location: string | null; child_ids: string[];
+  duration_minutes: number; location: string | null; notes: string | null; child_ids: string[];
   is_recurring: boolean; recurrence_rule: { frequency: string; days: number[] } | null;
   completed: boolean; instance_date?: string;
 };
@@ -66,6 +67,7 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; type: "appt" | "activity" } | null>(null);
+  const [editingAppt, setEditingAppt] = useState<EditableAppointment | null>(null);
 
   const loadAll = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -102,7 +104,15 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
     setLoading(false);
   }, []);
 
-  useEffect(() => { if (isOpen) { setTab("recurring"); loadAll(); } }, [isOpen, loadAll]);
+  useEffect(() => { if (isOpen) { setTab("recurring"); setEditingAppt(null); loadAll(); } }, [isOpen, loadAll]);
+
+  function openEditAppt(a: Appointment) {
+    setEditingAppt({
+      id: a.id, title: a.title, emoji: a.emoji, date: a.date, time: a.time,
+      duration_minutes: a.duration_minutes, location: a.location, notes: a.notes,
+      child_ids: a.child_ids, is_recurring: a.is_recurring, recurrence_rule: a.recurrence_rule,
+    });
+  }
 
   async function handleDelete(id: string, type: "appt" | "activity") {
     const { data: { session } } = await supabase.auth.getSession();
@@ -138,7 +148,7 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
     });
   }
 
-  function renderRow(item: { id: string; emoji: string; title: string; sub: string; badge: "appt" | "activity"; location?: string | null; childIds: string[]; type: "appt" | "activity" }) {
+  function renderRow(item: { id: string; emoji: string; title: string; sub: string; badge: "appt" | "activity"; location?: string | null; childIds: string[]; type: "appt" | "activity"; onEdit?: () => void }) {
     const isAppt = item.badge === "appt";
     const isDeleting = deleteConfirm?.id === item.id;
     return (
@@ -165,9 +175,16 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
               <button type="button" onClick={() => setDeleteConfirm(null)} className="text-[11px] text-[#7a6f65] px-2 py-1">Cancel</button>
             </>
           ) : (
-            <button type="button" onClick={() => setDeleteConfirm({ id: item.id, type: item.type })} className="w-7 h-7 rounded-full flex items-center justify-center text-[#c8c0b8] hover:text-red-400 hover:bg-red-50 transition-colors">
-              <Trash2 size={14} />
-            </button>
+            <>
+              {item.onEdit && (
+                <button type="button" onClick={item.onEdit} className="w-7 h-7 rounded-full flex items-center justify-center text-[#c8c0b8] hover:text-[#7C3AED] hover:bg-[#f5f0ff] transition-colors">
+                  <Pencil size={13} />
+                </button>
+              )}
+              <button type="button" onClick={() => setDeleteConfirm({ id: item.id, type: item.type })} className="w-7 h-7 rounded-full flex items-center justify-center text-[#c8c0b8] hover:text-red-400 hover:bg-red-50 transition-colors">
+                <Trash2 size={14} />
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -206,7 +223,7 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
                 <p className="text-sm text-[#b5aca4] text-center py-12">No recurring items yet</p>
               ) : (
                 <>
-                  {recurringAppts.map((a) => renderRow({ id: a.id, emoji: a.emoji, title: a.title, sub: freqLabel(a) + (a.time ? ` · ${formatTime12(a.time)}` : ""), badge: "appt", location: a.location, childIds: a.child_ids, type: "appt" }))}
+                  {recurringAppts.map((a) => renderRow({ id: a.id, emoji: a.emoji, title: a.title, sub: freqLabel(a) + (a.time ? ` · ${formatTime12(a.time)}` : ""), badge: "appt", location: a.location, childIds: a.child_ids, type: "appt", onEdit: () => openEditAppt(a) }))}
                   {activities.map((a) => renderRow({ id: a.id, emoji: a.emoji || "📝", title: a.name, sub: actFreqLabel(a) + (a.scheduled_start_time ? ` · ${formatTime12(a.scheduled_start_time)}` : "") + ` · ${a.duration_minutes >= 60 ? `${(a.duration_minutes / 60).toFixed(a.duration_minutes % 60 ? 1 : 0)} hr` : `${a.duration_minutes} min`}`, badge: "activity", location: null, childIds: a.child_ids, type: "activity" }))}
                 </>
               )}
@@ -216,7 +233,7 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
               {upcomingAppts.length === 0 ? (
                 <p className="text-sm text-[#b5aca4] text-center py-12">No upcoming appointments</p>
               ) : (
-                upcomingAppts.map((a) => renderRow({ id: a.id, emoji: a.emoji, title: a.title, sub: `${formatDateShort(a.instance_date ?? a.date)}${a.time ? ` · ${formatTime12(a.time)}` : " · All day"}`, badge: "appt", location: a.location, childIds: a.child_ids, type: "appt" }))
+                upcomingAppts.map((a) => renderRow({ id: a.id, emoji: a.emoji, title: a.title, sub: `${formatDateShort(a.instance_date ?? a.date)}${a.time ? ` · ${formatTime12(a.time)}` : " · All day"}`, badge: "appt", location: a.location, childIds: a.child_ids, type: "appt", onEdit: () => openEditAppt(a) }))
               )}
             </div>
           ) : (
@@ -248,6 +265,14 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
           </button>
         </div>
       </div>
+
+      {/* Edit wizard */}
+      <AppointmentWizard
+        isOpen={!!editingAppt}
+        onClose={() => setEditingAppt(null)}
+        onSaved={() => { setEditingAppt(null); onChanged(); loadAll(); }}
+        editingAppointment={editingAppt}
+      />
     </div>
   );
 }
