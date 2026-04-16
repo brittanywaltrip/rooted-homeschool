@@ -89,7 +89,8 @@ function AffiliateStatCell({ couponId, code, field, prefix = "" }: { couponId: s
       .then(d => setVal(d[field] ?? 0))
       .catch(() => setVal(0));
   }, [couponId, code, field]);
-  return <span className="text-[#2d2926] font-medium">{val === null ? "—" : `${prefix}${val}`}</span>;
+  const display = val === null ? "—" : field === "revenueDriven" ? `${prefix}${(val * 0.20).toFixed(2)}` : `${prefix}${val}`;
+  return <span className="text-[#2d2926] font-medium">{display}</span>;
 }
 
 function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string }) {
@@ -111,8 +112,8 @@ function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string 
         <p className="text-[10px] text-[#7a6f65]">Paying</p>
       </div>
       <div className="px-3 py-3 text-center">
-        <p className="text-lg font-bold text-[#2d2926]">${stats?.revenueDriven ?? '—'}</p>
-        <p className="text-[10px] text-[#7a6f65]">Revenue</p>
+        <p className="text-lg font-bold text-[#2d2926]">${stats ? ((stats.revenueDriven * 0.20).toFixed(2)) : '—'}</p>
+        <p className="text-[10px] text-[#7a6f65]">Earned</p>
       </div>
     </div>
   );
@@ -1883,8 +1884,8 @@ export default function SettingsPage() {
                       <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
                     </div>
                     <div className="px-3 py-4 text-center">
-                      <p className="text-2xl font-bold text-[#2d2926]">${previewStats?.revenueDriven ?? '—'}</p>
-                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Revenue driven</p>
+                      <p className="text-2xl font-bold text-[#2d2926]">${previewStats ? ((previewStats.revenueDriven * 0.20).toFixed(2)) : '—'}</p>
+                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Earned</p>
                     </div>
                   </div>
                   {/* QR Code */}
@@ -1927,7 +1928,7 @@ export default function SettingsPage() {
                     <th className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Referral Link</th>
                     <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Clicks</th>
                     <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Families</th>
-                    <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Revenue</th>
+                    <th className="text-right px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Earned</th>
                     <th className="text-center px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Status</th>
                     <th className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Since</th>
                   </tr>
@@ -1995,7 +1996,7 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-2 gap-2 text-xs text-[#7a6f65]">
                     <span>{aff.clicks ?? 0} clicks</span>
                     <span>Families: <AffiliateStatCell couponId={aff.stripe_coupon_id} code={aff.code} field="totalRedemptions" /></span>
-                    <span>Revenue: <AffiliateStatCell couponId={aff.stripe_coupon_id} code={aff.code} field="revenueDriven" prefix="$" /></span>
+                    <span>Earned: <AffiliateStatCell couponId={aff.stripe_coupon_id} code={aff.code} field="revenueDriven" prefix="$" /></span>
                     <span>Since {new Date(aff.created_at).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
                   </div>
                 </div>
@@ -2087,8 +2088,8 @@ export default function SettingsPage() {
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
               </div>
               <div className="px-3 py-4 text-center">
-                <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats?.revenueDriven ?? '—'}</p>
-                <p className="text-[11px] text-[#7a6f65] mt-0.5">Revenue driven</p>
+                <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats ? ((affiliateStats.revenueDriven * 0.20).toFixed(2)) : '—'}</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Earned</p>
               </div>
             </div>
 
