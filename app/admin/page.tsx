@@ -662,7 +662,7 @@ export default function AdminPage() {
                 {(() => {
                   const maxCount = Math.max(...data.activityChart14.map(d => d.count), 1);
                   return data.activityChart14.map((d) => {
-                    const barH = Math.max(Math.round((d.count / maxCount) * 120), d.count > 0 ? 4 : 1);
+                    const barH = Math.max(Math.round((d.count / maxCount) * 130), d.count > 0 ? 4 : 1);
                     const dayLabel = new Date(d.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "narrow" });
                     const isToday = d.date === todayStr;
                     return (

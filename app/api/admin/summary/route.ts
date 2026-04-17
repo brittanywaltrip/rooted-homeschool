@@ -10,6 +10,21 @@ import Stripe from "stripe";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
+const TEST_EMAIL_PATTERNS = ["rooted.", "test", "finalpass", "mobiletest", "finaltest"];
+const TEST_EMAILS_EXACT = [
+  "garfieldbrittany@gmail.com",
+  "zoereywaltrip@gmail.com",
+  "brittanywaltrip20@gmail.com",
+  "het787@gmail.com",
+  "wovapi4416@lxbeta.com",
+];
+
+function isTestEmail(email: string): boolean {
+  const lower = email.toLowerCase();
+  if (TEST_EMAILS_EXACT.includes(lower)) return true;
+  return TEST_EMAIL_PATTERNS.some(p => lower.includes(p));
+}
+
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -441,13 +456,14 @@ export async function GET(req: Request) {
     usedVacation:   totalProfiles > 0 ? Math.round((vacationByUser.size  / totalProfiles) * 100) : 0,
   };
 
-  // 30-day signup trend — bucket allUsers by day
+  // 30-day signup trend — bucket real users (no test accounts) by day
+  const realUsers = allUsers.filter(u => !isTestEmail(u.email ?? ""));
   const signupTrend: { date: string; count: number }[] = [];
   for (let i = 29; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const ds = d.toISOString().split("T")[0];
-    const count = allUsers.filter(u => u.created_at.startsWith(ds)).length;
+    const count = realUsers.filter(u => u.created_at.startsWith(ds)).length;
     signupTrend.push({ date: ds, count });
   }
 
@@ -460,14 +476,16 @@ export async function GET(req: Request) {
     .filter(p => p.is_pro)
     .map(p => {
       const lastActive = getLastActive(p.id);
+      const email = allUsers.find(u => u.id === p.id)?.email ?? "";
       return {
         name: p.display_name || p.first_name || "Unknown",
-        email: allUsers.find(u => u.id === p.id)?.email ?? "",
+        email,
         lastActive,
         plan: p.plan_type === "founding_family" ? "Founding" : "Standard",
       };
     })
     .filter(u => !u.lastActive || u.lastActive < sevenDaysAgoStr)
+    .filter(u => !isTestEmail(u.email))
     .sort((a, b) => (a.lastActive ?? "").localeCompare(b.lastActive ?? ""));
 
   // New user first-week health — signups in last 7 days
