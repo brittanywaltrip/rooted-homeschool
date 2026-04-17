@@ -33,13 +33,13 @@ export const metadata: Metadata = {
     url: "https://rootedhomeschoolapp.com",
     siteName: "Rooted",
     type: "website",
-    images: ['https://rootedhomeschoolapp.com/images/og-image.png?v=2'],
+    images: ['https://rootedhomeschoolapp.com/images/og-image.png?v=3'],
   },
   twitter: {
     card: "summary_large_image",
     title: "Rooted",
     description: "Capture. Plan. Remember. — Rooted is the homeschool companion that helps you plan your days, capture the moments, and hold onto it all.",
-    images: ['https://rootedhomeschoolapp.com/images/og-image.png?v=2'],
+    images: ['https://rootedhomeschoolapp.com/images/og-image.png?v=3'],
   },
   appleWebApp: {
     capable: true,
