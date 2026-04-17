@@ -150,8 +150,7 @@ export default function AdminPartnersPage() {
     await loadData(token);
   }
 
-  async function toggleActive(e: React.MouseEvent, id: string, active: boolean) {
-    e.stopPropagation();
+  async function toggleActive(id: string, active: boolean) {
     await supabase.from("affiliates").update({ is_active: !active }).eq("id", id);
     setAffiliates((prev) => prev.map((a) => (a.id === id ? { ...a, is_active: !active } : a)));
   }
@@ -212,101 +211,97 @@ export default function AdminPartnersPage() {
   return (
     <div className="min-h-screen bg-[#2d3e30]">
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-[var(--g-deep)] border-b border-[#4e7055] px-6 py-4 flex items-center gap-4">
+      <div className="sticky top-0 z-50 bg-[var(--g-deep)] border-b border-[#4e7055] px-4 sm:px-6 py-4 flex items-center gap-4">
         <img src="/rooted-logo-white.png" alt="Rooted" style={{ height: '32px', width: 'auto' }} />
         <div>
           <Link href="/admin" className="text-xs text-[#a8c5a0] hover:text-[#fefcf9] transition-colors">← Back to admin</Link>
-          <h1 className="text-xl font-medium text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>Partner Management</h1>
+          <h1 className="text-lg sm:text-xl font-medium text-[#fefcf9]" style={{ fontFamily: "var(--font-display)" }}>Partner Management</h1>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-5 py-8 space-y-10">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8">
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <StatCard label="Active Partners" value={affiliates.filter((a) => a.is_active).length} />
-          <StatCard label="Total Clicks" value={affiliates.reduce((s, a) => s + (a.clicks ?? 0), 0)} />
-          <StatCard label="Pending Apps" value={pendingApps.length} />
-          <StatCard label="Paying Conversions" value={referrals.filter((r) => r.converted).length} />
-          <StatCard label="Commission Owed" value={`$${netOwed.toFixed(2)}`} />
+          <StatCard label="Active" value={affiliates.filter((a) => a.is_active).length} />
+          <StatCard label="Clicks" value={affiliates.reduce((s, a) => s + (a.clicks ?? 0), 0)} />
+          <StatCard label="Pending" value={pendingApps.length} highlight={pendingApps.length > 0} />
+          <StatCard label="Conversions" value={referrals.filter((r) => r.converted).length} />
+          <StatCard label="Owed" value={`$${netOwed.toFixed(2)}`} />
         </div>
 
         {/* ── Pending Applications ──────────────────────────────────────── */}
         {pendingApps.length > 0 && (
           <section>
             <SectionHeader emoji="📬" title={`Pending Applications (${pendingApps.length})`} />
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[#e8e2d9]">
-                    {["Name", "Email", "Rooted Account", "Social", "Audience", "Applied"].map((h) => (
-                      <th key={h} className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {pendingApps.map((app) => {
-                    const isExpanded = expandedAppId === app.id;
-                    return (
-                      <React.Fragment key={app.id}>
-                        <tr
-                          onClick={() => setExpandedAppId(isExpanded ? null : app.id)}
-                          className={`border-b border-[#f0ede8] cursor-pointer transition-colors ${isExpanded ? "bg-[#f0f7f1]" : "hover:bg-[#f8f7f4]"}`}
-                        >
-                          <td className="px-4 py-3 font-medium text-[#2d2926]">{app.first_name} {app.last_name}</td>
-                          <td className="px-4 py-3 text-xs text-[#7a6f65]">{app.email}</td>
-                          <td className="px-4 py-3 text-xs text-[#7a6f65]">{app.rooted_account_email || (app.has_rooted_account ? "Yes" : "\u2014")}</td>
-                          <td className="px-4 py-3 text-xs text-[#5c7f63]">{app.social_handle ?? "\u2014"}</td>
-                          <td className="px-4 py-3 text-xs text-[#7a6f65]">{app.audience_size ?? "\u2014"}</td>
-                          <td className="px-4 py-3 text-xs text-[#7a6f65]">
+            <div className="space-y-3">
+              {pendingApps.map((app) => {
+                const isExpanded = expandedAppId === app.id;
+                return (
+                  <div key={app.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+                    <button
+                      onClick={() => setExpandedAppId(isExpanded ? null : app.id)}
+                      className={`w-full text-left px-4 py-4 transition-colors ${isExpanded ? "bg-[#f0f7f1]" : "hover:bg-[#f8f7f4]"}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[#2d2926]">{app.first_name} {app.last_name}</p>
+                          <p className="text-xs text-[#7a6f65] mt-0.5">{app.email}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="inline-block px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider bg-amber-100 text-amber-700 rounded-full">Pending</span>
+                          <p className="text-[10px] text-[#b5aca4] mt-1">
                             {new Date(app.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                          </td>
-                        </tr>
-                        {isExpanded && (
-                          <tr>
-                            <td colSpan={6} className="bg-[#faf8f4] border-b border-[#e8e2d9] px-5 py-5">
-                              {/* Why Rooted */}
-                              <div className="mb-4">
-                                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Why they want to partner</p>
-                                <p className="text-sm text-[#2d2926] leading-relaxed bg-white border border-[#e8e2d9] rounded-lg px-4 py-3">
-                                  {app.why_rooted || app.about_journey || "No response"}
-                                </p>
-                              </div>
-                              {app.paypal_email && (
-                                <p className="text-xs text-[#7a6f65] mb-4">PayPal: <span className="text-[#2d2926]">{app.paypal_email}</span></p>
-                              )}
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setApproveApp(app);
-                                    setApproveDraft({
-                                      code: "",
-                                      stripeCouponId: "",
-                                      stripeApiId: "",
-                                      commissionRate: 20,
-                                      paypalEmail: app.paypal_email ?? "",
-                                    });
-                                  }}
-                                  className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white rounded-lg transition-colors"
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setRejectApp(app); setRejectNotes(""); }}
-                                  className="px-4 py-2 text-xs font-semibold text-[#8b3a3a] hover:text-[#6b2a2a] border border-[#e8e2d9] rounded-lg transition-colors"
-                                >
-                                  Reject
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
+                          </p>
+                        </div>
+                      </div>
+                      {/* Quick details row */}
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                        {app.social_handle && <Detail label="Social" value={app.social_handle} />}
+                        {app.audience_size && <Detail label="Audience" value={app.audience_size} />}
+                        <Detail label="Rooted account" value={app.rooted_account_email || (app.has_rooted_account ? "Yes" : "No")} />
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="border-t border-[#e8e2d9] px-4 py-4 bg-[#faf8f4] space-y-4">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Why they want to partner</p>
+                          <p className="text-sm text-[#2d2926] leading-relaxed bg-white border border-[#e8e2d9] rounded-lg px-4 py-3">
+                            {app.why_rooted || app.about_journey || "No response"}
+                          </p>
+                        </div>
+                        {app.paypal_email && (
+                          <p className="text-xs text-[#7a6f65]">PayPal: <span className="text-[#2d2926] font-medium">{app.paypal_email}</span></p>
                         )}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setApproveApp(app);
+                              setApproveDraft({
+                                code: "",
+                                stripeCouponId: "",
+                                stripeApiId: "",
+                                commissionRate: 20,
+                                paypalEmail: app.paypal_email ?? "",
+                              });
+                            }}
+                            className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white rounded-lg transition-colors"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => { setRejectApp(app); setRejectNotes(""); }}
+                            className="px-4 py-2 text-xs font-semibold text-[#8b3a3a] hover:text-[#6b2a2a] border border-[#e8e2d9] rounded-lg transition-colors"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}
@@ -314,95 +309,108 @@ export default function AdminPartnersPage() {
         {/* ── Partner Roster ────────────────────────────────────────────── */}
         <section>
           <SectionHeader emoji="🤝" title="Partner Roster" />
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[#e8e2d9]">
-                  {["Name", "Code", "Account", "Clicks", "Signups", "Paying", "Owed", "Paid", "Status"].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {affiliates.map((a) => {
-                  const isExpanded = expandedCode === a.code;
-                  const owed = Math.max(0, a.commission_owed - a.total_paid);
-                  const refLink = `rootedhomeschoolapp.com/upgrade?ref=${a.code}`;
-                  return (
-                    <React.Fragment key={a.id}>
-                      <tr onClick={() => toggleRow(a)} className={`border-b border-[#f0ede8] cursor-pointer transition-colors ${isExpanded ? "bg-[#f0f7f1]" : "hover:bg-[#f8f7f4]"}`}>
-                        <td className="px-4 py-3 font-medium text-[#2d2926]">{a.name}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{a.code}</td>
-                        <td className="px-4 py-3 text-xs text-[#7a6f65]">{a.account_email ?? "\u2014"}</td>
-                        <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.clicks}</td>
-                        <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.signups_referred}</td>
-                        <td className="px-4 py-3 text-center font-medium text-[#2d2926]">{a.paying_customers}</td>
-                        <td className="px-4 py-3 font-medium text-[#2d2926]">${owed.toFixed(2)}</td>
-                        <td className="px-4 py-3 text-xs text-[#7a6f65]">${a.total_paid.toFixed(2)}</td>
-                        <td className="px-4 py-3">
-                          <button onClick={(e) => toggleActive(e, a.id, a.is_active)}
-                            className={`text-xs font-semibold px-3 py-1 rounded-full transition-colors ${a.is_active ? "bg-[#e8f0e9] text-[var(--g-brand)]" : "bg-[#f5e6e6] text-[#8b3a3a]"}`}>
-                            {a.is_active ? "Active" : "Inactive"}
-                          </button>
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={9} className="bg-[#faf8f4] border-b border-[#e8e2d9] px-5 py-5">
-                            <div className="space-y-5">
-                              <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Referral link</p>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm text-[#5c7f63] font-mono">{refLink}</span>
-                                  <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`https://${refLink}`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                                    className="text-xs font-semibold text-[#5c7f63] hover:text-[var(--g-brand)]">{copied ? "Copied" : "Copy"}</button>
-                                </div>
-                              </div>
-                              <div>
-                                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-2">Edit details</p>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-                                  <div>
-                                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Contact email</label>
-                                    <input type="email" value={editDraft.contact_email} onClick={(e) => e.stopPropagation()}
-                                      onChange={(e) => setEditDraft((d) => ({ ...d, contact_email: e.target.value }))} className={IC} />
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">PayPal email</label>
-                                    <input type="email" value={editDraft.paypal_email} onClick={(e) => e.stopPropagation()}
-                                      onChange={(e) => setEditDraft((d) => ({ ...d, paypal_email: e.target.value }))} className={IC} />
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Notes</label>
-                                    <input type="text" value={editDraft.notes} onClick={(e) => e.stopPropagation()}
-                                      onChange={(e) => setEditDraft((d) => ({ ...d, notes: e.target.value }))} className={IC} placeholder="Internal notes..." />
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <button onClick={(e) => { e.stopPropagation(); saveEdit(); }} disabled={saving}
-                                    className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-lg transition-colors">
-                                    {saving ? "Saving..." : "Save"}</button>
-                                  <button onClick={(e) => { e.stopPropagation(); setExpandedCode(null); }}
-                                    className="px-4 py-2 text-xs font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-lg">Cancel</button>
-                                  {owed > 0 && (
-                                    <button onClick={(e) => { e.stopPropagation(); setPayModal(a); }}
-                                      className="ml-auto px-4 py-2 text-xs font-semibold bg-[#6366f1] hover:bg-[#4338ca] text-white rounded-lg transition-colors">
-                                      Pay ${owed.toFixed(2)}</button>
-                                  )}
-                                  {a.contact_email && (
-                                    <a href={`mailto:${a.contact_email}`} onClick={(e) => e.stopPropagation()}
-                                      className="px-4 py-2 text-xs font-semibold text-[#5c7f63] border border-[#e8e2d9] rounded-lg">Email</a>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="space-y-3">
+            {affiliates.map((a) => {
+              const isExpanded = expandedCode === a.code;
+              const owed = Math.max(0, a.commission_owed - a.total_paid);
+              const refLink = `rootedhomeschoolapp.com/upgrade?ref=${a.code}`;
+              return (
+                <div key={a.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
+                  <button
+                    onClick={() => toggleRow(a)}
+                    className={`w-full text-left px-4 py-4 transition-colors ${isExpanded ? "bg-[#f0f7f1]" : "hover:bg-[#f8f7f4]"}`}
+                  >
+                    {/* Name + status row */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-[#2d2926]">{a.name}</p>
+                          <span className="font-mono text-xs text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">{a.code}</span>
+                        </div>
+                        <p className="text-xs text-[#7a6f65] mt-0.5">{a.account_email ?? a.contact_email ?? "—"}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${a.is_active ? "bg-[#e8f0e9] text-[var(--g-brand)]" : "bg-[#f5e6e6] text-[#8b3a3a]"}`}>
+                          {a.is_active ? "Active" : "Inactive"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Stats row */}
+                    <div className="grid grid-cols-4 gap-2 mt-3 bg-[#f8f7f4] rounded-xl px-3 py-2.5">
+                      <MiniStat label="Clicks" value={a.clicks} />
+                      <MiniStat label="Signups" value={a.signups_referred} />
+                      <MiniStat label="Paying" value={a.paying_customers} accent />
+                      <MiniStat label="Owed" value={`$${owed.toFixed(0)}`} accent={owed > 0} />
+                    </div>
+                  </button>
+
+                  {/* Expanded details */}
+                  {isExpanded && (
+                    <div className="border-t border-[#e8e2d9] px-4 py-4 bg-[#faf8f4] space-y-4">
+                      {/* Referral link */}
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Referral link</p>
+                        <div className="flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-lg px-3 py-2">
+                          <span className="text-xs text-[#5c7f63] font-mono truncate flex-1">{refLink}</span>
+                          <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`https://${refLink}`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                            className="text-xs font-semibold text-[#5c7f63] hover:text-[var(--g-brand)] shrink-0">{copied ? "Copied!" : "Copy"}</button>
+                        </div>
+                      </div>
+
+                      {/* Paid so far */}
+                      <div className="flex items-center gap-3 text-xs text-[#7a6f65]">
+                        <span>Total paid: <b className="text-[#2d2926]">${a.total_paid.toFixed(2)}</b></span>
+                        <span>Commission rate: <b className="text-[#2d2926]">{a.commission_rate ?? 20}%</b></span>
+                      </div>
+
+                      {/* Edit fields */}
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-2">Edit details</p>
+                        <div className="space-y-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Contact email</label>
+                            <input type="email" value={editDraft.contact_email}
+                              onChange={(e) => setEditDraft((d) => ({ ...d, contact_email: e.target.value }))} className={IC} />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">PayPal email</label>
+                            <input type="email" value={editDraft.paypal_email}
+                              onChange={(e) => setEditDraft((d) => ({ ...d, paypal_email: e.target.value }))} className={IC} />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Notes</label>
+                            <input type="text" value={editDraft.notes}
+                              onChange={(e) => setEditDraft((d) => ({ ...d, notes: e.target.value }))} className={IC} placeholder="Internal notes..." />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => saveEdit()} disabled={saving}
+                          className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-lg transition-colors">
+                          {saving ? "Saving..." : "Save"}</button>
+                        <button onClick={() => setExpandedCode(null)}
+                          className="px-4 py-2 text-xs font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-lg">Cancel</button>
+                        <button onClick={() => toggleActive(a.id, a.is_active)}
+                          className={`px-4 py-2 text-xs font-semibold border rounded-lg transition-colors ${a.is_active ? "text-[#8b3a3a] border-[#f5e6e6] hover:bg-[#fef2f2]" : "text-[#5c7f63] border-[#d4ead6] hover:bg-[#f0f7f1]"}`}>
+                          {a.is_active ? "Deactivate" : "Reactivate"}</button>
+                        {owed > 0 && (
+                          <button onClick={() => setPayModal(a)}
+                            className="px-4 py-2 text-xs font-semibold bg-[#6366f1] hover:bg-[#4338ca] text-white rounded-lg transition-colors">
+                            Pay ${owed.toFixed(2)}</button>
+                        )}
+                        {a.contact_email && (
+                          <a href={`mailto:${a.contact_email}`}
+                            className="px-4 py-2 text-xs font-semibold text-[#5c7f63] border border-[#e8e2d9] rounded-lg">Email</a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
 
@@ -414,29 +422,26 @@ export default function AdminPartnersPage() {
               <p className="text-sm text-[#7a6f65]">No referral conversions yet.</p>
             </div>
           ) : (
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b border-[#e8e2d9]">
-                  {["Date", "Customer", "Affiliate", "Plan", "Commission"].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">{h}</th>
-                  ))}
-                </tr></thead>
-                <tbody>
-                  {referrals.map((r) => (
-                    <tr key={r.id} className="border-b border-[#f0ede8] last:border-0">
-                      <td className="px-4 py-3 text-xs text-[#7a6f65]">{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
-                      <td className="px-4 py-3 font-medium text-[#2d2926]">{r.user_name}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{r.affiliate_code}</td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65]">{r.user_plan === "founding_family" ? "Founding ($39/yr)" : r.user_plan === "standard" ? "Standard ($59/yr)" : r.user_plan === "monthly" ? "Monthly ($6.99/mo)" : r.user_plan}</td>
-                      <td className="px-4 py-3 font-medium text-[#2d2926]">
-                        {r.converted
-                          ? `$${(((r.user_plan === "monthly" ? 7.99 : r.user_plan === "standard" ? 49 : 39) * 0.85) * 0.20).toFixed(2)}`
-                          : "$0"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-2">
+              {referrals.map((r) => {
+                const planLabel = r.user_plan === "founding_family" ? "Founding ($39/yr)" : r.user_plan === "standard" ? "Standard ($59/yr)" : r.user_plan === "monthly" ? "Monthly ($6.99/mo)" : r.user_plan;
+                const commission = r.converted
+                  ? `$${(((r.user_plan === "monthly" ? 7.99 : r.user_plan === "standard" ? 49 : 39) * 0.85) * 0.20).toFixed(2)}`
+                  : "$0";
+                return (
+                  <div key={r.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-[#2d2926]">{r.user_name}</p>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                        <span className="text-[11px] text-[#7a6f65]">{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                        <span className="text-[11px] font-mono text-[#5c7f63]">{r.affiliate_code}</span>
+                        <span className="text-[11px] text-[#7a6f65]">{planLabel}</span>
+                      </div>
+                    </div>
+                    <p className="text-sm font-bold text-[#2d2926] shrink-0">{commission}</p>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
@@ -449,26 +454,23 @@ export default function AdminPartnersPage() {
               <p className="text-sm text-[#7a6f65]">No payments recorded yet.</p>
             </div>
           ) : (
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b border-[#e8e2d9]">
-                  {["Date", "Affiliate", "Amount", "Month", "PayPal", "Notes"].map((h) => (
-                    <th key={h} className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">{h}</th>
-                  ))}
-                </tr></thead>
-                <tbody>
-                  {payments.map((p) => (
-                    <tr key={p.id} className="border-b border-[#f0ede8] last:border-0">
-                      <td className="px-4 py-3 text-xs text-[#7a6f65]">{new Date(p.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-[#5c7f63]">{p.affiliate_code}</td>
-                      <td className="px-4 py-3 font-medium text-[#2d2926]">${Number(p.amount).toFixed(2)}</td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65]">{p.month}</td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65]">{p.paypal_email ?? "\u2014"}</td>
-                      <td className="px-4 py-3 text-xs text-[#7a6f65]">{p.notes ?? "\u2014"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-2">
+              {payments.map((p) => (
+                <div key={p.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-mono text-[#5c7f63]">{p.affiliate_code}</span>
+                      <span className="text-[11px] text-[#7a6f65]">{p.month}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                      <span className="text-[11px] text-[#7a6f65]">{new Date(p.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                      {p.paypal_email && <span className="text-[11px] text-[#7a6f65]">→ {p.paypal_email}</span>}
+                      {p.notes && <span className="text-[11px] text-[#b5aca4] italic">{p.notes}</span>}
+                    </div>
+                  </div>
+                  <p className="text-sm font-bold text-[#2d2926] shrink-0">${Number(p.amount).toFixed(2)}</p>
+                </div>
+              ))}
             </div>
           )}
         </section>
@@ -555,18 +557,35 @@ export default function AdminPartnersPage() {
 
 // ─── Shared UI ───────────────────────────────────────────────────────────────
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
+function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-1">{label}</p>
-      <p className="text-2xl font-bold text-[#2d2926] leading-none">{value}</p>
+    <span className="text-[11px] text-[#7a6f65]">
+      <span className="text-[#b5aca4]">{label}:</span> {value}
+    </span>
+  );
+}
+
+function MiniStat({ label, value, accent }: { label: string; value: string | number; accent?: boolean }) {
+  return (
+    <div className="text-center">
+      <p className={`text-base font-bold leading-none ${accent ? "text-[var(--g-deep)]" : "text-[#2d2926]"}`}>{value}</p>
+      <p className="text-[10px] text-[#7a6f65] mt-0.5">{label}</p>
+    </div>
+  );
+}
+
+function StatCard({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
+  return (
+    <div className={`border rounded-2xl px-4 py-3 ${highlight ? "bg-amber-50 border-amber-200" : "bg-[#fefcf9] border-[#e8e2d9]"}`}>
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">{label}</p>
+      <p className={`text-xl font-bold leading-none ${highlight ? "text-amber-700" : "text-[#2d2926]"}`}>{value}</p>
     </div>
   );
 }
 
 function SectionHeader({ emoji, title }: { emoji: string; title: string }) {
   return (
-    <div className="flex items-center gap-2 mb-4">
+    <div className="flex items-center gap-2 mb-3">
       <span className="text-lg">{emoji}</span>
       <h2 className="text-base font-bold text-[#fefcf9]">{title}</h2>
     </div>
@@ -575,8 +594,8 @@ function SectionHeader({ emoji, title }: { emoji: string; title: string }) {
 
 function Modal({ onClose, title, children }: { onClose: () => void; title: string; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 max-w-md mx-4 shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 sm:p-6 max-w-md w-full shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>{title}</h3>
         {children}
       </div>
