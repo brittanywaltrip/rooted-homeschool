@@ -224,7 +224,7 @@ export default function SettingsPage() {
   const [deleteError,      setDeleteError]      = useState("");
 
   // Affiliate / Ambassador
-  const [affiliateData, setAffiliateData] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number } | null>(null);
+  const [affiliateData, setAffiliateData] = useState<{ name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number } | null>(null);
   const [affiliateStats, setAffiliateStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
   const [copiedToast, setCopiedToast] = useState<string | false>(false);
   const [refreshingAffiliate, setRefreshingAffiliate] = useState(false);
@@ -305,11 +305,11 @@ export default function SettingsPage() {
     // Load affiliate data if exists
     const { data: affData } = await supabase
       .from("affiliates")
-      .select("code, stripe_coupon_id, is_active, created_at, clicks")
+      .select("name, code, stripe_coupon_id, is_active, created_at, clicks")
       .eq("user_id", user.id)
       .maybeSingle();
     if (affData) {
-      setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
+      setAffiliateData(affData as { name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
       // Load commission payments for this affiliate
       const { data: pmts } = await supabase
         .from("commission_payments")
@@ -454,11 +454,11 @@ export default function SettingsPage() {
     if (!user) { setRefreshingAffiliate(false); return; }
     const { data: affData } = await supabase
       .from("affiliates")
-      .select("code, stripe_coupon_id, is_active, created_at, clicks")
+      .select("name, code, stripe_coupon_id, is_active, created_at, clicks")
       .eq("user_id", user.id)
       .maybeSingle();
     if (affData) {
-      setAffiliateData(affData as { code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
+      setAffiliateData(affData as { name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
       try {
         const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(affData.code)}`);
         const stats = await r.json();
@@ -1889,6 +1889,7 @@ export default function SettingsPage() {
                     <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Your Code</p>
                     <div className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full">
                       <span className="text-lg font-bold text-[#4338ca] tracking-widest font-mono flex-1">{previewAffiliate.code}</span>
+                      <span className="text-xs text-[#6366f1]">Tap to copy</span>
                     </div>
                   </div>
                   {/* Referral link */}
@@ -1896,6 +1897,7 @@ export default function SettingsPage() {
                     <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-1">Your Referral Link</p>
                     <div className="flex items-center gap-2 bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 w-full">
                       <span className="text-sm text-[#4338ca] flex-1 truncate">rootedhomeschoolapp.com/?ref={previewAffiliate.code}</span>
+                      <span className="text-xs text-[#6366f1] shrink-0">Tap to copy</span>
                     </div>
                   </div>
                   {/* Stats */}
@@ -1932,6 +1934,64 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     <p className="text-[10px] text-[#6366f1] text-center mt-2">Screenshot to share anywhere</p>
+                  </div>
+                  {/* Earnings */}
+                  <div>
+                    <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your Earnings</p>
+                    {(previewStats?.revenueDriven ?? 0) > 0 && (
+                      <div className="bg-[#fef9ee] border border-[#f0d68a] rounded-xl px-4 py-3 text-center mb-3">
+                        <p className="text-2xl font-bold text-[#b8860b]">${((previewStats?.revenueDriven ?? 0) * 0.20).toFixed(2)}</p>
+                        <p className="text-[10px] text-[#7a6f65] mt-0.5">Estimated commission (20%)</p>
+                        <p className="text-[9px] text-[#a09080] mt-1">Payouts processed on the 1st of each month</p>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
+                        <p className="text-2xl font-bold text-[var(--g-deep)]">$0.00</p>
+                        <p className="text-[10px] text-[#7a6f65] mt-0.5">This month</p>
+                      </div>
+                      <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
+                        <p className="text-2xl font-bold text-[#2d2926]">$0.00</p>
+                        <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time earnings</p>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Download cards */}
+                  <div>
+                    <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Download Your Cards</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
+                          const { cardHtml } = await res.json();
+                          const blob = new Blob([cardHtml], { type: 'text/html' });
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(blob);
+                          a.download = `${previewAffiliate.code}_card.html`;
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
+                      >
+                        🖨️ Print card
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
+                          const { shareHtml } = await res.json();
+                          const blob = new Blob([shareHtml], { type: 'text/html' });
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(blob);
+                          a.download = `${previewAffiliate.code}_share.html`;
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
+                      >
+                        📱 Share card
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-[#a0a0b8] text-center mt-2">Open in Chrome and print to PDF for best results</p>
                   </div>
                   {/* Partner since */}
                   <p className="text-xs text-[#6366f1] text-center">
@@ -2201,7 +2261,7 @@ export default function SettingsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={async () => {
-                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
+                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
                     const { cardHtml } = await res.json();
                     const blob = new Blob([cardHtml], { type: 'text/html' });
                     const a = document.createElement('a');
@@ -2216,7 +2276,7 @@ export default function SettingsPage() {
                 </button>
                 <button
                   onClick={async () => {
-                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.code)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
+                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
                     const { shareHtml } = await res.json();
                     const blob = new Blob([shareHtml], { type: 'text/html' });
                     const a = document.createElement('a');

@@ -242,6 +242,9 @@ function UpgradePageInner() {
                   ⏳ {countdown}
                 </p>
               )}
+              <p className="text-[#7a6f65] text-xs mt-1">
+                After April 30, Rooted+ is $59/yr. Lock in $39 — yours forever.
+              </p>
             </div>
 
             <ul className="space-y-2 mb-6 flex-1">

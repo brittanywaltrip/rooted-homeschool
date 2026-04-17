@@ -151,7 +151,8 @@ export default function DashboardPricingPage() {
               Your current plan
             </span>
           )}
-          <p className="text-xs text-[#5c7f63] mb-4 leading-relaxed">Founding Family pricing — locked in forever.</p>
+          <p className="text-xs text-[#5c7f63] mb-1 leading-relaxed">Founding Family pricing — locked in forever.</p>
+          <p className="text-[#7a6f65] text-xs mb-4">After April 30, Rooted+ is $59/yr.</p>
           <div className="mb-5">
             <span className="text-3xl font-bold text-[#2d2926]">$39</span>
             <span className="text-sm text-[#7a6f65]">/yr</span>

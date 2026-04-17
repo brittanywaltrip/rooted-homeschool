@@ -779,7 +779,7 @@ function HomeInner() {
                 {[
                   { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook — a living record of their whole learning life." },
                   { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles — anyone you choose. They can view memories and leave messages for the kids. No app download needed." },
-                  { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
+                  { emoji: "📋", title: "View anytime, print coming soon", desc: "Clean, professional layout — view your yearbook on screen anytime. Print option coming soon!" },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-xl bg-[#f5ede0] flex items-center justify-center text-lg shrink-0 mt-0.5">

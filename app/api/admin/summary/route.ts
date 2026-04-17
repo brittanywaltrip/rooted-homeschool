@@ -34,9 +34,20 @@ export async function GET(req: Request) {
   const yesterdayMidnight = new Date(todayMidnight);
   yesterdayMidnight.setDate(yesterdayMidnight.getDate() - 1);
 
-  // Auth users — no limit beyond perPage
-  const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
-  const allUsers = authData?.users ?? [];
+  // Auth users — paginate to get ALL users
+  type AuthUser = Awaited<ReturnType<typeof supabaseAdmin.auth.admin.listUsers>>['data']['users'][number];
+  let allUsers: AuthUser[] = [];
+  {
+    let page = 1;
+    const PER_PAGE = 1000;
+    while (true) {
+      const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: PER_PAGE });
+      const users = authData?.users ?? [];
+      allUsers = [...allUsers, ...users];
+      if (users.length < PER_PAGE) break;
+      page++;
+    }
+  }
 
   const totalUsers = allUsers.length;
   const last24hSignups  = allUsers.filter(u => new Date(u.created_at) >= todayMidnight).length;
@@ -45,29 +56,60 @@ export async function GET(req: Request) {
     return d >= yesterdayMidnight && d < todayMidnight;
   }).length;
 
-  // Profiles — all rows, no limit
-  const { data: profiles } = await supabaseAdmin
-    .from("profiles")
-    .select("id, display_name, first_name, last_name, plan_type, subscription_status, is_pro, partner_email, created_at");
+  // Profiles — paginate (approaching 1000 row cap)
+  let profiles: { id: string; display_name: string | null; first_name: string | null; last_name: string | null; plan_type: string | null; subscription_status: string | null; is_pro: boolean; partner_email: string | null; created_at: string }[] = [];
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await supabaseAdmin
+        .from("profiles")
+        .select("id, display_name, first_name, last_name, plan_type, subscription_status, is_pro, partner_email, created_at")
+        .range(from, from + PAGE - 1);
+      const rows = (data ?? []) as typeof profiles;
+      profiles = profiles.concat(rows);
+      if (rows.length < PAGE) break;
+      from += PAGE;
+    }
+  }
 
-  const proUsers         = profiles?.filter(p => p.is_pro).length ?? 0;
-  const freeUsers        = (profiles?.length ?? 0) - proUsers;
-  const foundingFamilies = profiles?.filter(
+  // Affiliates — load early so we can exclude from free user count
+  const { data: affiliateRows } = await supabaseAdmin
+    .from("affiliates")
+    .select("user_id, is_active");
+  const affiliateUserIds = new Set(affiliateRows?.map(a => a.user_id) ?? []);
+  const activeAffiliateCount = affiliateRows?.filter(a => a.is_active).length ?? 0;
+
+  const proUsers         = profiles.filter(p => p.is_pro).length;
+  const freeUsers        = profiles.filter(p => !p.is_pro && !affiliateUserIds.has(p.id)).length;
+  const foundingFamilies = profiles.filter(
     p => p.plan_type === "founding_family" && p.subscription_status === "active"
-  ).length ?? 0;
-  const standardSubs = profiles?.filter(p => p.plan_type === "standard").length ?? 0;
-  const coTeachers   = profiles?.filter(p => p.partner_email).length ?? 0;
+  ).length;
+  const standardSubs = profiles.filter(p => p.plan_type === "standard").length;
+  const coTeachers   = profiles.filter(p => p.partner_email).length;
 
-  // Completed lessons — user_id + dates for count, last active, and today count
-  const { data: lessonsByUserRows } = await supabaseAdmin
-    .from("lessons")
-    .select("user_id, completed_at, date")
-    .not("completed_at", "is", null);
+  // Completed lessons — paginate to get all rows
+  let lessonsByUserRows: { user_id: string; completed_at: string | null; date: string | null }[] = [];
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await supabaseAdmin
+        .from("lessons")
+        .select("user_id, completed_at, date")
+        .not("completed_at", "is", null)
+        .range(from, from + PAGE - 1);
+      const rows = (data ?? []) as { user_id: string; completed_at: string | null; date: string | null }[];
+      lessonsByUserRows = lessonsByUserRows.concat(rows);
+      if (rows.length < PAGE) break;
+      from += PAGE;
+    }
+  }
 
   // Build lesson count per user + last lesson date per user
   const lessonsByUser    = new Map<string, number>();
   const lastLessonDate   = new Map<string, string>();
-  for (const l of lessonsByUserRows ?? []) {
+  for (const l of lessonsByUserRows) {
     lessonsByUser.set(l.user_id, (lessonsByUser.get(l.user_id) ?? 0) + 1);
     const dateStr = l.completed_at ?? l.date ?? null;
     if (dateStr) {
@@ -76,57 +118,84 @@ export async function GET(req: Request) {
     }
   }
 
-  const totalLessons  = lessonsByUserRows?.length ?? 0;
-  const lessonsToday  = lessonsByUserRows?.filter(l => {
+  const totalLessons  = lessonsByUserRows.length;
+  const lessonsToday  = lessonsByUserRows.filter(l => {
     const d = l.completed_at ?? l.date ?? "";
     return d >= todayStart.toISOString().split("T")[0];
-  }).length ?? 0;
+  }).length;
 
-  // Children
-  const { data: childrenRows } = await supabaseAdmin.from("children").select("user_id");
-  const totalChildren = childrenRows?.length ?? 0;
+  // Children — paginate to get all rows
+  let childrenRows: { user_id: string }[] = [];
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await supabaseAdmin.from("children").select("user_id").range(from, from + PAGE - 1);
+      const rows = (data ?? []) as { user_id: string }[];
+      childrenRows = childrenRows.concat(rows);
+      if (rows.length < PAGE) break;
+      from += PAGE;
+    }
+  }
+  const totalChildren = childrenRows.length;
   const childrenByUser = new Map<string, number>();
-  for (const c of childrenRows ?? []) {
+  for (const c of childrenRows) {
     childrenByUser.set(c.user_id, (childrenByUser.get(c.user_id) ?? 0) + 1);
   }
-  const avgChildrenPerFamily = totalUsers > 0 ? (totalChildren / totalUsers).toFixed(1) : "0.0";
+  const familiesWithChildren = childrenByUser.size;
+  const avgChildrenPerFamily = familiesWithChildren > 0 ? (totalChildren / familiesWithChildren).toFixed(1) : "0.0";
 
-  // Curricula per user
-  const { data: curriculaUserRows } = await supabaseAdmin
-    .from("curriculum_goals")
-    .select("user_id");
-  const totalCurricula = curriculaUserRows?.length ?? 0;
+  // Curricula — paginate
+  let curriculaUserRows: { user_id: string }[] = [];
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await supabaseAdmin.from("curriculum_goals").select("user_id").range(from, from + PAGE - 1);
+      const rows = (data ?? []) as { user_id: string }[];
+      curriculaUserRows = curriculaUserRows.concat(rows);
+      if (rows.length < PAGE) break;
+      from += PAGE;
+    }
+  }
+  const totalCurricula = curriculaUserRows.length;
   const curriculaByUser = new Map<string, number>();
-  for (const c of curriculaUserRows ?? []) {
+  for (const c of curriculaUserRows) {
     curriculaByUser.set(c.user_id, (curriculaByUser.get(c.user_id) ?? 0) + 1);
   }
 
-  // App events — for last active date per user
-  const { data: appEventRows } = await supabaseAdmin
-    .from("app_events")
-    .select("user_id, created_at");
+  // App events — paginate (can grow large)
+  let appEventRows: { user_id: string; created_at: string | null }[] = [];
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await supabaseAdmin.from("app_events").select("user_id, created_at").range(from, from + PAGE - 1);
+      const rows = (data ?? []) as { user_id: string; created_at: string | null }[];
+      appEventRows = appEventRows.concat(rows);
+      if (rows.length < PAGE) break;
+      from += PAGE;
+    }
+  }
   const lastEventDate = new Map<string, string>();
-  for (const e of appEventRows ?? []) {
+  for (const e of appEventRows) {
     if (!e.created_at) continue;
     const current = lastEventDate.get(e.user_id);
     if (!current || e.created_at > current) lastEventDate.set(e.user_id, e.created_at);
   }
 
-  // Features
+  // Features — use proper count queries
   const [
-    { data: vacationData },
-    { data: booksCountData },
-    { data: memoriesCountData },
+    { count: vacationBlocks },
+    { count: booksLogged },
+    { count: memoriesCreated },
   ] = await Promise.all([
-    supabaseAdmin.from("vacation_blocks").select("id"),
-    supabaseAdmin.from("memories").select("id").eq("type", "book"),
-    supabaseAdmin.from("memories").select("id"),
+    supabaseAdmin.from("vacation_blocks").select("*", { count: "exact", head: true }),
+    supabaseAdmin.from("memories").select("*", { count: "exact", head: true }).eq("type", "book"),
+    supabaseAdmin.from("memories").select("*", { count: "exact", head: true }),
   ]);
-  const vacationBlocks = vacationData?.length ?? 0;
-  const booksLogged = booksCountData?.length ?? 0;
-  const memoriesCreated = memoriesCountData?.length ?? 0;
 
-  const profileMap    = new Map(profiles?.map(p => [p.id, p]) ?? []);
+  const profileMap    = new Map(profiles.map(p => [p.id, p]));
   const TEST_EMAILS   = ["test@", "example.com"];
 
   // Helper — compute last active from lesson and event dates
@@ -160,7 +229,7 @@ export async function GET(req: Request) {
       };
     });
 
-  // User funnel
+  // User funnel — paginate tables that exceed 1000 rows
   let funnel: {
     totalSignups: number;
     completedOnboarding: number;
@@ -172,40 +241,52 @@ export async function GET(req: Request) {
     usedVacation: number;
   } | null = null;
   try {
-    const tables = ['children', 'lessons', 'subjects', 'resources', 'daily_reflections', 'vacation_blocks'];
+    // Use count queries for simple totals
     const [
-      { data: signupsData },
-      { data: onboardedData },
-      ...tableResults
+      { count: totalSignups },
+      { count: completedOnboarding },
     ] = await Promise.all([
-      supabaseAdmin.from('profiles').select('id'),
-      supabaseAdmin.from('profiles').select('id').eq('onboarded', true),
-      ...tables.map(t => supabaseAdmin.from(t).select('user_id')),
+      supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }).eq('onboarded', true),
     ]);
-    const totalSignups = signupsData?.length ?? 0;
-    const completedOnboarding = onboardedData?.length ?? 0;
-    const [childRows, lessonRows, subjectRows, resourceRows, reflectionRows, vacationRows] = tableResults as { data: { user_id: string }[] | null }[];
-    const uniq = (rows: { user_id: string }[] | null) => new Set(rows?.map(x => x.user_id) ?? []).size;
+
+    // For unique user counts, paginate tables that might exceed 1000 rows
+    async function fetchUniqueUserIds(table: string): Promise<number> {
+      const userIds = new Set<string>();
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data } = await supabaseAdmin.from(table).select('user_id').range(from, from + PAGE - 1);
+        const rows = (data ?? []) as { user_id: string }[];
+        for (const r of rows) userIds.add(r.user_id);
+        if (rows.length < PAGE) break;
+        from += PAGE;
+      }
+      return userIds.size;
+    }
+
+    const [addedChild, loggedLesson, addedSubject, createdReflection, usedVacation] = await Promise.all([
+      fetchUniqueUserIds('children'),
+      fetchUniqueUserIds('lessons'),
+      fetchUniqueUserIds('subjects'),
+      fetchUniqueUserIds('daily_reflections'),
+      fetchUniqueUserIds('vacation_blocks'),
+    ]);
+    const addedResource = 0; // resources table is admin-managed links, has no user_id
+
     funnel = {
-      totalSignups,
-      completedOnboarding,
-      addedChild:          uniq(childRows.data),
-      loggedLesson:        uniq(lessonRows.data),
-      addedSubject:        uniq(subjectRows.data),
-      addedResource:       uniq(resourceRows.data),
-      createdReflection:   uniq(reflectionRows.data),
-      usedVacation:        uniq(vacationRows.data),
+      totalSignups: totalSignups ?? 0,
+      completedOnboarding: completedOnboarding ?? 0,
+      addedChild,
+      loggedLesson,
+      addedSubject,
+      addedResource,
+      createdReflection,
+      usedVacation,
     };
   } catch {
     funnel = null;
   }
-
-  // Affiliates — for separating comped vs paying
-  const { data: affiliateRows } = await supabaseAdmin
-    .from("affiliates")
-    .select("user_id, is_active");
-  const affiliateUserIds = new Set(affiliateRows?.map(a => a.user_id) ?? []);
-  const activeAffiliateCount = affiliateRows?.filter(a => a.is_active).length ?? 0;
 
   // Build set of affiliate emails for cross-referencing with Stripe
   const affiliateEmails = new Set(
