@@ -10,6 +10,21 @@ import Stripe from "stripe";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
+const TEST_EMAIL_PATTERNS = ["rooted.", "test", "finalpass", "mobiletest", "finaltest"];
+const TEST_EMAILS_EXACT = [
+  "garfieldbrittany@gmail.com",
+  "zoereywaltrip@gmail.com",
+  "brittanywaltrip20@gmail.com",
+  "het787@gmail.com",
+  "wovapi4416@lxbeta.com",
+];
+
+function isTestEmail(email: string): boolean {
+  const lower = email.toLowerCase();
+  if (TEST_EMAILS_EXACT.includes(lower)) return true;
+  return TEST_EMAIL_PATTERNS.some(p => lower.includes(p));
+}
+
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -184,15 +199,50 @@ export async function GET(req: Request) {
     if (!current || e.created_at > current) lastEventDate.set(e.user_id, e.created_at);
   }
 
+  // Memories — paginate with user_id + created_at for adoption + activity chart
+  let memoryUserRows: { user_id: string; created_at: string }[] = [];
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await supabaseAdmin.from("memories").select("user_id, created_at").range(from, from + PAGE - 1);
+      const rows = (data ?? []) as { user_id: string; created_at: string }[];
+      memoryUserRows = memoryUserRows.concat(rows);
+      if (rows.length < PAGE) break;
+      from += PAGE;
+    }
+  }
+  const memoryByUser = new Map<string, number>();
+  for (const m of memoryUserRows) {
+    memoryByUser.set(m.user_id, (memoryByUser.get(m.user_id) ?? 0) + 1);
+  }
+
+  // Vacation blocks — paginate unique user_ids for adoption
+  let vacationUserRows: { user_id: string }[] = [];
+  {
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await supabaseAdmin.from("vacation_blocks").select("user_id").range(from, from + PAGE - 1);
+      const rows = (data ?? []) as { user_id: string }[];
+      vacationUserRows = vacationUserRows.concat(rows);
+      if (rows.length < PAGE) break;
+      from += PAGE;
+    }
+  }
+  const vacationByUser = new Set(vacationUserRows.map(r => r.user_id));
+
   // Features — use proper count queries
   const [
     { count: vacationBlocks },
     { count: booksLogged },
     { count: memoriesCreated },
+    { count: memoriesTodayCount },
   ] = await Promise.all([
     supabaseAdmin.from("vacation_blocks").select("*", { count: "exact", head: true }),
     supabaseAdmin.from("memories").select("*", { count: "exact", head: true }).eq("type", "book"),
     supabaseAdmin.from("memories").select("*", { count: "exact", head: true }),
+    supabaseAdmin.from("memories").select("*", { count: "exact", head: true }).gte("created_at", todayStart.toISOString()),
   ]);
 
   const profileMap    = new Map(profiles.map(p => [p.id, p]));
@@ -386,6 +436,89 @@ export async function GET(req: Request) {
     return signup;
   });
 
+  // ── New analytics fields ──
+
+  // Today's Pulse — upgrades today (memoriesToday + lessonsToday + last24hSignups already exist)
+  const upgradesToday = profiles.filter(p =>
+    (p.plan_type === "founding_family" || p.plan_type === "standard") &&
+    p.subscription_status === "active" &&
+    new Date(p.created_at) >= todayStart
+  ).length;
+
+  // Feature adoption rates — % of all profiles using each feature
+  const totalProfiles = profiles.length;
+  const featureAdoption = {
+    createdMemory:  totalProfiles > 0 ? Math.round((memoryByUser.size   / totalProfiles) * 100) : 0,
+    loggedLesson:   totalProfiles > 0 ? Math.round((lessonsByUser.size  / totalProfiles) * 100) : 0,
+    addedChild:     totalProfiles > 0 ? Math.round((childrenByUser.size / totalProfiles) * 100) : 0,
+    setCurriculum:  totalProfiles > 0 ? Math.round((curriculaByUser.size / totalProfiles) * 100) : 0,
+    sharedFamily:   totalProfiles > 0 ? Math.round((coTeachers           / totalProfiles) * 100) : 0,
+    usedVacation:   totalProfiles > 0 ? Math.round((vacationByUser.size  / totalProfiles) * 100) : 0,
+  };
+
+  // 30-day signup trend — bucket real users (no test accounts) by day
+  const realUsers = allUsers.filter(u => !isTestEmail(u.email ?? ""));
+  const signupTrend: { date: string; count: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const ds = d.toISOString().split("T")[0];
+    const count = realUsers.filter(u => u.created_at.startsWith(ds)).length;
+    signupTrend.push({ date: ds, count });
+  }
+
+  // Churn risk — paid users inactive 7+ days
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const sevenDaysAgoStr = sevenDaysAgo.toISOString();
+
+  const churnRisk = profiles
+    .filter(p => p.is_pro)
+    .map(p => {
+      const lastActive = getLastActive(p.id);
+      const email = allUsers.find(u => u.id === p.id)?.email ?? "";
+      return {
+        name: p.display_name || p.first_name || "Unknown",
+        email,
+        lastActive,
+        plan: p.plan_type === "founding_family" ? "Founding" : "Standard",
+      };
+    })
+    .filter(u => !u.lastActive || u.lastActive < sevenDaysAgoStr)
+    .filter(u => !isTestEmail(u.email))
+    .sort((a, b) => (a.lastActive ?? "").localeCompare(b.lastActive ?? ""));
+
+  // New user first-week health — signups in last 7 days
+  const newUserIds = new Set(
+    allUsers
+      .filter(u => new Date(u.created_at) >= sevenDaysAgo)
+      .map(u => u.id)
+  );
+  const newUserHealth = {
+    total:         newUserIds.size,
+    addedChild:    [...newUserIds].filter(id => childrenByUser.has(id)).length,
+    loggedLesson:  [...newUserIds].filter(id => lessonsByUser.has(id)).length,
+    createdMemory: [...newUserIds].filter(id => memoryByUser.has(id)).length,
+    setCurriculum: [...newUserIds].filter(id => curriculaByUser.has(id)).length,
+  };
+
+  // 14-day active users — unique users with a memory OR lesson on each day
+  const activityChart14: { date: string; count: number }[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const ds = d.toISOString().split("T")[0];
+    const activeUsers = new Set<string>();
+    for (const m of memoryUserRows) {
+      if (m.created_at?.startsWith(ds)) activeUsers.add(m.user_id);
+    }
+    for (const l of lessonsByUserRows) {
+      const dateStr = (l.completed_at ?? l.date ?? "").split("T")[0];
+      if (dateStr === ds) activeUsers.add(l.user_id);
+    }
+    activityChart14.push({ date: ds, count: activeUsers.size });
+  }
+
   return NextResponse.json({
     totalUsers,
     last24hSignups,
@@ -414,5 +547,13 @@ export async function GET(req: Request) {
     cancelledStandardCount,
     funnel,
     recentSignups,
+    // New analytics fields
+    memoriesToday: memoriesTodayCount ?? 0,
+    upgradesToday,
+    featureAdoption,
+    signupTrend,
+    churnRisk,
+    newUserHealth,
+    activityChart14,
   });
 }
