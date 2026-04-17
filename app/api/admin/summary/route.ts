@@ -73,8 +73,15 @@ export async function GET(req: Request) {
     }
   }
 
+  // Affiliates — load early so we can exclude from free user count
+  const { data: affiliateRows } = await supabaseAdmin
+    .from("affiliates")
+    .select("user_id, is_active");
+  const affiliateUserIds = new Set(affiliateRows?.map(a => a.user_id) ?? []);
+  const activeAffiliateCount = affiliateRows?.filter(a => a.is_active).length ?? 0;
+
   const proUsers         = profiles.filter(p => p.is_pro).length;
-  const freeUsers        = profiles.length - proUsers;
+  const freeUsers        = profiles.filter(p => !p.is_pro && !affiliateUserIds.has(p.id)).length;
   const foundingFamilies = profiles.filter(
     p => p.plan_type === "founding_family" && p.subscription_status === "active"
   ).length;
@@ -135,7 +142,8 @@ export async function GET(req: Request) {
   for (const c of childrenRows) {
     childrenByUser.set(c.user_id, (childrenByUser.get(c.user_id) ?? 0) + 1);
   }
-  const avgChildrenPerFamily = totalUsers > 0 ? (totalChildren / totalUsers).toFixed(1) : "0.0";
+  const familiesWithChildren = childrenByUser.size;
+  const avgChildrenPerFamily = familiesWithChildren > 0 ? (totalChildren / familiesWithChildren).toFixed(1) : "0.0";
 
   // Curricula — paginate
   let curriculaUserRows: { user_id: string }[] = [];
@@ -257,14 +265,14 @@ export async function GET(req: Request) {
       return userIds.size;
     }
 
-    const [addedChild, loggedLesson, addedSubject, addedResource, createdReflection, usedVacation] = await Promise.all([
+    const [addedChild, loggedLesson, addedSubject, createdReflection, usedVacation] = await Promise.all([
       fetchUniqueUserIds('children'),
       fetchUniqueUserIds('lessons'),
       fetchUniqueUserIds('subjects'),
-      fetchUniqueUserIds('resources'),
       fetchUniqueUserIds('daily_reflections'),
       fetchUniqueUserIds('vacation_blocks'),
     ]);
+    const addedResource = 0; // resources table is admin-managed links, has no user_id
 
     funnel = {
       totalSignups: totalSignups ?? 0,
@@ -279,13 +287,6 @@ export async function GET(req: Request) {
   } catch {
     funnel = null;
   }
-
-  // Affiliates — for separating comped vs paying
-  const { data: affiliateRows } = await supabaseAdmin
-    .from("affiliates")
-    .select("user_id, is_active");
-  const affiliateUserIds = new Set(affiliateRows?.map(a => a.user_id) ?? []);
-  const activeAffiliateCount = affiliateRows?.filter(a => a.is_active).length ?? 0;
 
   // Build set of affiliate emails for cross-referencing with Stripe
   const affiliateEmails = new Set(

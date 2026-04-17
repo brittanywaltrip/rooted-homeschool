@@ -934,7 +934,6 @@ export default function AdminPage() {
               { label: "Added a child",          count: data.funnel!.addedChild },
               { label: "Set up subjects",        count: data.funnel!.addedSubject },
               { label: "Logged a lesson",        count: data.funnel!.loggedLesson },
-              { label: "Logged a resource",      count: data.funnel!.addedResource },
               { label: "Created a reflection",   count: data.funnel!.createdReflection },
               { label: "Used vacation blocking", count: data.funnel!.usedVacation },
             ];
