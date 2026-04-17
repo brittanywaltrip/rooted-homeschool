@@ -22,21 +22,17 @@ export async function POST(req: NextRequest) {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Direct lookup by email in auth.users (listUsers only returns first ~50)
-    const { data: authUser, error: userError } = await supabase
-      .schema("auth")
-      .from("users")
-      .select("id, email")
-      .eq("email", cleanEmail)
-      .maybeSingle();
+    // Look up user by email via database function (auth schema not exposed via PostgREST)
+    const { data: userId, error: userError } = await supabase
+      .rpc("get_user_id_by_email", { lookup_email: cleanEmail });
 
-    if (userError || !authUser) {
+    if (userError || !userId) {
       return NextResponse.json({
         error: "We couldn't find a Rooted account with that email. Ask them to sign up first at rootedhomeschoolapp.com",
       }, { status: 404 });
     }
 
-    const matchedUser = authUser;
+    const matchedUser = { id: userId, email: cleanEmail };
 
     // Get family name
     const { data: profile } = await supabase
