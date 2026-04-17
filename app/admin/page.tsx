@@ -85,6 +85,32 @@ interface AdminSummary {
     joined: string;
     last_active: string | null;
   }[];
+  // Today's pulse
+  memoriesToday: number;
+  upgradesToday: number;
+  // Feature adoption (% of users)
+  featureAdoption: {
+    createdMemory: number;
+    loggedLesson: number;
+    addedChild: number;
+    setCurriculum: number;
+    sharedFamily: number;
+    usedVacation: number;
+  };
+  // 30-day signup trend
+  signupTrend: { date: string; count: number }[];
+  // Churn risk
+  churnRisk: { name: string; email: string; lastActive: string | null; plan: string }[];
+  // New user health
+  newUserHealth: {
+    total: number;
+    addedChild: number;
+    loggedLesson: number;
+    createdMemory: number;
+    setCurriculum: number;
+  };
+  // 14-day activity
+  activityChart14: { date: string; count: number }[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -155,24 +181,6 @@ export default function AdminPage() {
   const [hideTestUsers, setHideTestUsers] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
-  const [showTestSection, setShowTestSection] = useState(false);
-  const [affiliates, setAffiliates] = useState<{ id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; profiles: { display_name: string | null; first_name: string | null; last_name: string | null } | null }[]>([]);
-  const [foundingByDay, setFoundingByDay] = useState<{ date: string; count: number }[]>([]);
-  const [partnerApps, setPartnerApps] = useState<{ id: string; first_name: string; last_name: string; email: string; platforms: string[]; platform_sizes: Record<string, string>; used_rooted: string; status: string; created_at: string; about_journey: string }[]>([]);
-  const [appFilter, setAppFilter] = useState<"pending" | "approved" | "declined">("pending");
-  const [appProcessing, setAppProcessing] = useState<string | null>(null);
-
-  // Memory stats
-  const [memStats, setMemStats] = useState<{
-    total: number;
-    today: number;
-    thisWeek: number;
-    byType: { type: string; count: number }[];
-    topLoggers: { name: string; count: number }[];
-  } | null>(null);
-
-  // 7-day activity chart
-  const [activityChart, setActivityChart] = useState<{ day: string; label: string; count: number }[]>([]);
 
   // Near freemium gate
   const [nearGate, setNearGate] = useState<{ name: string; email: string; count: number }[]>([]);
@@ -187,18 +195,6 @@ export default function AdminPage() {
   const [payoutsLoading, setPayoutsLoading] = useState(false);
   const [payoutsError, setPayoutsError] = useState(false);
 
-  // Testimonial request
-  const [sendingTestimonial, setSendingTestimonial] = useState(false);
-  const [testimonialResult, setTestimonialResult] = useState<{ sent: number; errors: string[]; notFound: string[] } | null>(null);
-
-  // Weekly summary
-  const [sendingWeekly, setSendingWeekly] = useState(false);
-  const [weeklySent, setWeeklySent] = useState(false);
-  const [weeklyResult, setWeeklyResult] = useState<string | null>(null);
-
-  // PostHog behavior stats
-  const [phStats, setPhStats] = useState<Record<string, number> | null>(null);
-
   const fetchData = async (accessToken: string) => {
     setRefreshing(true);
     const res = await fetch("/api/admin/summary", {
@@ -212,111 +208,12 @@ export default function AdminPage() {
     const json = await res.json();
     setData(json);
 
-    // Load affiliates
-    const { data: affRows } = await supabase
-      .from("affiliates")
-      .select("id, name, code, stripe_coupon_id, is_active, created_at, profiles(display_name, first_name, last_name)")
-      .order("created_at", { ascending: false });
-    if (affRows) setAffiliates(affRows as unknown as typeof affiliates);
-
-    // Load partner applications
-    const { data: appRows } = await supabase
-      .from("partner_apps")
-      .select("id, first_name, last_name, email, platforms, platform_sizes, used_rooted, status, created_at, about_journey")
-      .order("created_at", { ascending: false });
-    if (appRows) setPartnerApps(appRows as unknown as typeof partnerApps);
-
-    // Founding members by day — last 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    sevenDaysAgo.setHours(0, 0, 0, 0);
-    const { data: foundingRows } = await supabase
-      .from("profiles")
-      .select("created_at")
-      .eq("plan_type", "founding_family")
-      .gte("created_at", sevenDaysAgo.toISOString())
-      .order("created_at", { ascending: false });
-    if (foundingRows) {
-      const counts: Record<string, number> = {};
-      for (let i = 0; i < 7; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        counts[d.toISOString().split("T")[0]] = 0;
-      }
-      foundingRows.forEach((r) => {
-        const day = (r as { created_at: string }).created_at.split("T")[0];
-        if (counts[day] !== undefined) counts[day]++;
-      });
-      setFoundingByDay(
-        Object.entries(counts)
-          .sort(([a], [b]) => b.localeCompare(a))
-          .map(([date, count]) => ({ date, count }))
-      );
-    }
-
-    // ── Memory stats ─────────────────────────────────────
-    const todayStr = new Date().toISOString().split("T")[0];
-    const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekStr = weekAgo.toISOString().split("T")[0];
-
-    const [
-      { data: memTotalData },
-      { data: memTodayData },
-      { data: memWeekData },
-      { data: memByType },
-    ] = await Promise.all([
-      supabase.from("memories").select("id"),
-      supabase.from("memories").select("id").gte("created_at", todayStr + "T00:00:00"),
-      supabase.from("memories").select("id").gte("created_at", weekStr + "T00:00:00"),
-      supabase.from("memories").select("type"),
-    ]);
-    const memTotal = memTotalData?.length ?? 0;
-    const memToday = memTodayData?.length ?? 0;
-    const memWeek = memWeekData?.length ?? 0;
-
-    const typeCounts: Record<string, number> = {};
-    (memByType ?? []).forEach((r: { type: string }) => {
-      typeCounts[r.type] = (typeCounts[r.type] ?? 0) + 1;
-    });
-    const byTypeArr = Object.entries(typeCounts)
-      .map(([type, count]) => ({ type, count }))
-      .sort((a, b) => b.count - a.count);
-
-    // Top 5 memory loggers
+    // Single client-side memory query — drives Near Gate + Re-engagement
     const { data: allMems } = await supabase.from("memories").select("user_id");
     const userMemCounts: Record<string, number> = {};
     (allMems ?? []).forEach((m: { user_id: string }) => {
       userMemCounts[m.user_id] = (userMemCounts[m.user_id] ?? 0) + 1;
     });
-    const topUserIds = Object.entries(userMemCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5);
-    const topLoggers: { name: string; count: number }[] = [];
-    for (const [uid, cnt] of topUserIds) {
-      const { data: p } = await supabase.from("profiles").select("display_name, first_name").eq("id", uid).single();
-      topLoggers.push({ name: (p as { display_name?: string; first_name?: string } | null)?.display_name || (p as { first_name?: string } | null)?.first_name || uid.slice(0, 8), count: cnt });
-    }
-
-    setMemStats({ total: memTotal, today: memToday, thisWeek: memWeek, byType: byTypeArr, topLoggers });
-
-    // ── 7-day activity chart ──────────────────────────────
-    const chartDays: { day: string; label: string; count: number }[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i);
-      const ds = d.toISOString().split("T")[0];
-      const dayStart = ds + "T00:00:00";
-      const dayEnd = ds + "T23:59:59";
-      const [{ data: memUsers }, { data: lessonUsers }] = await Promise.all([
-        supabase.from("memories").select("user_id").gte("created_at", dayStart).lte("created_at", dayEnd),
-        supabase.from("lessons").select("user_id").eq("completed", true).gte("scheduled_date", ds).lte("scheduled_date", ds),
-      ]);
-      const uniq = new Set([
-        ...(memUsers ?? []).map((r: { user_id: string }) => r.user_id),
-        ...(lessonUsers ?? []).map((r: { user_id: string }) => r.user_id),
-      ]);
-      chartDays.push({ day: ds, label: d.toLocaleDateString("en-US", { weekday: "short" }), count: uniq.size });
-    }
-    setActivityChart(chartDays);
 
     // ── Near freemium gate ────────────────────────────────
     const { data: freeProfiles } = await supabase
@@ -336,12 +233,6 @@ export default function AdminPage() {
 
     // ── Re-engagement count ───────────────────────────────
     const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-    const { data: reCountData } = await supabase
-      .from("profiles")
-      .select("id")
-      .or("re_engagement_sent.eq.false,re_engagement_sent.is.null")
-      .lte("created_at", threeDaysAgo.toISOString());
-    // Filter to only those with 0 memories — approximate with userMemCounts
     const { data: allProfiles } = await supabase
       .from("profiles")
       .select("id")
@@ -367,14 +258,6 @@ export default function AdminPage() {
       setPayoutsError(true);
     }
     setPayoutsLoading(false);
-
-    // PostHog behavior stats
-    try {
-      const phRes = await fetch('/api/admin/posthog-stats', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (phRes.ok) setPhStats(await phRes.json());
-    } catch {}
 
     setRefreshing(false);
   };
@@ -477,6 +360,9 @@ export default function AdminPage() {
 
   const testCount = data.recentSignups.filter(u => isTestUser(u.email)).length;
   const realUsers = data.recentSignups.filter(u => !isTestUser(u.email));
+  const realUserCount = data.totalUsers - testCount;
+  const payingTotal = data.payingFoundingCount + data.stripeStandardCount;
+  const conversionRate = realUserCount > 0 ? ((payingTotal / realUserCount) * 100).toFixed(1) : "0.0";
 
   const counts = {
     All:      realUsers.length,
@@ -487,6 +373,8 @@ export default function AdminPage() {
     Refunded: realUsers.filter(u => u.plan === "Refunded").length,
     Partner:  realUsers.filter(u => u.plan === "Partner").length,
   };
+
+  const todayStr = new Date().toISOString().split("T")[0];
 
   return (
     <div className="min-h-screen bg-[#2d3e30]">
@@ -548,14 +436,30 @@ export default function AdminPage() {
           </Link>
         </div>
 
-        {/* Section 1 — Growth */}
+        {/* Today's Pulse */}
+        <section>
+          <SectionHeader emoji="⚡" title="Today's Pulse" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard label="Signups" value={data.last24hSignups} />
+            <StatCard label="Lessons" value={data.lessonsToday} />
+            <StatCard label="Memories" value={data.memoriesToday} />
+            <StatCard label="Upgrades" value={data.upgradesToday} />
+          </div>
+        </section>
+
+        {/* Growth */}
         <section>
           <SectionHeader emoji="🌱" title="Growth" />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <StatCard label="Real Families" value={data.totalUsers - testCount} sub={`${testCount} test accounts hidden`} />
+            <StatCard label="Real Families" value={realUserCount} sub={`${testCount} test accounts hidden`} />
             <StatCard label="Today"                value={data.last24hSignups} />
             <StatCard label="Yesterday"            value={data.yesterdaySignups} />
-            <StatCard label="Paying Customers"     value={data.payingFoundingCount + data.stripeStandardCount}
+            <StatCard
+              label="Conversion Rate"
+              value={`${conversionRate}%`}
+              sub={`${payingTotal} paying of ${realUserCount} families`}
+            />
+            <StatCard label="Paying Customers"     value={payingTotal}
               sub={`${data.payingFoundingCount} Rooted+ founding · ${data.stripeStandardCount} Rooted+ standard · live from Stripe`} />
             <StatCard label="Rooted Partners"      value={data.activeAffiliateCount}
               sub="Comped affiliates" />
@@ -563,122 +467,212 @@ export default function AdminPage() {
           </div>
         </section>
 
-        {/* Section 2 — Kids & Learning */}
-        <section>
-          <SectionHeader emoji="👧" title="Kids & Learning" />
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <StatCard label="Total Children"       value={data.totalChildren} />
-            <StatCard label="Avg Children/Family"  value={data.avgChildrenPerFamily} />
-            <StatCard label="Lessons Logged"       value={data.totalLessons.toLocaleString()} />
-            <StatCard label="Lessons Today"        value={data.lessonsToday} />
-            <StatCard label="Total Curricula"      value={data.totalCurricula} />
-          </div>
-        </section>
-
-        {/* Section 3 — Features Used */}
-        <section>
-          <SectionHeader emoji="🌴" title="Features Used" />
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Vacation Blocks"      value={data.vacationBlocks} />
-            <StatCard label="Books Logged"         value={data.booksLogged} />
-            <StatCard label="Memories Created"     value={data.memoriesCreated} />
-            <StatCard label="Co-teachers Invited"  value={data.coTeachers} />
-          </div>
-        </section>
-
-        {/* Section 3a — Behavior (PostHog) */}
-        <section>
-          <SectionHeader emoji="📊" title="Behavior (Last 7 Days)" />
-          {phStats ? (
-            <>
-              <div className="grid grid-cols-3 gap-3 mb-3">
-                <StatCard label="Active Today"      value={phStats.activeToday ?? 0} />
-                <StatCard label="Active This Week"  value={phStats.activeWeek ?? 0} />
-                <StatCard label="Active This Month" value={phStats.activeMonth ?? 0} />
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
-                <StatCard label="Memories Captured" value={phStats.memory_captured ?? 0} />
-                <StatCard label="Lessons Completed" value={phStats.lesson_completed ?? 0} />
-                <StatCard label="Yearbook Opens"    value={phStats.yearbook_opened ?? 0} />
-                <StatCard label="Upgrade Views"     value={phStats.upgrade_page_viewed ?? 0} />
-                <StatCard label="Upgrade Clicks"    value={phStats.upgrade_clicked ?? 0} />
-              </div>
-              {(phStats.upgrade_page_viewed ?? 0) > 0 && (
-                <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-3 mb-3">
-                  <p className="text-sm text-[#2d2926]">
-                    <strong>{phStats.upgrade_page_viewed}</strong> viewed upgrade → <strong>{phStats.upgrade_clicked ?? 0}</strong> clicked
-                    <span className="text-[#7a6f65] ml-1">
-                      ({Math.round(((phStats.upgrade_clicked ?? 0) / phStats.upgrade_page_viewed) * 100)}%)
-                    </span>
-                  </p>
-                </div>
-              )}
-              <p className="text-[10px] text-[#7a6f65] mt-1">Powered by PostHog</p>
-            </>
-          ) : (
-            <p className="text-sm text-[#7a6f65]">Collecting data...</p>
-          )}
-        </section>
-
-        {/* Section 3b — Memory Stats */}
-        {memStats && (
+        {/* Signups by Day — 30 days */}
+        {data.signupTrend && data.signupTrend.length > 0 && (
           <section>
-            <SectionHeader emoji="📸" title="Memories" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-              <StatCard label="Total Memories" value={memStats.total.toLocaleString()} />
-              <StatCard label="Today" value={memStats.today} />
-              <StatCard label="This Week" value={memStats.thisWeek} />
-            </div>
-            {memStats.byType.length > 0 && (
-              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 mb-4">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">By Type</p>
-                <div className="space-y-2">
-                  {memStats.byType.map(({ type, count }) => {
-                    const pct = memStats.total > 0 ? Math.round((count / memStats.total) * 100) : 0;
+            <SectionHeader emoji="📈" title="Signups by Day" />
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-xs text-[#7a6f65]">Last 30 days</p>
+                <p className="text-sm font-semibold text-[#2d2926]">
+                  This week: {data.signupTrend.slice(-7).reduce((sum, d) => sum + d.count, 0)}
+                </p>
+              </div>
+              <div className="flex items-end gap-[2px]" style={{ height: 120 }}>
+                {(() => {
+                  const maxCount = Math.max(...data.signupTrend.map(d => d.count), 1);
+                  return data.signupTrend.map((d) => {
+                    const h = Math.round((d.count / maxCount) * 100);
+                    const isToday = d.date === todayStr;
                     return (
-                      <div key={type} className="flex items-center gap-3">
-                        <p className="text-sm text-[#2d2926] w-24 shrink-0 capitalize">{type.replace("_", " ")}</p>
-                        <div className="flex-1 bg-[#f0ede8] rounded-full h-2 overflow-hidden">
-                          <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                        </div>
-                        <p className="text-sm text-[#2d2926] w-10 text-right shrink-0">{count}</p>
+                      <div key={d.date} className="flex-1 flex flex-col items-center justify-end" title={`${d.date}: ${d.count} signups`}>
+                        <div
+                          className={`w-full rounded-t transition-all ${isToday ? "bg-[#3d6b47]" : "bg-[#5c7f63]"}`}
+                          style={{ height: `${Math.max(h, 2)}%`, minHeight: d.count > 0 ? 4 : 1 }}
+                        />
                       </div>
                     );
-                  })}
-                </div>
+                  });
+                })()}
               </div>
-            )}
-            {memStats.topLoggers.length > 0 && (
-              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">Top 5 Memory Loggers</p>
-                <div className="space-y-2">
-                  {memStats.topLoggers.map((u, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm">
-                      <span className="text-[#2d2926]">{i + 1}. {u.name}</span>
-                      <span className="text-[#5c7f63] font-semibold">{u.count}</span>
-                    </div>
-                  ))}
-                </div>
+              <div className="flex justify-between mt-2">
+                <span className="text-[10px] text-[#b5aca4]">{new Date(data.signupTrend[0].date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                <span className="text-[10px] text-[#b5aca4]">Today</span>
               </div>
-            )}
+            </div>
           </section>
         )}
 
-        {/* Section 3c — 7-Day Activity */}
-        {activityChart.length > 0 && (
+        {/* Revenue */}
+        <section>
+          <SectionHeader emoji="💰" title="Revenue" />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 sm:col-span-3">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-1">Est. Annual Revenue</p>
+              <p className="text-4xl font-bold text-[#2d2926] leading-none">${data.estAnnualRevenue.toLocaleString()}</p>
+              <p className="text-xs text-[#7a6f65] mt-2">Based on live Stripe active subscriptions</p>
+              <p className="text-sm font-semibold text-[#5c7f63] mt-2">
+                MRR: ${Math.round(data.estAnnualRevenue / 12).toLocaleString()}/mo
+              </p>
+              <p className="text-xs text-[#b5aca4] mt-1">If you issued a refund, cancel the subscription in Stripe to keep this accurate.</p>
+            </div>
+            <StatCard
+              label="Rooted+ Founding Paying"
+              value={data.payingFoundingCount}
+              sub={`$${(data.payingFoundingCount * 39).toLocaleString()} · $39/yr each`}
+            />
+            <StatCard
+              label="Rooted+ Standard Paying"
+              value={data.stripeStandardCount}
+              sub={`$${(data.stripeStandardCount * 59).toLocaleString()} · $59/yr each`}
+            />
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl px-5 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-rose-400 mb-1">Refunded / Cancelled</p>
+              <p className="text-2xl font-bold text-rose-700 leading-none">
+                {data.cancelledFoundingCount + data.cancelledStandardCount}
+              </p>
+              <p className="text-xs text-rose-500 mt-1">
+                {data.cancelledFoundingCount} Rooted+ founding · {data.cancelledStandardCount} Rooted+ standard
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Feature Adoption */}
+        {data.featureAdoption && (
           <section>
-            <SectionHeader emoji="📊" title="7-Day Active Users" />
+            <SectionHeader emoji="🎯" title="Feature Adoption" />
             <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-              <div className="flex items-end justify-between gap-2" style={{ height: 140 }}>
+              <p className="text-xs text-[#7a6f65] mb-4">% of all users who have used each feature</p>
+              <div className="space-y-3">
+                {[
+                  { label: "Added a child", pct: data.featureAdoption.addedChild },
+                  { label: "Created a memory", pct: data.featureAdoption.createdMemory },
+                  { label: "Logged a lesson", pct: data.featureAdoption.loggedLesson },
+                  { label: "Set up curriculum", pct: data.featureAdoption.setCurriculum },
+                  { label: "Shared with family", pct: data.featureAdoption.sharedFamily },
+                  { label: "Used vacation blocking", pct: data.featureAdoption.usedVacation },
+                ]
+                  .sort((a, b) => b.pct - a.pct)
+                  .map(({ label, pct }) => (
+                    <div key={label} className="flex items-center gap-3">
+                      <p className="text-sm text-[#2d2926] w-44 shrink-0">{label}</p>
+                      <div className="flex-1 bg-[#f0ede8] rounded-full h-3 overflow-hidden">
+                        <div
+                          className={`h-3 rounded-full transition-all ${pct >= 50 ? "bg-green-500" : pct >= 20 ? "bg-amber-400" : "bg-rose-400"}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <p className="text-sm font-semibold text-[#2d2926] w-12 text-right">{pct}%</p>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* New User Health */}
+        {data.newUserHealth && data.newUserHealth.total > 0 && (
+          <section>
+            <SectionHeader emoji="🌱" title={`New User Health (last 7 days — ${data.newUserHealth.total} signups)`} />
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+              <p className="text-xs text-[#7a6f65] mb-4">Of {data.newUserHealth.total} new signups, how many activated?</p>
+              <div className="space-y-3">
+                {[
+                  { label: "Added a child", count: data.newUserHealth.addedChild },
+                  { label: "Logged a lesson", count: data.newUserHealth.loggedLesson },
+                  { label: "Created a memory", count: data.newUserHealth.createdMemory },
+                  { label: "Set up curriculum", count: data.newUserHealth.setCurriculum },
+                ].map(({ label, count }) => {
+                  const pct = data.newUserHealth.total > 0 ? Math.round((count / data.newUserHealth.total) * 100) : 0;
+                  return (
+                    <div key={label} className="flex items-center gap-3">
+                      <p className="text-sm text-[#2d2926] w-40 shrink-0">{label}</p>
+                      <div className="flex-1 bg-[#f0ede8] rounded-full h-3 overflow-hidden">
+                        <div
+                          className={`h-3 rounded-full transition-all ${pct >= 50 ? "bg-green-500" : pct >= 20 ? "bg-amber-400" : "bg-rose-400"}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <p className="text-sm text-[#2d2926] w-16 text-right">
+                        <span className="font-semibold">{count}</span>
+                        <span className="text-[#b5aca4] text-xs ml-1">({pct}%)</span>
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* User Funnel */}
+        <section>
+          <SectionHeader emoji="🔍" title="User Funnel" />
+          {data.funnel === null ? (
+            <p className="text-sm text-[rgba(254, 252, 249, 0.55)] opacity-60">Funnel data unavailable.</p>
+          ) : (() => {
+            const base = data.funnel!.totalSignups || 1;
+            const steps = [
+              { label: "Signed up",             count: data.funnel!.totalSignups },
+              { label: "Completed onboarding",  count: data.funnel!.completedOnboarding },
+              { label: "Added a child",          count: data.funnel!.addedChild },
+              { label: "Set up subjects",        count: data.funnel!.addedSubject },
+              { label: "Logged a lesson",        count: data.funnel!.loggedLesson },
+              { label: "Created a reflection",   count: data.funnel!.createdReflection },
+              { label: "Used vacation blocking", count: data.funnel!.usedVacation },
+            ];
+            return (
+              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 space-y-3">
+                {steps.map(({ label, count }, i) => {
+                  const pct = Math.round((count / base) * 100);
+                  const barColor = pct >= 60 ? "bg-green-500" : pct >= 30 ? "bg-amber-400" : "bg-rose-400";
+                  const prevCount = i > 0 ? steps[i - 1].count : 0;
+                  const dropOff = i > 0 && prevCount > 0 ? Math.round(((prevCount - count) / prevCount) * 100) : 0;
+                  return (
+                    <React.Fragment key={label}>
+                      {i > 0 && dropOff > 0 && (
+                        <p className="text-[10px] text-rose-400 ml-[11.5rem] -mt-1 mb-1">
+                          ↓ {dropOff}% drop-off
+                        </p>
+                      )}
+                      <div className="flex items-center gap-3">
+                        <p className="text-sm text-[#2d2926] w-44 shrink-0">{label}</p>
+                        <div className="flex-1 bg-[#f0ede8] rounded-full h-2 overflow-hidden">
+                          <div className={`${barColor} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="text-sm text-[#2d2926] w-10 text-right shrink-0">{count}</p>
+                        <p className="text-xs text-[#b5aca4] w-10 text-right shrink-0">{pct}%</p>
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </section>
+
+        {/* 14-Day Active Users */}
+        {data.activityChart14 && data.activityChart14.length > 0 && (
+          <section>
+            <SectionHeader emoji="📊" title="14-Day Active Users" />
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+              <p className="text-xs text-[#7a6f65] mb-3">Users who logged a lesson or memory each day</p>
+              <div className="flex items-end justify-between gap-1" style={{ height: 140 }}>
                 {(() => {
-                  const maxCount = Math.max(...activityChart.map((d) => d.count), 1);
-                  return activityChart.map((d) => {
+                  const maxCount = Math.max(...data.activityChart14.map(d => d.count), 1);
+                  return data.activityChart14.map((d) => {
                     const h = Math.round((d.count / maxCount) * 100);
+                    const dayLabel = new Date(d.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "narrow" });
+                    const isToday = d.date === todayStr;
                     return (
-                      <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
-                        <span className="text-xs font-semibold text-[#2d2926]">{d.count}</span>
-                        <div className="w-full max-w-[32px] rounded-t-lg transition-all" style={{ height: `${Math.max(h, 4)}%`, backgroundColor: "#5c7f63" }} />
-                        <span className="text-[10px] text-[#7a6f65]">{d.label}</span>
+                      <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
+                        <span className="text-[10px] font-semibold text-[#2d2926]">{d.count > 0 ? d.count : ""}</span>
+                        <div
+                          className={`w-full max-w-[24px] rounded-t-lg transition-all ${isToday ? "bg-[#3d6b47]" : "bg-[#5c7f63]"}`}
+                          style={{ height: `${Math.max(h, 4)}%` }}
+                        />
+                        <span className={`text-[9px] ${isToday ? "font-bold text-[#2d2926]" : "text-[#7a6f65]"}`}>{dayLabel}</span>
                       </div>
                     );
                   });
@@ -688,7 +682,36 @@ export default function AdminPage() {
           </section>
         )}
 
-        {/* Section 3d — Near Freemium Gate */}
+        {/* Churn Risk */}
+        {data.churnRisk && data.churnRisk.length > 0 && (
+          <section>
+            <SectionHeader emoji="🚨" title={`Churn Risk (${data.churnRisk.length} paid users)`} />
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
+              <p className="text-xs text-[#7a6f65] mb-3">Paying users with no activity in 7+ days</p>
+              <div className="space-y-2">
+                {data.churnRisk.slice(0, 15).map((u) => (
+                  <div key={u.email} className="flex items-center justify-between text-sm">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[#2d2926] font-medium">{u.name}</span>
+                      <span className="text-[#b5aca4] text-xs ml-2">{u.email}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <span className="text-xs text-[#b5aca4]">{u.plan}</span>
+                      <span className="text-rose-500 text-xs font-medium">
+                        {u.lastActive ? `Last active ${formatRelativeDate(u.lastActive)}` : "Never active"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {data.churnRisk.length > 15 && (
+                  <p className="text-xs text-[#b5aca4] text-center pt-2">+ {data.churnRisk.length - 15} more</p>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Near Freemium Gate */}
         {nearGate.length > 0 && (
           <section>
             <SectionHeader emoji="⚠️" title={`Near Freemium Gate (${nearGate.length})`} />
@@ -709,7 +732,7 @@ export default function AdminPage() {
           </section>
         )}
 
-        {/* Section 3e — Re-engagement */}
+        {/* Re-engagement */}
         <section>
           <SectionHeader emoji="📬" title="Re-engagement" />
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
@@ -737,7 +760,7 @@ export default function AdminPage() {
           </div>
         </section>
 
-        {/* Section — Affiliate Payouts */}
+        {/* Affiliate Payouts */}
         <section>
           <SectionHeader emoji="💸" title="Affiliate Payouts" />
           {payoutsLoading ? (
@@ -839,126 +862,7 @@ export default function AdminPage() {
           )}
         </section>
 
-        {/* Section 3f — Testimonial Requests */}
-        <section>
-          <SectionHeader emoji="💬" title="Testimonial Requests" />
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-            <p className="text-sm text-[#7a6f65] mb-3">
-              Send a personal email to 5 Founding Members asking for a 1-2 sentence quote about Rooted.
-            </p>
-            <p className="text-xs text-[#b5aca4] mb-3">
-              Amanda Deardorff, Amber Hudson Slaughter, Donna Ward, Lacie Hawkins, Joselyn Minchey
-            </p>
-            {testimonialResult ? (
-              <div className="space-y-1">
-                <p className="text-sm text-[#5c7f63] font-medium">
-                  Sent {testimonialResult.sent} testimonial request{testimonialResult.sent !== 1 ? "s" : ""}!
-                </p>
-                {testimonialResult.notFound.length > 0 && (
-                  <p className="text-xs text-[#b5aca4]">Not found: {testimonialResult.notFound.join(", ")}</p>
-                )}
-                {testimonialResult.errors.length > 0 && (
-                  <p className="text-xs text-red-400">Errors: {testimonialResult.errors.join(", ")}</p>
-                )}
-              </div>
-            ) : (
-              <button
-                onClick={async () => {
-                  setSendingTestimonial(true);
-                  try {
-                    const { data: { session } } = await supabase.auth.getSession();
-                    const res = await fetch("/api/admin/testimonial-request", {
-                      method: "POST",
-                      headers: { Authorization: `Bearer ${session?.access_token}` },
-                    });
-                    const json = await res.json();
-                    if (res.ok) {
-                      setTestimonialResult({ sent: json.sent, errors: json.errors ?? [], notFound: json.notFound ?? [] });
-                    } else {
-                      setTestimonialResult({ sent: 0, errors: [json.error ?? "Unknown error"], notFound: json.notFound ?? [] });
-                    }
-                  } catch {
-                    setTestimonialResult({ sent: 0, errors: ["Network error"], notFound: [] });
-                  }
-                  setSendingTestimonial(false);
-                }}
-                disabled={sendingTestimonial}
-                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors"
-              >
-                {sendingTestimonial ? "Sending…" : "Request testimonials →"}
-              </button>
-            )}
-          </div>
-        </section>
-
-        {/* Section 3g — Weekly Summary */}
-        <section>
-          <SectionHeader emoji="📧" title="Weekly Summary" />
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-            <p className="text-sm text-[#2d2926] mb-3">
-              Send a test weekly summary email to garfieldbrittany@gmail.com
-            </p>
-            {weeklySent ? (
-              <p className="text-sm text-[#5c7f63] font-medium">{weeklyResult ?? "Test email sent!"}</p>
-            ) : (
-              <button
-                onClick={async () => {
-                  setSendingWeekly(true);
-                  try {
-                    const res = await fetch("/api/cron/weekly-summary?test=true", { method: "POST" });
-                    const json = await res.json();
-                    setWeeklyResult(`Sent ${json.sent} test email (${json.totalUsers} active users total)`);
-                    setWeeklySent(true);
-                  } catch { /* ignore */ }
-                  setSendingWeekly(false);
-                }}
-                disabled={sendingWeekly}
-                className="px-4 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-medium transition-colors"
-              >
-                {sendingWeekly ? "Sending…" : "Send weekly summary now →"}
-              </button>
-            )}
-          </div>
-        </section>
-
-        {/* Section 4 — User Funnel */}
-        <section>
-          <SectionHeader emoji="🔍" title="User Funnel" />
-          {data.funnel === null ? (
-            <p className="text-sm text-[rgba(254, 252, 249, 0.55)] opacity-60">Funnel data unavailable.</p>
-          ) : (() => {
-            const base = data.funnel!.totalSignups || 1;
-            const steps = [
-              { label: "Signed up",             count: data.funnel!.totalSignups },
-              { label: "Completed onboarding",  count: data.funnel!.completedOnboarding },
-              { label: "Added a child",          count: data.funnel!.addedChild },
-              { label: "Set up subjects",        count: data.funnel!.addedSubject },
-              { label: "Logged a lesson",        count: data.funnel!.loggedLesson },
-              { label: "Created a reflection",   count: data.funnel!.createdReflection },
-              { label: "Used vacation blocking", count: data.funnel!.usedVacation },
-            ];
-            return (
-              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 space-y-3">
-                {steps.map(({ label, count }) => {
-                  const pct = Math.round((count / base) * 100);
-                  const barColor = pct >= 60 ? "bg-green-500" : pct >= 30 ? "bg-amber-400" : "bg-rose-400";
-                  return (
-                    <div key={label} className="flex items-center gap-3">
-                      <p className="text-sm text-[#2d2926] w-44 shrink-0">{label}</p>
-                      <div className="flex-1 bg-[#f0ede8] rounded-full h-2 overflow-hidden">
-                        <div className={`${barColor} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }} />
-                      </div>
-                      <p className="text-sm text-[#2d2926] w-10 text-right shrink-0">{count}</p>
-                      <p className="text-xs text-[#b5aca4] w-10 text-right shrink-0">{pct}%</p>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </section>
-
-        {/* Section 5 — All Users */}
+        {/* All Users */}
         <section>
           <SectionHeader emoji="📋" title={`All Signups (${data.recentSignups.length})`} />
 
@@ -1151,200 +1055,6 @@ export default function AdminPage() {
               </table>
             </div>
           </div>
-        </section>
-
-        {/* Section 6 — Revenue */}
-        <section>
-          <SectionHeader emoji="💰" title="Revenue" />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 sm:col-span-3">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-1">Est. Annual Revenue</p>
-              <p className="text-4xl font-bold text-[#2d2926] leading-none">${data.estAnnualRevenue.toLocaleString()}</p>
-              <p className="text-xs text-[#7a6f65] mt-2">Based on live Stripe active subscriptions</p>
-              <p className="text-sm font-semibold text-[#5c7f63] mt-2">
-                MRR: ${Math.round(data.estAnnualRevenue / 12).toLocaleString()}/mo
-              </p>
-              <p className="text-xs text-[#b5aca4] mt-1">If you issued a refund, cancel the subscription in Stripe to keep this accurate.</p>
-            </div>
-            <StatCard
-              label="Rooted+ Founding Paying"
-              value={data.payingFoundingCount}
-              sub={`$${(data.payingFoundingCount * 39).toLocaleString()} · $39/yr each`}
-            />
-            <StatCard
-              label="Rooted+ Standard Paying"
-              value={data.stripeStandardCount}
-              sub={`$${(data.stripeStandardCount * 59).toLocaleString()} · $59/yr each`}
-            />
-            <div className="bg-rose-50 border border-rose-200 rounded-2xl px-5 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-rose-400 mb-1">Refunded / Cancelled</p>
-              <p className="text-2xl font-bold text-rose-700 leading-none">
-                {data.cancelledFoundingCount + data.cancelledStandardCount}
-              </p>
-              <p className="text-xs text-rose-500 mt-1">
-                {data.cancelledFoundingCount} Rooted+ founding · {data.cancelledStandardCount} Rooted+ standard
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Founding Members by Day ─────────────────────────────────── */}
-        {foundingByDay.length > 0 && (
-          <section>
-            <SectionHeader emoji="📈" title="Rooted+ Members by Day" />
-            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-xs text-[#7a6f65]">Last 7 days</p>
-                <p className="text-sm font-semibold text-[#2d2926]">
-                  This week: {foundingByDay.reduce((sum, d) => sum + d.count, 0)}
-                </p>
-              </div>
-              <div className="space-y-2">
-                {foundingByDay.map(({ date, count }) => {
-                  const maxCount = Math.max(...foundingByDay.map(d => d.count), 1);
-                  const label = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
-                    weekday: "short", month: "short", day: "numeric",
-                  });
-                  return (
-                    <div key={date} className="flex items-center gap-3">
-                      <span className="text-xs text-[#7a6f65] w-24 shrink-0">{label}</span>
-                      <div className="flex-1 h-5 bg-[#f0ede8] rounded-full overflow-hidden">
-                        {count > 0 && (
-                          <div
-                            className="h-full bg-[#5c7f63] rounded-full transition-all"
-                            style={{ width: `${Math.max((count / maxCount) * 100, 8)}%` }}
-                          />
-                        )}
-                      </div>
-                      <span className={`text-sm font-semibold w-6 text-right ${count > 0 ? "text-[#2d2926]" : "text-[#d4d0c8]"}`}>
-                        {count}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* ── Affiliates / Ambassadors ────────────────────────────────── */}
-        {affiliates.length > 0 && (
-          <section>
-            <SectionHeader emoji="🤝" title="Ambassadors" />
-            <div className="space-y-3">
-              {affiliates.map((aff) => {
-                const displayName = aff.profiles?.first_name
-                  ? [aff.profiles.first_name, aff.profiles.last_name].filter(Boolean).join(" ")
-                  : aff.profiles?.display_name ?? aff.name;
-                return (
-                  <div key={aff.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="font-semibold text-[#2d2926]">{displayName}</p>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${aff.is_active ? 'bg-green-100 text-green-800' : 'bg-[#f0ede8] text-[#7a6f65]'}`}>
-                        {aff.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                    </div>
-                    <p className="text-sm font-mono text-[#4338ca] font-bold tracking-wider mb-1">{aff.code}</p>
-                    <p className="text-xs text-[#7a6f65]">
-                      Partner since {new Date(aff.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </p>
-                    <a
-                      href={`https://dashboard.stripe.com/coupons/${aff.stripe_coupon_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-block mt-2 text-xs text-[#4338ca] hover:underline"
-                    >
-                      View coupon in Stripe →
-                    </a>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* ── Affiliate Applications ─────────────────────────── */}
-        <section>
-          <SectionHeader emoji={"\uD83E\uDD1D"} title={`Affiliate Applications (${partnerApps.filter(a => a.status === "pending").length} pending)`} />
-
-          <div className="flex gap-1.5 mb-4">
-            {(["pending", "approved", "declined"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setAppFilter(s)}
-                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                  appFilter === s ? "bg-[var(--g-deep)] text-white" : "bg-white text-[#7a6f65] border border-[#e8e2d9]"
-                }`}
-              >
-                {s.charAt(0).toUpperCase() + s.slice(1)} ({partnerApps.filter(a => a.status === s).length})
-              </button>
-            ))}
-          </div>
-
-          {partnerApps.filter(a => a.status === appFilter).length === 0 ? (
-            <p className="text-sm text-[#b5aca4] text-center py-6">No {appFilter} applications</p>
-          ) : (
-            <div className="space-y-3">
-              {partnerApps.filter(a => a.status === appFilter).map((app) => (
-                <div key={app.id} className="bg-white border border-[#e8e2d9] rounded-xl p-4 space-y-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-[#2d2926]">{app.first_name} {app.last_name}</p>
-                      <p className="text-xs text-[#7a6f65]">{app.email}</p>
-                    </div>
-                    <span className="text-[10px] text-[#b5aca4]">
-                      {new Date(app.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1.5">
-                    {(app.platforms ?? []).map((p) => (
-                      <span key={p} className="text-[10px] bg-[#f0ede8] text-[#5c5248] px-2 py-0.5 rounded-full">
-                        {p} {app.platform_sizes?.[p] ? `(${app.platform_sizes[p]})` : ""}
-                      </span>
-                    ))}
-                  </div>
-
-                  {app.used_rooted && (
-                    <p className="text-xs text-[#7a6f65]"><span className="font-medium">Used Rooted:</span> {app.used_rooted}</p>
-                  )}
-
-                  {app.about_journey && (
-                    <p className="text-xs text-[#5c5248] leading-relaxed line-clamp-3">{app.about_journey}</p>
-                  )}
-
-                  {appFilter === "pending" && (
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        disabled={appProcessing === app.id}
-                        onClick={async () => {
-                          setAppProcessing(app.id);
-                          await supabase.from("partner_apps").update({ status: "approved" }).eq("id", app.id);
-                          setPartnerApps((prev) => prev.map((a) => a.id === app.id ? { ...a, status: "approved" } : a));
-                          setAppProcessing(null);
-                        }}
-                        className="flex-1 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white text-xs font-semibold transition-colors"
-                      >
-                        {appProcessing === app.id ? "..." : "Approve \u2192"}
-                      </button>
-                      <button
-                        disabled={appProcessing === app.id}
-                        onClick={async () => {
-                          setAppProcessing(app.id);
-                          await supabase.from("partner_apps").update({ status: "declined" }).eq("id", app.id);
-                          setPartnerApps((prev) => prev.map((a) => a.id === app.id ? { ...a, status: "declined" } : a));
-                          setAppProcessing(null);
-                        }}
-                        className="px-4 py-2 rounded-xl border border-[#e8e2d9] text-xs font-medium text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
-                      >
-                        Decline
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </section>
 
       </div>
