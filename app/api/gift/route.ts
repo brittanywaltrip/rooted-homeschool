@@ -22,17 +22,21 @@ export async function POST(req: NextRequest) {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Find user by email
-    const { data: listData } = await supabase.auth.admin.listUsers();
-    const matchedUser = listData?.users?.find(
-      (u) => u.email?.toLowerCase() === cleanEmail
-    );
+    // Direct lookup by email in auth.users (listUsers only returns first ~50)
+    const { data: authUser, error: userError } = await supabase
+      .schema("auth")
+      .from("users")
+      .select("id, email")
+      .eq("email", cleanEmail)
+      .maybeSingle();
 
-    if (!matchedUser) {
+    if (userError || !authUser) {
       return NextResponse.json({
         error: "We couldn't find a Rooted account with that email. Ask them to sign up first at rootedhomeschoolapp.com",
       }, { status: 404 });
     }
+
+    const matchedUser = authUser;
 
     // Get family name
     const { data: profile } = await supabase
