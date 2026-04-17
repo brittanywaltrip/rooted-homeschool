@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
               name: `Gift a year of Rooted to ${familyName}`,
               description: "12 months of Rooted — unlimited memories, yearbook, and more.",
             },
-            unit_amount: 5900,
+            unit_amount: 3900, // $39 Founding Family pricing (revert to 5900 after April 30)
           },
           quantity: 1,
         },

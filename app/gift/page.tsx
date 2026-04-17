@@ -118,7 +118,7 @@ function GiftPageInner() {
             disabled={loading}
             className="w-full bg-[#3d6b47] hover:bg-[var(--g-brand)] disabled:opacity-60 text-white font-medium py-3 rounded-xl transition-colors"
           >
-            {loading ? "Loading..." : "Gift a year of Rooted+ — $59 →"}
+            {loading ? "Loading..." : "Gift a year of Rooted+ — $39 →"}
           </button>
         </form>
 
