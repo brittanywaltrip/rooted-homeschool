@@ -482,13 +482,13 @@ export default function AdminPage() {
                 {(() => {
                   const maxCount = Math.max(...data.signupTrend.map(d => d.count), 1);
                   return data.signupTrend.map((d) => {
-                    const h = Math.round((d.count / maxCount) * 100);
+                    const barH = Math.max(Math.round((d.count / maxCount) * 110), d.count > 0 ? 4 : 1);
                     const isToday = d.date === todayStr;
                     return (
-                      <div key={d.date} className="flex-1 flex flex-col items-center justify-end" title={`${d.date}: ${d.count} signups`}>
+                      <div key={d.date} className="flex-1 flex flex-col items-center justify-end" style={{ height: 120 }} title={`${d.date}: ${d.count} signups`}>
                         <div
                           className={`w-full rounded-t transition-all ${isToday ? "bg-[#3d6b47]" : "bg-[#5c7f63]"}`}
-                          style={{ height: `${Math.max(h, 2)}%`, minHeight: d.count > 0 ? 4 : 1 }}
+                          style={{ height: barH }}
                         />
                       </div>
                     );
@@ -662,15 +662,15 @@ export default function AdminPage() {
                 {(() => {
                   const maxCount = Math.max(...data.activityChart14.map(d => d.count), 1);
                   return data.activityChart14.map((d) => {
-                    const h = Math.round((d.count / maxCount) * 100);
+                    const barH = Math.max(Math.round((d.count / maxCount) * 120), d.count > 0 ? 4 : 1);
                     const dayLabel = new Date(d.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "narrow" });
                     const isToday = d.date === todayStr;
                     return (
-                      <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
+                      <div key={d.date} className="flex-1 flex flex-col items-center justify-end gap-1" style={{ height: 140 }}>
                         <span className="text-[10px] font-semibold text-[#2d2926]">{d.count > 0 ? d.count : ""}</span>
                         <div
                           className={`w-full max-w-[24px] rounded-t-lg transition-all ${isToday ? "bg-[#3d6b47]" : "bg-[#5c7f63]"}`}
-                          style={{ height: `${Math.max(h, 4)}%` }}
+                          style={{ height: barH }}
                         />
                         <span className={`text-[9px] ${isToday ? "font-bold text-[#2d2926]" : "text-[#7a6f65]"}`}>{dayLabel}</span>
                       </div>
