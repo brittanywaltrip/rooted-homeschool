@@ -1964,12 +1964,8 @@ export default function SettingsPage() {
                         onClick={async () => {
                           const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
                           const { cardHtml } = await res.json();
-                          const blob = new Blob([cardHtml], { type: 'text/html' });
-                          const a = document.createElement('a');
-                          a.href = URL.createObjectURL(blob);
-                          a.download = `${previewAffiliate.code}_card.html`;
-                          a.click();
-                          URL.revokeObjectURL(a.href);
+                          const w = window.open('', '_blank');
+                          if (w) { w.document.write(cardHtml); w.document.close(); }
                         }}
                         className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                       >
@@ -1979,12 +1975,8 @@ export default function SettingsPage() {
                         onClick={async () => {
                           const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
                           const { shareHtml } = await res.json();
-                          const blob = new Blob([shareHtml], { type: 'text/html' });
-                          const a = document.createElement('a');
-                          a.href = URL.createObjectURL(blob);
-                          a.download = `${previewAffiliate.code}_share.html`;
-                          a.click();
-                          URL.revokeObjectURL(a.href);
+                          const w = window.open('', '_blank');
+                          if (w) { w.document.write(shareHtml); w.document.close(); }
                         }}
                         className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                       >
@@ -2263,12 +2255,8 @@ export default function SettingsPage() {
                   onClick={async () => {
                     const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
                     const { cardHtml } = await res.json();
-                    const blob = new Blob([cardHtml], { type: 'text/html' });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = `${affiliateData.code}_card.html`;
-                    a.click();
-                    URL.revokeObjectURL(a.href);
+                    const w = window.open('', '_blank');
+                    if (w) { w.document.write(cardHtml); w.document.close(); }
                   }}
                   className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                 >
@@ -2278,12 +2266,8 @@ export default function SettingsPage() {
                   onClick={async () => {
                     const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
                     const { shareHtml } = await res.json();
-                    const blob = new Blob([shareHtml], { type: 'text/html' });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = `${affiliateData.code}_share.html`;
-                    a.click();
-                    URL.revokeObjectURL(a.href);
+                    const w = window.open('', '_blank');
+                    if (w) { w.document.write(shareHtml); w.document.close(); }
                   }}
                   className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                 >
