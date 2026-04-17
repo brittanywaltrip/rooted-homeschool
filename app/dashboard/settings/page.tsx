@@ -1960,12 +1960,36 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Download Your Cards</p>
                     <div className="flex gap-2">
-                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca]">
+                      <button
+                        onClick={async () => {
+                          const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
+                          const { cardHtml } = await res.json();
+                          const blob = new Blob([cardHtml], { type: 'text/html' });
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(blob);
+                          a.download = `${previewAffiliate.code}_card.html`;
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
+                      >
                         🖨️ Print card
-                      </div>
-                      <div className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca]">
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
+                          const { shareHtml } = await res.json();
+                          const blob = new Blob([shareHtml], { type: 'text/html' });
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(blob);
+                          a.download = `${previewAffiliate.code}_share.html`;
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
+                      >
                         📱 Share card
-                      </div>
+                      </button>
                     </div>
                     <p className="text-[10px] text-[#a0a0b8] text-center mt-2">Open in Chrome and print to PDF for best results</p>
                   </div>
