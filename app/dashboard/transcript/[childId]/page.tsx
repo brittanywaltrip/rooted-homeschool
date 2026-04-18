@@ -226,9 +226,9 @@ export default function TranscriptBuilderPage() {
     // ── Courses by year ─────────────────────────────────────
     const colX = {
       course: margin,
-      category: margin + contentW * 0.42,
-      credits: margin + contentW * 0.72,
-      grade: margin + contentW * 0.88,
+      category: margin + contentW * 0.32,
+      credits: margin + contentW * 0.68,
+      grade: margin + contentW * 0.85,
     };
     const rowH = 16;
 
@@ -272,12 +272,12 @@ export default function TranscriptBuilderPage() {
 
         doc.setTextColor(...dark);
         // Truncate long course names
-        const courseName = c.course_name.length > 35 ? c.course_name.slice(0, 33) + "…" : c.course_name;
+        const courseName = c.course_name.length > 28 ? c.course_name.slice(0, 26) + "…" : c.course_name;
         doc.text(courseName, colX.course, y);
 
         doc.setTextColor(107, 101, 96); // #6b6560
         const catLabel = subjectLabel(c.subject_category);
-        const catTrunc = catLabel.length > 22 ? catLabel.slice(0, 20) + "…" : catLabel;
+        const catTrunc = catLabel.length > 30 ? catLabel.slice(0, 28) + "…" : catLabel;
         doc.text(catTrunc, colX.category, y);
 
         doc.setTextColor(...dark);
