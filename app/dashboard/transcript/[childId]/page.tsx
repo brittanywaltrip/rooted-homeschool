@@ -47,7 +47,7 @@ type Course = {
   external_provider: string | null;
 };
 
-type CurriculumGoal = { id: string; curriculum_name: string; icon_emoji: string | null; subject_label: string | null; school_year: string | null; default_minutes: number };
+type CurriculumGoal = { id: string; curriculum_name: string; icon_emoji: string | null; subject_label: string | null; school_year: string | null; default_minutes: number; course_level: string | null; credits_value: number | null };
 
 type Tab = "courses" | "gpa" | "preview";
 
@@ -508,9 +508,9 @@ export default function TranscriptBuilderPage() {
         child_id: cId,
         course_name: goal.curriculum_name || goal.subject_label || "Untitled Course",
         subject_category: mapSubjectToCategory(goal.subject_label),
-        credit_type: "standard" as const,
-        course_level: "standard" as const,
-        credits_earned: credits,
+        credit_type: goal.course_level && goal.course_level !== "standard" ? goal.course_level : "standard",
+        course_level: goal.course_level || "standard",
+        credits_earned: goal.credits_value != null ? goal.credits_value : credits,
         hours_logged: hours || null,
         grade_letter: null,
         grade_points: null,
@@ -571,7 +571,15 @@ export default function TranscriptBuilderPage() {
   async function handleManualSync() {
     if (!userId || syncing) return;
     setSyncing(true);
-    const count = await syncCoursesFromPlan(userId, childId, courses, goals);
+    // Re-fetch goals so wizard-edited course_level / credits_value show up
+    const { data: freshGoals } = await supabase
+      .from("curriculum_goals")
+      .select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes, course_level, credits_value")
+      .eq("user_id", userId)
+      .eq("child_id", childId);
+    const goalsList = (freshGoals ?? []) as CurriculumGoal[];
+    setGoals(goalsList);
+    const count = await syncCoursesFromPlan(userId, childId, courses, goalsList);
     // Re-fetch courses after sync
     const { data: coursesData } = await supabase.from("transcript_courses").select("*").eq("user_id", userId).eq("child_id", childId).order("school_year", { ascending: false }).order("course_name");
     setCourses((coursesData ?? []) as Course[]);
@@ -594,7 +602,7 @@ export default function TranscriptBuilderPage() {
       supabase.from("children").select("id, name, color, birthday").eq("id", childId).maybeSingle(),
       supabase.from("transcript_settings").select("*").eq("user_id", user.id).eq("child_id", childId).maybeSingle(),
       supabase.from("transcript_courses").select("*").eq("user_id", user.id).eq("child_id", childId).order("school_year", { ascending: false }).order("course_name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes").eq("user_id", user.id).eq("child_id", childId),
+      supabase.from("curriculum_goals").select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes, course_level, credits_value").eq("user_id", user.id).eq("child_id", childId),
       supabase.from("profiles").select("display_name, first_name, last_name, state, is_pro, trial_started_at").eq("id", user.id).maybeSingle(),
     ]);
 
