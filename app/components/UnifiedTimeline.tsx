@@ -540,6 +540,7 @@ function InlineScheduleTabs({ children: kids, onManage, isPartner }: { children:
   const [recurring, setRecurring] = useState<TabAppt[]>([]);
   const [past, setPast] = useState<TabAppt[]>([]);
   const [upcomingLessons, setUpcomingLessons] = useState<TabLesson[]>([]);
+  const [pastLessons, setPastLessons] = useState<TabLesson[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -593,6 +594,19 @@ function InlineScheduleTabs({ children: kids, onManage, isPartner }: { children:
         .order("scheduled_date")
         .order("title");
       setUpcomingLessons((lessonData ?? []) as unknown as TabLesson[]);
+
+      // Fetch past lessons (completed, last 7 days)
+      const sevenAgo = new Date();
+      sevenAgo.setDate(sevenAgo.getDate() - 7);
+      const { data: pastLessonData } = await supabase
+        .from("lessons")
+        .select("id, title, child_id, scheduled_date, notes, subjects(name, color)")
+        .eq("user_id", user.id)
+        .eq("completed", true)
+        .gte("scheduled_date", fmtD(sevenAgo))
+        .order("scheduled_date", { ascending: false })
+        .order("title");
+      setPastLessons((pastLessonData ?? []) as unknown as TabLesson[]);
 
       setLoaded(true);
     })();
@@ -772,22 +786,51 @@ function InlineScheduleTabs({ children: kids, onManage, isPartner }: { children:
             ))
           )
         ) : (
-          past.length === 0 ? (
-            <p className="text-[13px] text-[#b5aca4] text-center py-4">No past appointments yet</p>
+          past.length === 0 && pastLessons.length === 0 ? (
+            <p className="text-[13px] text-[#b5aca4] text-center py-4">No completed lessons or appointments in the last 7 days.</p>
           ) : (
-            past.map(a => (
-              <div key={a.id} className="bg-white rounded-xl p-2.5 mb-1.5 flex items-center gap-2.5 opacity-50" style={{ border: "1.5px solid #f0ece6" }}>
-                <span className="text-lg shrink-0">{a.emoji || "📅"}</span>
-                <div className="flex-1 min-w-0">
-                  <span className="text-[13px] font-medium text-[#999] line-through truncate">{a.title}</span>
-                  <p className="text-[11px] text-[#bbb] mt-0.5">{fmtRelDate(a.date)}{a.location ? ` · 📍 ${a.location}` : ""}</p>
-                </div>
-                {a.child_ids.length > 0 && (() => {
-                  const c = kids.find(ch => ch.id === a.child_ids[0]);
-                  return c ? <span className="text-[11px] font-medium text-[#b5aca4] bg-[#f0ece6] px-2 py-0.5 rounded-lg shrink-0">{c.name}</span> : null;
-                })()}
-              </div>
-            ))
+            (() => {
+              type PastRow =
+                | { kind: "appt"; date: string; appt: TabAppt }
+                | { kind: "lesson"; date: string; lesson: TabLesson };
+              const rows: PastRow[] = [
+                ...past.map(a => ({ kind: "appt" as const, date: a.date, appt: a })),
+                ...pastLessons.map(l => ({ kind: "lesson" as const, date: l.scheduled_date, lesson: l })),
+              ].sort((a, b) => b.date.localeCompare(a.date));
+              return rows.map(row => {
+                if (row.kind === "appt") {
+                  const a = row.appt;
+                  return (
+                    <div key={`ap-${a.id}`} className="bg-white rounded-xl p-2.5 mb-1.5 flex items-center gap-2.5 opacity-50" style={{ border: "1.5px solid #f0ece6" }}>
+                      <span className="text-lg shrink-0">{a.emoji || "📅"}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[13px] font-medium text-[#999] line-through truncate">{a.title}</span>
+                        <p className="text-[11px] text-[#bbb] mt-0.5">{fmtRelDate(a.date)}{a.location ? ` · 📍 ${a.location}` : ""}</p>
+                      </div>
+                      {a.child_ids.length > 0 && (() => {
+                        const c = kids.find(ch => ch.id === a.child_ids[0]);
+                        return c ? <span className="text-[11px] font-medium text-[#b5aca4] bg-[#f0ece6] px-2 py-0.5 rounded-lg shrink-0">{c.name}</span> : null;
+                      })()}
+                    </div>
+                  );
+                }
+                const l = row.lesson;
+                const c = kids.find(k => k.id === l.child_id);
+                const subBits = [l.subjects?.name, fmtRelDate(l.scheduled_date)].filter(Boolean);
+                return (
+                  <div key={`l-${l.id}`} className="bg-white rounded-xl p-2.5 mb-1.5 flex items-center gap-2.5 opacity-50" style={{ border: "1.5px solid #f0ece6" }}>
+                    <span className="text-lg shrink-0">✓</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[13px] font-medium text-[#999] line-through truncate">{l.title}</span>
+                      <p className="text-[11px] text-[#bbb] mt-0.5">{subBits.join(" · ")}</p>
+                    </div>
+                    {c && kids.length > 1 && (
+                      <span className="text-[11px] font-medium text-[#b5aca4] bg-[#f0ece6] px-2 py-0.5 rounded-lg shrink-0">{c.name}</span>
+                    )}
+                  </div>
+                );
+              });
+            })()
           )
         )}
       </div>
