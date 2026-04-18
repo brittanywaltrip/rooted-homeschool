@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
@@ -45,6 +45,7 @@ type Lesson  = {
   subjects: { name: string; color: string | null } | null;
   goal_id?: string | null;
   curriculum_goal_id?: string | null;
+  notes?: string | null;
 };
 type CurriculumGroup = {
   key: string;
@@ -279,6 +280,11 @@ export default function PlanPage() {
   const [allLessons,       setAllLessons]       = useState<Lesson[]>([]);
   const [selectedDay, setSelectedDay] = useState<string>(todayStr);
 
+  // ── Lesson notes ─────────────────────────────────────────────────────────
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
+
   // ── Edit modal ────────────────────────────────────────────────────────────
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [editTitle,     setEditTitle]     = useState("");
@@ -432,9 +438,9 @@ export default function PlanPage() {
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji").eq("user_id", effectiveUserId).order("created_at"),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
@@ -453,7 +459,7 @@ export default function PlanPage() {
     if (!effectiveUserId) return;
     const { data } = await supabase
       .from("lessons")
-      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
+      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
       .eq("user_id", effectiveUserId);
     setAllLessons((data as unknown as Lesson[]) ?? []);
   }, [effectiveUserId]);
@@ -485,9 +491,9 @@ export default function PlanPage() {
     const me = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
     const s = toDateStr(ms), e = toDateStr(me);
     const [{ data: bySched }, { data: byDate }] = await Promise.all([
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setMonthLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
@@ -526,6 +532,31 @@ export default function PlanPage() {
 
   function prevMonth() { setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1)); }
   function nextMonth() { setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1)); }
+
+  // ── Lesson note helpers ───────────────────────────────────────────────────
+
+  function startEditingNote(lessonId: string, currentNotes: string | null | undefined) {
+    setEditingNoteId(lessonId);
+    setEditingNoteText(currentNotes ?? "");
+    setTimeout(() => noteTextareaRef.current?.focus(), 0);
+  }
+
+  function cancelEditingNote() {
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  }
+
+  async function saveNote(lessonId: string) {
+    const trimmed = editingNoteText.trim();
+    const value = trimmed.length > 0 ? trimmed : null;
+    await supabase.from("lessons").update({ notes: value }).eq("id", lessonId);
+    // Update local state in both lesson maps
+    const updateFn = (l: Lesson) => l.id === lessonId ? { ...l, notes: value } : l;
+    setLessons(prev => prev.map(updateFn));
+    setAllLessons(prev => prev.map(updateFn as any));
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  }
 
   // ── Toggle ────────────────────────────────────────────────────────────────
 
@@ -1795,15 +1826,49 @@ export default function PlanPage() {
             {selLessons.map((l) => {
               const goal = l.curriculum_goal_id ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) : null;
               return (
-                <div key={l.id} className="flex items-center gap-3 px-4 py-2.5 rounded-xl" style={{ background: "linear-gradient(to bottom right, #eefbf0, #e0f8e6)", border: "1px solid #cef0d4" }}>
-                  <span className="text-xl shrink-0">{goal?.icon_emoji ?? "📚"}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[14px] font-medium text-[#2d2926] truncate">{goal?.curriculum_name ?? l.title}</span>
-                      <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#dcfce7] text-[#15803d]">Lesson</span>
+                <div key={l.id} className="rounded-xl" style={{ background: "linear-gradient(to bottom right, #eefbf0, #e0f8e6)", border: "1px solid #cef0d4" }}>
+                  <div className="flex items-center gap-3 px-4 py-2.5">
+                    <span className="text-xl shrink-0">{goal?.icon_emoji ?? "📚"}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[14px] font-medium text-[#2d2926] truncate">{goal?.curriculum_name ?? l.title}</span>
+                        <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#dcfce7] text-[#15803d]">Lesson</span>
+                      </div>
+                      {l.subjects?.name && <p className="text-xs text-[#7a6f65] mt-0.5">{l.subjects.name}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p>}
+                      {/* Note preview (collapsed) */}
+                      {editingNoteId !== l.id && l.notes && (
+                        <p className="text-[11px] text-[#6b6560] italic mt-1 line-clamp-1">{l.notes}</p>
+                      )}
                     </div>
-                    {l.subjects?.name && <p className="text-xs text-[#7a6f65] mt-0.5">{l.subjects.name}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p>}
                   </div>
+                  {/* Note editing / display */}
+                  {!isPartner && (
+                    <div className="px-4 pb-2.5">
+                      {editingNoteId === l.id ? (
+                        <div>
+                          <textarea
+                            ref={noteTextareaRef}
+                            value={editingNoteText}
+                            onChange={(e) => setEditingNoteText(e.target.value)}
+                            placeholder="Prep items, extra activities, reminders..."
+                            className="w-full min-h-[52px] max-h-[100px] rounded-lg border border-[#cef0d4] bg-white p-2 text-[12px] text-[#3c3a37] resize-none focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/30"
+                          />
+                          <div className="flex items-center gap-2 mt-1">
+                            <button onClick={() => saveNote(l.id)} className="bg-[#2D5A3D] text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg">Save</button>
+                            <button onClick={cancelEditingNote} className="text-[11px] text-[#8a8580] font-medium">Cancel</button>
+                          </div>
+                        </div>
+                      ) : l.notes ? (
+                        <button onClick={() => startEditingNote(l.id, l.notes)} className="flex items-center gap-1 text-[11px] text-[#2D5A3D] font-medium">
+                          <Pencil size={10} /> Edit note
+                        </button>
+                      ) : (
+                        <button onClick={() => startEditingNote(l.id, null)} className="text-[11px] text-[#5c7f63] font-medium hover:text-[#2D5A3D] transition-colors">
+                          + Add a note...
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
