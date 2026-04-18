@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Pencil, Trash2 } from "lucide-react";
 
@@ -29,6 +30,7 @@ interface Props {
   onAddAppt: () => void;
   isPartner: boolean;
   upcomingDays?: { date: string; count: number }[];
+  isSchoolDay?: boolean;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -190,7 +192,7 @@ function Badge({ kind }: { kind: "lesson" | "activity" | "appointment" }) {
 export default function UnifiedTimeline({
   lessons, activities, appointments, children,
   onToggleLesson, onToggleActivity, onToggleAppointment,
-  onLogExtra, onManage, onAddAppt, isPartner, upcomingDays,
+  onLogExtra, onManage, onAddAppt, isPartner, upcomingDays, isSchoolDay = true,
 }: Props) {
   const [nowMinutes, setNowMinutes] = useState(() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); });
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -266,8 +268,6 @@ export default function UnifiedTimeline({
     if (aDone !== bDone) return aDone ? 1 : -1;
     return 0;
   });
-
-  if (totalItems === 0) return null;
 
   function isDone(item: TimelineItem): boolean {
     return item.kind === "lesson" ? item.lesson.completed : item.kind === "activity" ? item.activity.completed : item.appointment.completed;
@@ -468,7 +468,7 @@ export default function UnifiedTimeline({
       <div className="flex items-center justify-between px-0.5 -mb-1">
         <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">Today&apos;s schedule</p>
         <div className="flex items-center gap-2">
-          <span className="text-[12px] text-[#b5aca4]">{doneItems} of {totalItems} done</span>
+          {totalItems > 0 && <span className="text-[12px] text-[#b5aca4]">{doneItems} of {totalItems} done</span>}
           <button type="button" onClick={onManage} className="flex items-center gap-1 text-[12px] font-medium text-white rounded-full px-3.5 py-1.5 transition-opacity hover:opacity-80" style={{ background: "#2D5A3D" }}>
             📅 Manage
           </button>
@@ -479,7 +479,7 @@ export default function UnifiedTimeline({
       <div className="bg-white rounded-2xl overflow-hidden mt-2" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}>
         {/* Status line + actions */}
         <div className="px-[18px] pt-4 pb-3 border-b border-[#f0ece6]">
-          {statusMsg && (
+          {totalItems > 0 && statusMsg && (
             <div className="flex items-center gap-2 rounded-xl px-3.5 py-2.5 mb-2.5 transition-opacity duration-300" style={{ background: "linear-gradient(135deg, #f0faf3, #e8f5ec)" }}>
               <span className="text-sm text-[#2D5A3D] font-medium">{statusMsg}</span>
             </div>
@@ -492,16 +492,32 @@ export default function UnifiedTimeline({
           )}
         </div>
 
-        {/* Item list */}
+        {/* Item list or day-off empty state */}
         <div className="px-3 py-2.5">
-          {[...timed, ...anytime].map((item) => {
-            const isPast = item.timeMinutes != null && item.timeMinutes < nowMinutes;
-            return (
-              <div key={item.kind === "lesson" ? `l-${item.lesson.id}` : item.kind === "activity" ? `a-${item.activity.id}` : `ap-${item.appointment.id}`}>
-                {renderItem(item, isPast)}
-              </div>
-            );
-          })}
+          {totalItems === 0 ? (
+            <div className="rounded-2xl py-7 px-6 text-center" style={{ background: "#E8F0EB", border: "1px solid #d4ead6" }}>
+              <div className="text-[32px] mb-2">{isSchoolDay ? "📅" : "☀️"}</div>
+              <p className="text-[18px] font-semibold text-[#2D5A3D] mb-1.5" style={{ fontFamily: "Georgia, serif" }}>
+                {isSchoolDay ? "No lessons scheduled" : "It\u2019s your day off!"}
+              </p>
+              <p className="text-[14px] text-[#5C5248] leading-[1.5]">
+                {isSchoolDay ? (
+                  <>No lessons scheduled today. Head to <Link href="/dashboard/plan" className="underline font-medium text-[#2D5A3D]">Plan</Link> to set up your week!</>
+                ) : (
+                  <>No lessons scheduled — but the best memories happen on days like this. Tap the capture button below!</>
+                )}
+              </p>
+            </div>
+          ) : (
+            [...timed, ...anytime].map((item) => {
+              const isPast = item.timeMinutes != null && item.timeMinutes < nowMinutes;
+              return (
+                <div key={item.kind === "lesson" ? `l-${item.lesson.id}` : item.kind === "activity" ? `a-${item.activity.id}` : `ap-${item.appointment.id}`}>
+                  {renderItem(item, isPast)}
+                </div>
+              );
+            })
+          )}
         </div>
 
         {/* Inline schedule tabs */}
