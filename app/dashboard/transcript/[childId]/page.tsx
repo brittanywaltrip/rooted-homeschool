@@ -724,6 +724,15 @@ export default function TranscriptBuilderPage() {
     if (!userId || formSaving || !form.course_name.trim()) return;
     setFormSaving(true);
 
+    const derivedCreditType = (() => {
+      switch (form.course_level) {
+        case "honors": return "honors";
+        case "ap": return "ap";
+        case "dual_enrollment": return "dual_enrollment";
+        default: return "standard";
+      }
+    })();
+
     const payload = {
       user_id: userId,
       child_id: childId,
@@ -731,7 +740,7 @@ export default function TranscriptBuilderPage() {
       grade_level: form.grade_level || null,
       course_name: form.course_name.trim(),
       subject_category: form.subject_category,
-      credit_type: form.credit_type,
+      credit_type: derivedCreditType,
       course_level: form.course_level || "standard",
       credits_earned: form.credits_earned,
       hours_logged: form.hours_logged,
@@ -1205,22 +1214,13 @@ export default function TranscriptBuilderPage() {
                   </div>
                 </div>
 
-                {/* Subject + Credit type */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[12px] font-medium text-[#6b6560] block mb-1">Subject category</label>
-                    <select value={form.subject_category} onChange={e => updateForm("subject_category", e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]">
-                      {SUBJECT_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[12px] font-medium text-[#6b6560] block mb-1">Credit type</label>
-                    <select value={form.credit_type} onChange={e => updateForm("credit_type", e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]">
-                      {CREDIT_TYPES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                    </select>
-                  </div>
+                {/* Subject category */}
+                <div>
+                  <label className="text-[12px] font-medium text-[#6b6560] block mb-1">Subject category</label>
+                  <select value={form.subject_category} onChange={e => updateForm("subject_category", e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]">
+                    {SUBJECT_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
                 </div>
 
                 {/* Course level */}
