@@ -308,6 +308,9 @@ export default function TranscriptBuilderPage() {
       setSyncingInitial(false);
     }
 
+    // Always set profile access (controls watermark + export gate)
+    setProfileAccess({ is_pro: (profile as any)?.is_pro, trial_started_at: (profile as any)?.trial_started_at });
+
     if (settingsData) {
       setSettings({
         id: settingsData.id,
@@ -319,7 +322,6 @@ export default function TranscriptBuilderPage() {
       });
     } else {
       // Default settings from profile
-      setProfileAccess({ is_pro: (profile as any)?.is_pro, trial_started_at: (profile as any)?.trial_started_at });
       const lastName = (profile as any)?.last_name || (profile as any)?.display_name || "";
       const firstName = (profile as any)?.first_name || "";
       const profileStateRaw = (profile as any)?.state as string | null;
