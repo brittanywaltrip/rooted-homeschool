@@ -1174,7 +1174,7 @@ export default function TranscriptBuilderPage() {
                       <div><span className="text-[#8a8580]">Total credits:</span> <span className="font-bold ml-1">{gradedTotalCredits}</span></div>
                     </div>
 
-                    <div className="text-[11px] text-[#8a8580] mb-4">
+                    <div className="text-[11px] text-[#8a8580] mb-8">
                       <span className="font-medium">Grading Scale:</span>{" "}
                       A = 4.0 &nbsp; B = 3.0 &nbsp; C = 2.0 &nbsp; D = 1.0 &nbsp; F = 0.0
                       {settings.use_weighted_gpa && (
@@ -1182,7 +1182,7 @@ export default function TranscriptBuilderPage() {
                       )}
                     </div>
 
-                    <div className="mt-8 pt-4 border-t border-[#e8e2d9] grid grid-cols-2 gap-8 text-[11px] text-[#8a8580]">
+                    <div className="mt-12 pt-4 border-t border-[#e8e2d9] grid grid-cols-2 gap-8 text-[11px] text-[#8a8580]">
                       <div>
                         <div className="border-b border-[#c8bfb5] mb-1 pb-6" />
                         <p>{settings.principal_name || "Administrator"}, Administrator</p>
