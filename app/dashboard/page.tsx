@@ -2887,6 +2887,21 @@ export default function TodayPage() {
       })()}
 
       {/* ═══════════════════════════════════════════════════════════
+          DAY OFF — warm empty state when no lessons/activities today
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && !isPartner && hasAnyLessons && lessons.length === 0 && todayActivities.length === 0 && !activeVacation && (
+        <div className="bg-[#E8F0EB] border border-[#d4ead6] rounded-2xl py-7 px-6 text-center">
+          <div className="text-[32px] mb-2">☀️</div>
+          <p className="text-[18px] font-semibold text-[#2D5A3D] mb-1.5" style={{ fontFamily: "Georgia, serif" }}>
+            It&apos;s your day off!
+          </p>
+          <p className="text-[14px] text-[#5C5346] leading-[1.5]">
+            No lessons scheduled — but the best memories happen on days like this. Tap the capture button below!
+          </p>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
           CAPTURE BUTTON — compact for returning users, big for new
          ═══════════════════════════════════════════════════════════ */}
       {!loading && !isPartner && (
