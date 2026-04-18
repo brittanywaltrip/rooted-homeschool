@@ -25,6 +25,7 @@ type Settings = {
   graduation_year: number | null;
   use_weighted_gpa: boolean;
   principal_name: string | null;
+  include_notary: boolean;
 };
 
 type Course = {
@@ -128,7 +129,7 @@ export default function TranscriptBuilderPage() {
   const [loading, setLoading] = useState(true);
 
   // Settings
-  const [settings, setSettings] = useState<Settings>({ school_name: null, state: null, graduation_year: null, use_weighted_gpa: false, principal_name: null });
+  const [settings, setSettings] = useState<Settings>({ school_name: null, state: null, graduation_year: null, use_weighted_gpa: false, principal_name: null, include_notary: false });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [stateAutoDetected, setStateAutoDetected] = useState(false);
@@ -337,6 +338,66 @@ export default function TranscriptBuilderPage() {
     doc.line(rightSigX, y - 12, pageW - margin, y - 12);
     doc.text("Date", rightSigX, y);
 
+    // ── Notary block (optional) ─────────────────────────────
+    if (settings.include_notary) {
+      y += 30;
+      checkPage(120);
+
+      // Notary header
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(...dark);
+      doc.text("Notary Certification", margin, y);
+      y += 16;
+
+      // Notary text
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...dark);
+      const notaryText = `I certify that ${settings.principal_name || "the administrator"} personally appeared before me and affirmed that the information contained in this transcript is true and accurate to the best of their knowledge.`;
+      const notaryLines = doc.splitTextToSize(notaryText, contentW);
+      doc.text(notaryLines, margin, y);
+      y += notaryLines.length * 12 + 20;
+
+      // Notary signature line
+      doc.setDrawColor(200, 191, 181);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y, margin + sigW, y);
+      y += 12;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...muted);
+      doc.text("Notary Public Signature", margin, y);
+
+      // Commission expiration
+      const rightX = pageW - margin - sigW;
+      doc.line(rightX, y - 12, pageW - margin, y - 12);
+      doc.text("Commission Expiration Date", rightX, y);
+
+      y += 25;
+
+      // Seal area
+      doc.setDrawColor(200, 191, 181);
+      doc.setLineWidth(0.3);
+      const sealSize = 60;
+      const sealX = margin;
+      doc.rect(sealX, y, sealSize, sealSize);
+      doc.setFontSize(8);
+      doc.setTextColor(...muted);
+      doc.text("(Notary Seal)", sealX + sealSize / 2, y + sealSize / 2 + 3, { align: "center" });
+
+      // State and county lines next to seal
+      const labelX = sealX + sealSize + 20;
+      doc.setFontSize(9);
+      doc.setTextColor(...dark);
+      doc.setFont("helvetica", "normal");
+      doc.text("State of: _______________________", labelX, y + 15);
+      doc.text("County of: ______________________", labelX, y + 30);
+      doc.text("Date: ___________________________", labelX, y + 45);
+
+      y += sealSize + 10;
+    }
+
     // ── Footer ──────────────────────────────────────────────
     const pageCount = doc.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
@@ -526,6 +587,7 @@ export default function TranscriptBuilderPage() {
         graduation_year: settingsData.graduation_year,
         use_weighted_gpa: settingsData.use_weighted_gpa ?? false,
         principal_name: settingsData.principal_name,
+        include_notary: settingsData.include_notary ?? false,
       });
     } else {
       // Default settings from profile
@@ -563,6 +625,7 @@ export default function TranscriptBuilderPage() {
       graduation_year: settings.graduation_year || null,
       use_weighted_gpa: settings.use_weighted_gpa,
       principal_name: settings.principal_name || null,
+      include_notary: settings.include_notary,
       updated_at: new Date().toISOString(),
     };
 
@@ -753,6 +816,26 @@ export default function TranscriptBuilderPage() {
                 </button>
                 <span className="text-[13px] text-[#3c3a37]">Use weighted GPA (Honors +0.5, AP/Dual +1.0)</span>
               </div>
+
+              {/* Notary block */}
+              <div className="flex items-center justify-between py-3 border-t border-[#e8e2d9]">
+                <div>
+                  <p className="text-[13px] font-medium text-[#3c3a37]">Include notary block</p>
+                  <p className="text-[11px] text-[#8a8580]">Adds a notary certification section to the PDF — useful for college applications</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSettings(prev => ({ ...prev, include_notary: !prev.include_notary }))}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    settings.include_notary ? "bg-[#2D5A3D]" : "bg-[#d5d0ca]"
+                  }`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                    settings.include_notary ? "translate-x-[18px]" : "translate-x-[3px]"
+                  }`} />
+                </button>
+              </div>
+
               <button type="button" onClick={saveSettings} disabled={settingsSaving}
                 className="bg-[#2D5A3D] text-white text-[13px] font-medium px-5 py-2.5 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-60">
                 {settingsSaving ? "Saving..." : "Save settings"}
