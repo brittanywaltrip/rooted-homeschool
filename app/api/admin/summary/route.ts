@@ -43,12 +43,20 @@ export async function GET(req: Request) {
   }
 
   const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-  const todayMidnight = new Date(now);
-  todayMidnight.setHours(0, 0, 0, 0);
-  const yesterdayMidnight = new Date(todayMidnight);
-  yesterdayMidnight.setDate(yesterdayMidnight.getDate() - 1);
+  // Use Central Time so "today" resets at midnight CT, not midnight UTC.
+  // Get today's date string in CT (YYYY-MM-DD), then figure out midnight CT in UTC.
+  const ctDateStr = now.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  // Determine if CT is currently CDT (UTC-5) or CST (UTC-6)
+  const ctHourStr = now.toLocaleString("en-US", { timeZone: "America/Chicago", hour: "numeric", hour12: false });
+  const ctHour = parseInt(ctHourStr, 10);
+  const utcHour = now.getUTCHours();
+  const isDST = ((utcHour - ctHour + 24) % 24) === 5;
+  const ctOffsetHours = isDST ? 5 : 6; // CDT = UTC-5, CST = UTC-6
+  // Midnight CT in UTC = date + ctOffsetHours
+  const [yy, mm, dd] = ctDateStr.split("-").map(Number);
+  const todayMidnight = new Date(Date.UTC(yy, mm - 1, dd, ctOffsetHours, 0, 0, 0));
+  const yesterdayMidnight = new Date(todayMidnight.getTime() - 86400000);
+  const todayStart = todayMidnight;
 
   type AuthUser = Awaited<ReturnType<typeof supabaseAdmin.auth.admin.listUsers>>['data']['users'][number];
   type Profile = { id: string; display_name: string | null; first_name: string | null; last_name: string | null; plan_type: string | null; subscription_status: string | null; is_pro: boolean; partner_email: string | null; created_at: string };
