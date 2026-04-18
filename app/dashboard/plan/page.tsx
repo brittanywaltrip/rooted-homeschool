@@ -550,9 +550,10 @@ export default function PlanPage() {
     const trimmed = editingNoteText.trim();
     const value = trimmed.length > 0 ? trimmed : null;
     await supabase.from("lessons").update({ notes: value }).eq("id", lessonId);
-    // Update local state in both lesson maps
+    // Update local state in all lesson maps
     const updateFn = (l: Lesson) => l.id === lessonId ? { ...l, notes: value } : l;
     setLessons(prev => prev.map(updateFn));
+    setMonthLessons(prev => prev.map(updateFn));
     setAllLessons(prev => prev.map(updateFn as any));
     setEditingNoteId(null);
     setEditingNoteText("");
@@ -1819,8 +1820,8 @@ export default function PlanPage() {
       {/* ══════════════════════════════════════════════════
           SECTION — SELECTED DAY ITEMS (lessons + appointments)
       ══════════════════════════════════════════════════ */}
-      {viewMode === "month" && (() => {
-        const selLessons = monthLessonMap[selectedDay] ?? [];
+      {(() => {
+        const selLessons = viewMode === "month" ? (monthLessonMap[selectedDay] ?? []) : (lessonsByDay[selectedDay] ?? []);
         const selAppts = monthApptMap[selectedDay] ?? [];
         const selEmpty = selLessons.length === 0 && selAppts.length === 0;
         const selSuggestions = ["Do absolutely nothing. You\u2019ve earned it.", "Self care day \u2014 no lessons, no guilt.", "Read a book. A real one. For you.", "Pajama day. The kids will love it too.", "Get outside. Even 20 minutes counts."];
@@ -1828,8 +1829,15 @@ export default function PlanPage() {
         if (selEmpty && !isDateInBlocks(selectedDay, vacationBlocks)) return (
           <p className="mb-3 text-xs text-[#b45309] text-center py-2">☀️ Nothing scheduled — enjoy the day!</p>
         );
+        if (selLessons.length === 0 && selAppts.length === 0) return null;
+        const selDate = new Date(selectedDay + "T00:00:00");
         return (
           <div className="mb-3 space-y-2">
+            {viewMode === "week" && (
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] pl-1">
+                {selDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+              </p>
+            )}
             {selLessons.map((l) => {
               const goal = l.curriculum_goal_id ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) : null;
               return (
