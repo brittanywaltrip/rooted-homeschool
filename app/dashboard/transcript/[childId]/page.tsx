@@ -12,6 +12,7 @@ import { STATE_REQUIREMENTS, resolveStateCode } from "@/lib/transcript/state-req
 import { getUserAccess, canExport } from "@/lib/user-access";
 import PreviewWatermark from "@/app/components/PreviewWatermark";
 import ExportGateModal from "@/app/components/ExportGateModal";
+import { jsPDF } from "jspdf";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -148,6 +149,212 @@ export default function TranscriptBuilderPage() {
   // Toast
   const [toast, setToast] = useState<string | null>(null);
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 2500); }
+
+  function exportTranscriptPDF() {
+    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 50;
+    const contentW = pageW - margin * 2;
+    let y = 50;
+
+    const green = [45, 90, 61] as const;   // #2D5A3D
+    const dark = [45, 41, 38] as const;     // #2d2926
+    const muted = [138, 133, 128] as const; // #8a8580
+    const lineColor = [232, 226, 217] as const; // #e8e2d9
+
+    function checkPage(needed: number) {
+      if (y + needed > doc.internal.pageSize.getHeight() - 50) {
+        doc.addPage();
+        y = 50;
+      }
+    }
+
+    // ── Header ──────────────────────────────────────────────
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(...dark);
+    doc.text(settings.school_name || "Home School", pageW / 2, y, { align: "center" });
+    y += 20;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(...muted);
+    doc.text("Official Transcript", pageW / 2, y, { align: "center" });
+    y += 12;
+
+    // Divider line
+    doc.setDrawColor(...lineColor);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageW - margin, y);
+    y += 20;
+
+    // ── Student info ────────────────────────────────────────
+    doc.setFontSize(10);
+    const infoLeft: [string, string][] = [];
+    infoLeft.push(["Student:", child?.name || ""]);
+    if (settings.state) {
+      const stateName = STATE_REQUIREMENTS[settings.state]?.name || settings.state;
+      infoLeft.push(["State:", stateName]);
+    }
+    const infoRight: [string, string][] = [];
+    if (settings.graduation_year) infoRight.push(["Graduation:", String(settings.graduation_year)]);
+    if (settings.principal_name) infoRight.push(["Administrator:", settings.principal_name]);
+
+    const infoRowH = 14;
+    const maxRows = Math.max(infoLeft.length, infoRight.length);
+    for (let i = 0; i < maxRows; i++) {
+      if (infoLeft[i]) {
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...muted);
+        doc.text(infoLeft[i][0], margin, y);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...dark);
+        doc.text(infoLeft[i][1], margin + 60, y);
+      }
+      if (infoRight[i]) {
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...muted);
+        doc.text(infoRight[i][0], pageW / 2 + 20, y);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...dark);
+        doc.text(infoRight[i][1], pageW / 2 + 95, y);
+      }
+      y += infoRowH;
+    }
+    y += 10;
+
+    // ── Courses by year ─────────────────────────────────────
+    const colX = {
+      course: margin,
+      category: margin + contentW * 0.42,
+      credits: margin + contentW * 0.72,
+      grade: margin + contentW * 0.88,
+    };
+    const rowH = 16;
+
+    for (const year of sortedYears) {
+      const yc = coursesByYear[year];
+      const gradeLevel = yc.find((c: Course) => c.grade_level)?.grade_level;
+      const yearLabel = year + (gradeLevel ? ` — Grade ${gradeLevel}` : "");
+
+      // Check if we need a new page (header + at least 2 rows)
+      checkPage(rowH * (yc.length + 3));
+
+      // Year header
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(...green);
+      doc.text(yearLabel, margin, y);
+      y += 16;
+
+      // Table header
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...muted);
+      doc.setFillColor(250, 248, 244);
+      doc.rect(margin, y - 10, contentW, rowH, "F");
+      doc.text("Course", colX.course, y);
+      doc.text("Category", colX.category, y);
+      doc.text("Credits", colX.credits + 30, y, { align: "right" });
+      doc.text("Grade", colX.grade + 30, y, { align: "right" });
+      y += rowH;
+
+      // Rows
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      for (const c of yc) {
+        checkPage(rowH + 4);
+
+        // Light border line
+        doc.setDrawColor(...lineColor);
+        doc.setLineWidth(0.3);
+        doc.line(margin, y - 10, margin + contentW, y - 10);
+
+        doc.setTextColor(...dark);
+        // Truncate long course names
+        const courseName = c.course_name.length > 35 ? c.course_name.slice(0, 33) + "…" : c.course_name;
+        doc.text(courseName, colX.course, y);
+
+        doc.setTextColor(107, 101, 96); // #6b6560
+        const catLabel = subjectLabel(c.subject_category);
+        const catTrunc = catLabel.length > 22 ? catLabel.slice(0, 20) + "…" : catLabel;
+        doc.text(catTrunc, colX.category, y);
+
+        doc.setTextColor(...dark);
+        doc.text(String(c.credits_earned), colX.credits + 30, y, { align: "right" });
+        doc.setFont("helvetica", "bold");
+        doc.text(c.grade_letter || "—", colX.grade + 30, y, { align: "right" });
+        doc.setFont("helvetica", "normal");
+        y += rowH;
+      }
+      y += 12;
+    }
+
+    // ── GPA & Credits summary ───────────────────────────────
+    checkPage(60);
+    doc.setDrawColor(...lineColor);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageW - margin, y);
+    y += 20;
+
+    doc.setFontSize(10);
+    doc.setTextColor(...muted);
+    doc.text("Cumulative GPA:", margin, y);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...dark);
+    const gpaStr = unweightedGPA?.toFixed(2) ?? "—";
+    doc.text(gpaStr, margin + 90, y);
+    if (settings.use_weighted_gpa && weightedGPA) {
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...muted);
+      doc.text(`(Weighted: ${weightedGPA.toFixed(2)})`, margin + 120, y);
+    }
+
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...muted);
+    doc.text("Total credits:", pageW / 2 + 20, y);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...dark);
+    doc.text(String(totalCredits), pageW / 2 + 90, y);
+    y += 40;
+
+    // ── Signature lines ─────────────────────────────────────
+    checkPage(80);
+    doc.setDrawColor(200, 191, 181); // #c8bfb5
+    doc.setLineWidth(0.5);
+    const sigW = contentW * 0.4;
+
+    // Left signature
+    doc.line(margin, y, margin + sigW, y);
+    y += 12;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...muted);
+    doc.text(`${settings.principal_name || "Administrator"}, Administrator`, margin, y);
+
+    // Right signature
+    const rightSigX = pageW - margin - sigW;
+    doc.line(rightSigX, y - 12, pageW - margin, y - 12);
+    doc.text("Date", rightSigX, y);
+
+    // ── Footer ──────────────────────────────────────────────
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(...muted);
+      doc.text(
+        `Generated by Rooted • rootedhomeschoolapp.com`,
+        pageW / 2,
+        doc.internal.pageSize.getHeight() - 25,
+        { align: "center" }
+      );
+    }
+
+    // ── Save ────────────────────────────────────────────────
+    const safeName = (child?.name || "student").replace(/[^a-zA-Z0-9]/g, "_");
+    doc.save(`${safeName}_transcript.pdf`);
+  }
 
   // Sync state
   const [syncing, setSyncing] = useState(false);
@@ -808,7 +1015,7 @@ export default function TranscriptBuilderPage() {
 
                   <button type="button" onClick={() => {
                     if (!canExport(profileAccess)) { setShowExportGate(true); return; }
-                    showToast("PDF export coming soon!");
+                    exportTranscriptPDF();
                   }}
                     className="mt-4 w-full bg-[#2D5A3D] text-white text-[13px] font-medium py-3 rounded-xl hover:opacity-90 transition-opacity">
                     Export PDF
