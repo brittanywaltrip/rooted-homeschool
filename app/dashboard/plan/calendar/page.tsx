@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -19,6 +19,7 @@ type Lesson = {
   date: string | null;
   scheduled_date: string | null;
   subjects: { name: string; color: string | null } | null;
+  notes: string | null;
 };
 
 type AppEvent = {
@@ -81,7 +82,7 @@ const FIELD_TRIP_TYPES = ["memory_field_trip"];
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
-  const { effectiveUserId } = usePartner();
+  const { effectiveUserId, isPartner } = usePartner();
   const todayStr = toDateStr(new Date());
 
   const [monthStart, setMonthStart] = useState(() => {
@@ -98,6 +99,9 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
   const [selectedChild, setSelectedChild] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const detailRef = useRef<HTMLDivElement>(null);
 
@@ -124,13 +128,13 @@ export default function CalendarPage() {
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, date, scheduled_date, subjects(name, color)")
+        .select("id, title, completed, child_id, date, scheduled_date, notes, subjects(name, color)")
         .eq("user_id", effectiveUserId)
         .gte("scheduled_date", s)
         .lte("scheduled_date", e),
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, date, scheduled_date, subjects(name, color)")
+        .select("id, title, completed, child_id, date, scheduled_date, notes, subjects(name, color)")
         .eq("user_id", effectiveUserId)
         .is("scheduled_date", null)
         .gte("date", s)
@@ -174,10 +178,34 @@ export default function CalendarPage() {
   function prevMonth() {
     setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1));
     setSelectedDay(null);
+    cancelEditingNote();
   }
   function nextMonth() {
     setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1));
     setSelectedDay(null);
+    cancelEditingNote();
+  }
+
+  // ── Note editing ────────────────────────────────────────────────────────────
+
+  function startEditingNote(lessonId: string, currentNotes: string | null) {
+    setEditingNoteId(lessonId);
+    setEditingNoteText(currentNotes ?? "");
+    setTimeout(() => noteTextareaRef.current?.focus(), 0);
+  }
+
+  function cancelEditingNote() {
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  }
+
+  async function saveNote(lessonId: string) {
+    const trimmed = editingNoteText.trim();
+    const value = trimmed.length > 0 ? trimmed : null;
+    await supabase.from("lessons").update({ notes: value }).eq("id", lessonId);
+    setLessons((prev) => prev.map((l) => l.id === lessonId ? { ...l, notes: value } : l));
+    setEditingNoteId(null);
+    setEditingNoteText("");
   }
 
   // ── Build day activity map ──────────────────────────────────────────────────
@@ -591,16 +619,49 @@ export default function CalendarPage() {
 
                   {/* Lessons */}
                   {group.lessons.map((l) => (
-                    <div key={l.id} className="flex items-center gap-2 pl-8">
-                      <div className="w-[5px] h-[5px] rounded-full bg-[var(--g-deep)] shrink-0" />
-                      <span className={`text-xs ${l.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                        {l.title}
-                      </span>
-                      {l.subjects?.name && (
-                        <span className="text-[9px] font-medium text-[#7a6f65] bg-[#f0ede8] px-1.5 py-0.5 rounded-full">
-                          {l.subjects.name}
+                    <div key={l.id} className="pl-8 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <div className="w-[5px] h-[5px] rounded-full bg-[var(--g-deep)] shrink-0" />
+                        <span className={`text-xs ${l.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                          {l.title}
                         </span>
-                      )}
+                        {l.subjects?.name && (
+                          <span className="text-[9px] font-medium text-[#7a6f65] bg-[#f0ede8] px-1.5 py-0.5 rounded-full">
+                            {l.subjects.name}
+                          </span>
+                        )}
+                      </div>
+                      {/* Note editor / display */}
+                      {editingNoteId === l.id ? (
+                        <div className="ml-3">
+                          <textarea
+                            ref={noteTextareaRef}
+                            value={editingNoteText}
+                            onChange={(e) => setEditingNoteText(e.target.value)}
+                            placeholder="Prep items, extra activities, reminders..."
+                            className="w-full min-h-[52px] max-h-[100px] rounded-lg border border-[#cef0d4] bg-white p-2 text-[12px] text-[#3c3a37] resize-none focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/30"
+                          />
+                          <div className="flex items-center gap-2 mt-1">
+                            <button onClick={() => saveNote(l.id)} className="bg-[#2D5A3D] text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg">Save</button>
+                            <button onClick={cancelEditingNote} className="text-[11px] text-[#8a8580] font-medium">Cancel</button>
+                          </div>
+                        </div>
+                      ) : l.notes ? (
+                        <div className="ml-3">
+                          <div className="bg-[#f8f7f4] rounded-lg p-2 border-l-2 border-[#2D5A3D]">
+                            <p className="text-[11px] text-[#6b6560] italic">{l.notes}</p>
+                          </div>
+                          {!isPartner && (
+                            <button onClick={() => startEditingNote(l.id, l.notes)} className="flex items-center gap-1 text-[11px] text-[#2D5A3D] font-medium mt-1">
+                              <Pencil size={10} /> Edit note
+                            </button>
+                          )}
+                        </div>
+                      ) : !isPartner ? (
+                        <button onClick={() => startEditingNote(l.id, null)} className="ml-3 text-[11px] text-[#5c7f63] font-medium hover:text-[#2D5A3D] transition-colors">
+                          + Add a note...
+                        </button>
+                      ) : null}
                     </div>
                   ))}
 

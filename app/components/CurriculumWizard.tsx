@@ -213,6 +213,7 @@ export default function CurriculumWizard({
   const [targetDate, setTargetDate] = useState(editData?.targetDate ?? "");
   const [startDate, setStartDate] = useState(() => toDateStr(new Date()));
   const [lessonStartTime, setLessonStartTime] = useState(editData?.lessonStartTime ?? "");
+  const [defaultNotes, setDefaultNotes] = useState("");
 
   // Track curricula saved so far for the current child (for "Added so far" pills)
   const [savedForThisChild, setSavedForThisChild] = useState<Array<{ name: string; lessons: string }>>([]);
@@ -463,6 +464,7 @@ export default function CurriculumWizard({
       console.warn(`[CurriculumWizard] subject "${effectiveSub}" selected but subject_id is null — badges won't show`);
     }
 
+    const trimmedNotes = defaultNotes.trim() || null;
     const inserts = rows.map(({ date, n }) => ({
       user_id: user.id,
       child_id: childId || null,
@@ -475,6 +477,7 @@ export default function CurriculumWizard({
       curriculum_goal_id: goalId,
       lesson_number: n,
       school_year_id: schoolYearId || null,
+      notes: trimmedNotes,
     }));
 
     let totalInserted = 0;
@@ -1149,6 +1152,18 @@ export default function CurriculumWizard({
               <p className="text-xs text-[#5c7f63] mt-1">This is your default — you can adjust the actual time for each lesson when you check it off.</p>
             </div>
 
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">Lesson notes <span className="normal-case font-normal">(optional)</span></label>
+              <textarea
+                value={defaultNotes}
+                onChange={(e) => setDefaultNotes(e.target.value)}
+                placeholder="e.g. Use the blue workbook, skip review sections, do odd problems only..."
+                rows={2}
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] resize-none focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+              />
+              <p className="text-xs text-[#b5aca4] mt-1">Added to every lesson so you remember your plan. You can edit per-lesson later.</p>
+            </div>
+
             <div className="flex gap-2">
               {mode === "create" && (
                 <button onClick={() => setStep(1)}
@@ -1592,6 +1607,7 @@ export default function CurriculumWizard({
                     ...(finishDate && mode === "create" ? [{ label: "Finishes around", value: finishDate }] : []),
                     ...(targetDate ? [{ label: "Finish line date", value: new Date(targetDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) }] : []),
                     ...(lessonStartTime ? [{ label: "Lesson time", value: (() => { const [h, m] = lessonStartTime.split(":").map(Number); const ampm = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`; })() }] : []),
+                    ...(defaultNotes.trim() ? [{ label: "Lesson notes", value: defaultNotes.trim() }] : []),
                   ].map(({ label, value }) => (
                     <div key={label} className="flex items-baseline justify-between gap-3">
                       <span className="text-xs font-semibold uppercase tracking-wide text-[#b5aca4] shrink-0">{label}</span>
