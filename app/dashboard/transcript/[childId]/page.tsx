@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Plus, Trash2, ChevronLeft, ChevronDown, ChevronUp, X, Check, RefreshCw, Settings as SettingsIcon } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import PageHero from "@/app/components/PageHero";
-import { SUBJECT_CATEGORIES, CREDIT_TYPES, GRADE_OPTIONS, SEMESTERS, getSchoolYearOptions } from "@/lib/transcript/constants";
+import { SUBJECT_CATEGORIES, GRADE_OPTIONS, SEMESTERS, getSchoolYearOptions } from "@/lib/transcript/constants";
 import { calculateGPA, getCreditsBySubject, COLLEGE_READY_TARGETS, GRADE_POINTS } from "@/lib/transcript/gpa";
 import { STATE_REQUIREMENTS, resolveStateCode } from "@/lib/transcript/state-requirements";
 import { getUserAccess, canExport } from "@/lib/user-access";
@@ -975,11 +975,6 @@ export default function TranscriptBuilderPage() {
                                   <span className="text-[10px] font-medium px-2 py-0.5 rounded-md shrink-0" style={{ background: badge.bg, color: badge.text }}>
                                     {subjectLabel(course.subject_category)}
                                   </span>
-                                  {course.credit_type !== "standard" && (
-                                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-[#fef3c7] text-[#92400e] shrink-0">
-                                      {CREDIT_TYPES.find(t => t.value === course.credit_type)?.label}
-                                    </span>
-                                  )}
                                   <span className="text-[12px] text-[#8a8580] shrink-0 w-12 text-right">{course.credits_earned} cr</span>
                                   {needsGrade
                                     ? <span className="text-[11px] text-amber-600 font-medium shrink-0">Needs grade</span>
