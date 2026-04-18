@@ -35,6 +35,7 @@ type Course = {
   course_name: string;
   subject_category: string;
   credit_type: string;
+  course_level: string;
   credits_earned: number;
   hours_logged: number | null;
   grade_letter: string | null;
@@ -56,6 +57,7 @@ const EMPTY_COURSE: Omit<Course, "id"> = {
   course_name: "",
   subject_category: "other",
   credit_type: "standard",
+  course_level: "standard",
   credits_earned: 1.0,
   hours_logged: null,
   grade_letter: null,
@@ -507,6 +509,7 @@ export default function TranscriptBuilderPage() {
         course_name: goal.curriculum_name || goal.subject_label || "Untitled Course",
         subject_category: mapSubjectToCategory(goal.subject_label),
         credit_type: "standard" as const,
+        course_level: "standard" as const,
         credits_earned: credits,
         hours_logged: hours || null,
         grade_letter: null,
@@ -694,7 +697,7 @@ export default function TranscriptBuilderPage() {
 
   function openEditCourse(course: Course) {
     setEditingCourse(course);
-    setForm({ ...course });
+    setForm({ ...course, course_level: course.course_level || "standard" });
     setDeleteConfirm(false);
     setModalOpen(true);
   }
@@ -729,6 +732,7 @@ export default function TranscriptBuilderPage() {
       course_name: form.course_name.trim(),
       subject_category: form.subject_category,
       credit_type: form.credit_type,
+      course_level: form.course_level || "standard",
       credits_earned: form.credits_earned,
       hours_logged: form.hours_logged,
       grade_letter: form.grade_letter || null,
@@ -948,7 +952,14 @@ export default function TranscriptBuilderPage() {
                               <button key={course.id} type="button" onClick={() => openEditCourse(course)}
                                 className="w-full text-left rounded-xl px-3.5 py-2.5 hover:bg-[#faf8f4] transition-colors border border-[#f0ece6]">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[14px] font-medium text-[#3c3a37] flex-1 min-w-0 truncate">{course.course_name}</span>
+                                  <span className="text-[14px] font-medium text-[#3c3a37] flex-1 min-w-0 truncate">
+                                    {course.course_name}
+                                    {course.course_level && course.course_level !== "standard" && (
+                                      <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#e8f0e9] text-[#2D5A3D]">
+                                        {course.course_level === "ap" ? "AP" : course.course_level === "honors" ? "Honors" : "DE"}
+                                      </span>
+                                    )}
+                                  </span>
                                   {isFromPlan && (
                                     <span className="text-[10px] text-[#8b8680] bg-[#f5f3f0] rounded px-1.5 py-0.5 shrink-0">From Plan</span>
                                   )}
@@ -1210,6 +1221,18 @@ export default function TranscriptBuilderPage() {
                       {CREDIT_TYPES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                     </select>
                   </div>
+                </div>
+
+                {/* Course level */}
+                <div>
+                  <label className="text-[12px] font-medium text-[#6b6560] block mb-1">Course level</label>
+                  <select value={form.course_level || "standard"} onChange={e => updateForm("course_level", e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]">
+                    <option value="standard">Standard</option>
+                    <option value="honors">Honors</option>
+                    <option value="ap">AP (Advanced Placement)</option>
+                    <option value="dual_enrollment">Dual Enrollment</option>
+                  </select>
                 </div>
 
                 {/* Credits + Semester */}
