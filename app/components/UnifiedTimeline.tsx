@@ -505,7 +505,7 @@ export default function UnifiedTimeline({
         </div>
 
         {/* Inline schedule tabs */}
-        <InlineScheduleTabs children={children} onManage={onManage} />
+        <InlineScheduleTabs children={children} onManage={onManage} isPartner={isPartner} />
       </div>
     </div>
   );
@@ -514,11 +514,11 @@ export default function UnifiedTimeline({
 // ─── Inline Schedule Tabs ────────────────────────────────────────────────────
 
 type TabAppt = { id: string; title: string; emoji: string; date: string; time: string | null; location: string | null; child_ids: string[]; is_recurring: boolean; recurrence_rule: { frequency: string; days: number[] } | null; completed: boolean; instance_date?: string };
-type TabLesson = { id: string; title: string; child_id: string; scheduled_date: string; subjects: { name: string; color: string | null } | null };
+type TabLesson = { id: string; title: string; child_id: string; scheduled_date: string; notes?: string | null; subjects: { name: string; color: string | null } | null };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function InlineScheduleTabs({ children: kids, onManage }: { children: { id: string; name: string; color: string | null }[]; onManage: () => void }) {
+function InlineScheduleTabs({ children: kids, onManage, isPartner }: { children: { id: string; name: string; color: string | null }[]; onManage: () => void; isPartner: boolean }) {
   const [tab, setTab] = useState<"upcoming" | "recurring" | "past">("upcoming");
   const [upcoming, setUpcoming] = useState<TabAppt[]>([]);
   const [recurring, setRecurring] = useState<TabAppt[]>([]);
@@ -526,6 +526,24 @@ function InlineScheduleTabs({ children: kids, onManage }: { children: { id: stri
   const [upcomingLessons, setUpcomingLessons] = useState<TabLesson[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  function startEditNote(lessonId: string, currentNotes: string | null | undefined) {
+    setEditingNoteId(lessonId);
+    setEditingNoteText(currentNotes ?? "");
+    setTimeout(() => noteTextareaRef.current?.focus(), 0);
+  }
+  function cancelEditNote() { setEditingNoteId(null); setEditingNoteText(""); }
+  async function saveUpcomingNote(lessonId: string) {
+    const trimmed = editingNoteText.trim();
+    const value = trimmed.length > 0 ? trimmed : null;
+    await supabase.from("lessons").update({ notes: value }).eq("id", lessonId);
+    setUpcomingLessons(prev => prev.map(l => l.id === lessonId ? { ...l, notes: value } : l));
+    setEditingNoteId(null);
+    setEditingNoteText("");
+  }
 
   useEffect(() => {
     (async () => {
@@ -551,7 +569,7 @@ function InlineScheduleTabs({ children: kids, onManage }: { children: { id: stri
       const fmtD = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
       const { data: lessonData } = await supabase
         .from("lessons")
-        .select("id, title, child_id, scheduled_date, subjects(name, color)")
+        .select("id, title, child_id, scheduled_date, notes, subjects(name, color)")
         .eq("user_id", user.id)
         .eq("completed", false)
         .gte("scheduled_date", fmtD(tomorrow))
@@ -655,18 +673,50 @@ function InlineScheduleTabs({ children: kids, onManage }: { children: { id: stri
                       <div className="flex-1 h-px bg-[#e8e3dc]" />
                     </div>
                     {lessonsForDay.map(l => (
-                      <div key={l.id} className="rounded-xl p-2.5 mb-1.5 flex items-center gap-2.5" style={{ background: "linear-gradient(135deg, #f0faf3, #e8f5ec)", border: "1.5px solid #cef0d4" }}>
-                        <span className="text-lg shrink-0">📚</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[13px] font-medium text-[#2D5A3D] truncate">{l.title}</span>
+                      <div key={l.id} className="rounded-xl mb-1.5" style={{ background: "linear-gradient(135deg, #f0faf3, #e8f5ec)", border: "1.5px solid #cef0d4" }}>
+                        <div className="flex items-center gap-2.5 p-2.5">
+                          <span className="text-lg shrink-0">📚</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[13px] font-medium text-[#2D5A3D] truncate">{l.title}</span>
+                            </div>
+                            <p className="text-[11px] text-[#8a8580] mt-0.5">
+                              {l.subjects?.name ?? ""}
+                              {l.subjects?.name && l.child_id ? " · " : ""}
+                              {(() => { const c = kids.find(ch => ch.id === l.child_id); return c ? c.name : ""; })()}
+                            </p>
+                            {editingNoteId !== l.id && l.notes && (
+                              <p className="text-[10px] text-[#6b6560] italic mt-1 line-clamp-2">{l.notes}</p>
+                            )}
                           </div>
-                          <p className="text-[11px] text-[#8a8580] mt-0.5">
-                            {l.subjects?.name ?? ""}
-                            {l.subjects?.name && l.child_id ? " · " : ""}
-                            {(() => { const c = kids.find(ch => ch.id === l.child_id); return c ? c.name : ""; })()}
-                          </p>
                         </div>
+                        {!isPartner && (
+                          <div className="px-2.5 pb-2">
+                            {editingNoteId === l.id ? (
+                              <div>
+                                <textarea
+                                  ref={noteTextareaRef}
+                                  value={editingNoteText}
+                                  onChange={(e) => setEditingNoteText(e.target.value)}
+                                  placeholder="Prep items, extra activities, reminders..."
+                                  className="w-full min-h-[44px] max-h-[80px] rounded-lg border border-[#cef0d4] bg-white p-2 text-[11px] text-[#3c3a37] resize-none focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/30"
+                                />
+                                <div className="flex items-center gap-2 mt-1">
+                                  <button onClick={() => saveUpcomingNote(l.id)} className="bg-[#2D5A3D] text-white text-[10px] font-semibold px-2 py-0.5 rounded-lg">Save</button>
+                                  <button onClick={cancelEditNote} className="text-[10px] text-[#8a8580] font-medium">Cancel</button>
+                                </div>
+                              </div>
+                            ) : l.notes ? (
+                              <button onClick={() => startEditNote(l.id, l.notes)} className="flex items-center gap-1 text-[10px] text-[#2D5A3D] font-medium">
+                                <Pencil size={9} /> Edit note
+                              </button>
+                            ) : (
+                              <button onClick={() => startEditNote(l.id, null)} className="text-[10px] text-[#5c7f63] font-medium hover:text-[#2D5A3D] transition-colors">
+                                + Add a note...
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </>

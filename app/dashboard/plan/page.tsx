@@ -1715,11 +1715,16 @@ export default function PlanPage() {
                                   const childName = l.child_id ? children.find(c => c.id === l.child_id)?.name : null;
                                   const lEmoji = l.curriculum_goal_id ? (curriculumGoals.find(g => g.id === l.curriculum_goal_id)?.icon_emoji ?? "📚") : "📚";
                                   return (
-                                    <p key={l.id} className="text-[11px] text-[#2d2926] truncate">
-                                      <span className="mr-0.5">{lEmoji}</span>
-                                      {childName && <span className="text-[#5c7f63]">{childName}: </span>}
-                                      {l.subjects?.name ?? l.title}
-                                    </p>
+                                    <div key={l.id} className="mb-1">
+                                      <p className="text-[11px] text-[#2d2926] truncate">
+                                        <span className="mr-0.5">{lEmoji}</span>
+                                        {childName && <span className="text-[#5c7f63]">{childName}: </span>}
+                                        {l.subjects?.name ?? l.title}
+                                      </p>
+                                      {l.notes && (
+                                        <p className="text-[10px] text-[#8a8580] italic ml-5 line-clamp-2">{l.notes}</p>
+                                      )}
+                                    </div>
                                   );
                                 })}
                                 {lessonCount > 5 && <p className="text-[10px] text-[#b5aca4]">+{lessonCount - 5} more</p>}
