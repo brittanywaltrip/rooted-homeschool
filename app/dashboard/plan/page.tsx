@@ -1743,6 +1743,30 @@ export default function PlanPage() {
                                 {apptCount > 4 && <p className="text-[10px] text-[#b5aca4]">+{apptCount - 4} more</p>}
                               </div>
                             )}
+                            {!isPartner && lessonCount === 1 && dayLessons[0] && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMonthPopoverDay(null);
+                                  startEditingNote(dayLessons[0].id, dayLessons[0].notes);
+                                }}
+                                className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
+                              >
+                                {dayLessons[0].notes ? "Edit note →" : "Add a note →"}
+                              </button>
+                            )}
+                            {!isPartner && lessonCount > 1 && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMonthPopoverDay(null);
+                                  // Scroll down to lesson cards
+                                }}
+                                className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
+                              >
+                                Add notes below ↓
+                              </button>
+                            )}
                             {!isVacation && (
                               <button
                                 onClick={(e) => {
@@ -1754,7 +1778,7 @@ export default function PlanPage() {
                                   setVacReschedule("leave");
                                   setShowVacModal(true);
                                 }}
-                                className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
+                                className={`text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors ${lessonCount > 0 && !isPartner ? "mt-0.5" : "mt-1 pt-1.5 border-t border-[#f0ede8]"} w-full text-left`}
                               >
                                 Mark as break →
                               </button>
@@ -1767,29 +1791,16 @@ export default function PlanPage() {
                 })}
               </div>
 
-              {/* Lightest week hint */}
-              {lightestWeek && (
-                <div className="mt-3 bg-[#F8F7F4] rounded-xl p-3">
-                  <p className="text-sm text-[#5C5346]">
-                    {"\u{1F4A1}"} Lightest week: {lightestWeek.start.toLocaleDateString("en-US", { month: "short", day: "numeric" })}–{lightestWeek.end.toLocaleDateString("en-US", { month: "short", day: "numeric" })} ({lightestWeek.count === 0 ? "nothing scheduled" : `${lightestWeek.count} item${lightestWeek.count !== 1 ? "s" : ""}`})
-                  </p>
-                </div>
-              )}
-
-              {/* Vacation streak callouts */}
-              {openStreaks.map((streak, si) => {
+              {/* Compact open-week hint — show only the longest streak, inline */}
+              {openStreaks.length > 0 && (() => {
+                const longest = openStreaks.reduce((a, b) => b.length > a.length ? b : a);
                 const mName = monthStart.toLocaleDateString("en-US", { month: "short" });
-                const suggestion = selfCareSuggestions[streak[0] % selfCareSuggestions.length];
                 return (
-                  <div key={si} className="mt-2 rounded-2xl p-3.5 flex items-start gap-3" style={{ background: "linear-gradient(to bottom right, #fffbeb, #fef3c7)", border: "1px solid #fde68a" }}>
-                    <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-xl" style={{ background: "linear-gradient(to bottom right, #fbbf24, #f59e0b)" }}>🌴</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#92400e]">{mName} {streak[0]}–{streak[streak.length - 1]} is wide open</p>
-                      <p className="text-xs text-[#b45309] mt-0.5">{streak.length} days free — {suggestion}</p>
-                    </div>
-                  </div>
+                  <p className="mt-2 text-xs text-[#b45309] text-center">
+                    🌴 {mName} {longest[0]}–{longest[longest.length - 1]} is wide open ({longest.length} days free)
+                  </p>
                 );
-              })}
+              })()}
               </>
             );
           })()}
@@ -1815,11 +1826,7 @@ export default function PlanPage() {
         const selSuggestions = ["Do absolutely nothing. You\u2019ve earned it.", "Self care day \u2014 no lessons, no guilt.", "Read a book. A real one. For you.", "Pajama day. The kids will love it too.", "Get outside. Even 20 minutes counts."];
         const selDayNum = parseInt(selectedDay.split("-")[2]) || 1;
         if (selEmpty && !isDateInBlocks(selectedDay, vacationBlocks)) return (
-          <div className="mb-3 rounded-2xl p-4 text-center" style={{ background: "linear-gradient(to bottom right, #fffbeb, #fef3c7)", border: "1px solid #fde68a" }}>
-            <span className="text-2xl">☀️</span>
-            <p className="text-sm font-medium text-[#92400e] mt-1">Wide open!</p>
-            <p className="text-xs text-[#b45309] mt-0.5">{selSuggestions[selDayNum % selSuggestions.length]}</p>
-          </div>
+          <p className="mb-3 text-xs text-[#b45309] text-center py-2">☀️ Nothing scheduled — enjoy the day!</p>
         );
         return (
           <div className="mb-3 space-y-2">
