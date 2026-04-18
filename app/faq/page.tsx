@@ -17,7 +17,7 @@ const sections = [
       },
       {
         q: "Is Rooted free?",
-        a: "Yes — Rooted is free to use, no credit card needed. Everything — lessons, memories, garden, yearbook preview, transcript builder, curriculum planning, scheduling, and resources. The free plan has a 50 photo limit, and yearbook and transcript show a preview watermark. PDF exports and family sharing require Rooted+ ($39/yr Founding Family pricing).",
+        a: "Yes! Every new user gets a 30-day free trial with full access to everything — yearbook, transcripts, family sharing, reports, badges, unlimited photos. After 30 days, you can keep using Rooted free (with a 50 photo limit and basic features) or upgrade to Rooted+ to keep all premium features.",
       },
       {
         q: "How do I set up my curriculum?",
@@ -120,11 +120,19 @@ const sections = [
     items: [
       {
         q: "What does the free plan include?",
-        a: "Everything for daily use — lessons, memories, garden, yearbook preview, transcript builder, curriculum planning, and scheduling. The free plan has a 50-photo limit, and yearbook and transcript show a preview watermark. PDF exports and family sharing require Rooted+.",
+        a: (
+          <span>
+            <strong>During your 30-day trial:</strong> full access to everything — yearbook, transcripts, family sharing, PDF exports, badges & certificates, unlimited photos.
+            <br /><br />
+            <strong>After trial:</strong> lesson tracking & curriculum planning, scheduling, memories (50 photo limit), attendance tracking, garden, and curated resources.
+            <br /><br />
+            Premium features (yearbook, transcripts, family sharing, PDF exports, badges & certificates) require Rooted+.
+          </span>
+        ),
       },
       {
         q: "What is the Founding Family price?",
-        a: "Rooted+ with Founding Family pricing is $39/year — locked in forever, even as the price increases. This is our way of thanking early supporters who helped us build and improve the app. Founding Family pricing is only available for a limited time while we're in early access.",
+        a: "Rooted+ with Founding Family pricing is $39/year — locked in forever, even as the price increases. Regular price will be $59/year after April 30, 2026. Founding Family pricing is our way of thanking early supporters who helped us build and improve the app.",
       },
       {
         q: "When does the founding price end?",
@@ -188,7 +196,7 @@ const sections = [
       },
       {
         q: "Do free users get a yearbook?",
-        a: "Yes — free users can build and view their yearbook on screen. It fills in automatically from your memories, and your text (letter, child interviews, future notes) is always saved. The free version shows a preview watermark. Upgrade to Rooted+ for a clean version with no watermark. A print option is coming soon — stay Rooted!",
+        a: "During your 30-day free trial, you have full access to the yearbook. After the trial, free users see a watermarked preview. Upgrade to Rooted+ for the full yearbook without watermarks. A print option is coming soon — stay Rooted!",
       },
       {
         q: "Are my archived yearbooks saved if I cancel my subscription?",

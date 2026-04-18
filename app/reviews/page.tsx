@@ -254,7 +254,7 @@ export default function ReviewsPage() {
             href="/signup"
             className="inline-block bg-[#2D5A3D] text-white text-sm font-medium px-6 py-2.5 rounded-lg hover:bg-[#3d5c48] transition-colors"
           >
-            Get Started Free
+            Start Your Free Trial
           </Link>
         </div>
       </main>

@@ -553,7 +553,7 @@ export default function TourPage() {
               Log In
             </Link>
             <Link href="/signup" className="inline-flex items-center gap-1.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white px-5 py-2.5 rounded-xl transition-colors shadow-sm">
-              Start Free
+              Start Free Trial
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
                 <path d="M1.5 5.5h8M5.5 1.5l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -612,7 +612,7 @@ export default function TourPage() {
           </p>
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
             <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[var(--g-deep)] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35)" }}>
-              Get Started Free →
+              Start Your Free Trial →
             </Link>
             <a href="#walkthrough" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base" style={{ border: "1px solid rgba(255,255,255,0.35)", background: "rgba(255,255,255,0.06)" }}>
               Explore Features ↓
@@ -870,7 +870,7 @@ export default function TourPage() {
                 ))}
               </ul>
               <Link href="/signup" className="inline-flex items-center gap-2 border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm">
-                Try it free →
+                Try Everything Free for 30 Days →
               </Link>
             </div>
           </div>
@@ -915,10 +915,10 @@ export default function TourPage() {
               Start your homeschool journey today
             </h2>
             <p className="text-[var(--g-deep)] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
-              Free to start. No credit card needed. Join families already using Rooted.
+              Try everything free for 30 days. No credit card needed. Join families already using Rooted.
             </p>
             <Link href="/signup" className="inline-block bg-[#5c7f63] hover:bg-[#4a6b50] text-white font-semibold px-8 py-3 rounded-full transition-colors">
-              Get Started Free →
+              Start Your Free Trial →
             </Link>
             <p className="mt-4">
               <Link href="/upgrade" className="text-sm text-[var(--g-deep)] hover:underline font-medium">

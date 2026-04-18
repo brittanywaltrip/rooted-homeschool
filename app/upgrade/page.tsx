@@ -140,14 +140,17 @@ function UpgradePageInner() {
           <h1 className="text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: 'var(--font-display)' }}>
             Keep everything you&apos;ve built 🌿
           </h1>
-          <p className="text-[#7a6f65] leading-relaxed max-w-md mx-auto text-base">
+          <p className="text-[#7a6f65] leading-relaxed max-w-md mx-auto text-base mb-2">
             Your homeschool, organized, saved, and ready whenever you need it.
+          </p>
+          <p className="text-[#5c7f63] font-medium max-w-md mx-auto text-sm">
+            Start with 30 days free — full access to every feature, no credit card needed.
           </p>
         </div>
 
         {/* Social proof */}
         <p className="text-sm text-[#9a8f85] text-center mb-10">
-          Join 700+ homeschool families already using Rooted 🌿
+          Join 1,200+ homeschool families already using Rooted 🌿
         </p>
 
         {/* Referral discount banner */}
@@ -185,9 +188,15 @@ function UpgradePageInner() {
               <p className="text-sm text-[#7a6f65]">Free forever</p>
             </div>
             <ul className="space-y-2 mb-6 flex-1">
-              {['Lesson logging & curriculum planning', 'Garden, badges, & scheduling', 'Memories (50 photos, unlimited books & wins)', 'Yearbook + transcript preview', 'Hours & attendance (view only)', 'Resources'].map(f => (
-                <li key={f} className="flex items-center gap-2 text-sm text-[#7a6f65]">
-                  <span className="text-[#c8bfb5] shrink-0">✓</span>{f}
+              {[
+                '30-day free trial — full access to everything',
+                'After trial: lesson logging & curriculum planning',
+                'After trial: garden & scheduling',
+                'After trial: memories (50 photo limit)',
+                'After trial: curated resources',
+              ].map(f => (
+                <li key={f} className="flex items-start gap-2 text-sm text-[#7a6f65]">
+                  <span className="text-[#c8bfb5] shrink-0 mt-0.5">✓</span>{f}
                 </li>
               ))}
             </ul>
@@ -249,11 +258,13 @@ function UpgradePageInner() {
 
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                'Everything in Rooted, plus:',
                 'Unlimited photos — keep every memory',
-                'All PDF exports — transcripts, hours log, reports',
-                'Clean yearbook + transcript — no watermark (print coming soon!)',
-                'Family sharing — invite grandparents, family & friends',
+                'Full yearbook — no watermark (print coming soon!)',
+                'Transcripts & PDF reports — export anytime',
+                'Family sharing — invite grandparents & family',
+                'Hours & attendance log — track and export',
+                'Badges & certificates',
+                'All PDF exports',
                 'Priority support from Brittany',
                 'Founding price locked forever 🎁',
               ].map((label) => (

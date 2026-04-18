@@ -309,7 +309,7 @@ function HomeInner() {
               href="/signup"
               className="inline-flex items-center gap-1.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] text-white px-5 py-2.5 rounded-xl transition-colors shadow-sm"
             >
-              Start Free
+              Start Free Trial
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
                 <path d="M1.5 5.5h8M5.5 1.5l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -400,7 +400,7 @@ function HomeInner() {
 
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
             <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#3d5c42] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35), 0 0 48px rgba(134,201,138,0.12)" }}>
-              Get Started Free →
+              Start Your Free Trial →
             </Link>
             <Link href="/tour" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base" style={{ border: "1px solid rgba(255,255,255,0.35)", backdropFilter: "blur(12px)", background: "rgba(255,255,255,0.06)" }}>
               See Inside →
@@ -408,7 +408,7 @@ function HomeInner() {
           </div>
 
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
-            <span>🌿</span> Trusted by 700+ homeschool families
+            <span>🌿</span> Trusted by 1,200+ homeschool families
           </p>
         </div>
 
@@ -425,7 +425,7 @@ function HomeInner() {
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
-              { number: "700+",    label: "Families Growing with Rooted", icon: "🌱" },
+              { number: "1,200+",  label: "Families Growing with Rooted", icon: "🌱" },
               { number: "11",      label: "Tools for Your Homeschool", icon: "🎨" },
               { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
               { number: "No Canva", label: "Beautiful Printables",  icon: "🖨️" },
@@ -793,7 +793,7 @@ function HomeInner() {
                 ))}
               </ul>
               <Link href="/signup" className="inline-flex items-center gap-2 border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm">
-                Try it free →
+                Try Everything Free for 30 Days →
               </Link>
             </div>
           </div>
@@ -857,8 +857,8 @@ function HomeInner() {
             Start free. Grow with Rooted.
           </h2>
           <p className="text-[#7a6f65] max-w-lg mx-auto">
-            Start free — no credit card needed. Upgrade when you&apos;re ready — lock in
-            the Rooted+ Founding Family price before it&apos;s gone.
+            Try everything free for 30 days — no credit card needed. After your trial,
+            keep using Rooted free or upgrade to keep all your premium features.
           </p>
         </div>
 
@@ -879,13 +879,11 @@ function HomeInner() {
             <p className="text-xs text-[#b5aca4] mb-6">No credit card needed</p>
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
-                "All memory types (photos, books, wins, drawings, field trips)",
-                "Up to 50 photos",
-                "Daily lesson tracking",
-                "Family garden & badges",
-                "Curated resources",
-                "Yearbook preview (watermark)",
-                "Transcript preview (watermark)",
+                "30-day free trial — full access to everything",
+                "After trial: lesson tracking & curriculum planning",
+                "After trial: garden, badges, & scheduling",
+                "After trial: memories (50 photo limit)",
+                "After trial: curated resources",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -897,7 +895,7 @@ function HomeInner() {
               href="/signup"
               className="block w-full border border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8] font-medium py-3 rounded-xl transition-colors text-sm"
             >
-              Start Free
+              Start 30-Day Free Trial
             </Link>
           </div>
 
@@ -928,9 +926,11 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
+                "Full yearbook — no watermark (print coming soon!)",
+                "Transcripts & PDF reports — export anytime",
+                "Badges & certificates",
                 "Hours & Attendance Log — track and export your learning hours",
                 "Curriculum progress tracking — stay on track all year without the stress",
-                "Full yearbook — no watermark (print coming soon!)",
                 "Share with family — send grandparents a private link to follow along in real time",
                 "Priority support",
                 "Founding price locked forever 🎁",
@@ -973,9 +973,11 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
+                "Full yearbook — no watermark (print coming soon!)",
+                "Transcripts & PDF reports — export anytime",
+                "Badges & certificates",
                 "Hours & Attendance Log — track and export your learning hours",
                 "Curriculum progress tracking — stay on track all year without the stress",
-                "Full yearbook — no watermark (print coming soon!)",
                 "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
@@ -1047,12 +1049,13 @@ function HomeInner() {
                 { feature: "Garden & growth tree",      free: "✓",            founding: "✓"               },
                 { feature: "Curriculum planning",       free: "✓",            founding: "✓"               },
                 { feature: "Scheduling",                free: "✓",            founding: "✓"               },
-                { feature: "Photos",                    free: "50",           founding: "✓ Unlimited"     },
-                { feature: "Yearbook",                  free: "Preview",      founding: "✓ Full — no watermark" },
-                { feature: "Transcript builder",        free: "Preview",      founding: "✓ Full + export" },
-                { feature: "PDF exports (transcripts, hours, reports)", free: "—", founding: "✓"          },
-                { feature: "Family sharing",            free: "—",            founding: "✓"               },
-                { feature: "Hours & Attendance Log",    free: "View only",    founding: "✓ + PDF export"  },
+                { feature: "Photos",                    free: "50 (unlimited during trial)", founding: "✓ Unlimited" },
+                { feature: "Yearbook",                  free: "Full during trial · Preview after", founding: "✓ Full — no watermark" },
+                { feature: "Transcript builder",        free: "Full during trial · Preview after", founding: "✓ Full + export" },
+                { feature: "PDF exports (transcripts, hours, reports)", free: "During trial only", founding: "✓" },
+                { feature: "Family sharing",            free: "During trial only", founding: "✓"          },
+                { feature: "Hours & Attendance Log",    free: "Full during trial · View only after", founding: "✓ + PDF export" },
+                { feature: "Badges & certificates",     free: "During trial only", founding: "✓"          },
                 { feature: "Founding price locked",     free: "—",            founding: "Forever 🎁"      },
               ].map((row, i) => (
                 <tr
@@ -1069,7 +1072,7 @@ function HomeInner() {
         </div>
 
         <p className="text-xs text-[#b5aca4] mt-6 text-center">
-          Try it free. No credit card needed to get started.
+          Try everything free for 30 days. No credit card needed to get started.
         </p>
         <p className="text-[11px] text-[#c8bfb5] mt-3 text-center">
           🔒 SSL Secured  ·  🚫 No ads, ever  ·  🧡 Your memories are never sold or shared
@@ -1147,13 +1150,13 @@ function HomeInner() {
               Start your homeschool journey today
             </h2>
             <p className="text-[#3d5c42] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
-              Free to start. No credit card needed. Join families already using Rooted.
+              Try everything free for 30 days. No credit card needed. Join families already using Rooted.
             </p>
             <Link
               href="/signup"
               className="inline-block bg-[#5c7f63] hover:bg-[#4a6b50] text-white font-semibold px-8 py-3 rounded-full transition-colors"
             >
-              Get Started Free →
+              Start Your Free Trial →
             </Link>
           </div>
         </div>
