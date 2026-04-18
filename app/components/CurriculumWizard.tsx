@@ -237,6 +237,21 @@ export default function CurriculumWizard({
   const [backfillRemoveConfirm, setBackfillRemoveConfirm] = useState(false);
   const [backfillShowDetails, setBackfillShowDetails] = useState(false);
 
+  // Transcript fields (only shown if child has transcript set up)
+  const [childHasTranscript, setChildHasTranscript] = useState(false);
+  const [courseLevel, setCourseLevel] = useState<string>("standard");
+  const [creditsValue, setCreditsValue] = useState<string>("");
+
+  useEffect(() => {
+    if (!childId) { setChildHasTranscript(false); return; }
+    supabase
+      .from("transcript_settings")
+      .select("id")
+      .eq("child_id", childId)
+      .maybeSingle()
+      .then(({ data }) => setChildHasTranscript(!!data));
+  }, [childId]);
+
   // Pre-fill backfill lessons from start_at_lesson
   useEffect(() => {
     if (mode === "edit") return; // edit mode fills from DB
@@ -251,7 +266,7 @@ export default function CurriculumWizard({
     if (mode !== "edit" || !editData?.goalId) return;
     supabase
       .from("curriculum_goals")
-      .select("is_backfilled, start_at_lesson, scheduled_start_time")
+      .select("is_backfilled, start_at_lesson, scheduled_start_time, course_level, credits_value")
       .eq("id", editData.goalId)
       .single()
       .then(({ data }) => {
@@ -271,6 +286,8 @@ export default function CurriculumWizard({
         if (data?.start_at_lesson && data.start_at_lesson > 1) {
           setBackfillLessonsDone(String(data.start_at_lesson - 1));
         }
+        if (data?.course_level) setCourseLevel(data.course_level);
+        if (data?.credits_value != null) setCreditsValue(String(data.credits_value));
       });
   }, [mode, editData?.goalId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -411,6 +428,8 @@ export default function CurriculumWizard({
         scheduled_start_time: lessonStartTime || null,
         school_year_id: schoolYearId || null,
         icon_emoji: guessEmoji(saveName),
+        course_level: childHasTranscript ? courseLevel : null,
+        credits_value: childHasTranscript && creditsValue ? parseFloat(creditsValue) : null,
         updated_at: new Date().toISOString(),
       })
       .select("id")
@@ -645,6 +664,8 @@ export default function CurriculumWizard({
         default_minutes: parseInt(defaultMinutes) || 30,
         scheduled_start_time: lessonStartTime || null,
         icon_emoji: guessEmoji(saveName),
+        course_level: childHasTranscript ? courseLevel : null,
+        credits_value: childHasTranscript && creditsValue ? parseFloat(creditsValue) : null,
         updated_at: new Date().toISOString(),
       };
       const { error: updateErr } = await supabase
@@ -671,6 +692,8 @@ export default function CurriculumWizard({
           scheduled_start_time: lessonStartTime || null,
           school_year_id: schoolYearId || null,
           icon_emoji: guessEmoji(saveName),
+          course_level: childHasTranscript ? courseLevel : null,
+          credits_value: childHasTranscript && creditsValue ? parseFloat(creditsValue) : null,
           updated_at: new Date().toISOString(),
         })
         .select("id")
@@ -1101,6 +1124,43 @@ export default function CurriculumWizard({
                   className="mt-2 w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
               )}
             </div>
+
+            {/* Transcript info — only for kids with transcripts */}
+            {childHasTranscript && (
+              <div className="mt-4 p-3 rounded-xl bg-[#f0f7f1] border border-[#d5e8d8]">
+                <p className="text-[11px] font-semibold text-[#2D5A3D] mb-2 uppercase tracking-wide">
+                  Transcript Info <span className="font-normal normal-case tracking-normal text-[#6b8f72]">· optional</span>
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-[#5c7f63] mb-1">Course Level</label>
+                    <select
+                      value={courseLevel}
+                      onChange={e => setCourseLevel(e.target.value)}
+                      className="w-full border border-[#d5e8d8] rounded-lg px-2.5 py-2 text-[13px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20"
+                    >
+                      <option value="standard">Standard</option>
+                      <option value="honors">Honors</option>
+                      <option value="ap">AP</option>
+                      <option value="dual_enrollment">Dual Enrollment</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-[#5c7f63] mb-1">Credits</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      max="10"
+                      placeholder="1.0"
+                      value={creditsValue}
+                      onChange={e => setCreditsValue(e.target.value)}
+                      className="w-full border border-[#d5e8d8] rounded-lg px-2.5 py-2 text-[13px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -1614,6 +1674,20 @@ export default function CurriculumWizard({
                       <span className="text-sm font-medium text-[#2d2926] text-right">{value}</span>
                     </div>
                   ))}
+
+                  {childHasTranscript && (courseLevel !== "standard" || creditsValue) && (
+                    <div className="flex items-center gap-2 text-[13px]">
+                      <span className="text-[#8a8580]">Transcript:</span>
+                      <span className="text-[#3c3a37] font-medium">
+                        {courseLevel !== "standard" && (
+                          <span className="mr-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#e8f0e9] text-[#2D5A3D]">
+                            {courseLevel === "ap" ? "AP" : courseLevel === "honors" ? "Honors" : "DE"}
+                          </span>
+                        )}
+                        {creditsValue && `${creditsValue} credits`}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Backfill summary card */}
