@@ -49,7 +49,7 @@ type Course = {
 
 type CurriculumGoal = { id: string; curriculum_name: string; icon_emoji: string | null; subject_label: string | null; school_year: string | null; default_minutes: number; course_level: string | null; credits_value: number | null };
 
-type Tab = "courses" | "gpa" | "preview";
+type Tab = "courses" | "transcript" | "gpa";
 
 const EMPTY_COURSE: Omit<Course, "id"> = {
   school_year: "",
@@ -240,8 +240,8 @@ export default function TranscriptBuilderPage() {
     };
     const rowH = 16;
 
-    for (const year of sortedYears) {
-      const yc = coursesByYear[year];
+    for (const year of gradedSortedYears) {
+      const yc = gradedByYear[year];
       const gradeLevel = yc.find((c: Course) => c.grade_level)?.grade_level;
       const yearLabel = year + (gradeLevel ? ` — Grade ${gradeLevel}` : "");
 
@@ -343,7 +343,7 @@ export default function TranscriptBuilderPage() {
     doc.text("Total credits:", pageW / 2 + 20, y);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...dark);
-    doc.text(String(totalCredits), pageW / 2 + 90, y);
+    doc.text(String(gradedTotalCredits), pageW / 2 + 90, y);
     y += 40;
 
     // ── Grading Scale Key ───────────────────────────────────
@@ -796,6 +796,16 @@ export default function TranscriptBuilderPage() {
   }, {});
   const sortedYears = Object.keys(coursesByYear).sort();
 
+  // Graded subset — used by the Transcript tab and PDF export
+  const gradedCourses = courses.filter(c => !!c.grade_letter);
+  const inProgressCount = courses.length - gradedCourses.length;
+  const gradedByYear = gradedCourses.reduce<Record<string, Course[]>>((acc, c) => {
+    (acc[c.school_year] = acc[c.school_year] || []).push(c);
+    return acc;
+  }, {});
+  const gradedSortedYears = Object.keys(gradedByYear).sort();
+  const gradedTotalCredits = gradedCourses.reduce((sum, c) => sum + (c.credits_earned || 0), 0);
+
   const creditsBySubject = getCreditsBySubject(courses.map(c => ({ subject_category: c.subject_category, credits_earned: c.credits_earned })));
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -817,8 +827,8 @@ export default function TranscriptBuilderPage() {
 
   const TABS: { key: Tab; label: string }[] = [
     { key: "courses", label: "Courses" },
-    { key: "gpa", label: "GPA & Summary" },
-    { key: "preview", label: "Preview" },
+    { key: "transcript", label: "Transcript" },
+    { key: "gpa", label: "GPA" },
   ];
 
   return (
@@ -962,33 +972,33 @@ export default function TranscriptBuilderPage() {
                         </p>
                         <div className="space-y-1.5">
                           {yearCourses.map(course => {
-                            const badge = subjectBadgeColor(course.subject_category);
                             const isFromPlan = !!course.curriculum_goal_id;
-                            const needsGrade = isFromPlan && !course.grade_letter;
+                            const inProgress = !course.grade_letter;
                             return (
                               <button key={course.id} type="button" onClick={() => openEditCourse(course)}
-                                className="w-full text-left rounded-xl px-3.5 py-2.5 hover:bg-[#faf8f4] transition-colors border border-[#f0ece6]">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[14px] font-medium text-[#3c3a37] flex-1 min-w-0 truncate">
-                                    {course.course_name}
+                                className="w-full text-left flex items-center gap-2 px-3.5 py-2.5 hover:bg-[#faf8f4] transition-colors rounded-xl border border-[#f0ece6]">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[14px] font-medium text-[#3c3a37] truncate">{course.course_name}</span>
                                     {course.course_level && course.course_level !== "standard" && (
-                                      <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#e8f0e9] text-[#2D5A3D]">
+                                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#e8f0e9] text-[#2D5A3D]">
                                         {course.course_level === "ap" ? "AP" : course.course_level === "honors" ? "Honors" : "DE"}
                                       </span>
                                     )}
-                                  </span>
-                                  {isFromPlan && (
-                                    <span className="text-[10px] text-[#8b8680] bg-[#f5f3f0] rounded px-1.5 py-0.5 shrink-0">From Plan</span>
-                                  )}
-                                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md shrink-0" style={{ background: badge.bg, color: badge.text }}>
-                                    {subjectLabel(course.subject_category)}
-                                  </span>
-                                  <span className="text-[12px] text-[#8a8580] shrink-0 w-12 text-right">{course.credits_earned} cr</span>
-                                  {needsGrade
-                                    ? <span className="text-[11px] text-amber-600 font-medium shrink-0">Needs grade</span>
-                                    : <span className="text-[13px] font-medium text-[#3c3a37] shrink-0 w-8 text-right">{course.grade_letter || "—"}</span>
-                                  }
+                                    {inProgress && (
+                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#fef9ec] text-[#b58a30]">In Progress</span>
+                                    )}
+                                    {isFromPlan && (
+                                      <span className="text-[10px] text-[#8b8680] bg-[#f5f3f0] rounded px-1.5 py-0.5">From Plan</span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-[#8a8580] mt-0.5 truncate">{subjectLabel(course.subject_category)}</div>
                                 </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-[13px] font-medium text-[#3c3a37]">{course.grade_letter || "—"}</div>
+                                  <div className="text-[10px] text-[#8a8580]">{course.credits_earned} cr</div>
+                                </div>
+                                <span className="text-[#c8bfb5] text-[14px] shrink-0">›</span>
                               </button>
                             );
                           })}
@@ -1087,13 +1097,17 @@ export default function TranscriptBuilderPage() {
             </div>
           )}
 
-          {/* ─── Tab: Preview ───────────────────────────────────────────── */}
-          {tab === "preview" && (
+          {/* ─── Tab: Transcript ────────────────────────────────────────── */}
+          {tab === "transcript" && (
             <div className="p-4">
-              {courses.length === 0 ? (
+              {gradedCourses.length === 0 ? (
                 <div className="text-center py-10">
-                  <p className="text-[15px] font-medium text-[#3c3a37] mb-1">Nothing to preview yet</p>
-                  <p className="text-[13px] text-[#8a8580]">Add courses to see a transcript preview.</p>
+                  <p className="text-[15px] font-medium text-[#3c3a37] mb-1">No graded courses yet</p>
+                  <p className="text-[13px] text-[#8a8580]">
+                    {courses.length === 0
+                      ? "Add courses and grade them to see your transcript."
+                      : `${inProgressCount} course${inProgressCount === 1 ? "" : "s"} in progress. Grade them on the Courses tab to see them here.`}
+                  </p>
                 </div>
               ) : (
                 <>
@@ -1116,8 +1130,8 @@ export default function TranscriptBuilderPage() {
                       {settings.principal_name && <div><span className="text-[#8a8580]">Administrator:</span> <span className="font-medium">{settings.principal_name}</span></div>}
                     </div>
 
-                    {sortedYears.map(year => {
-                      const yc = coursesByYear[year];
+                    {gradedSortedYears.map(year => {
+                      const yc = gradedByYear[year];
                       const gradeLevel = yc.find(c => c.grade_level)?.grade_level;
                       return (
                         <div key={year} className="mb-4">
@@ -1157,10 +1171,10 @@ export default function TranscriptBuilderPage() {
                         <span className="font-bold ml-1">{unweightedGPA?.toFixed(2) ?? "—"}</span>
                         {settings.use_weighted_gpa && weightedGPA && <span className="text-[#8a8580] ml-1">(W: {weightedGPA.toFixed(2)})</span>}
                       </div>
-                      <div><span className="text-[#8a8580]">Total credits:</span> <span className="font-bold ml-1">{totalCredits}</span></div>
+                      <div><span className="text-[#8a8580]">Total credits:</span> <span className="font-bold ml-1">{gradedTotalCredits}</span></div>
                     </div>
 
-                    <div className="text-[11px] text-[#8a8580] mt-3">
+                    <div className="text-[11px] text-[#8a8580] mb-4">
                       <span className="font-medium">Grading Scale:</span>{" "}
                       A = 4.0 &nbsp; B = 3.0 &nbsp; C = 2.0 &nbsp; D = 1.0 &nbsp; F = 0.0
                       {settings.use_weighted_gpa && (
@@ -1191,6 +1205,12 @@ export default function TranscriptBuilderPage() {
                       </div>
                     )}
                   </div>
+
+                  {inProgressCount > 0 && (
+                    <div className="mt-3 px-4 py-2.5 rounded-xl bg-[#fef9ec] border border-[#f5ecd0] text-[12px] text-[#8a7a50]">
+                      {inProgressCount} course{inProgressCount === 1 ? "" : "s"} in progress — {inProgressCount === 1 ? "it" : "they"}&apos;ll appear here once graded.
+                    </div>
+                  )}
 
                   <button type="button" onClick={() => {
                     if (!canExport(profileAccess)) { setShowExportGate(true); return; }
