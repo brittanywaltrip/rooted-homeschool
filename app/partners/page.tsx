@@ -10,16 +10,19 @@ const AUDIENCE_RANGES = [
   "20,000+",
 ];
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function PartnersPage() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   // Form fields
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
-  const [hasRootedAccount, setHasRootedAccount] = useState(false);
+  const [hasRootedAccount, setHasRootedAccount] = useState<boolean | null>(null);
   const [rootedAccountEmail, setRootedAccountEmail] = useState("");
   const [paypalEmail, setPaypalEmail] = useState("");
   const [socialHandle, setSocialHandle] = useState("");
@@ -34,16 +37,34 @@ export default function PartnersPage() {
   const [usedRooted, setUsedRooted] = useState("");
   const [postFrequency, setPostFrequency] = useState("");
 
+  function validate(): Record<string, string> {
+    const errs: Record<string, string> = {};
+    if (!firstName.trim()) errs.firstName = "Required";
+    if (!lastName.trim()) errs.lastName = "Required";
+    if (!email.trim()) errs.email = "Required";
+    else if (!EMAIL_RE.test(email.trim())) errs.email = "Enter a valid email";
+    if (hasRootedAccount === null) errs.hasRootedAccount = "Please select one";
+    if (hasRootedAccount === true) {
+      if (!rootedAccountEmail.trim()) errs.rootedAccountEmail = "Required";
+      else if (!EMAIL_RE.test(rootedAccountEmail.trim())) errs.rootedAccountEmail = "Enter a valid email";
+    }
+    if (!paypalEmail.trim()) errs.paypalEmail = "Required for commission payouts";
+    else if (!EMAIL_RE.test(paypalEmail.trim())) errs.paypalEmail = "Enter a valid email";
+    if (!socialHandle.trim()) errs.socialHandle = "Required";
+    return errs;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setSubmitting(true);
 
-    if (!socialHandle.trim()) {
-      setError("Please provide your Instagram or social handle.");
-      setSubmitting(false);
+    const errs = validate();
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
       return;
     }
+    setFieldErrors({});
+    setSubmitting(true);
 
     try {
       const res = await fetch("/api/partners/apply", {
@@ -311,11 +332,14 @@ export default function PartnersPage() {
           <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
             Rooted+ — Founding Family pricing — $39/yr, locked forever
           </h2>
+          <p className="text-sm text-[var(--g-deep)] leading-relaxed mb-3 max-w-lg mx-auto">
+            Every new user starts with a 30-day free trial — full access to everything. Your code gives them 15% off when they upgrade to Rooted+.
+          </p>
           <p className="text-sm text-[var(--g-deep)] leading-relaxed mb-4 max-w-lg mx-auto">
             {(() => {
               const diff = Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000);
               const deadline = diff <= 0 ? "" : diff === 1 ? " This offer ends tomorrow." : ` This offer ends in ${diff} days.`;
-              return `Your code gives them 15% off Rooted+ — $39/yr locked in forever, no matter how much Rooted grows.${deadline}`;
+              return `Rooted+ is $39/yr locked in forever with Founding Family pricing.${deadline}`;
             })()}
           </p>
           <div className="inline-flex items-center gap-2 bg-white/70 border border-[#b8d9bc] rounded-xl px-4 py-2 text-sm text-[#2d2926] font-medium">
@@ -477,11 +501,11 @@ export default function PartnersPage() {
                   </label>
                   <input
                     type="text"
-                    required
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                    className={`w-full px-4 py-3 rounded-xl border bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent ${fieldErrors.firstName ? "border-red-400" : "border-[#e8e2d9]"}`}
                   />
+                  {fieldErrors.firstName && <p className="text-xs text-red-600 mt-1">{fieldErrors.firstName}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
@@ -489,11 +513,11 @@ export default function PartnersPage() {
                   </label>
                   <input
                     type="text"
-                    required
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                    className={`w-full px-4 py-3 rounded-xl border bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent ${fieldErrors.lastName ? "border-red-400" : "border-[#e8e2d9]"}`}
                   />
+                  {fieldErrors.lastName && <p className="text-xs text-red-600 mt-1">{fieldErrors.lastName}</p>}
                 </div>
               </div>
 
@@ -503,17 +527,17 @@ export default function PartnersPage() {
                 </label>
                 <input
                   type="email"
-                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                  className={`w-full px-4 py-3 rounded-xl border bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent ${fieldErrors.email ? "border-red-400" : "border-[#e8e2d9]"}`}
                 />
+                {fieldErrors.email && <p className="text-xs text-red-600 mt-1">{fieldErrors.email}</p>}
               </div>
 
               {/* Rooted account toggle */}
               <div>
                 <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-2">
-                  Do you already have a Rooted account?
+                  Do you have a Rooted account? *
                 </label>
                 <div className="flex gap-3">
                   {[true, false].map((val) => (
@@ -524,6 +548,8 @@ export default function PartnersPage() {
                       className={`flex-1 py-3 rounded-xl border text-sm font-medium transition-colors ${
                         hasRootedAccount === val
                           ? "border-[var(--g-deep)] bg-[#f0f7f0] text-[#2d2926]"
+                          : fieldErrors.hasRootedAccount
+                          ? "border-red-400 bg-white text-[#7a6f65]"
                           : "border-[#e8e2d9] bg-white text-[#7a6f65]"
                       }`}
                     >
@@ -531,55 +557,57 @@ export default function PartnersPage() {
                     </button>
                   ))}
                 </div>
-                {hasRootedAccount && (
-                  <input
-                    type="email"
-                    value={rootedAccountEmail}
-                    onChange={(e) => setRootedAccountEmail(e.target.value)}
-                    placeholder="What email did you sign up with?"
-                    className="w-full mt-3 px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
-                  />
+                {fieldErrors.hasRootedAccount && <p className="text-xs text-red-600 mt-1">{fieldErrors.hasRootedAccount}</p>}
+                {hasRootedAccount === true && (
+                  <>
+                    <input
+                      type="email"
+                      value={rootedAccountEmail}
+                      onChange={(e) => setRootedAccountEmail(e.target.value)}
+                      placeholder="Rooted account email *"
+                      className={`w-full mt-3 px-4 py-3 rounded-xl border bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent ${fieldErrors.rootedAccountEmail ? "border-red-400" : "border-[#e8e2d9]"}`}
+                    />
+                    {fieldErrors.rootedAccountEmail && <p className="text-xs text-red-600 mt-1">{fieldErrors.rootedAccountEmail}</p>}
+                  </>
                 )}
               </div>
 
               {/* PayPal email */}
               <div>
                 <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
-                  PayPal email *
+                  PayPal email (for commission payouts) *
                 </label>
-                <p className="text-xs text-[#7a6f65] mb-2">Required for commission payments.</p>
                 <input
                   type="email"
-                  required
                   value={paypalEmail}
                   onChange={(e) => setPaypalEmail(e.target.value)}
                   placeholder="your@paypal.com"
-                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                  className={`w-full px-4 py-3 rounded-xl border bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent ${fieldErrors.paypalEmail ? "border-red-400" : "border-[#e8e2d9]"}`}
                 />
+                {fieldErrors.paypalEmail && <p className="text-xs text-red-600 mt-1">{fieldErrors.paypalEmail}</p>}
               </div>
 
               {/* Social handle */}
               <div>
                 <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
-                  Instagram or social handle *
+                  Primary social media handle *
                 </label>
                 <input
                   type="text"
-                  required
                   value={socialHandle}
                   onChange={(e) => setSocialHandle(e.target.value)}
                   placeholder="@yourhandle"
-                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                  className={`w-full px-4 py-3 rounded-xl border bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent ${fieldErrors.socialHandle ? "border-red-400" : "border-[#e8e2d9]"}`}
                 />
+                {fieldErrors.socialHandle && <p className="text-xs text-red-600 mt-1">{fieldErrors.socialHandle}</p>}
               </div>
 
               {/* Audience size */}
               <div>
                 <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
-                  Approximate audience size *
+                  Approximate audience size <span className="text-[#b5aca4] font-normal">(optional)</span>
                 </label>
                 <select
-                  required
                   value={audienceSize}
                   onChange={(e) => setAudienceSize(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
@@ -594,10 +622,9 @@ export default function PartnersPage() {
               {/* Why Rooted */}
               <div>
                 <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
-                  Why do you want to partner with Rooted? *
+                  Why do you want to partner with Rooted? <span className="text-[#b5aca4] font-normal">(optional)</span>
                 </label>
                 <textarea
-                  required
                   rows={4}
                   value={whyRooted}
                   onChange={(e) => setWhyRooted(e.target.value)}
@@ -721,10 +748,9 @@ export default function PartnersPage() {
 
               <div>
                 <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
-                  Tell us about your homeschool journey *
+                  Tell us about your homeschool journey <span className="text-[#b5aca4] font-normal">(optional)</span>
                 </label>
                 <textarea
-                  required
                   rows={4}
                   value={story}
                   onChange={(e) => setStory(e.target.value)}
@@ -904,7 +930,7 @@ export default function PartnersPage() {
                 </span>
               </div>
               <p className="text-xs text-[#b5aca4] leading-relaxed">
-                A calm companion for intentional families.
+                Built for the way homeschool actually happens.
               </p>
               <p className="text-[11px] text-[#c8bfb5]">
                 rootedhomeschoolapp.com

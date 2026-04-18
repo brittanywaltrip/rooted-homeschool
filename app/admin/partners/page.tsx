@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import QRCode from "qrcode";
 import { supabase } from "@/lib/supabase";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
@@ -40,9 +41,15 @@ interface Application {
 
 interface EditDraft { contact_email: string; paypal_email: string; notes: string; }
 
-interface ApproveDraft {
-  code: string; stripeCouponId: string; stripeApiId: string; commissionRate: number;
-  paypalEmail: string;
+interface ProfileMatch {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  is_pro: boolean;
+  subscription_status: string;
+  plan_type: string | null;
 }
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -67,10 +74,27 @@ export default function AdminPartnersPage() {
   const [payModal, setPayModal] = useState<Affiliate | null>(null);
   const [paying, setPaying] = useState(false);
 
-  // Approve modal
+  // Approve/setup checklist modal
   const [approveApp, setApproveApp] = useState<Application | null>(null);
-  const [approveDraft, setApproveDraft] = useState<ApproveDraft>({ code: "", stripeCouponId: "", stripeApiId: "", commissionRate: 20, paypalEmail: "" });
-  const [approving, setApproving] = useState(false);
+  const [setupLookup, setSetupLookup] = useState<ProfileMatch | null>(null);
+  const [setupLookupRan, setSetupLookupRan] = useState(false);
+  const [setupLookingUp, setSetupLookingUp] = useState(false);
+  const [setupCompDone, setSetupCompDone] = useState(false);
+  const [setupComping, setSetupComping] = useState(false);
+  const [setupStripeCoupon, setSetupStripeCoupon] = useState("");
+  const [setupStripeApi, setSetupStripeApi] = useState("");
+  const [setupCommissionRate, setSetupCommissionRate] = useState(20);
+  const [setupQrDataUrl, setSetupQrDataUrl] = useState<string | null>(null);
+  const [setupCompleting, setSetupCompleting] = useState(false);
+  const [setupDone, setSetupDone] = useState(false);
+  const [setupFinalRefLink, setSetupFinalRefLink] = useState("");
+  const [setupLinkCopied, setSetupLinkCopied] = useState(false);
+  // Manual checkboxes per step
+  const [check1, setCheck1] = useState(false);
+  const [check2, setCheck2] = useState(false);
+  const [check3, setCheck3] = useState(false);
+  const [check4, setCheck4] = useState(false);
+  const [check5, setCheck5] = useState(false);
 
   // Reject modal
   const [rejectApp, setRejectApp] = useState<Application | null>(null);
@@ -155,27 +179,111 @@ export default function AdminPartnersPage() {
     setAffiliates((prev) => prev.map((a) => (a.id === id ? { ...a, is_active: !active } : a)));
   }
 
-  async function confirmApprove() {
+  // Derived referral code — first name uppercased, stripped of non-letters
+  const setupCode = approveApp ? (approveApp.first_name || "").toUpperCase().replace(/[^A-Z]/g, "") : "";
+  const setupRefLink = setupCode ? `https://rootedhomeschoolapp.com/?ref=${setupCode}` : "";
+  const allStepsChecked = check1 && check2 && check3 && check4 && check5;
+
+  // When admin opens the approve modal, reset checklist and run lookup + QR
+  useEffect(() => {
+    if (!approveApp || !token) return;
+    setSetupLookup(null);
+    setSetupLookupRan(false);
+    setSetupLookingUp(true);
+    setSetupCompDone(false);
+    setSetupStripeCoupon("");
+    setSetupStripeApi("");
+    setSetupCommissionRate(20);
+    setSetupQrDataUrl(null);
+    setSetupDone(false);
+    setSetupFinalRefLink("");
+    setSetupLinkCopied(false);
+    setCheck1(false); setCheck2(false); setCheck3(false); setCheck4(false); setCheck5(false);
+
+    // Run lookup
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/partner-action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            action: "lookup_profile",
+            firstName: approveApp.first_name,
+            lastName: approveApp.last_name,
+            rootedAccountEmail: approveApp.rooted_account_email || approveApp.email,
+          }),
+        });
+        const json = await res.json();
+        if (json.found && json.profile) {
+          setSetupLookup(json.profile);
+          // If already comped, mark step 2 as done
+          if (json.profile.plan_type === "partner_comp") setSetupCompDone(true);
+        } else {
+          setSetupLookup(null);
+        }
+      } finally {
+        setSetupLookupRan(true);
+        setSetupLookingUp(false);
+      }
+    })();
+
+    // Generate QR for the ref link
+    const code = (approveApp.first_name || "").toUpperCase().replace(/[^A-Z]/g, "");
+    if (code) {
+      QRCode.toDataURL(`https://rootedhomeschoolapp.com/?ref=${code}`, {
+        width: 320,
+        margin: 1,
+        color: { dark: "#2D5A3D", light: "#FFFFFF" },
+      }).then(setSetupQrDataUrl).catch(() => setSetupQrDataUrl(null));
+    }
+  }, [approveApp, token]);
+
+  async function compAccount() {
+    if (!setupLookup?.id) return;
+    setSetupComping(true);
+    const res = await fetch("/api/admin/partner-action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: "comp_account", profileId: setupLookup.id }),
+    });
+    setSetupComping(false);
+    if (res.ok) {
+      setSetupCompDone(true);
+      setSetupLookup((p) => p ? { ...p, is_pro: true, subscription_status: "active", plan_type: "partner_comp" } : p);
+    }
+  }
+
+  async function completeSetup() {
     if (!approveApp) return;
-    setApproving(true);
-    await fetch("/api/admin/partner-action", {
+    setSetupCompleting(true);
+    const res = await fetch("/api/admin/partner-action", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({
-        action: "approve",
+        action: "complete_setup",
         applicationId: approveApp.id,
         name: `${approveApp.first_name} ${approveApp.last_name}`,
         contactEmail: approveApp.email,
-        rootedAccountEmail: approveApp.rooted_account_email || approveApp.email,
-        paypalEmail: approveDraft.paypalEmail || approveApp.paypal_email,
-        code: approveDraft.code,
-        stripeCouponId: approveDraft.stripeCouponId,
-        stripeApiId: approveDraft.stripeApiId,
-        commissionRate: approveDraft.commissionRate,
+        paypalEmail: approveApp.paypal_email,
+        code: setupCode,
+        stripeCouponId: setupStripeCoupon,
+        stripeApiId: setupStripeApi,
+        commissionRate: setupCommissionRate,
+        profileId: setupLookup?.id ?? null,
+        socialHandle: approveApp.social_handle,
+        audienceSize: approveApp.audience_size,
+        appCreatedAt: approveApp.created_at,
       }),
     });
-    setApproving(false); setApproveApp(null);
-    await loadData(token);
+    const json = await res.json().catch(() => ({}));
+    setSetupCompleting(false);
+    if (res.ok) {
+      setSetupDone(true);
+      setSetupFinalRefLink(json.refLink || setupRefLink);
+      await loadData(token);
+    } else {
+      alert(json.error || "Setup failed. Check the logs.");
+    }
   }
 
   async function confirmReject() {
@@ -276,16 +384,7 @@ export default function AdminPartnersPage() {
                         )}
                         <div className="flex gap-2">
                           <button
-                            onClick={() => {
-                              setApproveApp(app);
-                              setApproveDraft({
-                                code: "",
-                                stripeCouponId: "",
-                                stripeApiId: "",
-                                commissionRate: 20,
-                                paypalEmail: app.paypal_email ?? "",
-                              });
-                            }}
+                            onClick={() => setApproveApp(app)}
                             className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white rounded-lg transition-colors"
                           >
                             Approve
@@ -493,41 +592,141 @@ export default function AdminPartnersPage() {
         );
       })()}
 
-      {/* ── Approve Modal ─────────────────────────────────────────────────── */}
+      {/* ── Setup Checklist Modal ─────────────────────────────────────────── */}
       {approveApp && (
-        <Modal onClose={() => !approving && setApproveApp(null)} title="Approve partner application">
-          <div className="space-y-3 mb-4">
-            <Field label="Name" value={`${approveApp.first_name} ${approveApp.last_name}`} readOnly />
-            <Field label="Contact email" value={approveApp.email} readOnly />
-            <Field label="Rooted account email" value={approveApp.rooted_account_email || approveApp.email} readOnly />
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">PayPal email</label>
-              <input value={approveDraft.paypalEmail} onChange={(e) => setApproveDraft((d) => ({ ...d, paypalEmail: e.target.value }))} className={IC} />
+        <Modal onClose={() => !setupCompleting && setApproveApp(null)} title={setupDone ? "Setup complete \uD83C\uDF3F" : `Affiliate Setup Checklist for ${approveApp.first_name} ${approveApp.last_name}`}>
+          {setupDone ? (
+            <div className="space-y-4">
+              <p className="text-sm text-[#5c5248]">
+                <b>{approveApp.first_name}</b> is now a Rooted Partner. Welcome email sent to {approveApp.email}.
+              </p>
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Referral link</label>
+                <div className="flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-lg px-3 py-2">
+                  <span className="text-xs text-[#5c7f63] font-mono truncate flex-1">{setupFinalRefLink || setupRefLink}</span>
+                  <button onClick={() => { navigator.clipboard.writeText(setupFinalRefLink || setupRefLink); setSetupLinkCopied(true); setTimeout(() => setSetupLinkCopied(false), 2000); }}
+                    className="text-xs font-semibold text-[#5c7f63] hover:text-[var(--g-brand)] shrink-0">{setupLinkCopied ? "Copied!" : "Copy"}</button>
+                </div>
+              </div>
+              {setupQrDataUrl && (
+                <div className="text-center">
+                  <img src={setupQrDataUrl} alt="Affiliate QR" className="mx-auto w-48 h-48 border border-[#e8e2d9] rounded-lg" />
+                  <a href={setupQrDataUrl} download={`${setupCode}-qr.png`}
+                    className="inline-block mt-2 text-xs font-semibold text-[#5c7f63] hover:text-[var(--g-brand)]">Download QR code</a>
+                </div>
+              )}
+              <button onClick={() => setApproveApp(null)} className="w-full px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white rounded-xl">Done</button>
             </div>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Referral code *</label>
-              <input value={approveDraft.code} onChange={(e) => setApproveDraft((d) => ({ ...d, code: e.target.value.toUpperCase() }))} placeholder="e.g. SABBATH" className={IC} />
+          ) : (
+            <div className="space-y-4">
+              {/* Step 1 — Verify Rooted Account */}
+              <SetupStep
+                n={1}
+                title="Verify Rooted Account"
+                checked={check1}
+                onToggle={() => setCheck1(v => !v)}
+              >
+                {setupLookingUp && <p className="text-xs text-[#7a6f65]">Looking up account…</p>}
+                {!setupLookingUp && setupLookupRan && setupLookup && (
+                  <div className="bg-[#f0f7f1] border border-[#d4ead6] rounded-lg px-3 py-2">
+                    <p className="text-xs text-[var(--g-deep)]">
+                      Found: <b>{setupLookup.display_name || `${setupLookup.first_name ?? ""} ${setupLookup.last_name ?? ""}`.trim() || "(no name)"}</b> — {setupLookup.subscription_status}{setupLookup.plan_type ? ` · ${setupLookup.plan_type}` : ""}
+                    </p>
+                    {setupLookup.email && <p className="text-[11px] text-[#7a6f65] mt-0.5">{setupLookup.email}</p>}
+                  </div>
+                )}
+                {!setupLookingUp && setupLookupRan && !setupLookup && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <p className="text-xs text-amber-800">⚠️ No account found. This person needs to create a Rooted account first.</p>
+                  </div>
+                )}
+              </SetupStep>
+
+              {/* Step 2 — Comp Account */}
+              <SetupStep
+                n={2}
+                title="Comp Account"
+                checked={check2}
+                onToggle={() => setCheck2(v => !v)}
+              >
+                {setupCompDone ? (
+                  <p className="text-xs text-[var(--g-deep)]">✓ Account comped (is_pro, subscription_status=active, plan_type=partner_comp)</p>
+                ) : (
+                  <button onClick={compAccount} disabled={!setupLookup || setupComping}
+                    className="px-3 py-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white rounded-lg">
+                    {setupComping ? "Comping…" : "Comp This Account"}
+                  </button>
+                )}
+              </SetupStep>
+
+              {/* Step 3 — Stripe Coupon */}
+              <SetupStep
+                n={3}
+                title="Create Stripe Coupon"
+                checked={check3}
+                canCheck={!!setupStripeCoupon && !!setupStripeApi}
+                onToggle={() => setCheck3(v => !v)}
+              >
+                <p className="text-xs text-[#5c5248] mb-2">
+                  Create coupon in Stripe Dashboard with code: <b className="font-mono text-[var(--g-deep)]">{setupCode || "(need first name)"}</b>
+                </p>
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Stripe Coupon ID</label>
+                    <input value={setupStripeCoupon} onChange={(e) => setSetupStripeCoupon(e.target.value)} placeholder="Paste from Stripe" className={IC} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-[#b5aca4] mb-1">Stripe Promo API ID</label>
+                    <input value={setupStripeApi} onChange={(e) => setSetupStripeApi(e.target.value)} placeholder="promo_..." className={IC} />
+                  </div>
+                </div>
+              </SetupStep>
+
+              {/* Step 4 — Link & QR */}
+              <SetupStep
+                n={4}
+                title="Affiliate Link & QR Code"
+                checked={check4}
+                onToggle={() => setCheck4(v => !v)}
+              >
+                <div className="flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-lg px-3 py-2 mb-2">
+                  <span className="text-xs text-[#5c7f63] font-mono truncate flex-1">{setupRefLink}</span>
+                  <button onClick={() => { navigator.clipboard.writeText(setupRefLink); setSetupLinkCopied(true); setTimeout(() => setSetupLinkCopied(false), 2000); }}
+                    className="text-xs font-semibold text-[#5c7f63] hover:text-[var(--g-brand)] shrink-0">{setupLinkCopied ? "Copied!" : "Copy"}</button>
+                </div>
+                {setupQrDataUrl && (
+                  <div className="text-center">
+                    <img src={setupQrDataUrl} alt="Affiliate QR" className="mx-auto w-36 h-36 border border-[#e8e2d9] rounded-lg" />
+                    <a href={setupQrDataUrl} download={`${setupCode}-qr.png`}
+                      className="inline-block mt-1 text-[11px] font-semibold text-[#5c7f63] hover:text-[var(--g-brand)]">Download PNG</a>
+                  </div>
+                )}
+              </SetupStep>
+
+              {/* Step 5 — Commission Rate */}
+              <SetupStep
+                n={5}
+                title="Set Commission Rate"
+                checked={check5}
+                onToggle={() => setCheck5(v => !v)}
+              >
+                <div className="flex items-center gap-2">
+                  <input type="number" min={0} max={100} value={setupCommissionRate}
+                    onChange={(e) => setSetupCommissionRate(parseInt(e.target.value) || 20)}
+                    className={IC + " w-24"} />
+                  <span className="text-xs text-[#7a6f65]">% commission</span>
+                </div>
+              </SetupStep>
+
+              <div className="flex gap-2 pt-2 border-t border-[#e8e2d9]">
+                <button onClick={completeSetup} disabled={!allStepsChecked || setupCompleting || !setupStripeCoupon || !setupStripeApi || !setupCode}
+                  className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white rounded-xl">
+                  {setupCompleting ? "Completing…" : "Complete Setup"}
+                </button>
+                <button onClick={() => setApproveApp(null)} disabled={setupCompleting} className="px-4 py-2.5 text-sm font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-xl">Cancel</button>
+              </div>
             </div>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Stripe coupon ID *</label>
-              <input value={approveDraft.stripeCouponId} onChange={(e) => setApproveDraft((d) => ({ ...d, stripeCouponId: e.target.value }))} placeholder="Paste from Stripe" className={IC} />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Stripe API ID</label>
-              <input value={approveDraft.stripeApiId} onChange={(e) => setApproveDraft((d) => ({ ...d, stripeApiId: e.target.value }))} placeholder="promo_..." className={IC} />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Commission rate (%)</label>
-              <input type="number" min={0} max={100} value={approveDraft.commissionRate} onChange={(e) => setApproveDraft((d) => ({ ...d, commissionRate: parseInt(e.target.value) || 20 }))} className={IC} />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={confirmApprove} disabled={approving || !approveDraft.code || !approveDraft.stripeCouponId}
-              className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-xl">
-              {approving ? "Approving..." : "Approve & send welcome email"}
-            </button>
-            <button onClick={() => setApproveApp(null)} disabled={approving} className="px-4 py-2.5 text-sm font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-xl">Cancel</button>
-          </div>
+          )}
         </Modal>
       )}
 
@@ -608,6 +807,37 @@ function Field({ label, value, readOnly }: { label: string; value: string; readO
     <div>
       <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">{label}</label>
       <input value={value} readOnly={readOnly} className={`w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] ${readOnly ? "bg-[#f8f7f4] text-[#7a6f65]" : "bg-white text-[#2d2926]"} focus:outline-none`} />
+    </div>
+  );
+}
+
+function SetupStep({ n, title, checked, canCheck = true, onToggle, children }: {
+  n: number; title: string; checked: boolean; canCheck?: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className={`border rounded-xl p-3 ${checked ? "border-[#5c7f63] bg-[#f0f7f1]" : "border-[#e8e2d9] bg-[#fefcf9]"}`}>
+      <div className="flex items-start gap-2 mb-2">
+        <button
+          type="button"
+          onClick={() => canCheck && onToggle()}
+          disabled={!canCheck}
+          className={`mt-0.5 w-5 h-5 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${
+            checked ? "bg-[#5c7f63] border-[#5c7f63]" : canCheck ? "bg-white border-[#c8bfb5] hover:border-[#5c7f63]" : "bg-[#f0ede8] border-[#e8e2d9] cursor-not-allowed"
+          }`}
+          aria-label={`Mark step ${n} as done`}
+        >
+          {checked && (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
+        <p className="text-sm font-semibold text-[#2d2926]">
+          <span className="text-[#7a6f65] mr-1">{n}.</span>
+          {title}
+        </p>
+      </div>
+      <div className="pl-7 space-y-1">{children}</div>
     </div>
   );
 }

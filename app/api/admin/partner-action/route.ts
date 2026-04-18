@@ -149,6 +149,174 @@ async function handleApprove(body: Record<string, unknown>) {
   return NextResponse.json({ ok: true, matchedUserId })
 }
 
+// ── LOOKUP PROFILE ───────────────────────────────────────────────────────────
+
+async function handleLookupProfile(body: Record<string, unknown>) {
+  const { firstName, lastName, rootedAccountEmail } = body as {
+    firstName?: string; lastName?: string; rootedAccountEmail?: string;
+  }
+
+  // Try auth.users by email first (most precise)
+  let matchedUserId: string | null = null
+  let matchedEmail: string | null = null
+  if (rootedAccountEmail) {
+    const target = rootedAccountEmail.toLowerCase()
+    let page = 1
+    while (true) {
+      const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 })
+      if (error || !users?.length) break
+      const match = users.find(u => u.email?.toLowerCase() === target)
+      if (match) { matchedUserId = match.id; matchedEmail = match.email ?? null; break }
+      if (users.length < 200) break
+      page++
+    }
+  }
+
+  // Fall back to profiles.first_name + last_name match
+  if (!matchedUserId && firstName && lastName) {
+    const { data: nameMatches } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .ilike('first_name', firstName.trim())
+      .ilike('last_name', lastName.trim())
+      .limit(2)
+    if (nameMatches && nameMatches.length === 1) {
+      matchedUserId = nameMatches[0].id
+    }
+  }
+
+  if (!matchedUserId) {
+    return NextResponse.json({ found: false })
+  }
+
+  // Fetch full profile info
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('id, first_name, last_name, display_name, is_pro, subscription_status, plan_type')
+    .eq('id', matchedUserId)
+    .maybeSingle()
+
+  if (!matchedEmail) {
+    const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(matchedUserId)
+    matchedEmail = user?.email ?? null
+  }
+
+  return NextResponse.json({
+    found: true,
+    profile: {
+      id: matchedUserId,
+      email: matchedEmail,
+      display_name: profile?.display_name ?? null,
+      first_name: profile?.first_name ?? null,
+      last_name: profile?.last_name ?? null,
+      is_pro: profile?.is_pro ?? false,
+      subscription_status: profile?.subscription_status ?? 'free',
+      plan_type: profile?.plan_type ?? null,
+    },
+  })
+}
+
+// ── COMP ACCOUNT ─────────────────────────────────────────────────────────────
+
+async function handleCompAccount(body: Record<string, unknown>) {
+  const { profileId } = body as { profileId: string }
+  if (!profileId) return NextResponse.json({ error: 'Missing profileId' }, { status: 400 })
+
+  const { error } = await supabaseAdmin.from('profiles').update({
+    is_pro: true,
+    subscription_status: 'active',
+    plan_type: 'partner_comp',
+  }).eq('id', profileId)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
+
+// ── COMPLETE SETUP ───────────────────────────────────────────────────────────
+
+async function handleCompleteSetup(body: Record<string, unknown>) {
+  const {
+    applicationId, name, contactEmail, paypalEmail, code, stripeCouponId, stripeApiId,
+    commissionRate, profileId, socialHandle, audienceSize, appCreatedAt,
+  } = body as {
+    applicationId: string; name: string; contactEmail: string; paypalEmail: string;
+    code: string; stripeCouponId: string; stripeApiId: string; commissionRate: number;
+    profileId: string | null; socialHandle?: string; audienceSize?: string; appCreatedAt?: string;
+  }
+
+  if (!applicationId || !name || !contactEmail || !code || !stripeCouponId || !stripeApiId) {
+    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+  }
+
+  const rate = commissionRate ?? 20
+  const appliedDate = appCreatedAt ? new Date(appCreatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+  const notesStr = [
+    socialHandle ? `Social: ${socialHandle}` : null,
+    audienceSize ? `${audienceSize} audience` : null,
+    appliedDate ? `Applied ${appliedDate}` : null,
+  ].filter(Boolean).join('. ')
+
+  const { error: affErr } = await supabaseAdmin.from('affiliates').insert({
+    user_id: profileId,
+    name,
+    code: code.toUpperCase(),
+    stripe_coupon_id: stripeCouponId,
+    stripe_api_id: stripeApiId,
+    contact_email: contactEmail,
+    paypal_email: paypalEmail || null,
+    commission_rate: rate,
+    is_active: true,
+    clicks: 0,
+    notes: notesStr || null,
+  })
+  if (affErr) return NextResponse.json({ error: affErr.message }, { status: 500 })
+
+  await supabaseAdmin.from('partner_apps').update({
+    status: 'approved',
+    reviewed_at: new Date().toISOString(),
+  }).eq('id', applicationId)
+
+  // Send welcome email (same template as the legacy approve action)
+  const firstName = name.split(' ')[0]
+  const refLink = `rootedhomeschoolapp.com/?ref=${code.toUpperCase()}`
+  const welcomeHtml = `
+<div style="font-family: -apple-system, sans-serif; max-width: 540px; margin: 0 auto; color: #2d2926;">
+  <div style="text-align: center; padding: 24px 0 16px;">
+    <img src="https://www.rootedhomeschoolapp.com/logo-white-bg.png" alt="Rooted" width="120" />
+  </div>
+  <h2 style="font-size: 22px; margin-bottom: 8px;">Welcome to the Rooted Partner Program!</h2>
+  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">Hi ${firstName},</p>
+  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
+    I'm so excited to welcome you as a Rooted Partner! Here's everything you need to get started:
+  </p>
+  <div style="background: #f0f7f1; border: 1px solid #d4ead6; border-radius: 12px; padding: 16px; margin: 20px 0;">
+    <p style="font-size: 13px; color: #3d5c42; margin: 0 0 8px;"><strong>Your referral code:</strong> <span style="font-family: monospace; font-size: 16px; font-weight: bold; color: #2d5a3d;">${code.toUpperCase()}</span></p>
+    <p style="font-size: 13px; color: #3d5c42; margin: 0;"><strong>Your referral link:</strong> <a href="https://${refLink}" style="color: #5c7f63;">${refLink}</a></p>
+  </div>
+  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
+    Anyone who signs up using your link gets <strong>15% off</strong> Rooted+.
+  </p>
+  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
+    You earn <strong>${rate}% commission</strong> on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.
+  </p>
+  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
+    Your Rooted subscription is now <strong>complimentary</strong> \u2014 our gift to you for being part of this.
+  </p>
+  <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
+    With love,<br/>Brittany
+  </p>
+</div>`
+
+  await sendEmail(
+    contactEmail,
+    'Welcome to the Rooted Partner Program \uD83C\uDF3F',
+    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets 15% off Rooted+.\n\nYou earn ${rate}% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nYour Rooted subscription is now complimentary \u2014 our gift to you.\n\nWith love,\nBrittany`,
+    welcomeHtml,
+  )
+
+  return NextResponse.json({ ok: true, refLink: `https://${refLink}` })
+}
+
 // ── REJECT ───────────────────────────────────────────────────────────────────
 
 async function handleReject(body: Record<string, unknown>) {
@@ -272,6 +440,9 @@ export async function POST(req: NextRequest) {
   if (action === 'approve') return handleApprove(body)
   if (action === 'reject') return handleReject(body)
   if (action === 'payment_email') return handlePaymentEmail(body)
+  if (action === 'lookup_profile') return handleLookupProfile(body)
+  if (action === 'comp_account') return handleCompAccount(body)
+  if (action === 'complete_setup') return handleCompleteSetup(body)
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
 }
