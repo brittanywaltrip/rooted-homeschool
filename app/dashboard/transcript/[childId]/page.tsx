@@ -16,7 +16,7 @@ import { jsPDF } from "jspdf";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type Child = { id: string; name: string; color: string | null };
+type Child = { id: string; name: string; color: string | null; birthday: string | null };
 
 type Settings = {
   id?: string;
@@ -1107,7 +1107,11 @@ export default function TranscriptBuilderPage() {
 
                     <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[12px] mb-5">
                       <div><span className="text-[#8a8580]">Student:</span> <span className="font-medium">{child.name}</span></div>
+                      {child.birthday && (
+                        <div><span className="text-[#8a8580]">Date of Birth:</span> <span className="font-medium">{new Date(child.birthday + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span></div>
+                      )}
                       {settings.graduation_year && <div><span className="text-[#8a8580]">Graduation:</span> <span className="font-medium">{settings.graduation_year}</span></div>}
+                      <div><span className="text-[#8a8580]">Date Issued:</span> <span className="font-medium">{new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span></div>
                       {settings.state && <div><span className="text-[#8a8580]">State:</span> <span className="font-medium">{STATE_REQUIREMENTS[settings.state]?.name}</span></div>}
                       {settings.principal_name && <div><span className="text-[#8a8580]">Administrator:</span> <span className="font-medium">{settings.principal_name}</span></div>}
                     </div>
@@ -1127,7 +1131,15 @@ export default function TranscriptBuilderPage() {
                             </div>
                             {yc.map(c => (
                               <div key={c.id} className="grid grid-cols-12 gap-1 px-3 py-1.5 border-t border-[#f0ece6]">
-                                <span className="col-span-5 truncate">{c.course_name}</span>
+                                <span className="col-span-5 truncate">
+                                  {c.course_name}
+                                  {(() => {
+                                    const level = (c as any).course_level || "standard";
+                                    if (level === "standard") return null;
+                                    const labels: Record<string, string> = { honors: "H", ap: "AP", dual_enrollment: "DE" };
+                                    return <span className="ml-1 text-[10px] font-bold text-white bg-[#2D5A3D] rounded px-1 py-0.5 inline-block leading-none">{labels[level] || ""}</span>;
+                                  })()}
+                                </span>
                                 <span className="col-span-3 text-[#6b6560] truncate">{subjectLabel(c.subject_category)}</span>
                                 <span className="col-span-2 text-right">{c.credits_earned}</span>
                                 <span className="col-span-2 text-right font-medium">{c.grade_letter || "—"}</span>
@@ -1148,6 +1160,14 @@ export default function TranscriptBuilderPage() {
                       <div><span className="text-[#8a8580]">Total credits:</span> <span className="font-bold ml-1">{totalCredits}</span></div>
                     </div>
 
+                    <div className="text-[11px] text-[#8a8580] mt-3">
+                      <span className="font-medium">Grading Scale:</span>{" "}
+                      A = 4.0 &nbsp; B = 3.0 &nbsp; C = 2.0 &nbsp; D = 1.0 &nbsp; F = 0.0
+                      {settings.use_weighted_gpa && (
+                        <span className="ml-3">| Weighted: Honors +0.5, AP/DE +1.0</span>
+                      )}
+                    </div>
+
                     <div className="mt-8 pt-4 border-t border-[#e8e2d9] grid grid-cols-2 gap-8 text-[11px] text-[#8a8580]">
                       <div>
                         <div className="border-b border-[#c8bfb5] mb-1 pb-6" />
@@ -1158,6 +1178,18 @@ export default function TranscriptBuilderPage() {
                         <p>Date</p>
                       </div>
                     </div>
+
+                    {settings.include_notary && (
+                      <div className="mt-6 pt-4 border-t border-[#e8e2d9] text-[11px] text-[#8a8580]">
+                        <p className="font-medium text-[#3c3a37] mb-2">Notary Certification</p>
+                        <p className="mb-4">State of __________ &nbsp; County of __________</p>
+                        <p className="mb-4">Subscribed and sworn to before me this ______ day of ____________, 20____.</p>
+                        <div className="mt-6">
+                          <div className="border-b border-[#c8bfb5] mb-1 pb-6 w-2/3" />
+                          <p>Notary Public &nbsp;&nbsp; My commission expires: __________</p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <button type="button" onClick={() => {

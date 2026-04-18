@@ -175,6 +175,8 @@ export default function SettingsPage() {
   const [editColor,    setEditColor]    = useState("");
   const [savingEdit,   setSavingEdit]   = useState(false);
   const [editError,    setEditError]    = useState("");
+  const [birthdayText, setBirthdayText] = useState("");
+  const [birthdayInvalid, setBirthdayInvalid] = useState(false);
 
   // Delete confirm
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
@@ -760,10 +762,44 @@ export default function SettingsPage() {
 
   // ── Edit child ────────────────────────────────────────────────────────────
 
+  function isoToDisplayDate(iso: string | null | undefined): string {
+    if (!iso) return "";
+    const parts = iso.split("-");
+    if (parts.length !== 3) return "";
+    const [y, m, d] = parts;
+    return `${m}/${d}/${y}`;
+  }
+
+  function formatBirthdayInput(raw: string): string {
+    const digits = raw.replace(/\D/g, "").slice(0, 8);
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  }
+
+  // Returns YYYY-MM-DD, null for empty, or "invalid" for bad format
+  function parseBirthdayText(text: string): string | null | "invalid" {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    const match = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!match) return "invalid";
+    const [, m, d, y] = match;
+    const mm = parseInt(m, 10);
+    const dd = parseInt(d, 10);
+    const yy = parseInt(y, 10);
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31 || yy < 1900 || yy > 2100) return "invalid";
+    // Round-trip check catches things like 02/31/2020
+    const date = new Date(yy, mm - 1, dd);
+    if (date.getMonth() !== mm - 1 || date.getDate() !== dd || date.getFullYear() !== yy) return "invalid";
+    return `${y}-${m}-${d}`;
+  }
+
   function startEdit(child: Child) {
     setEditingId(child.id);
     setEditName(child.name);
     setEditColor(child.color ?? COLORS[0].value);
+    setBirthdayText(isoToDisplayDate(child.birthday));
+    setBirthdayInvalid(false);
     setEditError("");
     setDeleteId(null);
   }
@@ -772,6 +808,8 @@ export default function SettingsPage() {
     setEditingId(null);
     setEditName("");
     setEditColor("");
+    setBirthdayText("");
+    setBirthdayInvalid(false);
     setEditError("");
   }
 
@@ -1239,14 +1277,29 @@ export default function SettingsPage() {
                         Birthday <span className="text-[#b5aca4] font-normal">(optional)</span>
                       </label>
                       <input
-                        type="date"
-                        value={(() => { const c = children.find(ch => ch.id === editingId); return c?.birthday ?? ""; })()}
-                        onChange={async (e) => {
-                          const val = e.target.value || null;
-                          await supabase.from("children").update({ birthday: val }).eq("id", editingId!);
-                          setChildren(prev => prev.map(c => c.id === editingId ? { ...c, birthday: val } : c));
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="MM/DD/YYYY"
+                        value={birthdayText}
+                        onChange={(e) => {
+                          setBirthdayText(formatBirthdayInput(e.target.value));
+                          if (birthdayInvalid) setBirthdayInvalid(false);
                         }}
-                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+                        onBlur={async () => {
+                          const parsed = parseBirthdayText(birthdayText);
+                          if (parsed === "invalid") {
+                            setBirthdayInvalid(true);
+                            setTimeout(() => setBirthdayInvalid(false), 2000);
+                            return;
+                          }
+                          await supabase.from("children").update({ birthday: parsed }).eq("id", editingId!);
+                          setChildren(prev => prev.map(c => c.id === editingId ? { ...c, birthday: parsed } : c));
+                        }}
+                        className={`w-full px-3 py-2.5 rounded-xl border bg-white text-sm text-[#2d2926] focus:outline-none focus:ring-2 transition ${
+                          birthdayInvalid
+                            ? "border-red-400 focus:border-red-500 focus:ring-red-400/20"
+                            : "border-[#e8e2d9] focus:border-[#5c7f63] focus:ring-[#5c7f63]/15"
+                        }`}
                       />
                     </div>
                     {editError && (
