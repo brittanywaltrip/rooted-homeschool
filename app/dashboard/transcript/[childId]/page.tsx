@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Trash2, ChevronLeft, ChevronDown, ChevronUp, X, Check, RefreshCw } from "lucide-react";
+import { Plus, Trash2, ChevronLeft, ChevronDown, ChevronUp, X, Check, RefreshCw, Settings as SettingsIcon } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import PageHero from "@/app/components/PageHero";
 import { SUBJECT_CATEGORIES, CREDIT_TYPES, GRADE_OPTIONS, SEMESTERS, getSchoolYearOptions } from "@/lib/transcript/constants";
@@ -494,26 +494,23 @@ export default function TranscriptBuilderPage() {
       <PageHero overline="Transcripts" title={`${child.name}'s Transcript`} subtitle={settings.school_name || undefined} />
 
       <div className="max-w-2xl mx-auto px-5 pt-4 pb-10">
-        {/* Back link */}
-        <Link href="/dashboard/transcript" className="inline-flex items-center gap-1 text-[13px] text-[#8a8580] hover:text-[#3c3a37] mb-4 transition-colors">
-          <ChevronLeft size={14} /> All transcripts
-        </Link>
-
-        {/* Settings banner */}
-        <div className="bg-white rounded-2xl mb-4 overflow-hidden" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+        {/* Back link + settings gear */}
+        <div className="flex items-center justify-between mb-4">
+          <Link href="/dashboard/transcript" className="inline-flex items-center gap-1 text-[13px] text-[#8a8580] hover:text-[#3c3a37] transition-colors">
+            <ChevronLeft size={14} /> All transcripts
+          </Link>
           <button type="button" onClick={() => setSettingsOpen(!settingsOpen)}
-            className="w-full flex items-center justify-between px-5 py-3.5 text-left">
-            <div>
-              <p className="text-[14px] font-medium text-[#3c3a37]">Transcript settings</p>
-              <p className="text-[12px] text-[#8a8580]">
-                {[settings.school_name, settings.state ? STATE_REQUIREMENTS[settings.state]?.name : null, settings.graduation_year ? `Class of ${settings.graduation_year}` : null].filter(Boolean).join(" · ") || "Set up your school info"}
-              </p>
-            </div>
-            {settingsOpen ? <ChevronUp size={18} className="text-[#8a8580]" /> : <ChevronDown size={18} className="text-[#8a8580]" />}
+            className="inline-flex items-center gap-1.5 text-[13px] text-[#8a8580] hover:text-[#3c3a37] transition-colors"
+            aria-label="Transcript settings">
+            <SettingsIcon size={16} />
+            <span>Settings</span>
           </button>
+        </div>
 
-          {settingsOpen && (
-            <div className="px-5 pb-5 border-t border-[#f0ece6] pt-4 space-y-3">
+        {/* Settings panel (gear-triggered) */}
+        {settingsOpen && (
+          <div className="bg-white rounded-2xl mb-4 overflow-hidden" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+            <div className="px-5 py-5 space-y-3">
               <div>
                 <label className="text-[12px] font-medium text-[#6b6560] block mb-1">School name</label>
                 <input type="text" value={settings.school_name || ""} onChange={e => setSettings(s => ({ ...s, school_name: e.target.value }))}
@@ -554,8 +551,8 @@ export default function TranscriptBuilderPage() {
                 {settingsSaving ? "Saving..." : "Save settings"}
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Tab bar */}
         <div className="bg-white rounded-2xl overflow-hidden" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
