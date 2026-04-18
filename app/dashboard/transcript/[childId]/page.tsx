@@ -193,12 +193,17 @@ export default function TranscriptBuilderPage() {
     doc.setFontSize(10);
     const infoLeft: [string, string][] = [];
     infoLeft.push(["Student:", child?.name || ""]);
+    if ((child as any)?.birthday) {
+      const bday = new Date((child as any).birthday + "T00:00:00");
+      infoLeft.push(["Date of Birth:", bday.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })]);
+    }
     if (settings.state) {
       const stateName = STATE_REQUIREMENTS[settings.state]?.name || settings.state;
       infoLeft.push(["State:", stateName]);
     }
     const infoRight: [string, string][] = [];
     if (settings.graduation_year) infoRight.push(["Graduation:", String(settings.graduation_year)]);
+    infoRight.push(["Date Issued:", new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })]);
     if (settings.principal_name) infoRight.push(["Administrator:", settings.principal_name]);
 
     const infoRowH = 14;
@@ -276,6 +281,26 @@ export default function TranscriptBuilderPage() {
         const courseName = c.course_name.length > 28 ? c.course_name.slice(0, 26) + "…" : c.course_name;
         doc.text(courseName, colX.course, y);
 
+        // Course level label
+        const level = (c as any).course_level || "standard";
+        if (level !== "standard") {
+          const levelLabels: Record<string, string> = {
+            honors: "H",
+            ap: "AP",
+            dual_enrollment: "DE",
+          };
+          const badge = levelLabels[level] || "";
+          if (badge) {
+            const nameWidth = doc.getTextWidth(courseName);
+            doc.setFontSize(7);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(...green);
+            doc.text(badge, colX.course + nameWidth + 4, y);
+            doc.setFontSize(9);
+            doc.setFont("helvetica", "normal");
+          }
+        }
+
         doc.setTextColor(107, 101, 96); // #6b6560
         const catLabel = subjectLabel(c.subject_category);
         const catTrunc = catLabel.length > 30 ? catLabel.slice(0, 28) + "…" : catLabel;
@@ -318,6 +343,22 @@ export default function TranscriptBuilderPage() {
     doc.setTextColor(...dark);
     doc.text(String(totalCredits), pageW / 2 + 90, y);
     y += 40;
+
+    // ── Grading Scale Key ───────────────────────────────────
+    checkPage(50);
+    y += 5;
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...muted);
+    doc.text("Grading Scale:", margin, y);
+    doc.setFont("helvetica", "normal");
+    const scaleText = "A = 4.0   B = 3.0   C = 2.0   D = 1.0   F = 0.0";
+    doc.text(scaleText, margin + 65, y);
+    if (settings.use_weighted_gpa) {
+      y += 11;
+      doc.text("Weighted: Honors +0.5   AP/Dual Enrollment +1.0", margin + 65, y);
+    }
+    y += 15;
 
     // ── Signature lines ─────────────────────────────────────
     checkPage(80);
@@ -547,7 +588,7 @@ export default function TranscriptBuilderPage() {
     setUserId(user.id);
 
     const [{ data: childData }, { data: settingsData }, { data: coursesData }, { data: goalsData }, { data: profile }] = await Promise.all([
-      supabase.from("children").select("id, name, color").eq("id", childId).maybeSingle(),
+      supabase.from("children").select("id, name, color, birthday").eq("id", childId).maybeSingle(),
       supabase.from("transcript_settings").select("*").eq("user_id", user.id).eq("child_id", childId).maybeSingle(),
       supabase.from("transcript_courses").select("*").eq("user_id", user.id).eq("child_id", childId).order("school_year", { ascending: false }).order("course_name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes").eq("user_id", user.id).eq("child_id", childId),
