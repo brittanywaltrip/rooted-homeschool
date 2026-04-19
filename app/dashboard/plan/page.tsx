@@ -563,12 +563,14 @@ export default function PlanPage() {
   function selectDay(key: string) {
     setSelectedDay(key);
     if (isMobile) setCalendarCollapsed(true);
-    requestAnimationFrame(() => {
+    // Wait for the collapse + day-detail re-render to commit before measuring,
+    // otherwise scrollIntoView lands on the pre-collapse position and overshoots.
+    setTimeout(() => {
       dayDetailRef.current?.scrollIntoView({
         behavior: "smooth",
         block: isMobile ? "start" : "nearest",
       });
-    });
+    }, 80);
   }
 
   // ── Lesson note helpers ───────────────────────────────────────────────────
@@ -1885,7 +1887,7 @@ export default function PlanPage() {
       </div>
 
       {/* Scroll anchor for mobile: lands here when a date is tapped */}
-      <div ref={dayDetailRef} aria-hidden="true" style={{ scrollMarginTop: 8 }} />
+      <div ref={dayDetailRef} aria-hidden="true" style={{ scrollMarginTop: 16 }} />
 
       {/* School year milestone banner for selected day */}
       {schoolYearMilestones[selectedDay] && (
