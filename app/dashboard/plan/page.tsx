@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
 import ActivitySetupModal from "@/app/components/ActivitySetupModal";
 import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
+import AppointmentWizard, { type EditableAppointment } from "@/app/components/AppointmentWizard";
 import Toast from "@/components/Toast";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -269,7 +270,7 @@ export default function PlanPage() {
   const [viewMode,     setViewMode]     = useState<"week" | "month">("week");
   const [monthStart,   setMonthStart]   = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
   const [monthLessons, setMonthLessons] = useState<Lesson[]>([]);
-  type MonthAppt = { id: string; title: string; emoji: string; time: string | null; duration_minutes: number; location: string | null; child_ids: string[]; completed: boolean; instance_date: string; is_recurring: boolean };
+  type MonthAppt = { id: string; title: string; emoji: string; date: string; time: string | null; duration_minutes: number; location: string | null; notes: string | null; child_ids: string[]; completed: boolean; instance_date: string; is_recurring: boolean; recurrence_rule: { frequency: string; days: number[] } | null };
   const [monthAppts, setMonthAppts] = useState<MonthAppt[]>([]);
   const [lessons,          setLessons]          = useState<Lesson[]>([]);
   const [children,         setChildren]         = useState<Child[]>([]);
@@ -413,6 +414,13 @@ export default function PlanPage() {
   const planRescheduleUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [planPickerConfirmDate, setPlanPickerConfirmDate] = useState<string | null>(null);
   const [planPickerConflictCount, setPlanPickerConflictCount] = useState(0);
+
+  // ── Day-detail inline actions (appointments) ─────────────────────────────
+  const [editingAppt, setEditingAppt] = useState<EditableAppointment | null>(null);
+  const [reschedulingApptId, setReschedulingApptId] = useState<string | null>(null);
+  const [reschedulingApptDate, setReschedulingApptDate] = useState<string>("");
+  const [apptUndo, setApptUndo] = useState<{ message: string; restore: () => Promise<void> } | null>(null);
+  const apptUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);
@@ -788,6 +796,110 @@ export default function PlanPage() {
     setPlanRescheduleUndo(null);
     if (planRescheduleUndoTimer.current) clearTimeout(planRescheduleUndoTimer.current);
     loadData(); loadAllLessons();
+  }
+
+  // ── Skip lesson (clears scheduled date; undo restores) ───────────────────
+  async function skipPlanLesson(lesson: Lesson) {
+    const originalDate = lesson.scheduled_date ?? lesson.date;
+    if (!originalDate) return;
+    const clear = (l: Lesson) => l.id === lesson.id ? { ...l, scheduled_date: null, date: null } : l;
+    setLessons(prev => prev.map(clear));
+    setMonthLessons(prev => prev.map(clear));
+    setAllLessons(prev => prev.map(clear));
+    await supabase.from("lessons").update({ scheduled_date: null, date: null }).eq("id", lesson.id);
+    showPlanRescheduleUndo("Lesson skipped · Undo", [{ lessonId: lesson.id, date: originalDate }]);
+  }
+
+  // ── Appointment actions (one-off only) ───────────────────────────────────
+  function showApptUndo(message: string, restore: () => Promise<void>) {
+    if (apptUndoTimer.current) clearTimeout(apptUndoTimer.current);
+    setApptUndo({ message, restore });
+    apptUndoTimer.current = setTimeout(() => setApptUndo(null), 5000);
+  }
+
+  async function authedFetch(path: string, init: RequestInit = {}) {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    return fetch(path, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init.headers ?? {}),
+      },
+    });
+  }
+
+  async function skipAppt(a: MonthAppt) {
+    if (a.is_recurring) return;
+    // Capture the full row so we can restore on undo
+    const snapshot = { ...a };
+    setMonthAppts(prev => prev.filter(x => x.id !== a.id));
+    const res = await authedFetch("/api/appointments", {
+      method: "DELETE",
+      body: JSON.stringify({ id: a.id }),
+    });
+    if (!res.ok) { loadMonthData(); return; }
+    const label = new Date(a.instance_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    showApptUndo(`Skipped · ${a.title} on ${label} · Undo`, async () => {
+      await authedFetch("/api/appointments", {
+        method: "POST",
+        body: JSON.stringify({
+          title: snapshot.title,
+          emoji: snapshot.emoji,
+          date: snapshot.date,
+          time: snapshot.time,
+          duration_minutes: snapshot.duration_minutes,
+          location: snapshot.location,
+          notes: snapshot.notes,
+          child_ids: snapshot.child_ids,
+          is_recurring: false,
+          recurrence_rule: null,
+        }),
+      });
+      loadMonthData();
+    });
+  }
+
+  async function rescheduleAppt(a: MonthAppt, newDate: string) {
+    if (a.is_recurring || !newDate || newDate === a.date) {
+      setReschedulingApptId(null);
+      return;
+    }
+    const originalDate = a.date;
+    setMonthAppts(prev => prev.map(x => x.id === a.id ? { ...x, date: newDate, instance_date: newDate } : x));
+    setReschedulingApptId(null);
+    const res = await authedFetch("/api/appointments", {
+      method: "PATCH",
+      body: JSON.stringify({ id: a.id, date: newDate }),
+    });
+    if (!res.ok) { loadMonthData(); return; }
+    const label = new Date(newDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    showApptUndo(`Moved to ${label} · Undo`, async () => {
+      await authedFetch("/api/appointments", {
+        method: "PATCH",
+        body: JSON.stringify({ id: a.id, date: originalDate }),
+      });
+      loadMonthData();
+    });
+    // Jump selected day to the new date so the user sees the move
+    setSelectedDay(newDate);
+  }
+
+  function openEditAppt(a: MonthAppt) {
+    setEditingAppt({
+      id: a.id,
+      title: a.title,
+      emoji: a.emoji,
+      date: a.date,
+      time: a.time,
+      duration_minutes: a.duration_minutes,
+      location: a.location,
+      notes: a.notes,
+      child_ids: a.child_ids,
+      is_recurring: a.is_recurring,
+      recurrence_rule: a.recurrence_rule,
+    });
   }
 
   async function planRescheduleMoveTo(targetDate: string, force = false) {
@@ -1972,22 +2084,48 @@ export default function PlanPage() {
                             )}
                           </div>
                         </div>
-                      ) : l.notes ? (
-                        <button
-                          onClick={() => startEditingNote(l.id, l.notes)}
-                          aria-label="Edit note"
-                          className="flex items-center gap-1.5 min-h-[44px] min-w-[44px] -ml-1 px-2 text-[13px] text-[#2D5A3D] font-medium"
-                        >
-                          <Pencil size={14} /> Edit note
-                        </button>
                       ) : (
-                        <button
-                          onClick={() => startEditingNote(l.id, null)}
-                          aria-label="Add a note"
-                          className="inline-flex items-center min-h-[44px] min-w-[44px] -ml-1 px-2 text-[13px] text-[#5c7f63] font-medium hover:text-[#2D5A3D] transition-colors"
-                        >
-                          + Add a note...
-                        </button>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {l.notes ? (
+                            <button
+                              onClick={() => startEditingNote(l.id, l.notes)}
+                              aria-label="Edit note"
+                              className="flex items-center gap-1.5 min-h-[44px] min-w-[44px] -ml-1 px-2 text-[13px] text-[#2D5A3D] font-medium"
+                            >
+                              <Pencil size={14} /> Edit note
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => startEditingNote(l.id, null)}
+                              aria-label="Add a note"
+                              className="inline-flex items-center min-h-[44px] min-w-[44px] -ml-1 px-2 text-[13px] text-[#5c7f63] font-medium hover:text-[#2D5A3D] transition-colors"
+                            >
+                              + Add a note
+                            </button>
+                          )}
+                          <span aria-hidden="true" className="text-[#cfc9c0] select-none">·</span>
+                          <button
+                            onClick={() => skipPlanLesson(l)}
+                            aria-label="Skip this lesson"
+                            className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
+                          >
+                            <X size={14} /> Skip
+                          </button>
+                          <button
+                            onClick={() => openPlanReschedule(l)}
+                            aria-label="Reschedule this lesson"
+                            className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                          >
+                            <Calendar size={14} /> Reschedule
+                          </button>
+                          <button
+                            onClick={() => openEdit(l)}
+                            aria-label="Edit this lesson"
+                            className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                          >
+                            <Pencil size={14} /> Edit
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}
@@ -1995,18 +2133,87 @@ export default function PlanPage() {
               );
             })}
             {selAppts.map((a) => (
-              <div key={`${a.id}-${a.instance_date}`} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl ${a.completed ? "opacity-50" : ""}`} style={{ background: "linear-gradient(to bottom right, #f5f0ff, #ede5ff)", border: "1px solid #e8deff" }}>
-                <span className="text-xl shrink-0">{a.emoji || "📅"}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[14px] font-medium truncate ${a.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>{a.title}</span>
-                    <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#ede9fe] text-[#6d28d9]">Appt</span>
+              <div key={`${a.id}-${a.instance_date}`} className={`rounded-xl ${a.completed ? "opacity-50" : ""}`} style={{ background: "linear-gradient(to bottom right, #f5f0ff, #ede5ff)", border: "1px solid #e8deff" }}>
+                <div className="flex items-center gap-3 px-4 py-2.5">
+                  <span className="text-xl shrink-0">{a.emoji || "📅"}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[14px] font-medium truncate ${a.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>{a.title}</span>
+                      <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#ede9fe] text-[#6d28d9]">Appt</span>
+                      {a.is_recurring && (
+                        <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#ede9fe] text-[#6d28d9]">Recurring</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-[#7a6f65] mt-0.5">
+                      {a.time ? (() => { const [h, m] = a.time!.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; })() : "All day"}
+                      {a.location && <span className="text-[#b5aca4]"> · 📍 {a.location}</span>}
+                    </p>
                   </div>
-                  <p className="text-xs text-[#7a6f65] mt-0.5">
-                    {a.time ? (() => { const [h, m] = a.time!.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; })() : "All day"}
-                    {a.location && <span className="text-[#b5aca4]"> · 📍 {a.location}</span>}
-                  </p>
                 </div>
+                {!isPartner && (
+                  <div className="px-4 pb-2.5">
+                    {reschedulingApptId === a.id && !a.is_recurring ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <input
+                          type="date"
+                          min={todayStr}
+                          value={reschedulingApptDate}
+                          onChange={(e) => setReschedulingApptDate(e.target.value)}
+                          className="text-sm border border-[#e8e2d9] rounded-lg px-3 py-2 bg-white text-[#2d2926] min-h-[44px]"
+                        />
+                        <button
+                          onClick={() => rescheduleAppt(a, reschedulingApptDate)}
+                          disabled={!reschedulingApptDate || reschedulingApptDate === a.date}
+                          className="min-h-[44px] px-4 bg-[#2D5A3D] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white text-[13px] font-semibold rounded-lg transition-colors"
+                        >
+                          Move
+                        </button>
+                        <button
+                          onClick={() => setReschedulingApptId(null)}
+                          className="min-h-[44px] text-[13px] text-[#8a8580] font-medium px-3"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {a.is_recurring ? (
+                          <button
+                            onClick={() => openEditAppt(a)}
+                            aria-label="Edit appointment series"
+                            className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#6d28d9] font-medium hover:text-[#5b21b6] transition-colors"
+                          >
+                            <Pencil size={14} /> Edit series
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => skipAppt(a)}
+                              aria-label="Skip this appointment"
+                              className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
+                            >
+                              <X size={14} /> Skip
+                            </button>
+                            <button
+                              onClick={() => { setReschedulingApptId(a.id); setReschedulingApptDate(a.date); }}
+                              aria-label="Reschedule this appointment"
+                              className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#6d28d9] font-medium hover:text-[#5b21b6] transition-colors"
+                            >
+                              <Calendar size={14} /> Reschedule
+                            </button>
+                            <button
+                              onClick={() => openEditAppt(a)}
+                              aria-label="Edit this appointment"
+                              className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#6d28d9] font-medium hover:text-[#5b21b6] transition-colors"
+                            >
+                              <Pencil size={14} /> Edit
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -2899,6 +3106,34 @@ export default function PlanPage() {
           </div>
         </div>
       )}
+
+      {/* ── Appointment action undo toast ──────────────────── */}
+      {apptUndo && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+          <div className="bg-[#6d28d9] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
+            <span>{apptUndo.message}</span>
+            <button
+              onClick={async () => {
+                const restore = apptUndo.restore;
+                if (apptUndoTimer.current) clearTimeout(apptUndoTimer.current);
+                setApptUndo(null);
+                await restore();
+              }}
+              className="text-white font-semibold underline text-sm"
+            >
+              Undo
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Appointment editor (reuse existing wizard) ─────── */}
+      <AppointmentWizard
+        isOpen={!!editingAppt}
+        onClose={() => setEditingAppt(null)}
+        onSaved={() => { setEditingAppt(null); loadMonthData(); }}
+        editingAppointment={editingAppt}
+      />
     </div>
     </>
   );
