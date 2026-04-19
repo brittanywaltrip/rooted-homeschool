@@ -11,6 +11,10 @@ type CurriculumGoal = {
   id: string;
   curriculum_name: string;
   scheduled_start_time?: string | null;
+  child_id?: string | null;
+  total_lessons?: number | null;
+  current_lesson?: number | null;
+  school_year_id?: string | null;
 };
 
 type ActivityType = {
@@ -168,19 +172,46 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserId(user.id);
+
+      // Active school year = the one where teaching is currently happening.
+      // Used to scope goals when the caller doesn't pass schoolYearId.
+      const { data: activeYear } = await supabase
+        .from("school_years")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .maybeSingle();
+      const scopedYearId = schoolYearId ?? (activeYear as { id?: string } | null)?.id ?? null;
+
       const [{ data: kids }, { data: goals }] = await Promise.all([
         supabase.from("children").select("id, name, color").eq("user_id", user.id).eq("archived", false).order("sort_order"),
-        supabase.from("curriculum_goals").select("id, curriculum_name, scheduled_start_time").eq("user_id", user.id).order("created_at"),
+        supabase.from("curriculum_goals")
+          .select("id, curriculum_name, scheduled_start_time, child_id, total_lessons, current_lesson, school_year_id")
+          .eq("user_id", user.id)
+          .order("created_at"),
       ]);
-      setChildren(kids ?? []);
-      setCurriculumGoals((goals as CurriculumGoal[]) ?? []);
+      const activeKids = kids ?? [];
+      setChildren(activeKids);
+
+      // Only surface goals that are still in play:
+      //  - child is unassigned OR belongs to a non-archived child
+      //  - school_year_id is null (pre-migration) OR matches the scoped year
+      //  - not completed (no cap set, or current_lesson still below total_lessons)
+      const activeChildIds = new Set(activeKids.map(c => c.id));
+      const activeGoals = ((goals as CurriculumGoal[]) ?? []).filter(g => {
+        if (g.child_id && !activeChildIds.has(g.child_id)) return false;
+        if (scopedYearId && g.school_year_id && g.school_year_id !== scopedYearId) return false;
+        if (g.total_lessons != null && (g.current_lesson ?? 0) >= g.total_lessons) return false;
+        return true;
+      });
+      setCurriculumGoals(activeGoals);
       const timesInit: Record<string, string> = {};
-      for (const g of (goals ?? []) as CurriculumGoal[]) {
+      for (const g of activeGoals) {
         if (g.scheduled_start_time) timesInit[g.id] = g.scheduled_start_time;
       }
       setLessonTimes(timesInit);
     })();
-  }, []);
+  }, [schoolYearId]);
 
   // ── Step 1 handlers ─────────────────────────────────────────────────────
 
