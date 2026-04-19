@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
-import ActivitySetupModal from "@/app/components/ActivitySetupModal";
+import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
 import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import AppointmentWizard, { type EditableAppointment } from "@/app/components/AppointmentWizard";
 import Toast from "@/components/Toast";
@@ -75,6 +75,7 @@ type Activity = {
   scheduled_start_time: string | null;
   child_ids: string[];
   is_active: boolean;
+  location: string | null;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -397,6 +398,7 @@ export default function PlanPage() {
 
   // ── Activities ─────────────────────────────────────────────────────────────
   const [showActivityModal, setShowActivityModal] = useState(false);
+  const [editingActivity, setEditingActivity] = useState<EditableActivity | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
 
   // ── Month day popover ─────────────────────────────────────────────────────
@@ -500,7 +502,7 @@ export default function PlanPage() {
     if (!effectiveUserId) return;
     const { data } = await supabase
       .from("activities")
-      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, is_active")
+      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, is_active, location")
       .eq("user_id", effectiveUserId)
       .eq("is_active", true)
       .order("created_at");
@@ -2454,7 +2456,17 @@ export default function PlanPage() {
                   </div>
                   <div className="flex gap-2 items-center shrink-0">
                     <button
-                      onClick={() => setShowActivityModal(true)}
+                      onClick={() => setEditingActivity({
+                        id: act.id,
+                        name: act.name,
+                        emoji: act.emoji,
+                        frequency: act.frequency,
+                        days: act.days,
+                        duration_minutes: act.duration_minutes,
+                        scheduled_start_time: act.scheduled_start_time,
+                        child_ids: act.child_ids,
+                        location: act.location,
+                      })}
                       className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors"
                     >
                       Edit
@@ -2843,6 +2855,14 @@ export default function PlanPage() {
         <ActivitySetupModal
           onClose={() => setShowActivityModal(false)}
           onSaved={() => { loadActivities(); }}
+          schoolYearId={viewingYearId}
+        />
+      )}
+      {editingActivity && (
+        <ActivitySetupModal
+          editingActivity={editingActivity}
+          onClose={() => setEditingActivity(null)}
+          onSaved={() => { setEditingActivity(null); loadActivities(); }}
           schoolYearId={viewingYearId}
         />
       )}

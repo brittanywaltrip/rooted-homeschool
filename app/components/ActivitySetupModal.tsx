@@ -33,10 +33,23 @@ type ActivityConfig = {
   location: string;
 };
 
+export type EditableActivity = {
+  id: string;
+  name: string;
+  emoji: string;
+  frequency: "weekly" | "biweekly" | "monthly";
+  days: number[];
+  duration_minutes: number;
+  scheduled_start_time: string | null;
+  child_ids: string[];
+  location: string | null;
+};
+
 interface Props {
   onClose: () => void;
   onSaved: () => void;
   schoolYearId?: string | null;
+  editingActivity?: EditableActivity | null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -111,8 +124,9 @@ function buildScheduleSummary(cfg: ActivityConfig): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: Props) {
-  const [step, setStep] = useState<"pick" | "configure" | "review">("pick");
+export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, editingActivity }: Props) {
+  const isEdit = !!editingActivity;
+  const [step, setStep] = useState<"pick" | "configure" | "review">(isEdit ? "configure" : "pick");
   const [children, setChildren] = useState<Child[]>([]);
   const [curriculumGoals, setCurriculumGoals] = useState<CurriculumGoal[]>([]);
   const [userId, setUserId] = useState("");
@@ -124,7 +138,23 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: P
   const [customEmoji, setCustomEmoji] = useState("");
 
   // Step 2 — configure
-  const [configs, setConfigs] = useState<ActivityConfig[]>([]);
+  const [configs, setConfigs] = useState<ActivityConfig[]>(() => {
+    if (!editingActivity) return [];
+    const durationPreset = DURATION_OPTIONS.some(o => o.value === editingActivity.duration_minutes);
+    return [{
+      emoji: editingActivity.emoji,
+      name: editingActivity.name,
+      frequency: editingActivity.frequency,
+      days: editingActivity.days ?? [],
+      durationMinutes: editingActivity.duration_minutes,
+      customDuration: durationPreset ? "" : String(editingActivity.duration_minutes),
+      startTime: editingActivity.scheduled_start_time ?? "",
+      hasStartTime: !!editingActivity.scheduled_start_time,
+      childIds: editingActivity.child_ids ?? [],
+      onceDate: "",
+      location: editingActivity.location ?? "",
+    }];
+  });
   const [configIdx, setConfigIdx] = useState(0);
 
   // Step 3 — review
@@ -242,6 +272,31 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: P
   async function handleSave() {
     setSaving(true);
     try {
+      // Edit mode: update the single existing row instead of inserting
+      if (editingActivity) {
+        const cfg = configs[0];
+        if (!cfg) { setSaving(false); return; }
+        const { error } = await supabase.from("activities").update({
+          name: cfg.name,
+          emoji: cfg.emoji,
+          frequency: cfg.frequency === "once" ? "weekly" : cfg.frequency,
+          days: cfg.days,
+          duration_minutes: cfg.durationMinutes,
+          scheduled_start_time: cfg.hasStartTime && cfg.startTime ? cfg.startTime : null,
+          child_ids: cfg.childIds,
+          location: cfg.location.trim() || null,
+        }).eq("id", editingActivity.id);
+        if (error) {
+          console.error("Failed to update activity:", error);
+          setSaving(false);
+          return;
+        }
+        onSaved();
+        onClose();
+        setSaving(false);
+        return;
+      }
+
       // Separate one-time vs recurring configs
       const recurringConfigs = configs.filter(c => c.frequency !== "once");
       const onceConfigs = configs.filter(c => c.frequency === "once");
@@ -343,7 +398,7 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: P
             style={{ fontFamily: "var(--font-display)" }}
           >
             {step === "pick" && "Add Activities"}
-            {step === "configure" && `Set Up ${cfg?.emoji} ${cfg?.name}`}
+            {step === "configure" && (isEdit ? `Edit ${cfg?.emoji} ${cfg?.name}` : `Set Up ${cfg?.emoji} ${cfg?.name}`)}
             {step === "review" && "Review & Save"}
           </h2>
           <button
@@ -507,9 +562,11 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: P
           ══════════════════════════════════════════════════ */}
           {step === "configure" && cfg && (
             <div>
-              <p className="text-xs text-[#b5aca4] font-medium mb-4">
-                Activity {configIdx + 1} of {configs.length}
-              </p>
+              {!isEdit && (
+                <p className="text-xs text-[#b5aca4] font-medium mb-4">
+                  Activity {configIdx + 1} of {configs.length}
+                </p>
+              )}
 
               {/* Frequency */}
               <label className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] block mb-2">
@@ -730,19 +787,29 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId }: P
 
               {/* Buttons */}
               <div className="flex items-center justify-between mt-4">
+                {isEdit ? (
+                  <button
+                    onClick={onClose}
+                    className="text-sm text-[#8B7E74] hover:text-[#2d2926] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                ) : (
+                  <button
+                    onClick={prevActivity}
+                    className="text-sm text-[#8B7E74] hover:text-[#2d2926] transition-colors"
+                  >
+                    &larr; Back
+                  </button>
+                )}
                 <button
-                  onClick={prevActivity}
-                  className="text-sm text-[#8B7E74] hover:text-[#2d2926] transition-colors"
+                  onClick={isEdit ? handleSave : nextActivity}
+                  disabled={isEdit && saving}
+                  className="px-6 py-3 rounded-xl bg-[#2D5A3D] hover:opacity-90 text-white text-sm font-semibold transition-colors disabled:opacity-50"
                 >
-                  &larr; Back
-                </button>
-                <button
-                  onClick={nextActivity}
-                  className="px-6 py-3 rounded-xl bg-[#2D5A3D] hover:opacity-90 text-white text-sm font-semibold transition-colors"
-                >
-                  {configIdx < configs.length - 1
-                    ? "Next activity \u2192"
-                    : "Review \u2192"}
+                  {isEdit
+                    ? (saving ? "Saving\u2026" : "Save changes")
+                    : (configIdx < configs.length - 1 ? "Next activity \u2192" : "Review \u2192")}
                 </button>
               </div>
             </div>

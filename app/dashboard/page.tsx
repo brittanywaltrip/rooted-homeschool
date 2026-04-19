@@ -688,7 +688,10 @@ export default function TodayPage() {
 
   const loadTodayActivities = useCallback(async () => {
     if (!effectiveUserId) return;
-    const todayDow = new Date().getDay(); // 0=Sun..6=Sat
+    // activities.days is stored with Mon=0..Sun=6 (ActivitySetupModal convention).
+    // JS getDay() returns Sun=0..Sat=6. Convert before comparing.
+    const toMon0 = (jsDow: number) => (jsDow === 0 ? 6 : jsDow - 1);
+    const todayDow = toMon0(new Date().getDay());
     const { data: actData } = await supabase
       .from("activities")
       .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, created_at")
@@ -708,9 +711,9 @@ export default function TodayPage() {
       if (a.frequency === "monthly") {
         // Show only on first occurrence of matching day this month
         const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-        let cursor = new Date(firstDay);
+        const cursor = new Date(firstDay);
         while (cursor.getMonth() === now.getMonth()) {
-          if (cursor.getDay() === todayDow) {
+          if (toMon0(cursor.getDay()) === todayDow) {
             return cursor.getDate() === now.getDate();
           }
           cursor.setDate(cursor.getDate() + 1);
