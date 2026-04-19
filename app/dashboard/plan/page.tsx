@@ -2063,7 +2063,9 @@ export default function PlanPage() {
         if (selLessons.length === 0 && selAppts.length === 0) {
           return (
             <div className="mb-3">
-              {dayHeader}
+              <div className="pl-1 mb-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74]">{selDateLabel}</p>
+              </div>
               <div className="rounded-xl text-center" style={{ background: "#F8F7F4", border: "1px solid #e5e0d8", padding: 24 }}>
                 {selIsVacation ? (
                   <p className="text-sm text-[#7a5000]">🌴 {selVacName ?? "Break"} — enjoy the time off!</p>
