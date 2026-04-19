@@ -418,6 +418,7 @@ export default function PlanPage() {
 
   // ── Day-detail inline actions (appointments) ─────────────────────────────
   const [editingAppt, setEditingAppt] = useState<EditableAppointment | null>(null);
+  const [showApptCreate, setShowApptCreate] = useState(false);
   const [reschedulingApptId, setReschedulingApptId] = useState<string | null>(null);
   const [reschedulingApptDate, setReschedulingApptDate] = useState<string>("");
   const [apptUndo, setApptUndo] = useState<{ message: string; restore: () => Promise<void> } | null>(null);
@@ -1922,11 +1923,33 @@ export default function PlanPage() {
           return (
             <div className="mb-3">
               {dayHeader}
-              {selIsVacation ? (
-                <p className="text-xs text-[#7a5000] text-center py-2">🌴 {selVacName ?? "Break"} — enjoy the time off!</p>
-              ) : (
-                <p className="text-xs text-[#b45309] text-center py-2">☀️ Nothing scheduled — enjoy the day!</p>
-              )}
+              <div className="rounded-xl text-center" style={{ background: "#F8F7F4", border: "1px solid #e5e0d8", padding: 24 }}>
+                {selIsVacation ? (
+                  <p className="text-sm text-[#7a5000]">🌴 {selVacName ?? "Break"} — enjoy the time off!</p>
+                ) : (
+                  <p className="text-sm text-[#5C5346]">☀️ Nothing scheduled — enjoy the day!</p>
+                )}
+                {!isPartner && (
+                  <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateWizard(true)}
+                      className="min-h-[36px] text-[12px] font-medium text-[#2D5A3D] rounded-full px-3.5 py-1.5 hover:bg-[#f0f7f1] transition-colors"
+                      style={{ background: "white", border: "1px solid #2D5A3D" }}
+                    >
+                      + Add lesson
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowApptCreate(true)}
+                      className="min-h-[36px] text-[12px] font-medium text-[#2D5A3D] rounded-full px-3.5 py-1.5 hover:bg-[#f0f7f1] transition-colors"
+                      style={{ background: "white", border: "1px solid #2D5A3D" }}
+                    >
+                      + Appt
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           );
         }
@@ -3056,12 +3079,13 @@ export default function PlanPage() {
         </div>
       )}
 
-      {/* ── Appointment editor (reuse existing wizard) ─────── */}
+      {/* ── Appointment wizard (edit or create) ────────────── */}
       <AppointmentWizard
-        isOpen={!!editingAppt}
-        onClose={() => setEditingAppt(null)}
-        onSaved={() => { setEditingAppt(null); loadMonthData(); }}
+        isOpen={!!editingAppt || showApptCreate}
+        onClose={() => { setEditingAppt(null); setShowApptCreate(false); }}
+        onSaved={() => { setEditingAppt(null); setShowApptCreate(false); loadMonthData(); }}
         editingAppointment={editingAppt}
+        initialDate={!editingAppt && showApptCreate ? selectedDay : undefined}
       />
     </div>
     </>

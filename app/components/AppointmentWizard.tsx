@@ -20,6 +20,7 @@ interface Props {
   onClose: () => void;
   onSaved: () => void;
   editingAppointment?: EditableAppointment | null;
+  initialDate?: string;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -76,7 +77,7 @@ function todayStr(): string {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function AppointmentWizard({ isOpen, onClose, onSaved, editingAppointment }: Props) {
+export default function AppointmentWizard({ isOpen, onClose, onSaved, editingAppointment, initialDate }: Props) {
   const isEdit = !!editingAppointment;
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [children, setChildren] = useState<Child[]>([]);
@@ -128,12 +129,12 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
       setDays(ea.recurrence_rule?.days ?? []); setNotes(ea.notes ?? "");
     } else {
       setStep(1); setSelectedType(null); setEmoji("📅"); setTitle("");
-      setCustomEmoji(""); setCustomTitle(""); setDate(todayStr());
+      setCustomEmoji(""); setCustomTitle(""); setDate(initialDate ?? todayStr());
       setAllDay(true); setTime(""); setDuration(60); setCustomDuration("");
       setLocation(""); setJustMe(true); setChildIds([]); setIsRecurring(false);
       setFrequency("weekly"); setDays([]); setNotes("");
     }
-  }, [isOpen, editingAppointment]);
+  }, [isOpen, editingAppointment, initialDate]);
 
   if (!isOpen) return null;
 
