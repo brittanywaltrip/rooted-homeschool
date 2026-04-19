@@ -400,7 +400,6 @@ export default function PlanPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
 
   // ── Month day popover ─────────────────────────────────────────────────────
-  const [monthPopoverDay, setMonthPopoverDay] = useState<string | null>(null);
 
   // ── Edit time state ─────────────────────────────────────────────────────
   const [editTimeId, setEditTimeId] = useState<string | null>(null);
@@ -560,12 +559,13 @@ export default function PlanPage() {
 
   function selectDay(key: string) {
     setSelectedDay(key);
-    if (isMobile) {
-      setCalendarCollapsed(true);
-      requestAnimationFrame(() => {
-        dayDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (isMobile) setCalendarCollapsed(true);
+    requestAnimationFrame(() => {
+      dayDetailRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: isMobile ? "start" : "nearest",
       });
-    }
+    });
   }
 
   // ── Lesson note helpers ───────────────────────────────────────────────────
@@ -1542,12 +1542,13 @@ export default function PlanPage() {
               if (isToday) {
                 bg = "#2D5A3D";
                 if (isVacation) border = "2px solid #f0c878";
+                else if (isSelected) border = "2px solid rgba(255,255,255,0.6)";
+              } else if (isSelected) {
+                bg = isVacation ? "#fff4e0" : "#f4faf0";
+                border = "1.5px solid var(--g-brand)";
               } else if (isVacation) {
                 bg = "#fff8f0";
                 border = "0.5px solid #f0c878";
-              } else if (isSelected) {
-                bg = "#f4faf0";
-                border = "1.5px solid var(--g-brand)";
               } else if (hasLessons) {
                 bg = "white";
                 border = "0.5px solid #e8e0d4";
@@ -1775,15 +1776,8 @@ export default function PlanPage() {
                   const isPast = day < todayMidnight && !isToday;
                   const isSelected = key === selectedDay;
                   const isVacation = isDateInBlocks(key, vacationBlocks);
-                  const vacName = getVacationName(key, vacationBlocks);
-                  const dayLessons = monthLessonMap[key] ?? [];
-                  const lessonCount = dayLessons.length;
                   const actCount = activityCountForDay(key);
-                  const dayAppts = monthApptMap[key] ?? [];
-                  const apptCount = dayAppts.length;
-                  const totalItems = lessonCount + actCount;
                   const holiday = holidays[key];
-                  const isPopoverOpen = monthPopoverDay === key;
                   const isWeekend = day.getDay() === 0 || day.getDay() === 6;
                   const pills = dayPillsMap[key] ?? [];
                   const allItems = pills.length + actCount;
@@ -1793,12 +1787,13 @@ export default function PlanPage() {
                   let cellBorder = "";
                   if (isToday) {
                     cellBg = "bg-[#2D5A3D]";
+                    if (isSelected) cellBorder = "ring-2 ring-white/60";
+                  } else if (isSelected) {
+                    cellBg = isVacation ? "bg-[#fef3e0]" : "bg-[#f0faf3]";
+                    cellBorder = "ring-2 ring-[#2D5A3D]";
                   } else if (isVacation) {
                     cellBg = "bg-[#fef3e0]";
                     cellBorder = "border border-[#f0c878]";
-                  } else if (isSelected) {
-                    cellBg = "bg-[#f0faf3]";
-                    cellBorder = "ring-2 ring-[#2D5A3D]";
                   } else if (isOpenStreak) {
                     cellBg = "bg-[#fef9f0]";
                   } else if (allItems === 0 && !holiday) {
@@ -1808,10 +1803,7 @@ export default function PlanPage() {
                   return (
                     <div key={key} className="relative">
                       <button
-                        onClick={() => {
-                          selectDay(key);
-                          setMonthPopoverDay(isPopoverOpen ? null : key);
-                        }}
+                        onClick={() => selectDay(key)}
                         className={`w-full min-h-[78px] rounded-xl flex flex-col items-center justify-start p-1 cursor-pointer transition-colors ${cellBg} ${cellBorder}`}
                         style={{ opacity: isPast ? 0.75 : 1 }}
                       >
@@ -1855,111 +1847,6 @@ export default function PlanPage() {
                         </div>
                       </button>
 
-                      {/* Day popover */}
-                      {isPopoverOpen && (
-                        <>
-                          <div className="fixed inset-0 z-[60]" onClick={() => setMonthPopoverDay(null)} />
-                          <div
-                            className="absolute z-[61] bg-white border border-[#e8e5e0] rounded-xl shadow-lg p-3 w-52"
-                            style={{ top: "calc(100% + 4px)", left: "50%", transform: "translateX(-50%)" }}
-                          >
-                            <p className="text-xs font-semibold text-[#2d2926] mb-2">
-                              {day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                              {holiday && <span className="text-[#8B7E74] font-normal italic ml-1">· {holiday}</span>}
-                            </p>
-                            {schoolYearMilestones[key] && (
-                              <p className="text-xs font-semibold text-[#2D5A3D] mb-1">{schoolYearMilestones[key]}</p>
-                            )}
-                            {isVacation && vacName && (
-                              <p className="text-xs text-[#7a5000] mb-1">🌴 {vacName}</p>
-                            )}
-                            {lessonCount === 0 && actCount === 0 && apptCount === 0 && !isVacation && (
-                              <p className="text-[11px] text-[#b5aca4]">Nothing scheduled</p>
-                            )}
-                            {lessonCount > 0 && (
-                              <div className="mb-1.5">
-                                {dayLessons.slice(0, 5).map((l) => {
-                                  const childName = l.child_id ? children.find(c => c.id === l.child_id)?.name : null;
-                                  const lEmoji = l.curriculum_goal_id ? (curriculumGoals.find(g => g.id === l.curriculum_goal_id)?.icon_emoji ?? "📚") : "📚";
-                                  return (
-                                    <div key={l.id} className="mb-1">
-                                      <p className="text-[11px] text-[#2d2926] truncate">
-                                        <span className="mr-0.5">{lEmoji}</span>
-                                        {childName && <span className="text-[#5c7f63]">{childName}: </span>}
-                                        {l.subjects?.name ?? l.title}
-                                      </p>
-                                      {l.notes && (
-                                        <p className="text-[10px] text-[#8a8580] italic ml-5 line-clamp-2">{l.notes}</p>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                                {lessonCount > 5 && <p className="text-[10px] text-[#b5aca4]">+{lessonCount - 5} more</p>}
-                              </div>
-                            )}
-                            {actCount > 0 && (
-                              <div className="mb-1.5">
-                                {activities.filter(a => a.is_active && a.days.includes((day.getDay() + 6) % 7)).map(a => (
-                                  <p key={a.id} className="text-[11px] text-[#2d2926] truncate">{a.emoji} {a.name}</p>
-                                ))}
-                              </div>
-                            )}
-                            {apptCount > 0 && (
-                              <div className="mb-1.5">
-                                {(lessonCount > 0 || actCount > 0) && <p className="text-[10px] font-medium text-[#7C3AED] mt-1 mb-0.5">Appointments</p>}
-                                {dayAppts.slice(0, 4).map((a) => (
-                                  <p key={`${a.id}-${a.instance_date}`} className="text-[11px] text-[#2d2926] truncate">
-                                    {a.emoji} {a.title}
-                                    {a.time && <span className="text-[#7C3AED] ml-1">{a.time.slice(0, 5)}</span>}
-                                  </p>
-                                ))}
-                                {apptCount > 4 && <p className="text-[10px] text-[#b5aca4]">+{apptCount - 4} more</p>}
-                              </div>
-                            )}
-                            {!isPartner && lessonCount === 1 && dayLessons[0] && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setMonthPopoverDay(null);
-                                  startEditingNote(dayLessons[0].id, dayLessons[0].notes);
-                                }}
-                                aria-label={dayLessons[0].notes ? "Edit note" : "Add a note"}
-                                className="min-h-[44px] flex items-center text-[13px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
-                              >
-                                {dayLessons[0].notes ? "Edit note →" : "Add a note →"}
-                              </button>
-                            )}
-                            {!isPartner && lessonCount > 1 && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setMonthPopoverDay(null);
-                                  selectDay(key);
-                                }}
-                                className="min-h-[44px] flex items-center text-[13px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
-                              >
-                                Add notes below ↓
-                              </button>
-                            )}
-                            {!isVacation && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setMonthPopoverDay(null);
-                                  setVacName("");
-                                  setVacStart(key);
-                                  setVacEnd(key);
-                                  setVacReschedule("leave");
-                                  setShowVacModal(true);
-                                }}
-                                className={`min-h-[44px] flex items-center text-[13px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors ${lessonCount > 0 && !isPartner ? "mt-0.5" : "mt-1 pt-1.5 border-t border-[#f0ede8]"} w-full text-left`}
-                              >
-                                Mark as break →
-                              </button>
-                            )}
-                          </div>
-                        </>
-                      )}
                     </div>
                   );
                 })}
@@ -2010,20 +1897,42 @@ export default function PlanPage() {
       {(() => {
         const selLessons = viewMode === "month" ? (monthLessonMap[selectedDay] ?? []) : (lessonsByDay[selectedDay] ?? []);
         const selAppts = monthApptMap[selectedDay] ?? [];
-        const selEmpty = selLessons.length === 0 && selAppts.length === 0;
-        const selSuggestions = ["Do absolutely nothing. You\u2019ve earned it.", "Self care day \u2014 no lessons, no guilt.", "Read a book. A real one. For you.", "Pajama day. The kids will love it too.", "Get outside. Even 20 minutes counts."];
-        const selDayNum = parseInt(selectedDay.split("-")[2]) || 1;
-        if (selEmpty && !isDateInBlocks(selectedDay, vacationBlocks)) return (
-          <p className="mb-3 text-xs text-[#b45309] text-center py-2">☀️ Nothing scheduled — enjoy the day!</p>
-        );
-        if (selLessons.length === 0 && selAppts.length === 0) return null;
         const selDate = new Date(selectedDay + "T00:00:00");
+        const selDateLabel = selDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+        const selIsVacation = isDateInBlocks(selectedDay, vacationBlocks);
+        const selVacName = getVacationName(selectedDay, vacationBlocks);
+
+        const dayHeader = (
+          <div className="flex items-center justify-between gap-2 pl-1 mb-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74]">{selDateLabel}</p>
+            {!isPartner && !selIsVacation && (
+              <button
+                onClick={() => { setVacName(""); setVacStart(selectedDay); setVacEnd(selectedDay); setVacReschedule("leave"); setShowVacModal(true); }}
+                className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors min-h-[32px] px-1"
+              >
+                Mark as break →
+              </button>
+            )}
+          </div>
+        );
+
+        if (selLessons.length === 0 && selAppts.length === 0) {
+          return (
+            <div className="mb-3">
+              {dayHeader}
+              {selIsVacation ? (
+                <p className="text-xs text-[#7a5000] text-center py-2">🌴 {selVacName ?? "Break"} — enjoy the time off!</p>
+              ) : (
+                <p className="text-xs text-[#b45309] text-center py-2">☀️ Nothing scheduled — enjoy the day!</p>
+              )}
+            </div>
+          );
+        }
         return (
           <div className="mb-3 space-y-2">
-            {viewMode === "week" && (
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] pl-1">
-                {selDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
-              </p>
+            {dayHeader}
+            {selIsVacation && selVacName && (
+              <p className="text-[11px] text-[#7a5000] pl-1">🌴 {selVacName}</p>
             )}
             {selLessons.map((l) => {
               const goal = l.curriculum_goal_id ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) : null;
