@@ -419,6 +419,7 @@ export default function PlanPage() {
   // ── Day-detail inline actions (appointments) ─────────────────────────────
   const [editingAppt, setEditingAppt] = useState<EditableAppointment | null>(null);
   const [showApptCreate, setShowApptCreate] = useState(false);
+  const [showAddLessonPicker, setShowAddLessonPicker] = useState(false);
   const [reschedulingApptId, setReschedulingApptId] = useState<string | null>(null);
   const [reschedulingApptDate, setReschedulingApptDate] = useState<string>("");
   const [apptUndo, setApptUndo] = useState<{ message: string; restore: () => Promise<void> } | null>(null);
@@ -936,6 +937,31 @@ export default function PlanPage() {
     const label = new Date(targetDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
     showPlanRescheduleUndo(`Lesson moved to ${label} · Undo`, [{ lessonId: planRescheduleLesson.id, date: originalDate }]);
     loadData(); loadAllLessons();
+  }
+
+  // Pick from an active curriculum group → reschedule its next incomplete
+  // lesson to the currently-selected day. Mirrors the "Log an extra lesson"
+  // pattern from the Today page but scheduled instead of completed.
+  async function addLessonFromGroupOnSelectedDay(group: CurriculumGroup) {
+    const candidates = allLessons.filter(l => {
+      if (l.completed) return false;
+      if (group.goalId) return l.curriculum_goal_id === group.goalId;
+      const m = CURRICULUM_RE.exec(l.title);
+      return m?.[1] === group.curricName && l.child_id === group.childId;
+    }).sort((a, b) => {
+      const da = a.scheduled_date ?? a.date ?? "";
+      const db = b.scheduled_date ?? b.date ?? "";
+      return (da || "z").localeCompare(db || "z");
+    });
+    const next = candidates[0];
+    if (!next) { setShowAddLessonPicker(false); return; }
+    const originalDate = next.scheduled_date ?? next.date ?? todayStr;
+    await supabase.from("lessons").update({ scheduled_date: selectedDay, date: selectedDay }).eq("id", next.id);
+    setShowAddLessonPicker(false);
+    const label = new Date(selectedDay + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    showPlanRescheduleUndo(`${group.curricName} lesson moved to ${label} · Undo`, [{ lessonId: next.id, date: originalDate }]);
+    loadData();
+    loadAllLessons();
   }
 
   function getSchoolDaysForLesson(lesson: Lesson): string[] {
@@ -1939,7 +1965,7 @@ export default function PlanPage() {
                   <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
                     <button
                       type="button"
-                      onClick={() => setShowCreateWizard(true)}
+                      onClick={() => setShowAddLessonPicker(true)}
                       className="min-h-[36px] text-[12px] font-medium text-[#2D5A3D] rounded-full px-3.5 py-1.5 hover:bg-[#f0f7f1] transition-colors"
                       style={{ background: "white", border: "1px solid #2D5A3D" }}
                     >
@@ -3093,6 +3119,69 @@ export default function PlanPage() {
         editingAppointment={editingAppt}
         initialDate={!editingAppt && showApptCreate ? selectedDay : undefined}
       />
+
+      {/* ── Add lesson picker (empty-day action) ───────────── */}
+      {showAddLessonPicker && (() => {
+        const pickerLabel = new Date(selectedDay + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        const availableGroups = curricGroups.filter(g => g.remainingCount > 0);
+        return (
+          <>
+            <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => setShowAddLessonPicker(false)} />
+            <div className="fixed bottom-0 left-0 right-0 z-[81] bg-[#faf8f4] rounded-t-2xl shadow-xl max-w-lg mx-auto">
+              <div className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-base font-medium text-[var(--g-deep)]" style={{ fontFamily: "var(--font-display)" }}>
+                    Add a lesson to {pickerLabel}
+                  </h3>
+                  <button onClick={() => setShowAddLessonPicker(false)} aria-label="Close" className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
+                </div>
+                {availableGroups.length === 0 ? (
+                  <div className="py-6 text-center">
+                    <p className="text-sm text-[#7a6f65]">No active curriculum with remaining lessons.</p>
+                    <button
+                      onClick={() => { setShowAddLessonPicker(false); setShowCreateWizard(true); }}
+                      className="mt-3 text-[12px] font-medium text-[#2D5A3D] underline"
+                    >
+                      Add curriculum →
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                    {availableGroups.map((g) => {
+                      const child = children.find(c => c.id === g.childId);
+                      return (
+                        <button
+                          key={g.key}
+                          onClick={() => addLessonFromGroupOnSelectedDay(g)}
+                          className="w-full flex items-center gap-3 p-3 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                        >
+                          <span style={{
+                            width: 28, height: 28, borderRadius: "50%",
+                            background: child?.color ?? "#7a6f65", color: "white",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: 11, fontWeight: 700, flexShrink: 0,
+                          }}>
+                            {(child?.name ?? "?").charAt(0).toUpperCase()}
+                          </span>
+                          <span className="text-lg shrink-0">{g.goalData?.icon_emoji ?? "📚"}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-[#2d2926] truncate">{g.curricName}</p>
+                            <p className="text-xs text-[#9a8e84] truncate">
+                              {child?.name ?? "Unassigned"} · {g.remainingCount} lesson{g.remainingCount !== 1 ? "s" : ""} remaining
+                            </p>
+                          </div>
+                          <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <div className="h-6" />
+            </div>
+          </>
+        );
+      })()}
     </div>
     </>
   );
