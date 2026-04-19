@@ -420,6 +420,23 @@ export default function PlanPage() {
   const [editingAppt, setEditingAppt] = useState<EditableAppointment | null>(null);
   const [showApptCreate, setShowApptCreate] = useState(false);
   const [showAddLessonPicker, setShowAddLessonPicker] = useState(false);
+
+  // ── Add-lesson picker (empty day) — sourced from curriculum_goals ───────
+  type PickerGoal = {
+    id: string;
+    curriculum_name: string;
+    child_id: string | null;
+    child_name: string | null;
+    child_color: string | null;
+    total_lessons: number | null;
+    current_lesson: number | null;
+    school_year_id: string | null;
+    icon_emoji: string | null;
+  };
+  const [pickerGoals, setPickerGoals] = useState<PickerGoal[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [lessonAddUndo, setLessonAddUndo] = useState<{ message: string; insertedLessonId: string } | null>(null);
+  const lessonAddUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [reschedulingApptId, setReschedulingApptId] = useState<string | null>(null);
   const [reschedulingApptDate, setReschedulingApptDate] = useState<string>("");
   const [apptUndo, setApptUndo] = useState<{ message: string; restore: () => Promise<void> } | null>(null);
@@ -939,29 +956,121 @@ export default function PlanPage() {
     loadData(); loadAllLessons();
   }
 
-  // Pick from an active curriculum group → reschedule its next incomplete
-  // lesson to the currently-selected day. Mirrors the "Log an extra lesson"
-  // pattern from the Today page but scheduled instead of completed.
-  async function addLessonFromGroupOnSelectedDay(group: CurriculumGroup) {
-    const candidates = allLessons.filter(l => {
-      if (l.completed) return false;
-      if (group.goalId) return l.curriculum_goal_id === group.goalId;
-      const m = CURRICULUM_RE.exec(l.title);
-      return m?.[1] === group.curricName && l.child_id === group.childId;
-    }).sort((a, b) => {
-      const da = a.scheduled_date ?? a.date ?? "";
-      const db = b.scheduled_date ?? b.date ?? "";
-      return (da || "z").localeCompare(db || "z");
-    });
-    const next = candidates[0];
-    if (!next) { setShowAddLessonPicker(false); return; }
-    const originalDate = next.scheduled_date ?? next.date ?? todayStr;
-    await supabase.from("lessons").update({ scheduled_date: selectedDay, date: selectedDay }).eq("id", next.id);
-    setShowAddLessonPicker(false);
+  // ── Add-lesson picker: fetch active goals directly from curriculum_goals
+  // so we catch curricula that have no pre-generated lesson rows yet or whose
+  // existing rows are all completed (those never appear in curricGroups).
+  const loadPickerGoals = useCallback(async () => {
+    if (!effectiveUserId) return;
+    setPickerLoading(true);
+    const { data } = await supabase
+      .from("curriculum_goals")
+      .select("id, curriculum_name, child_id, total_lessons, current_lesson, school_year_id, icon_emoji")
+      .eq("user_id", effectiveUserId);
+    type Row = { id: string; curriculum_name: string; child_id: string | null; total_lessons: number | null; current_lesson: number | null; school_year_id: string | null; icon_emoji: string | null };
+    const rows = (data as Row[] | null) ?? [];
+    const activeChildIds = new Set(children.map(c => c.id));
+    const childMap = new Map(children.map(c => [c.id, c]));
+    const list: PickerGoal[] = rows
+      .filter(g => {
+        if (g.child_id && !activeChildIds.has(g.child_id)) return false;
+        if (viewingYearId && g.school_year_id && g.school_year_id !== viewingYearId) return false;
+        if (g.total_lessons == null) return true;
+        return (g.current_lesson ?? 0) < g.total_lessons;
+      })
+      .map(g => {
+        const child = g.child_id ? childMap.get(g.child_id) : null;
+        return { ...g, child_name: child?.name ?? null, child_color: child?.color ?? null };
+      })
+      .sort((a, b) => {
+        const ac = a.child_name ?? "~";
+        const bc = b.child_name ?? "~";
+        if (ac !== bc) return ac.localeCompare(bc);
+        return a.curriculum_name.localeCompare(b.curriculum_name);
+      });
+    setPickerGoals(list);
+    setPickerLoading(false);
+  }, [effectiveUserId, children, viewingYearId]);
+
+  // Load picker goals when the picker opens
+  useEffect(() => {
+    if (showAddLessonPicker) loadPickerGoals();
+  }, [showAddLessonPicker, loadPickerGoals]);
+
+  function showLessonAddUndo(message: string, insertedLessonId: string) {
+    if (lessonAddUndoTimer.current) clearTimeout(lessonAddUndoTimer.current);
+    setLessonAddUndo({ message, insertedLessonId });
+    lessonAddUndoTimer.current = setTimeout(() => setLessonAddUndo(null), 8000);
+  }
+
+  async function undoLessonAdd() {
+    if (!lessonAddUndo) return;
+    await supabase.from("lessons").delete().eq("id", lessonAddUndo.insertedLessonId);
+    setLessonAddUndo(null);
+    if (lessonAddUndoTimer.current) clearTimeout(lessonAddUndoTimer.current);
+    loadData(); loadAllLessons();
+  }
+
+  // Tap a picker goal → reschedule its next incomplete lesson to selectedDay,
+  // OR insert a brand new lesson row if no incomplete row exists.
+  async function addLessonFromPickerGoal(goal: PickerGoal) {
+    if (!effectiveUserId) return;
     const label = new Date(selectedDay + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-    showPlanRescheduleUndo(`${group.curricName} lesson moved to ${label} · Undo`, [{ lessonId: next.id, date: originalDate }]);
-    loadData();
-    loadAllLessons();
+
+    // 1) Prefer rescheduling an existing incomplete row
+    const { data: existing } = await supabase
+      .from("lessons")
+      .select("id, scheduled_date, date")
+      .eq("curriculum_goal_id", goal.id)
+      .eq("completed", false)
+      .order("scheduled_date", { ascending: true, nullsFirst: false })
+      .order("lesson_number", { ascending: true, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      const row = existing as { id: string; scheduled_date: string | null; date: string | null };
+      const originalDate = row.scheduled_date ?? row.date ?? todayStr;
+      await supabase.from("lessons").update({ scheduled_date: selectedDay, date: selectedDay }).eq("id", row.id);
+      setShowAddLessonPicker(false);
+      showPlanRescheduleUndo(`${goal.curriculum_name} lesson moved to ${label} · Undo`, [{ lessonId: row.id, date: originalDate }]);
+      loadData(); loadAllLessons();
+      return;
+    }
+
+    // 2) No incomplete row — insert a new one. Match the CurriculumWizard shape.
+    const nextNumber = (goal.current_lesson ?? 0) + 1;
+    // Copy subject_id from any existing lesson for this goal (if any)
+    const { data: siblingLesson } = await supabase
+      .from("lessons")
+      .select("subject_id")
+      .eq("curriculum_goal_id", goal.id)
+      .limit(1)
+      .maybeSingle();
+    const subjectId = (siblingLesson as { subject_id?: string | null } | null)?.subject_id ?? null;
+
+    const { data: inserted, error } = await supabase.from("lessons").insert({
+      user_id: effectiveUserId,
+      child_id: goal.child_id,
+      subject_id: subjectId,
+      curriculum_goal_id: goal.id,
+      title: `${goal.curriculum_name} — Lesson ${nextNumber}`,
+      lesson_number: nextNumber,
+      scheduled_date: selectedDay,
+      date: selectedDay,
+      completed: false,
+      hours: 0,
+      school_year_id: goal.school_year_id,
+    }).select("id").single();
+
+    setShowAddLessonPicker(false);
+
+    if (error || !inserted) {
+      console.error("Failed to insert extra lesson:", error);
+      return;
+    }
+
+    showLessonAddUndo(`${goal.curriculum_name} — Lesson ${nextNumber} added to ${label} · Undo`, (inserted as { id: string }).id);
+    loadData(); loadAllLessons();
   }
 
   function getSchoolDaysForLesson(lesson: Lesson): string[] {
@@ -3123,7 +3232,14 @@ export default function PlanPage() {
       {/* ── Add lesson picker (empty-day action) ───────────── */}
       {showAddLessonPicker && (() => {
         const pickerLabel = new Date(selectedDay + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-        const availableGroups = curricGroups.filter(g => g.remainingCount > 0);
+        // Group active goals by child so the sheet renders "Emma / <goals>", "Zoe / <goals>"
+        const groups = new Map<string, { name: string; color: string | null; goals: PickerGoal[] }>();
+        for (const g of pickerGoals) {
+          const key = g.child_id ?? "__unassigned__";
+          if (!groups.has(key)) groups.set(key, { name: g.child_name ?? "Unassigned", color: g.child_color, goals: [] });
+          groups.get(key)!.goals.push(g);
+        }
+        const childSections = Array.from(groups.values());
         return (
           <>
             <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => setShowAddLessonPicker(false)} />
@@ -3135,45 +3251,54 @@ export default function PlanPage() {
                   </h3>
                   <button onClick={() => setShowAddLessonPicker(false)} aria-label="Close" className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
                 </div>
-                {availableGroups.length === 0 ? (
-                  <div className="py-6 text-center">
-                    <p className="text-sm text-[#7a6f65]">No active curriculum with remaining lessons.</p>
+                {pickerLoading ? (
+                  <p className="text-sm text-[#7a6f65] text-center py-6">Loading…</p>
+                ) : childSections.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <p className="text-sm text-[#2d2926]">All lessons are complete! 🎉</p>
                     <button
-                      onClick={() => { setShowAddLessonPicker(false); setShowCreateWizard(true); }}
-                      className="mt-3 text-[12px] font-medium text-[#2D5A3D] underline"
+                      onClick={() => setShowAddLessonPicker(false)}
+                      className="mt-4 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
                     >
-                      Add curriculum →
+                      Close
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-                    {availableGroups.map((g) => {
-                      const child = children.find(c => c.id === g.childId);
-                      return (
-                        <button
-                          key={g.key}
-                          onClick={() => addLessonFromGroupOnSelectedDay(g)}
-                          className="w-full flex items-center gap-3 p-3 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
-                        >
+                  <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                    {childSections.map(section => (
+                      <div key={section.name}>
+                        <div className="flex items-center gap-2 mb-1.5 pl-1">
                           <span style={{
-                            width: 28, height: 28, borderRadius: "50%",
-                            background: child?.color ?? "#7a6f65", color: "white",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: 11, fontWeight: 700, flexShrink: 0,
-                          }}>
-                            {(child?.name ?? "?").charAt(0).toUpperCase()}
-                          </span>
-                          <span className="text-lg shrink-0">{g.goalData?.icon_emoji ?? "📚"}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-[#2d2926] truncate">{g.curricName}</p>
-                            <p className="text-xs text-[#9a8e84] truncate">
-                              {child?.name ?? "Unassigned"} · {g.remainingCount} lesson{g.remainingCount !== 1 ? "s" : ""} remaining
-                            </p>
-                          </div>
-                          <span className="text-[#c8bfb5] text-base shrink-0">›</span>
-                        </button>
-                      );
-                    })}
+                            width: 18, height: 18, borderRadius: "50%",
+                            background: section.color ?? "#7a6f65", display: "inline-block", flexShrink: 0,
+                          }} />
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74]">{section.name}</p>
+                        </div>
+                        <div className="space-y-2">
+                          {section.goals.map(g => {
+                            const remaining = Math.max(0, (g.total_lessons ?? 0) - (g.current_lesson ?? 0));
+                            return (
+                              <button
+                                key={g.id}
+                                onClick={() => addLessonFromPickerGoal(g)}
+                                className="w-full flex items-center gap-3 p-3 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                              >
+                                <span className="text-lg shrink-0">{g.icon_emoji ?? "📚"}</span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-[#2d2926] truncate">{g.curriculum_name}</p>
+                                  <p className="text-xs text-[#9a8e84] truncate">
+                                    {g.total_lessons != null
+                                      ? `${remaining} lesson${remaining !== 1 ? "s" : ""} remaining`
+                                      : "Open-ended"}
+                                  </p>
+                                </div>
+                                <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -3182,6 +3307,16 @@ export default function PlanPage() {
           </>
         );
       })()}
+
+      {/* ── Add-lesson undo toast ──────────────────────────── */}
+      {lessonAddUndo && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+          <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
+            <span>{lessonAddUndo.message}</span>
+            <button onClick={undoLessonAdd} className="text-white font-semibold underline text-sm">Undo</button>
+          </div>
+        </div>
+      )}
     </div>
     </>
   );
