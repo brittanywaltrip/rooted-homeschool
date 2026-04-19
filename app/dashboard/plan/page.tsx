@@ -562,13 +562,17 @@ export default function PlanPage() {
 
   function selectDay(key: string) {
     setSelectedDay(key);
-    if (isMobile) setCalendarCollapsed(true);
-    // Wait for the collapse + day-detail re-render to commit before measuring,
-    // otherwise scrollIntoView lands on the pre-collapse position and overshoots.
+    if (isMobile) {
+      // Collapsing the calendar already brings the day detail into view.
+      // Scrolling on top of that feels jarring, so skip it on mobile.
+      setCalendarCollapsed(true);
+      return;
+    }
+    // Desktop: nudge the detail into view (no-op if already visible).
     setTimeout(() => {
       dayDetailRef.current?.scrollIntoView({
         behavior: "smooth",
-        block: isMobile ? "start" : "nearest",
+        block: "nearest",
       });
     }, 80);
   }
