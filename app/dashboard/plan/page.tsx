@@ -280,9 +280,24 @@ export default function PlanPage() {
   const [allLessons,       setAllLessons]       = useState<Lesson[]>([]);
   const [selectedDay, setSelectedDay] = useState<string>(todayStr);
 
+  // ── Mobile calendar collapse ─────────────────────────────────────────────
+  const [isMobile, setIsMobile] = useState(false);
+  const [calendarCollapsed, setCalendarCollapsed] = useState(false);
+  const dayDetailRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   // ── Lesson notes ─────────────────────────────────────────────────────────
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
+  const [noteSaveState, setNoteSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const noteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Edit modal ────────────────────────────────────────────────────────────
@@ -525,38 +540,67 @@ export default function PlanPage() {
 
   // ── Week navigation ───────────────────────────────────────────────────────
 
-  function prevWeek() { setWeekStart((d) => getMondayOf(new Date(d.getTime() - 7 * 24 * 60 * 60 * 1000))); }
-  function nextWeek() { setWeekStart((d) => getMondayOf(new Date(d.getTime() + 7 * 24 * 60 * 60 * 1000))); }
+  function prevWeek() { setCalendarCollapsed(false); setWeekStart((d) => getMondayOf(new Date(d.getTime() - 7 * 24 * 60 * 60 * 1000))); }
+  function nextWeek() { setCalendarCollapsed(false); setWeekStart((d) => getMondayOf(new Date(d.getTime() + 7 * 24 * 60 * 60 * 1000))); }
 
   // ── Month navigation ──────────────────────────────────────────────────────
 
-  function prevMonth() { setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1)); }
-  function nextMonth() { setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1)); }
+  function prevMonth() { setCalendarCollapsed(false); setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1)); }
+  function nextMonth() { setCalendarCollapsed(false); setMonthStart((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1)); }
+
+  // ── Day selection (collapses calendar + scrolls to detail on mobile) ─────
+
+  function selectDay(key: string) {
+    setSelectedDay(key);
+    if (isMobile) {
+      setCalendarCollapsed(true);
+      requestAnimationFrame(() => {
+        dayDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }
 
   // ── Lesson note helpers ───────────────────────────────────────────────────
 
   function startEditingNote(lessonId: string, currentNotes: string | null | undefined) {
     setEditingNoteId(lessonId);
     setEditingNoteText(currentNotes ?? "");
+    setNoteSaveState("idle");
+    if (noteSaveTimerRef.current) { clearTimeout(noteSaveTimerRef.current); noteSaveTimerRef.current = null; }
     setTimeout(() => noteTextareaRef.current?.focus(), 0);
   }
 
   function cancelEditingNote() {
     setEditingNoteId(null);
     setEditingNoteText("");
+    setNoteSaveState("idle");
+    if (noteSaveTimerRef.current) { clearTimeout(noteSaveTimerRef.current); noteSaveTimerRef.current = null; }
   }
 
   async function saveNote(lessonId: string) {
+    if (noteSaveState === "saving") return;
     const trimmed = editingNoteText.trim();
     const value = trimmed.length > 0 ? trimmed : null;
-    await supabase.from("lessons").update({ notes: value }).eq("id", lessonId);
-    // Update local state in all lesson maps
+    setNoteSaveState("saving");
+    const { error } = await supabase.from("lessons").update({ notes: value }).eq("id", lessonId);
+    if (error) {
+      setNoteSaveState("error");
+      if (noteSaveTimerRef.current) clearTimeout(noteSaveTimerRef.current);
+      noteSaveTimerRef.current = setTimeout(() => setNoteSaveState("idle"), 2500);
+      return;
+    }
     const updateFn = (l: Lesson) => l.id === lessonId ? { ...l, notes: value } : l;
     setLessons(prev => prev.map(updateFn));
     setMonthLessons(prev => prev.map(updateFn));
     setAllLessons(prev => prev.map(updateFn as any));
-    setEditingNoteId(null);
-    setEditingNoteText("");
+    setNoteSaveState("saved");
+    if (noteSaveTimerRef.current) clearTimeout(noteSaveTimerRef.current);
+    noteSaveTimerRef.current = setTimeout(() => {
+      setEditingNoteId(null);
+      setEditingNoteText("");
+      setNoteSaveState("idle");
+      noteSaveTimerRef.current = null;
+    }, 1500);
   }
 
   // ── Toggle ────────────────────────────────────────────────────────────────
@@ -1289,7 +1333,7 @@ export default function PlanPage() {
         {/* Toggle row */}
         <div className="flex gap-2 p-4 pb-3">
           <button
-            onClick={() => setViewMode("week")}
+            onClick={() => { setViewMode("week"); setCalendarCollapsed(false); }}
             className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
               viewMode === "week"
                 ? "bg-[#2D5A3D] text-white"
@@ -1299,7 +1343,7 @@ export default function PlanPage() {
             Week
           </button>
           <button
-            onClick={() => setViewMode("month")}
+            onClick={() => { setViewMode("month"); setCalendarCollapsed(false); }}
             className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
               viewMode === "month"
                 ? "bg-[#2D5A3D] text-white"
@@ -1402,7 +1446,7 @@ export default function PlanPage() {
               return (
                 <button
                   key={key}
-                  onClick={() => setSelectedDay(key)}
+                  onClick={() => selectDay(key)}
                   style={{
                     borderRadius: 12, padding: "7px 4px", display: "flex", flexDirection: "column",
                     alignItems: "center", gap: 3, cursor: "pointer", background: bg, border,
@@ -1490,6 +1534,17 @@ export default function PlanPage() {
               ...Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1)),
             ];
             while (cells.length % 7 !== 0) cells.push(null);
+
+            // On mobile when collapsed, show only the week row containing the selected day
+            const showCollapsedWeek = isMobile && calendarCollapsed;
+            let visibleCells = cells;
+            if (showCollapsedWeek) {
+              const selIdx = cells.findIndex((c) => c && toDateStr(c) === selectedDay);
+              if (selIdx >= 0) {
+                const rowStart = Math.floor(selIdx / 7) * 7;
+                visibleCells = cells.slice(rowStart, rowStart + 7);
+              }
+            }
 
             const holidays = getUSHolidays(year);
 
@@ -1601,7 +1656,7 @@ export default function PlanPage() {
                 {monthLessonTotal} lesson{monthLessonTotal !== 1 ? "s" : ""} · {monthApptTotal} appointment{monthApptTotal !== 1 ? "s" : ""} · {monthOpenDays} open day{monthOpenDays !== 1 ? "s" : ""}
               </p>
               <div className="grid grid-cols-7 gap-[3px]">
-                {cells.map((day, idx) => {
+                {visibleCells.map((day, idx) => {
                   if (!day) return <div key={`empty-${idx}`} className="min-h-[78px]" />;
                   const key = toDateStr(day);
                   const isToday = key === todayStr;
@@ -1642,7 +1697,7 @@ export default function PlanPage() {
                     <div key={key} className="relative">
                       <button
                         onClick={() => {
-                          setSelectedDay(key);
+                          selectDay(key);
                           setMonthPopoverDay(isPopoverOpen ? null : key);
                         }}
                         className={`w-full min-h-[78px] rounded-xl flex flex-col items-center justify-start p-1 cursor-pointer transition-colors ${cellBg} ${cellBorder}`}
@@ -1756,7 +1811,8 @@ export default function PlanPage() {
                                   setMonthPopoverDay(null);
                                   startEditingNote(dayLessons[0].id, dayLessons[0].notes);
                                 }}
-                                className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
+                                aria-label={dayLessons[0].notes ? "Edit note" : "Add a note"}
+                                className="min-h-[44px] flex items-center text-[13px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
                               >
                                 {dayLessons[0].notes ? "Edit note →" : "Add a note →"}
                               </button>
@@ -1766,9 +1822,9 @@ export default function PlanPage() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setMonthPopoverDay(null);
-                                  // Scroll down to lesson cards
+                                  selectDay(key);
                                 }}
-                                className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
+                                className="min-h-[44px] flex items-center text-[13px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors mt-1 pt-1.5 border-t border-[#f0ede8] w-full text-left"
                               >
                                 Add notes below ↓
                               </button>
@@ -1784,7 +1840,7 @@ export default function PlanPage() {
                                   setVacReschedule("leave");
                                   setShowVacModal(true);
                                 }}
-                                className={`text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors ${lessonCount > 0 && !isPartner ? "mt-0.5" : "mt-1 pt-1.5 border-t border-[#f0ede8]"} w-full text-left`}
+                                className={`min-h-[44px] flex items-center text-[13px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors ${lessonCount > 0 && !isPartner ? "mt-0.5" : "mt-1 pt-1.5 border-t border-[#f0ede8]"} w-full text-left`}
                               >
                                 Mark as break →
                               </button>
@@ -1798,7 +1854,7 @@ export default function PlanPage() {
               </div>
 
               {/* Compact open-week hint — show only the longest streak, inline */}
-              {openStreaks.length > 0 && (() => {
+              {!showCollapsedWeek && openStreaks.length > 0 && (() => {
                 const longest = openStreaks.reduce((a, b) => b.length > a.length ? b : a);
                 const mName = monthStart.toLocaleDateString("en-US", { month: "short" });
                 return (
@@ -1807,6 +1863,17 @@ export default function PlanPage() {
                   </p>
                 );
               })()}
+
+              {/* Expand-back control (mobile, collapsed) */}
+              {showCollapsedWeek && (
+                <button
+                  onClick={() => setCalendarCollapsed(false)}
+                  className="mt-2 w-full flex items-center justify-center gap-1 py-2 text-[12px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors"
+                  aria-label="Show full calendar"
+                >
+                  <ChevronDown size={14} /> Show full calendar
+                </button>
+              )}
               </>
             );
           })()}
@@ -1814,6 +1881,9 @@ export default function PlanPage() {
       )}
       {/* Close calendar card */}
       </div>
+
+      {/* Scroll anchor for mobile: lands here when a date is tapped */}
+      <div ref={dayDetailRef} aria-hidden="true" style={{ scrollMarginTop: 8 }} />
 
       {/* School year milestone banner for selected day */}
       {schoolYearMilestones[selectedDay] && (
@@ -1874,16 +1944,48 @@ export default function PlanPage() {
                             className="w-full min-h-[52px] max-h-[100px] rounded-lg border border-[#cef0d4] bg-white p-2 text-[12px] text-[#3c3a37] resize-none focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/30"
                           />
                           <div className="flex items-center gap-2 mt-1">
-                            <button onClick={() => saveNote(l.id)} className="bg-[#2D5A3D] text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg">Save</button>
-                            <button onClick={cancelEditingNote} className="text-[11px] text-[#8a8580] font-medium">Cancel</button>
+                            <button
+                              onClick={() => saveNote(l.id)}
+                              disabled={noteSaveState === "saving" || noteSaveState === "saved"}
+                              aria-live="polite"
+                              className={`min-h-[44px] min-w-[88px] text-white text-[13px] font-semibold px-4 py-2 rounded-lg transition-colors ${
+                                noteSaveState === "saved" ? "bg-[#5c7f63]" :
+                                noteSaveState === "error" ? "bg-[#b91c1c]" :
+                                noteSaveState === "saving" ? "bg-[#2D5A3D] opacity-70" :
+                                "bg-[#2D5A3D] hover:bg-[var(--g-deep)]"
+                              }`}
+                            >
+                              {noteSaveState === "saving" ? "Saving…" :
+                               noteSaveState === "saved" ? "Saved ✓" :
+                               noteSaveState === "error" ? "Try again" :
+                               "Save"}
+                            </button>
+                            <button
+                              onClick={cancelEditingNote}
+                              disabled={noteSaveState === "saving"}
+                              className="min-h-[44px] text-[13px] text-[#8a8580] font-medium px-3 disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                            {noteSaveState === "error" && (
+                              <span className="text-[11px] text-[#b91c1c]">Couldn&apos;t save — try again</span>
+                            )}
                           </div>
                         </div>
                       ) : l.notes ? (
-                        <button onClick={() => startEditingNote(l.id, l.notes)} className="flex items-center gap-1 text-[11px] text-[#2D5A3D] font-medium">
-                          <Pencil size={10} /> Edit note
+                        <button
+                          onClick={() => startEditingNote(l.id, l.notes)}
+                          aria-label="Edit note"
+                          className="flex items-center gap-1.5 min-h-[44px] min-w-[44px] -ml-1 px-2 text-[13px] text-[#2D5A3D] font-medium"
+                        >
+                          <Pencil size={14} /> Edit note
                         </button>
                       ) : (
-                        <button onClick={() => startEditingNote(l.id, null)} className="text-[11px] text-[#5c7f63] font-medium hover:text-[#2D5A3D] transition-colors">
+                        <button
+                          onClick={() => startEditingNote(l.id, null)}
+                          aria-label="Add a note"
+                          className="inline-flex items-center min-h-[44px] min-w-[44px] -ml-1 px-2 text-[13px] text-[#5c7f63] font-medium hover:text-[#2D5A3D] transition-colors"
+                        >
                           + Add a note...
                         </button>
                       )}
