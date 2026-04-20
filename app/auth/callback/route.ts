@@ -2,11 +2,12 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-
-const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.rootedhomeschoolapp.com'
+import { getCookieDomain } from '@/lib/cookie-domain'
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
+  const BASE_URL = `${requestUrl.protocol}//${requestUrl.host}`
+  const runtimeDomain = getCookieDomain(requestUrl.hostname)
   const code = requestUrl.searchParams.get('code')
   const errorParam = requestUrl.searchParams.get('error_description')
 
@@ -39,9 +40,7 @@ export async function GET(request: Request) {
           })
         },
       },
-      cookieOptions: {
-        domain: '.rootedhomeschoolapp.com',
-      },
+      cookieOptions: runtimeDomain ? { domain: runtimeDomain } : {},
     }
   )
 
@@ -59,8 +58,22 @@ export async function GET(request: Request) {
     const next = requestUrl.searchParams.get('next')
     if (type === 'recovery' || next === '/reset-password') {
       const redirectResponse = NextResponse.redirect(new URL('/reset-password', BASE_URL))
+      // IMPORTANT: preserve full cookie options (especially `domain`) when
+      // copying from supabaseResponse to the redirect. Dropping the domain
+      // option scopes cookies to the response host instead of the apex
+      // wildcard, which breaks session recognition and causes OAuth loops.
       supabaseResponse.cookies.getAll().forEach(cookie => {
-        redirectResponse.cookies.set(cookie.name, cookie.value)
+        redirectResponse.cookies.set({
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          httpOnly: cookie.httpOnly,
+          sameSite: cookie.sameSite as any,
+          maxAge: cookie.maxAge,
+          expires: cookie.expires,
+        })
       })
       return redirectResponse
     }
@@ -90,8 +103,22 @@ export async function GET(request: Request) {
       const redirectPath = !profile || profile.onboarded !== true ? '/onboarding' : '/dashboard'
       const redirectResponse = NextResponse.redirect(new URL(redirectPath, BASE_URL))
 
+      // IMPORTANT: preserve full cookie options (especially `domain`) when
+      // copying from supabaseResponse to the redirect. Dropping the domain
+      // option scopes cookies to the response host instead of the apex
+      // wildcard, which breaks session recognition and causes OAuth loops.
       supabaseResponse.cookies.getAll().forEach(cookie => {
-        redirectResponse.cookies.set(cookie.name, cookie.value)
+        redirectResponse.cookies.set({
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          httpOnly: cookie.httpOnly,
+          sameSite: cookie.sameSite as any,
+          maxAge: cookie.maxAge,
+          expires: cookie.expires,
+        })
       })
 
       return redirectResponse

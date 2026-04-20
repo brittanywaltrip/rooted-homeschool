@@ -496,6 +496,7 @@ export type Database = {
           icon_emoji: string | null
           id: string
           is_backfilled: boolean | null
+          lessons_per_day: number
           scheduled_start_time: string | null
           school_days: string[] | null
           school_year: string | null
@@ -517,6 +518,7 @@ export type Database = {
           icon_emoji?: string | null
           id?: string
           is_backfilled?: boolean | null
+          lessons_per_day?: number
           scheduled_start_time?: string | null
           school_days?: string[] | null
           school_year?: string | null
@@ -538,6 +540,7 @@ export type Database = {
           icon_emoji?: string | null
           id?: string
           is_backfilled?: boolean | null
+          lessons_per_day?: number
           scheduled_start_time?: string | null
           school_days?: string[] | null
           school_year?: string | null
