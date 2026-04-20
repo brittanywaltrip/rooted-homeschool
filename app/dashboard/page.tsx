@@ -637,6 +637,8 @@ export default function TodayPage() {
   const [reschedulePickerDate,   setReschedulePickerDate]   = useState("");
   const [rescheduleUndoToast,    setRescheduleUndoToast]    = useState<{ message: string; undoData: { lessonId: string; date: string }[] } | null>(null);
   const rescheduleUndoTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pendingDelete,          setPendingDelete]          = useState<{ lesson: Lesson } | null>(null);
+  const pendingDeleteTimer       = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Lesson note editing (ported from Plan page for parity)
   const [editingNoteId,          setEditingNoteId]          = useState<string | null>(null);
   const [editingNoteText,        setEditingNoteText]        = useState("");
@@ -1782,9 +1784,35 @@ export default function TodayPage() {
   }
 
   async function deleteLesson(id: string) {
+    // If a previous delete is still pending its undo window, commit it now
+    // before starting a new one (only one delete can be undoable at a time).
+    if (pendingDelete && pendingDeleteTimer.current) {
+      clearTimeout(pendingDeleteTimer.current);
+      pendingDeleteTimer.current = null;
+      const prevId = pendingDelete.lesson.id;
+      await supabase.from("lessons").delete().eq("id", prevId);
+    }
+    const lesson = lessons.find((l) => l.id === id);
+    if (!lesson) return;
     setLessons((prev) => prev.filter((l) => l.id !== id));
-    await supabase.from("lessons").delete().eq("id", id);
-    await refreshLeafCounts();
+    setPendingDelete({ lesson });
+    pendingDeleteTimer.current = setTimeout(async () => {
+      await supabase.from("lessons").delete().eq("id", id);
+      await refreshLeafCounts();
+      setPendingDelete(null);
+      pendingDeleteTimer.current = null;
+    }, 5000);
+  }
+
+  function undoDelete() {
+    if (!pendingDelete) return;
+    if (pendingDeleteTimer.current) {
+      clearTimeout(pendingDeleteTimer.current);
+      pendingDeleteTimer.current = null;
+    }
+    const restored = pendingDelete.lesson;
+    setLessons((prev) => prev.some((l) => l.id === restored.id) ? prev : [...prev, restored]);
+    setPendingDelete(null);
   }
 
   // ── Extra lesson: log next lesson in sequence for a child's curriculum ────
@@ -4323,6 +4351,21 @@ export default function TodayPage() {
             <span>{rescheduleUndoToast.message}</span>
             <button
               onClick={() => undoReschedule()}
+              className="text-white font-semibold underline text-sm"
+            >
+              Undo
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete undo toast (5s window before DB delete) ──── */}
+      {pendingDelete && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+          <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
+            <span>Lesson deleted</span>
+            <button
+              onClick={() => undoDelete()}
               className="text-white font-semibold underline text-sm"
             >
               Undo
