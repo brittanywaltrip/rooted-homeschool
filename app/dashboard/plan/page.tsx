@@ -821,7 +821,7 @@ export default function PlanPage() {
     setMonthLessons(prev => prev.map(clear));
     setAllLessons(prev => prev.map(clear));
     await supabase.from("lessons").update({ scheduled_date: null, date: null }).eq("id", lesson.id);
-    showPlanRescheduleUndo("Lesson skipped · Undo", [{ lessonId: lesson.id, date: originalDate }]);
+    showPlanRescheduleUndo("Lesson skipped", [{ lessonId: lesson.id, date: originalDate }]);
   }
 
   // ── Appointment actions (one-off only) ───────────────────────────────────
@@ -855,7 +855,7 @@ export default function PlanPage() {
     });
     if (!res.ok) { loadMonthData(); return; }
     const label = new Date(a.instance_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    showApptUndo(`Skipped · ${a.title} on ${label} · Undo`, async () => {
+    showApptUndo(`Skipped · ${a.title} on ${label}`, async () => {
       await authedFetch("/api/appointments", {
         method: "POST",
         body: JSON.stringify({
@@ -889,7 +889,7 @@ export default function PlanPage() {
     });
     if (!res.ok) { loadMonthData(); return; }
     const label = new Date(newDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-    showApptUndo(`Moved to ${label} · Undo`, async () => {
+    showApptUndo(`Moved to ${label}`, async () => {
       await authedFetch("/api/appointments", {
         method: "PATCH",
         body: JSON.stringify({ id: a.id, date: originalDate }),
@@ -939,7 +939,7 @@ export default function PlanPage() {
     setPlanRescheduleLesson(null);
     setPlanPickerConfirmDate(null);
     const label = new Date(targetDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-    showPlanRescheduleUndo(`Lesson moved to ${label} · Undo`, [{ lessonId: planRescheduleLesson.id, date: originalDate }]);
+    showPlanRescheduleUndo(`Lesson moved to ${label}`, [{ lessonId: planRescheduleLesson.id, date: originalDate }]);
     loadData(); loadAllLessons();
   }
 
@@ -973,11 +973,12 @@ export default function PlanPage() {
       });
     const next = candidates[0];
 
+    // Picker stays open so the user can queue multiple lessons onto the same
+    // day. They close it with the X when done.
     if (next) {
       const originalDate = next.scheduled_date ?? next.date ?? todayStr;
       await supabase.from("lessons").update({ scheduled_date: selectedDay, date: selectedDay }).eq("id", next.id);
-      setShowAddLessonPicker(false);
-      showPlanRescheduleUndo(`${group.curricName} lesson moved to ${label} · Undo`, [{ lessonId: next.id, date: originalDate }]);
+      showPlanRescheduleUndo(`${group.curricName} lesson moved to ${label}`, [{ lessonId: next.id, date: originalDate }]);
       loadData(); loadAllLessons();
       return;
     }
@@ -985,7 +986,6 @@ export default function PlanPage() {
     // 2) No incomplete row. Need the goal row to pick the next lesson number.
     const goal = group.goalData;
     if (!goal?.id) {
-      setShowAddLessonPicker(false);
       setPlanToastMsg("Couldn't add a lesson — this curriculum isn't linked to a goal.");
       return;
     }
@@ -1009,15 +1009,13 @@ export default function PlanPage() {
       school_year_id: schoolYearId,
     }).select("id").single();
 
-    setShowAddLessonPicker(false);
-
     if (error || !inserted) {
       console.error("Failed to insert extra lesson:", error);
       setPlanToastMsg(`Couldn't add lesson: ${error?.message ?? "unknown error"}`);
       return;
     }
 
-    showLessonAddUndo(`${group.curricName} — Lesson ${nextNumber} added to ${label} · Undo`, (inserted as { id: string }).id);
+    showLessonAddUndo(`${group.curricName} — Lesson ${nextNumber} added to ${label}`, (inserted as { id: string }).id);
     loadData(); loadAllLessons();
   }
 
@@ -1079,7 +1077,7 @@ export default function PlanPage() {
 
     setPlanRescheduleLesson(null);
     const n = updates.length;
-    showPlanRescheduleUndo(`${n} lesson${n !== 1 ? "s" : ""} added to upcoming school days · Undo`, undoData);
+    showPlanRescheduleUndo(`${n} lesson${n !== 1 ? "s" : ""} added to upcoming school days`, undoData);
     loadData(); loadAllLessons();
   }
 
@@ -1135,7 +1133,7 @@ export default function PlanPage() {
     }
 
     setPlanRescheduleLesson(null);
-    showPlanRescheduleUndo(`Schedule pushed back ${n} day${n !== 1 ? "s" : ""} · Undo`, undoData);
+    showPlanRescheduleUndo(`Schedule pushed back ${n} day${n !== 1 ? "s" : ""}`, undoData);
     loadData(); loadAllLessons();
   }
 
@@ -2241,6 +2239,15 @@ export default function PlanPage() {
                 )}
               </div>
             ))}
+            {!isPartner && (
+              <button
+                type="button"
+                onClick={() => setShowAddLessonPicker(true)}
+                className="text-[13px] text-[#7a6f65] hover:text-[#5a4f45] font-medium mt-2 pl-1"
+              >
+                + Add lesson
+              </button>
+            )}
           </div>
         );
       })()}
@@ -3142,7 +3149,7 @@ export default function PlanPage() {
 
       {/* ── Reschedule undo toast (Plan page) ──────────────── */}
       {planRescheduleUndo && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[9999]">
           <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
             <span>{planRescheduleUndo.message}</span>
             <button onClick={() => undoPlanReschedule()} className="text-white font-semibold underline text-sm">Undo</button>
@@ -3152,7 +3159,7 @@ export default function PlanPage() {
 
       {/* ── Appointment action undo toast ──────────────────── */}
       {apptUndo && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[9999]">
           <div className="bg-[#6d28d9] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
             <span>{apptUndo.message}</span>
             <button
@@ -3267,7 +3274,7 @@ export default function PlanPage() {
 
       {/* ── Add-lesson undo toast ──────────────────────────── */}
       {lessonAddUndo && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[9999]">
           <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
             <span>{lessonAddUndo.message}</span>
             <button onClick={undoLessonAdd} className="text-white font-semibold underline text-sm">Undo</button>
