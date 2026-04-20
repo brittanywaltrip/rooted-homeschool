@@ -235,7 +235,8 @@ function FloatingLeaves({ active }: { active: boolean }) {
 type Particle = { id: number; x: number; y: number; color: string; delay: number };
 
 function TodayLessonCard({
-  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, onMinutesUpdate, isPartner,
+  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, onSkip, onStartEditingNote, onMinutesUpdate, isPartner,
+  editingNoteId, editingNoteText, noteSaveState, noteTextareaRef, onNoteTextChange, onSaveNote, onCancelEditingNote,
 }: {
   lesson:    Lesson;
   childObj:  Child | undefined;
@@ -243,8 +244,17 @@ function TodayLessonCard({
   onEdit:    (lesson: Lesson) => void;
   onDelete:  (id: string) => void;
   onReschedule: (lesson: Lesson) => void;
+  onSkip:    (lesson: Lesson) => void;
+  onStartEditingNote: (lessonId: string, currentNotes: string | null | undefined) => void;
   onMinutesUpdate: (id: string, minutes: number) => void;
   isPartner: boolean;
+  editingNoteId: string | null;
+  editingNoteText: string;
+  noteSaveState: "idle" | "saving" | "saved" | "error";
+  noteTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onNoteTextChange: (text: string) => void;
+  onSaveNote: (lessonId: string) => void;
+  onCancelEditingNote: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showLeaf, setShowLeaf] = useState(false);
@@ -286,9 +296,14 @@ function TodayLessonCard({
     onToggle(lesson.id, lesson.completed);
   }
 
+  const isEditingNote = editingNoteId === lesson.id;
+
   return (
+    <div>
     <div
-      className={`relative flex items-center gap-3 px-4 rounded-2xl border transition-all cursor-pointer select-none ${
+      className={`relative flex items-center gap-3 px-4 border transition-all cursor-pointer select-none ${
+        isEditingNote ? "rounded-t-2xl border-b-0" : "rounded-2xl"
+      } ${
         lesson.completed
           ? "bg-[#f0f7f1] border-[#c2dbc5]"
           : "bg-[#fefcf9] border-[#e8e2d9] active:bg-[#f0f7f1]"
@@ -367,6 +382,10 @@ function TodayLessonCard({
             />
           )}
         </div>
+        {/* Note preview (collapsed) */}
+        {!isEditingNote && lesson.notes && (
+          <p className="text-[11px] text-[#6b6560] italic mt-1 line-clamp-1">{lesson.notes}</p>
+        )}
       </div>
 
       {/* Child bubble */}
@@ -422,7 +441,14 @@ function TodayLessonCard({
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
-              <div className="absolute right-0 top-9 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[110px]">
+              <div className="absolute right-0 top-9 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[140px]">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onStartEditingNote(lesson.id, lesson.notes); setMenuOpen(false); }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
+                  data-no-toggle
+                >
+                  {lesson.notes ? "📝 Edit note" : "➕ Add a note"}
+                </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); onEdit(lesson); setMenuOpen(false); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
@@ -438,6 +464,13 @@ function TodayLessonCard({
                   ⏭ Reschedule
                 </button>
                 <button
+                  onClick={(e) => { e.stopPropagation(); onSkip(lesson); setMenuOpen(false); }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
+                  data-no-toggle
+                >
+                  ⏩ Skip
+                </button>
+                <button
                   onClick={(e) => { e.stopPropagation(); onDelete(lesson.id); setMenuOpen(false); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
                   data-no-toggle
@@ -449,6 +482,52 @@ function TodayLessonCard({
           )}
         </div>
       )}
+    </div>
+    {/* Inline note editor (parity with Plan page) */}
+    {isEditingNote && (
+      <div
+        className={`px-4 pb-3 pt-1 border border-t-0 rounded-b-2xl ${
+          lesson.completed ? "bg-[#f0f7f1] border-[#c2dbc5]" : "bg-[#fefcf9] border-[#e8e2d9]"
+        }`}
+        style={{ borderLeftWidth: "4px", borderLeftColor: borderColor }}
+      >
+        <textarea
+          ref={noteTextareaRef}
+          value={editingNoteText}
+          onChange={(e) => onNoteTextChange(e.target.value)}
+          placeholder="Prep items, extra activities, reminders..."
+          className="w-full min-h-[52px] max-h-[100px] rounded-lg border border-[#e8e2d9] bg-white p-2 text-[12px] text-[#3c3a37] resize-none focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/30"
+        />
+        <div className="flex items-center gap-2 mt-1">
+          <button
+            onClick={() => onSaveNote(lesson.id)}
+            disabled={noteSaveState === "saving" || noteSaveState === "saved"}
+            aria-live="polite"
+            className={`min-h-[44px] min-w-[88px] text-white text-[13px] font-semibold px-4 py-2 rounded-lg transition-colors ${
+              noteSaveState === "saved" ? "bg-[#5c7f63]" :
+              noteSaveState === "error" ? "bg-[#b91c1c]" :
+              noteSaveState === "saving" ? "bg-[#2D5A3D] opacity-70" :
+              "bg-[#2D5A3D] hover:bg-[var(--g-deep)]"
+            }`}
+          >
+            {noteSaveState === "saving" ? "Saving…" :
+             noteSaveState === "saved" ? "Saved ✓" :
+             noteSaveState === "error" ? "Try again" :
+             "Save"}
+          </button>
+          <button
+            onClick={onCancelEditingNote}
+            disabled={noteSaveState === "saving"}
+            className="min-h-[44px] text-[13px] text-[#8a8580] font-medium px-3 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          {noteSaveState === "error" && (
+            <span className="text-[11px] text-[#b91c1c]">Couldn&apos;t save — try again</span>
+          )}
+        </div>
+      </div>
+    )}
     </div>
   );
 }
@@ -558,6 +637,12 @@ export default function TodayPage() {
   const [reschedulePickerDate,   setReschedulePickerDate]   = useState("");
   const [rescheduleUndoToast,    setRescheduleUndoToast]    = useState<{ message: string; undoData: { lessonId: string; date: string }[] } | null>(null);
   const rescheduleUndoTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Lesson note editing (ported from Plan page for parity)
+  const [editingNoteId,          setEditingNoteId]          = useState<string | null>(null);
+  const [editingNoteText,        setEditingNoteText]        = useState("");
+  const [noteSaveState,          setNoteSaveState]          = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const noteSaveTimerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noteTextareaRef          = useRef<HTMLTextAreaElement>(null);
   const [aheadPromptChildren,    setAheadPromptChildren]    = useState<Set<string>>(new Set());
   const [dismissedAheadPrompts,  setDismissedAheadPrompts]  = useState<Set<string>>(new Set());
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
@@ -1399,6 +1484,52 @@ export default function TodayPage() {
   function closeCheckOffModal() {
     setCheckOffVisible(false);
     setTimeout(() => setCheckOffLesson(null), 300);
+  }
+
+  // ── Lesson note helpers (parity with Plan page) ───────────────────────────
+  function startEditingNote(lessonId: string, currentNotes: string | null | undefined) {
+    setEditingNoteId(lessonId);
+    setEditingNoteText(currentNotes ?? "");
+    setNoteSaveState("idle");
+    if (noteSaveTimerRef.current) { clearTimeout(noteSaveTimerRef.current); noteSaveTimerRef.current = null; }
+    setTimeout(() => noteTextareaRef.current?.focus(), 0);
+  }
+
+  function cancelEditingNote() {
+    setEditingNoteId(null);
+    setEditingNoteText("");
+    setNoteSaveState("idle");
+    if (noteSaveTimerRef.current) { clearTimeout(noteSaveTimerRef.current); noteSaveTimerRef.current = null; }
+  }
+
+  async function saveNote(lessonId: string) {
+    if (noteSaveState === "saving") return;
+    const trimmed = editingNoteText.trim();
+    const value = trimmed.length > 0 ? trimmed : null;
+    setNoteSaveState("saving");
+    const { error } = await supabase.from("lessons").update({ notes: value }).eq("id", lessonId);
+    if (error) {
+      setNoteSaveState("error");
+      if (noteSaveTimerRef.current) clearTimeout(noteSaveTimerRef.current);
+      noteSaveTimerRef.current = setTimeout(() => setNoteSaveState("idle"), 2500);
+      return;
+    }
+    setLessons(prev => prev.map(l => l.id === lessonId ? { ...l, notes: value } : l));
+    setNoteSaveState("saved");
+    if (noteSaveTimerRef.current) clearTimeout(noteSaveTimerRef.current);
+    noteSaveTimerRef.current = setTimeout(() => {
+      setEditingNoteId(null);
+      setEditingNoteText("");
+      setNoteSaveState("idle");
+      noteSaveTimerRef.current = null;
+    }, 1500);
+  }
+
+  // ── Skip lesson (parity with Plan page: clear scheduled date, undo restores)
+  async function skipLesson(lesson: Lesson) {
+    setLessons(prev => prev.filter(l => l.id !== lesson.id));
+    await supabase.from("lessons").update({ scheduled_date: null, date: null }).eq("id", lesson.id);
+    showRescheduleUndo("Lesson skipped", [{ lessonId: lesson.id, date: today }]);
   }
 
   async function toggleLesson(id: string, current: boolean) {
@@ -2786,7 +2917,12 @@ export default function TodayPage() {
                     <TodayLessonCard
                       key={lesson.id} lesson={lesson}
                       childObj={expandedChild === "__unassigned" ? undefined : childObj}
-                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule} onMinutesUpdate={(id, mins) => setLessons(prev => prev.map(l => l.id === id ? { ...l, minutes_spent: mins } : l))} isPartner={isPartner}
+                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule}
+                      onSkip={skipLesson} onStartEditingNote={startEditingNote}
+                      onMinutesUpdate={(id, mins) => setLessons(prev => prev.map(l => l.id === id ? { ...l, minutes_spent: mins } : l))} isPartner={isPartner}
+                      editingNoteId={editingNoteId} editingNoteText={editingNoteText} noteSaveState={noteSaveState}
+                      noteTextareaRef={noteTextareaRef}
+                      onNoteTextChange={setEditingNoteText} onSaveNote={saveNote} onCancelEditingNote={cancelEditingNote}
                     />
                   ))}
                   {/* Extra lesson button — only when all scheduled lessons done */}
