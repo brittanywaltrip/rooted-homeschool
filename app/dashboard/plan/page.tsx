@@ -319,7 +319,7 @@ function toDateStr(d: Date): string {
 function getMondayOf(d: Date): Date {
   const day = new Date(d);
   day.setHours(0, 0, 0, 0);
-  day.setDate(day.getDate() - ((day.getDay() + 6) % 7));
+  day.setDate(day.getDate() - nativeToSchoolDayIdx(day.getDay()));
   return day;
 }
 
@@ -395,6 +395,7 @@ function calcPaceStatus(
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PlanPage() {
+  const newPlanViewEnabled = useFeatureFlag("new_plan_view");
   const { isPartner, effectiveUserId } = usePartner();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -907,12 +908,7 @@ export default function PlanPage() {
     setEditTimeValue(String(prefill));
   }
 
-  // ── Delete single lesson ───────────────────────────────────────────────────
-
-  async function deleteLesson(id: string) {
-    setLessons((p) => p.filter((l) => l.id !== id));
-    await supabase.from("lessons").delete().eq("id", id);
-  }
+  // deleteLesson now comes from usePlanLessonActions (called below).
 
   // ── Curriculum management ─────────────────────────────────────────────────
 
@@ -1108,17 +1104,24 @@ export default function PlanPage() {
     loadData(); loadAllLessons();
   }
 
-  // ── Skip lesson (clears scheduled date; undo restores) ───────────────────
-  async function skipPlanLesson(lesson: Lesson) {
-    const originalDate = lesson.scheduled_date ?? lesson.date;
-    if (!originalDate) return;
-    const clear = (l: Lesson) => l.id === lesson.id ? { ...l, scheduled_date: null, date: null } : l;
-    setLessons(prev => prev.map(clear));
-    setMonthLessons(prev => prev.map(clear));
-    setAllLessons(prev => prev.map(clear));
-    await supabase.from("lessons").update({ scheduled_date: null, date: null }).eq("id", lesson.id);
-    showPlanRescheduleUndo("Lesson skipped", [{ lessonId: lesson.id, date: originalDate }]);
-  }
+  // ── Lesson action handlers (extracted to usePlanLessonActions) ───────────
+  // Placed here so onSkipUndo can bind to showPlanRescheduleUndo declared above.
+  // Behaviour matches the prior inlined handlers; the only addition is a
+  // try/catch around the analytics fire-and-forget call.
+  const {
+    toggleLesson,
+    deleteLesson,
+    skipLesson: skipPlanLesson,
+  } = usePlanLessonActions<Lesson>({
+    lessons,
+    monthLessons,
+    setLessons,
+    setMonthLessons,
+    setAllLessons,
+    effectiveUserId,
+    onSkipUndo: (lessonId, date) =>
+      showPlanRescheduleUndo("Lesson skipped", [{ lessonId, date }]),
+  });
 
   // ── Appointment actions (one-off only) ───────────────────────────────────
   function showApptUndo(message: string, restore: () => Promise<void>) {
@@ -1440,7 +1443,7 @@ export default function PlanPage() {
     const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
     const activeDays = new Set(schoolDays.map(d => dayMap[d] ?? -1));
     const d = new Date(dateStr + "T12:00:00");
-    return activeDays.has((d.getDay() + 6) % 7);
+    return activeDays.has(nativeToSchoolDayIdx(d.getDay()));
   }
 
   /** OPTION 1 — Add to my next school day(s). Places missed lessons sequentially. */
@@ -1881,6 +1884,10 @@ export default function PlanPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  // Feature flag gate: new Plan view lives under app/components/PlanV2.
+  // Default OFF — existing layout below continues to render unchanged.
+  if (newPlanViewEnabled) return <PlanV2 />;
+
   return (
     <>
     {/* ── Hero Header ──────────────────────────────────── */}
@@ -2082,7 +2089,7 @@ export default function PlanPage() {
                     fontSize: 9, textTransform: "uppercase", letterSpacing: "0.05em",
                     color: isToday ? "rgba(255,255,255,0.7)" : "#b5aca4", fontWeight: 600,
                   }}>
-                    {DAY_LABELS[(day.getDay() + 6) % 7]}
+                    {DAY_LABELS[nativeToSchoolDayIdx(day.getDay())]}
                   </span>
                   <span style={{
                     fontSize: 16, fontWeight: 700,
@@ -2175,8 +2182,7 @@ export default function PlanPage() {
             // Count activities per day (based on which weekdays they're scheduled)
             const activityCountForDay = (dateStr: string): number => {
               const d = new Date(dateStr + "T12:00:00");
-              // activities.days uses 0=Mon, 1=Tue, ..., 6=Sun
-              const dayIdx = (d.getDay() + 6) % 7;
+              const dayIdx = nativeToActivityDayIdx(d.getDay());
               return activities.filter(a => a.is_active && a.days.includes(dayIdx)).length;
             };
 

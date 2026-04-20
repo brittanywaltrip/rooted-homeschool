@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { nativeToApptDayIdx } from '@/app/lib/day-of-week'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,7 +78,7 @@ function expandRecurring(
     if (ruleEnd && cursor > ruleEnd) break
     if (cursor < apptStart) { cursor.setDate(cursor.getDate() + 1); continue }
 
-    const dow = cursor.getDay()
+    const dow = nativeToApptDayIdx(cursor.getDay())
     if (rule.days.includes(dow)) {
       let include = true
 
