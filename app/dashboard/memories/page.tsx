@@ -359,8 +359,12 @@ export default function MemoriesPage() {
   async function dismissFamilyNotifs() {
     setNotifsDismissed(true);
     const ids = familyNotifs.map(n => n.id);
-    if (ids.length > 0) {
-      await supabase.from("family_notifications").update({ read: true }).in("id", ids);
+    if (ids.length > 0 && effectiveUserId) {
+      await supabase
+        .from("family_notifications")
+        .update({ read: true, read_at: new Date().toISOString() })
+        .in("id", ids)
+        .eq("user_id", effectiveUserId);
     }
     setFamilyNotifs([]);
   }

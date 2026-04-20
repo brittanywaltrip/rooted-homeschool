@@ -2088,7 +2088,7 @@ export default function PlanPage() {
                     <span className="text-xl shrink-0">{goal?.icon_emoji ?? "📚"}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-[14px] font-medium text-[#2d2926] truncate">{goal?.curriculum_name ?? l.title}</span>
+                        <span className="text-[14px] font-medium text-[#2d2926] truncate">{l.title}</span>
                         <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#dcfce7] text-[#15803d]">Lesson</span>
                       </div>
                       {l.subjects?.name && <p className="text-xs text-[#7a6f65] mt-0.5">{l.subjects.name}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p>}
