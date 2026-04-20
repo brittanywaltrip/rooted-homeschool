@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Calendar, X } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -208,7 +208,6 @@ export default function UnifiedTimeline({
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
   const [localLessons, setLocalLessons] = useState(lessons);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { setLocalLessons(lessons); }, [lessons]);
@@ -457,56 +456,54 @@ export default function UnifiedTimeline({
                     <button type="button" onClick={() => startEditingNote(item.lesson.id, null)} className="text-[12px] text-[#2D5A3D] font-medium mt-2">{"\u{1F4DD}"} Add a note...</button>
                   ) : null}
                   {!isPartner && (onEditLesson || onRescheduleLesson || onSkipLesson || onDeleteLesson) && (
-                    <div className="relative mt-2 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === item.lesson.id ? null : item.lesson.id); }}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-                        aria-label="Lesson options"
-                      >
-                        <span className="text-base leading-none">···</span>
-                      </button>
-                      {openMenuId === item.lesson.id && (
+                    <div className="flex items-center gap-1 flex-wrap mt-2">
+                      {onEditLesson && (
+                        <button
+                          type="button"
+                          onClick={() => onEditLesson(item.lesson.id)}
+                          aria-label="Edit this lesson"
+                          className="flex items-center gap-1 min-h-[44px] min-w-[44px] -ml-1 px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                        >
+                          <Pencil size={14} /> Edit
+                        </button>
+                      )}
+                      {onRescheduleLesson && (
                         <>
-                          <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); }} />
-                          <div className="absolute right-0 top-9 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[140px]">
-                            {onEditLesson && (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); onEditLesson(item.lesson.id); setOpenMenuId(null); }}
-                                className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                              >
-                                {"\u270F\uFE0F"} Edit
-                              </button>
-                            )}
-                            {onRescheduleLesson && (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); onRescheduleLesson(item.lesson.id); setOpenMenuId(null); }}
-                                className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                              >
-                                {"\u23ED"} Reschedule
-                              </button>
-                            )}
-                            {onSkipLesson && (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); onSkipLesson(item.lesson.id); setOpenMenuId(null); }}
-                                className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                              >
-                                {"\u23E9"} Skip
-                              </button>
-                            )}
-                            {onDeleteLesson && (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); onDeleteLesson(item.lesson.id); setOpenMenuId(null); }}
-                                className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
-                              >
-                                {"\u{1F5D1}"} Delete
-                              </button>
-                            )}
-                          </div>
+                          {onEditLesson && <span aria-hidden="true" className="text-[#cfc9c0] select-none">·</span>}
+                          <button
+                            type="button"
+                            onClick={() => onRescheduleLesson(item.lesson.id)}
+                            aria-label="Reschedule this lesson"
+                            className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                          >
+                            <Calendar size={14} /> Reschedule
+                          </button>
+                        </>
+                      )}
+                      {onSkipLesson && (
+                        <>
+                          {(onEditLesson || onRescheduleLesson) && <span aria-hidden="true" className="text-[#cfc9c0] select-none">·</span>}
+                          <button
+                            type="button"
+                            onClick={() => onSkipLesson(item.lesson.id)}
+                            aria-label="Skip this lesson"
+                            className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
+                          >
+                            <X size={14} /> Skip
+                          </button>
+                        </>
+                      )}
+                      {onDeleteLesson && (
+                        <>
+                          {(onEditLesson || onRescheduleLesson || onSkipLesson) && <span aria-hidden="true" className="text-[#cfc9c0] select-none">·</span>}
+                          <button
+                            type="button"
+                            onClick={() => onDeleteLesson(item.lesson.id)}
+                            aria-label="Delete this lesson"
+                            className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#d14a3a] font-medium hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 size={14} /> Delete
+                          </button>
                         </>
                       )}
                     </div>
