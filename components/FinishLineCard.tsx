@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { Pencil } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { recomputeCurrentLesson } from '@/app/lib/scheduler'
 
 const DAY_NUMS: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
 
@@ -30,10 +31,30 @@ export default function FinishLineCard({ goal, onEdit, onUpdate, showToast }: Fi
   async function bumpLesson() {
     if (bumping || goal.current_lesson >= goal.total_lessons) return
     setBumping(true)
+    // Mark the next incomplete lesson as completed. current_lesson is then
+    // recomputed from actual rows so it can never outrun max(lesson_number)
+    // of completed rows (Bug 3). Bumping the counter directly was the old
+    // root cause of progress drift.
+    const { data: nextRow } = await supabase
+      .from('lessons')
+      .select('id')
+      .eq('curriculum_goal_id', goal.id)
+      .eq('completed', false)
+      .not('lesson_number', 'is', null)
+      .order('lesson_number', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    const nowIso = new Date().toISOString()
+    if (nextRow?.id) {
+      await supabase.from('lessons')
+        .update({ completed: true, completed_at: nowIso })
+        .eq('id', nextRow.id)
+    }
     await supabase
       .from('curriculum_goals')
-      .update({ current_lesson: goal.current_lesson + 1, updated_at: new Date().toISOString() })
+      .update({ updated_at: nowIso })
       .eq('id', goal.id)
+    await recomputeCurrentLesson(supabase, goal.id)
     setBumping(false)
     onUpdate()
   }

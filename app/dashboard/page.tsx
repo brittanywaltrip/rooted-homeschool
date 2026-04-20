@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
+import { recomputeCurrentLesson } from "@/app/lib/scheduler";
 import { compressImage } from "@/lib/compress-image";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
@@ -1344,9 +1345,11 @@ export default function TodayPage() {
     // Close modal
     setCheckOffVisible(false);
     setTimeout(() => setCheckOffLesson(null), 300);
-    // Save minutes_spent and hours alongside completion
+    // Save minutes_spent and hours alongside completion. completed_at must be
+    // set whenever completed=true (Bug 2 invariant).
     await supabase.from("lessons").update({
       completed: true,
+      completed_at: new Date().toISOString(),
       minutes_spent: minutes,
       hours: minutes / 60.0,
     }).eq("id", lesson.id);
@@ -1385,17 +1388,10 @@ export default function TodayPage() {
       setTimeout(() => setAllDoneBanner(true), 800);
     }
 
-    // Advance curriculum goal
-    if (lesson.curriculum_goal_id && lesson.lesson_number) {
-      const { data: goalRow } = await supabase
-        .from("curriculum_goals")
-        .select("current_lesson, total_lessons, curriculum_name, child_id")
-        .eq("id", lesson.curriculum_goal_id)
-        .single();
-      if (goalRow && goalRow.current_lesson < goalRow.total_lessons) {
-        const newLessonNum = goalRow.current_lesson + 1;
-        await supabase.from("curriculum_goals").update({ current_lesson: newLessonNum }).eq("id", lesson.curriculum_goal_id);
-      }
+    // Advance curriculum goal — recompute from actual rows so current_lesson
+    // never drifts past max(lesson_number) of completed rows (Bug 3).
+    if (lesson.curriculum_goal_id) {
+      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
     }
 
     checkAndAwardBadges(effectiveUserId);
@@ -1411,7 +1407,12 @@ export default function TodayPage() {
     const lesson = lessons.find((l) => l.id === id);
     const updatedLessons = lessons.map(l => l.id === id ? { ...l, completed: !current } : l);
     setLessons(updatedLessons);
-    await supabase.from("lessons").update({ completed: !current }).eq("id", id);
+    // Keep completed ↔ completed_at invariant (Bug 2): set timestamp on
+    // complete, clear it on uncomplete.
+    await supabase.from("lessons").update({
+      completed: !current,
+      completed_at: !current ? new Date().toISOString() : null,
+    }).eq("id", id);
 
     // Save minutes_spent when completing a lesson
     if (!current && lesson?.curriculum_goal_id) {
@@ -1464,52 +1465,13 @@ export default function TodayPage() {
         setTimeout(() => setAllDoneBanner(true), 800);
       }
 
-      if (lesson?.curriculum_goal_id && lesson?.lesson_number) {
-        const { data: goalRow } = await supabase
-          .from("curriculum_goals")
-          .select("current_lesson, total_lessons, curriculum_name, child_id")
-          .eq("id", lesson.curriculum_goal_id)
-          .single();
-
-        if (goalRow) {
-          if (goalRow.current_lesson < goalRow.total_lessons) {
-            const newLessonNum = goalRow.current_lesson + 1;
-
-            await supabase
-              .from("curriculum_goals")
-              .update({ current_lesson: newLessonNum })
-              .eq("id", lesson.curriculum_goal_id);
-
-            // Find next school day
-            const days = schoolDaysArr.length > 0
-              ? schoolDaysArr
-              : ["monday", "tuesday", "wednesday", "thursday", "friday"];
-            const nextDate = new Date(today + "T12:00:00");
-            for (let i = 0; i < 14; i++) {
-              nextDate.setDate(nextDate.getDate() + 1);
-              const dayName = nextDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-              if (days.includes(dayName)) break;
-            }
-            const nextDateStr = localDateStr(nextDate);
-
-            await supabase.from("lessons").insert({
-              user_id: effectiveUserId,
-              child_id: goalRow.child_id,
-              curriculum_goal_id: lesson.curriculum_goal_id,
-              title: `${goalRow.curriculum_name} — Lesson ${newLessonNum}`,
-              lesson_number: newLessonNum,
-              scheduled_date: nextDateStr,
-              completed: false,
-              created_at: new Date().toISOString(),
-            });
-          } else if (goalRow.current_lesson === goalRow.total_lessons) {
-            await supabase
-              .from("curriculum_goals")
-              .update({ completed: true })
-              .eq("id", lesson.curriculum_goal_id);
-          }
-        }
-
+      if (lesson?.curriculum_goal_id) {
+        // Recompute current_lesson from actual rows instead of blindly
+        // incrementing (Bug 3). Modern goals pre-generate all rows 1..total
+        // during wizard save, so no auto-insert is needed here — the old code
+        // was creating duplicate lesson_number rows on top of pre-generated
+        // ones (Bug 5) and scheduling them on non-goal school days (Bug 4).
+        await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
         // Refresh today's lessons so the UI stays current
         await loadData();
       }
@@ -1579,9 +1541,10 @@ export default function TodayPage() {
           .single();
         if (goalRow) mins = (goalRow as { default_minutes?: number }).default_minutes ?? 30;
 
-        // Complete the lesson with today's date
+        // Complete the lesson with today's date (Bug 2: set completed_at).
         await supabase.from("lessons").update({
           completed: true,
+          completed_at: new Date().toISOString(),
           date: today,
           minutes_spent: mins,
         }).eq("id", lessonId);
@@ -1626,8 +1589,10 @@ export default function TodayPage() {
         }
       } else {
         // No curriculum goal — just mark complete with today's date
+        // (Bug 2: set completed_at).
         await supabase.from("lessons").update({
           completed: true,
+          completed_at: new Date().toISOString(),
           date: today,
           minutes_spent: mins,
         }).eq("id", lessonId);
@@ -1739,43 +1704,21 @@ export default function TodayPage() {
     const goalForLesson = activeGoals.find((g: { id: string }) => g.id === nextLesson!.curriculum_goal_id);
     const mins = (goalForLesson as { default_minutes?: number })?.default_minutes ?? 30;
 
+    // Set completed_at to keep the invariant (Bug 2).
     await supabase.from("lessons").update({
       completed: true,
+      completed_at: new Date().toISOString(),
       date: today,
       scheduled_date: today,
       minutes_spent: mins,
     }).eq("id", nextLesson.id);
 
-    // Update curriculum_goal current_lesson
+    // Recompute current_lesson from actual rows (Bug 3). No auto-insert of
+    // the "next" lesson — modern goals pre-generate all rows 1..total, so
+    // inserting here would create duplicate lesson_numbers (Bug 5) or place
+    // rows on non-goal school days (Bug 4).
     if (goalForLesson) {
-      const newCurrent = nextLesson.lesson_number;
-      await supabase.from("curriculum_goals")
-        .update({ current_lesson: newCurrent })
-        .eq("id", nextLesson.curriculum_goal_id);
-
-      // Auto-schedule the NEXT lesson (one beyond the one we just completed)
-      if (newCurrent < (goalForLesson as { total_lessons: number }).total_lessons) {
-        const nextNum = newCurrent + 1;
-        const days = schoolDaysArr.length > 0
-          ? schoolDaysArr
-          : ["monday", "tuesday", "wednesday", "thursday", "friday"];
-        const nextDate = new Date(today + "T12:00:00");
-        for (let i = 0; i < 14; i++) {
-          nextDate.setDate(nextDate.getDate() + 1);
-          const dayName = nextDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-          if (days.includes(dayName)) break;
-        }
-        await supabase.from("lessons").insert({
-          user_id: user.id,
-          child_id: childId,
-          curriculum_goal_id: nextLesson.curriculum_goal_id,
-          title: `${(goalForLesson as { curriculum_name: string }).curriculum_name} — Lesson ${nextNum}`,
-          lesson_number: nextNum,
-          scheduled_date: localDateStr(nextDate),
-          completed: false,
-          created_at: new Date().toISOString(),
-        });
-      }
+      await recomputeCurrentLesson(supabase, nextLesson.curriculum_goal_id);
     }
 
     // Add the completed lesson to Today's view
@@ -2020,7 +1963,13 @@ export default function TodayPage() {
     for (let i = 0; i < updates.length; i += 20) {
       await Promise.all(
         updates.slice(i, i + 20).map(({ id, newDate }) =>
-          supabase.from("lessons").update({ scheduled_date: newDate, date: newDate, completed: false, minutes_spent: null }).eq("id", id)
+          supabase.from("lessons").update({
+            scheduled_date: newDate,
+            date: newDate,
+            completed: false,
+            completed_at: null,
+            minutes_spent: null,
+          }).eq("id", id)
         )
       );
     }
