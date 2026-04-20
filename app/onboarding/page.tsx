@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, Check, X } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { compressImage } from "@/lib/compress-image";
 import { capitalizeName } from "@/lib/utils";
 
@@ -148,6 +148,7 @@ function CelebrationStep({
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const [ready, setReady] = useState(false);
   const [userId, setUserId] = useState("");
   const [step, setStep] = useState(0);

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { Sun, Leaf, Camera, Calendar, Search, Menu, X, Printer, GraduationCap } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
 import { ProfileProvider, useProfile } from "@/lib/profile-context";
@@ -84,6 +84,7 @@ type FabChild = { id: string; name: string; color: string | null };
 function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { displayName: profileName, familyPhotoUrl: ctxPhotoUrl } = useProfile();
   const { hideFab } = useDashboardLayout();
   const [checking,  setChecking]  = useState(true);

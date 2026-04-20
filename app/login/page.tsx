@@ -116,14 +116,16 @@ function LoginContent() {
               <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Welcome back</h1>
               <p className="text-sm text-[#7a6f65] mb-5">Good to see you again.</p>
 
-              {/* HIDDEN: Google login disabled until post-auth onboarding flow is fixed
               <button
                 type="button"
                 onClick={async () => {
                   const browserClient = createSupabaseBrowserClient();
                   await browserClient.auth.signInWithOAuth({
                     provider: "google",
-                    options: { redirectTo: 'https://www.rootedhomeschoolapp.com/auth/callback' },
+                    options: {
+                      redirectTo: `${window.location.origin}/auth/callback`,
+                      queryParams: { prompt: 'select_account' },
+                    },
                   });
                 }}
                 className="w-full flex items-center justify-center gap-3 bg-white border border-[#e8e2d9] hover:bg-[#f8f7f4] text-[#2d2926] font-medium py-3 rounded-xl transition-colors"
@@ -137,7 +139,6 @@ function LoginContent() {
                 <span className="text-xs text-[#b5aca4]">or</span>
                 <div className="flex-1 h-px bg-[#e8e2d9]" />
               </div>
-              */}
 
               <form onSubmit={handleLogin} className="flex flex-col gap-4">
                 <div>
