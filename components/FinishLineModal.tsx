@@ -161,18 +161,48 @@ export default function FinishLineModal({ children, goal, onClose, onSaved, show
     // Schedule lessons (create only, and only if the curriculum_goal_id column exists)
     if (goalId && !goal?.id) {
       const schedule = buildSchedule(current + 1, total, schoolDays)
-      if (schedule.length > 0) {
-        const rows = schedule.map(s => ({
+      const today = new Date()
+      const ydayStr = (() => {
+        const d = new Date(today); d.setDate(d.getDate() - 1)
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      })()
+      // Gap-fill lessons 1..(current-1) as is_backfill/completed so the row
+      // sequence is contiguous (Bug 1: gaps). Without this, claiming
+      // current_lesson=10 but scheduling rows starting at 11 leaves 1-9 as
+      // permanent gaps and makes current_lesson drift past max(lesson_number).
+      const backfillRows = [] as Array<Record<string, unknown>>
+      for (let n = 1; n <= current; n++) {
+        backfillRows.push({
+          user_id: user.id,
+          child_id: childId,
+          title: `${curriculumName.trim()} · Lesson ${n}`,
+          completed: true,
+          completed_at: `${ydayStr}T12:00:00Z`,
+          is_backfill: true,
+          scheduled_date: ydayStr,
+          date: ydayStr,
+          curriculum_goal_id: goalId,
+          lesson_number: n,
+        })
+      }
+      if (schedule.length > 0 || backfillRows.length > 0) {
+        const futureRows = schedule.map(s => ({
           user_id: user.id,
           child_id: childId,
           title: `${curriculumName.trim()} · Lesson ${s.lessonNumber}`,
           completed: false,
           scheduled_date: s.scheduledDate,
+          date: s.scheduledDate,
           curriculum_goal_id: goalId,
           lesson_number: s.lessonNumber,
         }))
-        const { error: lessonsError } = await supabase.from('lessons').insert(rows)
+        const allRows = [...backfillRows, ...futureRows]
+        const { error: lessonsError } = await supabase.from('lessons').insert(allRows)
         if (!lessonsError) {
+          await supabase.from('curriculum_goals').update({
+            start_at_lesson: current + 1,
+            is_backfilled: current > 0,
+          }).eq('id', goalId)
           const child = children.find(c => c.id === childId)
           showToast(`🎉 ${schedule.length} lessons scheduled for ${child?.name ?? 'your child'}! Your plan is all set.`)
         }

@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import { onLogAction } from "@/app/lib/onLogAction";
+import { recomputeCurrentLesson, healGoalIntegrity } from "@/app/lib/scheduler";
 
 function titleCase(str: string): string {
   return str.trim().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -414,7 +415,9 @@ export default function CurriculumWizard({
       }
     }
 
-    // Save curriculum_goal
+    // Save curriculum_goal. current_lesson is derived from rows later — start at 0
+    // so a failed lesson-insert doesn't leave an orphaned goal claiming progress
+    // that doesn't exist (Bug 3: progress mismatch).
     const saveName = titleCase(curricName);
     const { data: goalData, error: goalErr } = await supabase
       .from("curriculum_goals")
@@ -424,7 +427,8 @@ export default function CurriculumWizard({
         curriculum_name: saveName,
         subject_label: effectiveSub || null,
         total_lessons: totalNum,
-        current_lesson: startNum - 1,
+        current_lesson: 0,
+        start_at_lesson: startNum,
         target_date: targetDate || null,
         start_date: startDate || null,
         school_days: booleanToDays(schoolDays),
@@ -510,6 +514,12 @@ export default function CurriculumWizard({
       const { error: insertErr } = await supabase.from("lessons").insert(batch);
       if (insertErr) {
         console.error(`[CurriculumWizard] lesson insert batch ${i}-${i + batch.length} failed:`, insertErr);
+        // Rollback: delete any rows we already inserted plus the goal. Prevents
+        // Bug 3 (goal with current_lesson > 0 but zero lesson rows).
+        if (goalId) {
+          await supabase.from("lessons").delete().eq("curriculum_goal_id", goalId);
+          await supabase.from("curriculum_goals").delete().eq("id", goalId);
+        }
         setGenerating(false);
         setError(`Failed to save lessons (batch ${Math.floor(i / 100) + 1}): ${insertErr.message}`);
         return;
@@ -527,6 +537,8 @@ export default function CurriculumWizard({
     console.log(`[CurriculumWizard] ${actual}/${rows.length} lessons verified for goal ${goalId} (subject_id: ${subjectId ?? "none"})`);
 
     if (actual === 0) {
+      // Rollback the goal row — no lessons, no goal.
+      if (goalId) await supabase.from("curriculum_goals").delete().eq("id", goalId);
       setGenerating(false);
       setError("Something went wrong saving your lessons. Please try again.");
       return;
@@ -534,6 +546,42 @@ export default function CurriculumWizard({
 
     if (actual < rows.length) {
       console.warn(`[CurriculumWizard] partial save: only ${actual}/${rows.length} lessons for goal ${goalId}`);
+    }
+
+    // Auto-fill gap lessons 1..(startNum-1) when user said "start at lesson N"
+    // but didn't enable explicit backfill. Without this, lesson_number is
+    // non-contiguous (Bug 1: gaps) and current_lesson can't track actual rows.
+    // We mark these as is_backfill/completed with yesterday noon as completed_at.
+    if (goalId && startNum > 1 && !backfillEnabled) {
+      const yday = new Date(); yday.setDate(yday.getDate() - 1); yday.setHours(12, 0, 0, 0);
+      const ydayStr = toDateStr(yday);
+      const gapInserts = [];
+      for (let n = 1; n < startNum; n++) {
+        gapInserts.push({
+          user_id: user.id,
+          child_id: childId || null,
+          subject_id: subjectId,
+          title: `${saveName} — Lesson ${n}`,
+          date: ydayStr,
+          scheduled_date: ydayStr,
+          completed: true,
+          completed_at: `${ydayStr}T12:00:00Z`,
+          is_backfill: true,
+          hours: 0,
+          curriculum_goal_id: goalId,
+          lesson_number: n,
+          school_year_id: schoolYearId || null,
+        });
+      }
+      for (let i = 0; i < gapInserts.length; i += 100) {
+        const batch = gapInserts.slice(i, i + 100);
+        const { error: gapErr } = await supabase.from("lessons").insert(batch);
+        if (gapErr) console.error(`[CurriculumWizard] gap-fill batch failed:`, gapErr);
+      }
+      await supabase.from("curriculum_goals").update({
+        is_backfilled: true,
+        start_at_lesson: startNum,
+      }).eq("id", goalId);
     }
 
     // ── Backfill entries ─────────────────────────────────────────────────────
@@ -631,6 +679,11 @@ export default function CurriculumWizard({
       }
     }
 
+    // Recompute current_lesson from actual completed rows so the goal's
+    // progress counter can never drift above the real max(lesson_number) of
+    // completed rows (Bug 3).
+    if (goalId) await recomputeCurrentLesson(supabase, goalId);
+
     posthog.capture('curriculum_created', { lessons: actual, backfilled: backfillInserted, curriculum: saveName });
     setGenCount(actual + backfillInserted);
 
@@ -668,13 +721,17 @@ export default function CurriculumWizard({
     }
 
     const saveName = titleCase(curricName);
+    // start_at_lesson is derived from the user's "Lessons done" input plus 1.
+    // current_lesson is NEVER written from user input here — it's recomputed
+    // from actual rows at the end (Bug 3).
+    const startAtLesson = Math.max(1, (parseInt(startLesson) || 0) + 1);
     if (activeGoalId) {
       // Update existing goal
       const updatePayload = {
         curriculum_name: saveName,
         subject_label: effectiveSub || null,
         total_lessons: totalNum,
-        current_lesson: parseInt(startLesson) || 0,
+        start_at_lesson: startAtLesson,
         target_date: targetDate || null,
         start_date: startDate || null,
         school_days: booleanToDays(schoolDays),
@@ -702,7 +759,8 @@ export default function CurriculumWizard({
           curriculum_name: saveName,
           subject_label: effectiveSub || null,
           total_lessons: totalNum,
-          current_lesson: parseInt(startLesson) || 0,
+          current_lesson: 0,
+          start_at_lesson: startAtLesson,
           target_date: targetDate || null,
           start_date: startDate || null,
           school_days: booleanToDays(schoolDays),
@@ -889,21 +947,32 @@ export default function CurriculumWizard({
       );
 
       if (futureLessons.length > 0) {
+        // Pack `perDayNum` lessons onto each school day. The old version
+        // advanced the cursor after a single lesson regardless of perDayNum,
+        // producing 1-per-day density and triggering Bug 6. Also honor
+        // vacation blocks and the goal's actual school_days (Bug 4).
+        const { data: vacBlocksForReschedule } = await supabase
+          .from("vacation_blocks")
+          .select("start_date, end_date")
+          .eq("user_id", user.id);
+        const vacList = (vacBlocksForReschedule ?? []) as { start_date: string; end_date: string }[];
+
         const updates: { id: string; date: string }[] = [];
         const cursor = new Date(startDateObj);
+        let placedToday = 0;
+        let safety = 0;
         for (const lesson of futureLessons) {
-          let safety = 0;
           while (safety < 3650) {
             const dayIdx = (cursor.getDay() + 6) % 7;
-            if (schoolDays[dayIdx]) {
-              for (let i = 0; i < perDayNum; i++) {
-                updates.push({ id: lesson.id, date: toDateStr(cursor) });
-                break;
-              }
-              cursor.setDate(cursor.getDate() + 1);
+            const dateStr = toDateStr(cursor);
+            const inVac = vacList.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
+            if (schoolDays[dayIdx] && !inVac && placedToday < perDayNum) {
+              updates.push({ id: lesson.id, date: dateStr });
+              placedToday++;
               break;
             }
             cursor.setDate(cursor.getDate() + 1);
+            placedToday = 0;
             safety++;
           }
         }
@@ -993,6 +1062,119 @@ export default function CurriculumWizard({
         // Fire streak + badge check once for the backfill batch
         onLogAction({ userId: user.id, childId: editData.childId || undefined, actionType: "lesson" });
       }
+    }
+
+    // ── Heal + recompute ──────────────────────────────────────────────────────
+    // Regardless of which branch we took, repair any pre-existing broken state
+    // (ghost completions, incomplete dupes) and then gap-fill missing lesson
+    // numbers before recomputing current_lesson. Regenerate MUST NOT inherit
+    // broken state from before the edit (Bugs 1, 2, 5).
+    if (activeGoalId) {
+      await healGoalIntegrity(supabase, activeGoalId);
+
+      // Gap-fill: find missing lesson_numbers in [1..totalNum] and schedule
+      // them forward on school days. This catches legacy gaps from older
+      // generate() flows.
+      const { data: existingRows } = await supabase
+        .from("lessons")
+        .select("lesson_number")
+        .eq("curriculum_goal_id", activeGoalId)
+        .not("lesson_number", "is", null);
+      const existingNums = new Set<number>(
+        ((existingRows ?? []) as { lesson_number: number }[]).map((r) => r.lesson_number),
+      );
+      const missing: number[] = [];
+      for (let n = 1; n <= totalNum; n++) {
+        if (!existingNums.has(n)) missing.push(n);
+      }
+      if (missing.length > 0) {
+        // Resolve subject_id for healed rows.
+        let healSubjectId: string | null = null;
+        if (effectiveSub) {
+          const { data: existingSub } = await supabase
+            .from("subjects").select("id").eq("user_id", user.id).ilike("name", effectiveSub).maybeSingle();
+          healSubjectId = existingSub?.id ?? null;
+        }
+        const { data: vacBlocks } = await supabase
+          .from("vacation_blocks")
+          .select("start_date, end_date")
+          .eq("user_id", user.id);
+        const vacList = (vacBlocks ?? []) as { start_date: string; end_date: string }[];
+
+        // Partition: numbers < startAtLesson get is_backfill rows dated
+        // yesterday (the user implicitly completed them). Numbers >= startAt
+        // get real schedule dates on future school days.
+        const yday = new Date(); yday.setDate(yday.getDate() - 1); yday.setHours(12, 0, 0, 0);
+        const ydayStr = toDateStr(yday);
+
+        const pastMissing = missing.filter((n) => n < startAtLesson);
+        const futureMissing = missing.filter((n) => n >= startAtLesson);
+
+        const healInserts: Array<Record<string, unknown>> = [];
+        for (const n of pastMissing) {
+          healInserts.push({
+            user_id: user.id,
+            child_id: editData.childId || null,
+            subject_id: healSubjectId,
+            title: `${saveName} — Lesson ${n}`,
+            date: ydayStr,
+            scheduled_date: ydayStr,
+            completed: true,
+            completed_at: `${ydayStr}T12:00:00Z`,
+            is_backfill: true,
+            hours: 0,
+            curriculum_goal_id: activeGoalId,
+            lesson_number: n,
+            school_year_id: schoolYearId || null,
+          });
+        }
+
+        if (futureMissing.length > 0) {
+          // Place future-missing rows on upcoming school days from today,
+          // packed perDayNum/day and skipping vacations.
+          const startCursor = startDateObj > todayMidnight ? new Date(startDateObj) : new Date(todayMidnight);
+          const futureSorted = [...futureMissing].sort((a, b) => a - b);
+          let placed = 0;
+          const cursor = new Date(startCursor);
+          let placedToday = 0;
+          let safety = 0;
+          while (placed < futureSorted.length && safety < 3650) {
+            const dayIdx = (cursor.getDay() + 6) % 7;
+            const dateStr = toDateStr(cursor);
+            const inVac = vacList.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
+            if (schoolDays[dayIdx] && !inVac) {
+              while (placedToday < perDayNum && placed < futureSorted.length) {
+                healInserts.push({
+                  user_id: user.id,
+                  child_id: editData.childId || null,
+                  subject_id: healSubjectId,
+                  title: `${saveName} — Lesson ${futureSorted[placed]}`,
+                  date: dateStr,
+                  scheduled_date: dateStr,
+                  completed: false,
+                  hours: 0,
+                  curriculum_goal_id: activeGoalId,
+                  lesson_number: futureSorted[placed],
+                  school_year_id: schoolYearId || null,
+                });
+                placed++;
+                placedToday++;
+              }
+            }
+            cursor.setDate(cursor.getDate() + 1);
+            placedToday = 0;
+            safety++;
+          }
+        }
+
+        for (let i = 0; i < healInserts.length; i += 100) {
+          const batch = healInserts.slice(i, i + 100);
+          const { error: healErr } = await supabase.from("lessons").insert(batch);
+          if (healErr) console.error("[CurriculumWizard] heal-gap insert failed:", healErr);
+        }
+      }
+
+      await recomputeCurrentLesson(supabase, activeGoalId);
     }
 
     setGenerating(false);

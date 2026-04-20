@@ -98,6 +98,7 @@ export default function LogActivityModal({
           subject_id: subjectId,
           title:      title.trim(),
           completed:  true,
+          completed_at: new Date().toISOString(),
           date:       today,
         });
         if (err) throw err;

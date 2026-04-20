@@ -15,6 +15,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
+import { recomputeCurrentLesson } from "@/app/lib/scheduler";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -630,10 +631,18 @@ export default function PlanPage() {
   async function toggleLesson(id: string, current: boolean) {
     setLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     setMonthLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
-    await supabase.from("lessons").update({ completed: !current }).eq("id", id);
+    // Keep completed ↔ completed_at invariant (Bug 2).
+    await supabase.from("lessons").update({
+      completed: !current,
+      completed_at: !current ? new Date().toISOString() : null,
+    }).eq("id", id);
+    // Recompute goal progress from rows (Bug 3).
+    const lesson = lessons.find(l => l.id === id) ?? monthLessons.find(l => l.id === id);
+    if (lesson?.curriculum_goal_id) {
+      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+    }
     // Fire streak + badge check on completion (not on uncheck)
     if (!current && effectiveUserId) {
-      const lesson = lessons.find(l => l.id === id);
       onLogAction({ userId: effectiveUserId, childId: lesson?.child_id ?? undefined, actionType: "lesson" });
     }
   }
@@ -735,15 +744,24 @@ export default function PlanPage() {
       if (shiftDays > 0) {
         const { data: affected } = await supabase
           .from("lessons")
-          .select("id, scheduled_date, date")
+          .select("id, scheduled_date, date, curriculum_goal_id")
           .eq("user_id", user.id)
           .eq("completed", false)
           .gte("scheduled_date", vacStart);
         if (affected && affected.length > 0) {
-          const updates = (affected as { id: string; scheduled_date: string | null; date: string | null }[]).map((l) => {
-            const orig = new Date((l.scheduled_date ?? l.date ?? vacStart) + "T00:00:00");
-            const newD = addWeekdays(orig, shiftDays);
-            return { id: l.id, date: toDateStr(newD) };
+          // Shift each lesson forward by `shiftDays` school days, honoring
+          // the goal's own school_days rather than the Mon-Fri default (Bug 4).
+          const rows = affected as { id: string; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null }[];
+          const updates = rows.map((l) => {
+            const goal = l.curriculum_goal_id
+              ? curriculumGoals.find(g => g.id === l.curriculum_goal_id)
+              : null;
+            const schoolDays = goal?.school_days?.length
+              ? goal.school_days
+              : (profileSchoolDays.length > 0 ? profileSchoolDays : ["Mon", "Tue", "Wed", "Thu", "Fri"]);
+            const orig = l.scheduled_date ?? l.date ?? vacStart;
+            const newDate = nthSchoolDay(orig, schoolDays, shiftDays);
+            return { id: l.id, date: newDate };
           });
           for (let i = 0; i < updates.length; i += 20) {
             await Promise.all(
@@ -989,7 +1007,21 @@ export default function PlanPage() {
       setPlanToastMsg("Couldn't add a lesson — this curriculum isn't linked to a goal.");
       return;
     }
-    const nextNumber = (goal.current_lesson ?? 0) + 1;
+    // Derive nextNumber from the actual max(lesson_number) in this goal, not
+    // from the possibly-stale current_lesson cache (Bug 3 + Bug 5: duplicates).
+    const { data: maxRow } = await supabase
+      .from("lessons")
+      .select("lesson_number")
+      .eq("curriculum_goal_id", goal.id)
+      .not("lesson_number", "is", null)
+      .order("lesson_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextNumber = Math.max(
+      ((maxRow as { lesson_number: number | null } | null)?.lesson_number ?? 0) + 1,
+      (goal.current_lesson ?? 0) + 1,
+      1,
+    );
     // Copy subject_id from any sibling lesson in memory; no extra query needed.
     const siblingLesson = allLessons.find(l => l.curriculum_goal_id === goal.id);
     const subjectId = (siblingLesson as { subject_id?: string | null } | undefined)?.subject_id ?? null;
