@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar, RotateCcw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
@@ -2083,13 +2083,17 @@ export default function PlanPage() {
             {selLessons.map((l) => {
               const goal = l.curriculum_goal_id ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) : null;
               return (
-                <div key={l.id} className="rounded-xl" style={{ background: "linear-gradient(to bottom right, #eefbf0, #e0f8e6)", border: "1px solid #cef0d4" }}>
+                <div key={l.id} className={`rounded-xl ${l.completed ? "opacity-60" : ""}`} style={{ background: "linear-gradient(to bottom right, #eefbf0, #e0f8e6)", border: "1px solid #cef0d4" }}>
                   <div className="flex items-center gap-3 px-4 py-2.5">
                     <span className="text-xl shrink-0">{goal?.icon_emoji ?? "📚"}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-[14px] font-medium text-[#2d2926] truncate">{l.title}</span>
-                        <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#dcfce7] text-[#15803d]">Lesson</span>
+                        <span className={`text-[14px] font-medium truncate ${l.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>{l.title}</span>
+                        {l.completed ? (
+                          <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#2D5A3D] text-white">✓ Done</span>
+                        ) : (
+                          <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#dcfce7] text-[#15803d]">Lesson</span>
+                        )}
                       </div>
                       {l.subjects?.name && <p className="text-xs text-[#7a6f65] mt-0.5">{l.subjects.name}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p>}
                       {/* Note preview (collapsed) */}
@@ -2159,20 +2163,32 @@ export default function PlanPage() {
                             </button>
                           )}
                           <span aria-hidden="true" className="text-[#cfc9c0] select-none">·</span>
-                          <button
-                            onClick={() => skipPlanLesson(l)}
-                            aria-label="Skip this lesson"
-                            className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
-                          >
-                            <X size={14} /> Skip
-                          </button>
-                          <button
-                            onClick={() => openPlanReschedule(l)}
-                            aria-label="Reschedule this lesson"
-                            className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
-                          >
-                            <Calendar size={14} /> Reschedule
-                          </button>
+                          {l.completed ? (
+                            <button
+                              onClick={() => toggleLesson(l.id, true)}
+                              aria-label="Mark not done"
+                              className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
+                            >
+                              <RotateCcw size={14} /> Mark not done
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => skipPlanLesson(l)}
+                                aria-label="Skip this lesson"
+                                className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
+                              >
+                                <X size={14} /> Skip
+                              </button>
+                              <button
+                                onClick={() => openPlanReschedule(l)}
+                                aria-label="Reschedule this lesson"
+                                className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                              >
+                                <Calendar size={14} /> Reschedule
+                              </button>
+                            </>
+                          )}
                           <button
                             onClick={() => openEdit(l)}
                             aria-label="Edit this lesson"
