@@ -2531,6 +2531,10 @@ export default function TodayPage() {
           onLogExtra={openExtraLessons}
           onManage={() => setShowManageSchedule(true)}
           onAddAppt={() => setShowApptWizard(true)}
+          onEditLesson={(id) => { const l = lessons.find(x => x.id === id); if (l) openEdit(l); }}
+          onRescheduleLesson={(id) => { const l = lessons.find(x => x.id === id); if (l) openReschedule(l); }}
+          onSkipLesson={(id) => { const l = lessons.find(x => x.id === id); if (l) skipLesson(l); }}
+          onDeleteLesson={deleteLesson}
           isPartner={isPartner}
           upcomingDays={upcomingDays}
           isSchoolDay={isSchoolDay}
