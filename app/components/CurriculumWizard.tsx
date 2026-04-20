@@ -28,6 +28,7 @@ export type CurriculumWizardEditData = {
   isBackfilled?: boolean;
   startAtLesson?: number;
   lessonStartTime?: string | null;
+  lessonsPerDay?: number;
 };
 
 interface Props {
@@ -207,7 +208,9 @@ export default function CurriculumWizard({
       : [true, true, true, true, true, false, false]
   );
 
-  const [lessonsPerDay, setLessonsPerDay] = useState("1");
+  const [lessonsPerDay, setLessonsPerDay] = useState(
+    editData?.lessonsPerDay ? String(editData.lessonsPerDay) : "1"
+  );
   const [defaultMinutes, setDefaultMinutes] = useState("30");
   const [isCustomMinutes, setIsCustomMinutes] = useState(false);
   const [targetDate, setTargetDate] = useState(editData?.targetDate ?? "");
@@ -266,7 +269,7 @@ export default function CurriculumWizard({
     if (mode !== "edit" || !editData?.goalId) return;
     supabase
       .from("curriculum_goals")
-      .select("is_backfilled, start_at_lesson, scheduled_start_time, course_level, credits_value")
+      .select("is_backfilled, start_at_lesson, scheduled_start_time, course_level, credits_value, lessons_per_day")
       .eq("id", editData.goalId)
       .single()
       .then(({ data }) => {
@@ -288,6 +291,7 @@ export default function CurriculumWizard({
         }
         if (data?.course_level) setCourseLevel(data.course_level);
         if (data?.credits_value != null) setCreditsValue(String(data.credits_value));
+        if (data?.lessons_per_day) setLessonsPerDay(String(data.lessons_per_day));
       });
   }, [mode, editData?.goalId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -425,6 +429,7 @@ export default function CurriculumWizard({
         start_date: startDate || null,
         school_days: booleanToDays(schoolDays),
         default_minutes: parseInt(defaultMinutes) || 30,
+        lessons_per_day: parseInt(lessonsPerDay) || 1,
         scheduled_start_time: lessonStartTime || null,
         school_year_id: schoolYearId || null,
         icon_emoji: guessEmoji(saveName),
@@ -650,6 +655,18 @@ export default function CurriculumWizard({
     const todayStr = toDateStr(todayMidnight);
     let activeGoalId = editData.goalId;
 
+    // Capture the goal's pre-update lessons_per_day so we can detect a change
+    // after the update and regenerate future lessons at the new cadence.
+    let originalLessonsPerDay: number | null = null;
+    if (activeGoalId) {
+      const { data: origGoal } = await supabase
+        .from("curriculum_goals")
+        .select("lessons_per_day")
+        .eq("id", activeGoalId)
+        .maybeSingle();
+      originalLessonsPerDay = origGoal?.lessons_per_day ?? null;
+    }
+
     const saveName = titleCase(curricName);
     if (activeGoalId) {
       // Update existing goal
@@ -662,6 +679,7 @@ export default function CurriculumWizard({
         start_date: startDate || null,
         school_days: booleanToDays(schoolDays),
         default_minutes: parseInt(defaultMinutes) || 30,
+        lessons_per_day: parseInt(lessonsPerDay) || 1,
         scheduled_start_time: lessonStartTime || null,
         icon_emoji: guessEmoji(saveName),
         course_level: childHasTranscript ? courseLevel : null,
@@ -689,6 +707,7 @@ export default function CurriculumWizard({
           start_date: startDate || null,
           school_days: booleanToDays(schoolDays),
           default_minutes: parseInt(defaultMinutes) || 30,
+          lessons_per_day: parseInt(lessonsPerDay) || 1,
           scheduled_start_time: lessonStartTime || null,
           school_year_id: schoolYearId || null,
           icon_emoji: guessEmoji(saveName),
@@ -736,62 +755,165 @@ export default function CurriculumWizard({
       }
     }
 
-    // Reschedule incomplete future lessons
-    let futureLessons: { id: string; scheduled_date: string | null; date: string | null }[] = [];
-
-    if (activeGoalId) {
-      const { data } = await supabase
+    // If lessons_per_day changed, the existing future lesson rows won't match
+    // the new cadence (too few for a 1→2 change, too many for 2→1). Delete
+    // future incomplete rows and regenerate them fresh. Past/completed rows
+    // are left untouched.
+    let regeneratedLessons = false;
+    if (
+      activeGoalId &&
+      originalLessonsPerDay !== null &&
+      (parseInt(lessonsPerDay) || 1) !== originalLessonsPerDay
+    ) {
+      const { error: delErr } = await supabase
         .from("lessons")
-        .select("id, scheduled_date, date")
+        .delete()
         .eq("curriculum_goal_id", activeGoalId)
         .eq("completed", false)
         .gte("scheduled_date", todayStr);
-      futureLessons = (data ?? []) as typeof futureLessons;
-    }
+      if (delErr) {
+        console.error("[CurriculumWizard] future-lesson delete failed:", delErr);
+        setGenerating(false);
+        setError(`Could not clear old lessons: ${delErr.message}`);
+        return;
+      }
 
-    // Fallback: title pattern if no results via goal_id
-    if (futureLessons.length === 0) {
-      let q = supabase
+      // Determine next lesson number from remaining (past/completed) rows
+      const { data: maxRow } = await supabase
         .from("lessons")
-        .select("id, scheduled_date, date")
-        .eq("user_id", user.id)
-        .eq("completed", false)
-        .ilike("title", `${editData.curricName} — Lesson%`)
-        .gte("scheduled_date", todayStr);
-      if (editData.childId) q = q.eq("child_id", editData.childId);
-      const { data } = await q;
-      futureLessons = (data ?? []) as typeof futureLessons;
+        .select("lesson_number")
+        .eq("curriculum_goal_id", activeGoalId)
+        .order("lesson_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const nextLessonNum = Math.max((maxRow?.lesson_number ?? 0) + 1, 1);
+
+      // Resolve subject_id for the new rows
+      let regenSubjectId: string | null = null;
+      if (effectiveSub) {
+        const { data: existingSub } = await supabase
+          .from("subjects")
+          .select("id")
+          .eq("user_id", user.id)
+          .ilike("name", effectiveSub)
+          .maybeSingle();
+        regenSubjectId = existingSub?.id ?? null;
+      }
+
+      // Fetch vacation blocks
+      const { data: vacBlocks } = await supabase
+        .from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", user.id);
+      const vacBlockList = (vacBlocks ?? []) as { start_date: string; end_date: string }[];
+
+      // Regenerate starting from today (or user-selected start date if later)
+      const regenStart = startDateObj > todayMidnight ? new Date(startDateObj) : new Date(todayMidnight);
+      const regenRows: { date: string; n: number }[] = [];
+      let ln = nextLessonNum;
+      const rcursor = new Date(regenStart);
+      let rsafety = 0;
+      while (ln <= totalNum && rsafety < 3650) {
+        const dayIdx = (rcursor.getDay() + 6) % 7;
+        const dateStr = toDateStr(rcursor);
+        if (schoolDays[dayIdx] && !isDateInBlocks(dateStr, vacBlockList)) {
+          for (let i = 0; i < perDayNum && ln <= totalNum; i++, ln++) {
+            regenRows.push({ date: dateStr, n: ln });
+          }
+        }
+        rcursor.setDate(rcursor.getDate() + 1);
+        rsafety++;
+      }
+
+      const trimmedNotes = defaultNotes.trim() || null;
+      const regenInserts = regenRows.map(({ date, n }) => ({
+        user_id: user.id,
+        child_id: editData.childId || null,
+        subject_id: regenSubjectId,
+        title: `${saveName} — Lesson ${n}`,
+        date,
+        scheduled_date: date,
+        completed: false,
+        hours: 0,
+        curriculum_goal_id: activeGoalId,
+        lesson_number: n,
+        school_year_id: schoolYearId || null,
+        notes: trimmedNotes,
+      }));
+
+      for (let i = 0; i < regenInserts.length; i += 100) {
+        const batch = regenInserts.slice(i, i + 100);
+        const { error: insErr } = await supabase.from("lessons").insert(batch);
+        if (insErr) {
+          console.error("[CurriculumWizard] regenerate lesson insert failed:", insErr);
+          setGenerating(false);
+          setError(`Could not regenerate lessons: ${insErr.message}`);
+          return;
+        }
+      }
+
+      regeneratedLessons = true;
     }
 
-    futureLessons.sort((a, b) =>
-      (a.scheduled_date ?? a.date ?? "").localeCompare(b.scheduled_date ?? b.date ?? "")
-    );
+    // Reschedule incomplete future lessons (skip when we just regenerated —
+    // those rows are already placed at the correct dates/cadence).
+    if (!regeneratedLessons) {
+      let futureLessons: { id: string; scheduled_date: string | null; date: string | null }[] = [];
 
-    if (futureLessons.length > 0) {
-      const updates: { id: string; date: string }[] = [];
-      const cursor = new Date(startDateObj);
-      for (const lesson of futureLessons) {
-        let safety = 0;
-        while (safety < 3650) {
-          const dayIdx = (cursor.getDay() + 6) % 7;
-          if (schoolDays[dayIdx]) {
-            for (let i = 0; i < perDayNum; i++) {
-              updates.push({ id: lesson.id, date: toDateStr(cursor) });
+      if (activeGoalId) {
+        const { data } = await supabase
+          .from("lessons")
+          .select("id, scheduled_date, date")
+          .eq("curriculum_goal_id", activeGoalId)
+          .eq("completed", false)
+          .gte("scheduled_date", todayStr);
+        futureLessons = (data ?? []) as typeof futureLessons;
+      }
+
+      // Fallback: title pattern if no results via goal_id
+      if (futureLessons.length === 0) {
+        let q = supabase
+          .from("lessons")
+          .select("id, scheduled_date, date")
+          .eq("user_id", user.id)
+          .eq("completed", false)
+          .ilike("title", `${editData.curricName} — Lesson%`)
+          .gte("scheduled_date", todayStr);
+        if (editData.childId) q = q.eq("child_id", editData.childId);
+        const { data } = await q;
+        futureLessons = (data ?? []) as typeof futureLessons;
+      }
+
+      futureLessons.sort((a, b) =>
+        (a.scheduled_date ?? a.date ?? "").localeCompare(b.scheduled_date ?? b.date ?? "")
+      );
+
+      if (futureLessons.length > 0) {
+        const updates: { id: string; date: string }[] = [];
+        const cursor = new Date(startDateObj);
+        for (const lesson of futureLessons) {
+          let safety = 0;
+          while (safety < 3650) {
+            const dayIdx = (cursor.getDay() + 6) % 7;
+            if (schoolDays[dayIdx]) {
+              for (let i = 0; i < perDayNum; i++) {
+                updates.push({ id: lesson.id, date: toDateStr(cursor) });
+                break;
+              }
+              cursor.setDate(cursor.getDate() + 1);
               break;
             }
             cursor.setDate(cursor.getDate() + 1);
-            break;
+            safety++;
           }
-          cursor.setDate(cursor.getDate() + 1);
-          safety++;
         }
-      }
-      for (let i = 0; i < updates.length; i += 20) {
-        await Promise.all(
-          updates.slice(i, i + 20).map(({ id, date }) =>
-            supabase.from("lessons").update({ scheduled_date: date, date }).eq("id", id)
-          )
-        );
+        for (let i = 0; i < updates.length; i += 20) {
+          await Promise.all(
+            updates.slice(i, i + 20).map(({ id, date }) =>
+              supabase.from("lessons").update({ scheduled_date: date, date }).eq("id", id)
+            )
+          );
+        }
       }
     }
 
