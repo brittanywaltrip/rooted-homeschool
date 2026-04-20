@@ -2,11 +2,13 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { getCookieDomain } from '@/lib/cookie-domain'
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.rootedhomeschoolapp.com'
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
+  const runtimeDomain = getCookieDomain(requestUrl.hostname)
   const code = requestUrl.searchParams.get('code')
   const errorParam = requestUrl.searchParams.get('error_description')
 
@@ -39,9 +41,7 @@ export async function GET(request: Request) {
           })
         },
       },
-      cookieOptions: {
-        domain: '.rootedhomeschoolapp.com',
-      },
+      cookieOptions: runtimeDomain ? { domain: runtimeDomain } : {},
     }
   )
 
