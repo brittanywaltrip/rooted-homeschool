@@ -87,14 +87,45 @@ export async function POST(req: NextRequest) {
     )
 
     // Admin notification
-    const rootedLine = hasRootedAccount
-      ? `Rooted account: ${rootedAccountEmail || 'yes (email not provided)'}`
-      : 'Rooted account: No'
+    const adminEmailBody = `
+New partner application received
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PERSON
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Name:               ${firstName} ${lastName}
+Email:              ${email}
+Already on Rooted:  ${hasRootedAccount ? 'Yes' : 'No'}${rootedAccountEmail ? ` (${rootedAccountEmail})` : ''}
+PayPal:             ${paypalEmail || 'not provided'}
+Has used Rooted:    ${usedRooted || 'not specified'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SOCIAL REACH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Handle:             ${socialHandle || 'not provided'}
+Overall audience:   ${audienceSize || 'not specified'}
+Platforms:          ${Array.isArray(platforms) && platforms.length > 0 ? platforms.join(', ') : 'not specified'}
+${platformSizes && Object.keys(platformSizes).length > 0
+  ? 'Per-platform:\n' + Object.entries(platformSizes).map(([k, v]) => `  • ${k}: ${v}`).join('\n')
+  : ''}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+THEIR STORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Why Rooted:
+${whyRooted || story || 'not provided'}
+
+About their homeschool journey:
+${story || 'not provided'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Review this application: https://www.rootedhomeschoolapp.com/admin/partners
+`
 
     await sendEmail(
       'hello@rootedhomeschoolapp.com',
       `\uD83C\uDF31 New partner application \u2014 ${firstName} ${lastName}`,
-      `Name: ${firstName} ${lastName}\nEmail: ${email}\n${rootedLine}\nPayPal: ${paypalEmail || 'not provided'}\nSocial: ${socialHandle || 'not provided'}\nAudience: ${audienceSize || 'not specified'}\nWhy Rooted: ${whyRooted || story || 'not specified'}\n\nReview: https://www.rootedhomeschoolapp.com/admin/partners`,
+      adminEmailBody,
     )
 
     return NextResponse.json({ success: true })

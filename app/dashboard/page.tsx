@@ -21,6 +21,7 @@ import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import UnifiedTimeline from "@/app/components/UnifiedTimeline";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
+import GettingStartedCard from "@/app/components/GettingStartedCard";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -572,6 +573,7 @@ export default function TodayPage() {
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
   const [totalMemories, setTotalMemories] = useState(0);
   const [totalPhotos, setTotalPhotos] = useState(0);
+  const [curriculumGoalsCount, setCurriculumGoalsCount] = useState(0);
   const [achievementBanner, setAchievementBanner] = useState<{ label: string; childName?: string; isEducator: boolean; extra: number } | null>(null);
   const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
   const [lastMemory, setLastMemory] = useState<{ id: string; type: string; title: string | null; date: string; child_id: string | null; photo_url: string | null } | null>(null);
@@ -948,6 +950,7 @@ export default function TodayPage() {
     for (const g of (goalEmojiResult.data ?? []) as { id: string; icon_emoji: string | null }[]) {
       if (g.icon_emoji) emojiMap.set(g.id, g.icon_emoji);
     }
+    setCurriculumGoalsCount(goalEmojiResult.data?.length ?? 0);
     const loadedLessons = ((lessonsData as unknown as Lesson[]) ?? []).map(l => ({
       ...l,
       icon_emoji: l.curriculum_goal_id ? (emojiMap.get(l.curriculum_goal_id) ?? "📚") : null,
@@ -2346,6 +2349,26 @@ export default function TodayPage() {
       </div>
 
       <div className="max-w-2xl mx-auto px-5 pt-4 pb-7 space-y-5">
+
+      {/* Getting Started — first 30 days, until both curriculum + memory exist */}
+      {!loading && (() => {
+        const hasCurriculum = curriculumGoalsCount > 0;
+        const hasMemory = totalMemories > 0;
+        const accountAgeDays = profileCreatedAt
+          ? (Date.now() - new Date(profileCreatedAt).getTime()) / (1000 * 60 * 60 * 24)
+          : 0;
+        const showGettingStarted = accountAgeDays < 30 && (!hasCurriculum || !hasMemory);
+        if (!showGettingStarted) return null;
+        return (
+          <GettingStartedCard
+            firstName={firstName || null}
+            hasCurriculum={hasCurriculum}
+            hasMemory={hasMemory}
+            onAddCurriculum={() => router.push("/dashboard/plan")}
+            onCaptureMemory={() => setShowMemoryPicker(true)}
+          />
+        );
+      })()}
 
       {/* Achievement banner */}
       {achievementBanner && (

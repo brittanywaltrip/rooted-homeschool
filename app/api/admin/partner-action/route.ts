@@ -86,7 +86,7 @@ async function handleApprove(body: Record<string, unknown>) {
 
   // Send welcome email (Part 4)
   const firstName = name.split(' ')[0]
-  const refLink = `rootedhomeschoolapp.com/upgrade?ref=${code.toUpperCase()}`
+  const refLink = `rootedhomeschoolapp.com/?ref=${code.toUpperCase()}`
 
   const welcomeHtml = `
 <div style="font-family: -apple-system, sans-serif; max-width: 540px; margin: 0 auto; color: #2d2926;">
