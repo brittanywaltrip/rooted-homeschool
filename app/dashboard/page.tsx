@@ -2825,17 +2825,6 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* Skip rest of today link */}
-      {lessons.some(l => !l.completed) && !isPartner && (
-        <button
-          type="button"
-          onClick={skipRestOfToday}
-          className="w-full text-xs text-[#b8860b] font-medium text-center cursor-pointer py-1"
-        >
-          Rough day? Skip remaining → next school day
-        </button>
-      )}
-
       {/* ═══════════════════════════════════════════════════════════
           LESSON SWIPE — horizontal child cards + expandable panel (kept for multi-child detail)
          ═══════════════════════════════════════════════════════════ */}
