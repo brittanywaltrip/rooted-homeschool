@@ -4,10 +4,9 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getCookieDomain } from '@/lib/cookie-domain'
 
-const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.rootedhomeschoolapp.com'
-
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
+  const BASE_URL = `${requestUrl.protocol}//${requestUrl.host}`
   const runtimeDomain = getCookieDomain(requestUrl.hostname)
   const code = requestUrl.searchParams.get('code')
   const errorParam = requestUrl.searchParams.get('error_description')
