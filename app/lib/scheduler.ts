@@ -1,10 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { nativeToSchoolDayIdx, SCHOOL_DAY_LABELS } from "./day-of-week";
 
-// Day index conventions: Mon=0..Sun=6 for school_days / school_days bool arrays
-// (matches the wizard and plan page). getDay() → Sun=0..Sat=6, so translate with
-// (d.getDay() + 6) % 7.
+// Day index conventions: Mon=0..Sun=6 for school_days bool arrays. All
+// conversions from JS getDay() go through day-of-week.ts helpers.
 
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+const DAY_LABELS = SCHOOL_DAY_LABELS;
 const DAY_LABEL_TO_IDX: Record<string, number> = {
   Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6,
 };
@@ -15,7 +15,7 @@ export function schoolDaysToBool(days: string[] | null | undefined): boolean[] {
 }
 
 export function isSchoolDayIdx(date: Date, schoolDaysBool: boolean[]): boolean {
-  const idx = (date.getDay() + 6) % 7;
+  const idx = nativeToSchoolDayIdx(date.getDay());
   return !!schoolDaysBool[idx];
 }
 
@@ -176,7 +176,7 @@ export function collectSchoolDaySlots(
   let safety = 0;
   while (result.length < count && safety < 3650) {
     const dateStr = toDateStr(cursor);
-    const idx = (cursor.getDay() + 6) % 7;
+    const idx = nativeToSchoolDayIdx(cursor.getDay());
     const inVac = vacationBlocks.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
     if (schoolDaysBool[idx] && !inVac) {
       for (let s = 0; s < perDay && result.length < count; s++) {
