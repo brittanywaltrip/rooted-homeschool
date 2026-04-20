@@ -2084,7 +2084,7 @@ export default function SettingsPage() {
                           onClick={() => { navigator.clipboard.writeText(`https://rootedhomeschoolapp.com/?ref=${aff.code}`); showCopiedToast("Link copied!"); }}
                           className="text-xs text-[#4338ca] hover:underline cursor-pointer truncate max-w-[200px] block"
                         >
-                          .../upgrade?ref={aff.code}
+                          .../?ref={aff.code}
                         </button>
                       </td>
                       <td className="px-4 py-3 text-right text-[#2d2926] font-medium">{aff.clicks ?? 0}</td>

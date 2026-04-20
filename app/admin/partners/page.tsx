@@ -412,7 +412,7 @@ export default function AdminPartnersPage() {
             {affiliates.map((a) => {
               const isExpanded = expandedCode === a.code;
               const owed = Math.max(0, a.commission_owed - a.total_paid);
-              const refLink = `rootedhomeschoolapp.com/upgrade?ref=${a.code}`;
+              const refLink = `rootedhomeschoolapp.com/?ref=${a.code}`;
               return (
                 <div key={a.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
                   <button
