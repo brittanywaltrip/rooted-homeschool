@@ -59,8 +59,22 @@ export async function GET(request: Request) {
     const next = requestUrl.searchParams.get('next')
     if (type === 'recovery' || next === '/reset-password') {
       const redirectResponse = NextResponse.redirect(new URL('/reset-password', BASE_URL))
+      // IMPORTANT: preserve full cookie options (especially `domain`) when
+      // copying from supabaseResponse to the redirect. Dropping the domain
+      // option scopes cookies to the response host instead of the apex
+      // wildcard, which breaks session recognition and causes OAuth loops.
       supabaseResponse.cookies.getAll().forEach(cookie => {
-        redirectResponse.cookies.set(cookie.name, cookie.value)
+        redirectResponse.cookies.set({
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          httpOnly: cookie.httpOnly,
+          sameSite: cookie.sameSite as any,
+          maxAge: cookie.maxAge,
+          expires: cookie.expires,
+        })
       })
       return redirectResponse
     }
@@ -90,8 +104,22 @@ export async function GET(request: Request) {
       const redirectPath = !profile || profile.onboarded !== true ? '/onboarding' : '/dashboard'
       const redirectResponse = NextResponse.redirect(new URL(redirectPath, BASE_URL))
 
+      // IMPORTANT: preserve full cookie options (especially `domain`) when
+      // copying from supabaseResponse to the redirect. Dropping the domain
+      // option scopes cookies to the response host instead of the apex
+      // wildcard, which breaks session recognition and causes OAuth loops.
       supabaseResponse.cookies.getAll().forEach(cookie => {
-        redirectResponse.cookies.set(cookie.name, cookie.value)
+        redirectResponse.cookies.set({
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          httpOnly: cookie.httpOnly,
+          sameSite: cookie.sameSite as any,
+          maxAge: cookie.maxAge,
+          expires: cookie.expires,
+        })
       })
 
       return redirectResponse
