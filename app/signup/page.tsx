@@ -128,14 +128,13 @@ export default function SignupPage() {
             <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Create your account</h1>
             <p className="text-sm text-[#7a6f65] mb-5">Start your family&apos;s learning journey.</p>
 
-            {/* HIDDEN: Google signup disabled until post-auth onboarding flow is fixed
             <button
               type="button"
               onClick={async () => {
                 const browserClient = createSupabaseBrowserClient();
                 await browserClient.auth.signInWithOAuth({
                   provider: "google",
-                  options: { redirectTo: 'https://www.rootedhomeschoolapp.com/auth/callback' },
+                  options: { redirectTo: `${window.location.origin}/auth/callback` },
                 });
               }}
               className="w-full flex items-center justify-center gap-3 bg-white border border-[#e8e2d9] hover:bg-[#f8f7f4] text-[#2d2926] font-medium py-3 rounded-xl transition-colors"
@@ -149,7 +148,6 @@ export default function SignupPage() {
               <span className="text-xs text-[#b5aca4]">or</span>
               <div className="flex-1 h-px bg-[#e8e2d9]" />
             </div>
-            */}
 
             <form onSubmit={handleSignup} className="flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-3">
