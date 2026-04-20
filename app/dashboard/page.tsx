@@ -1147,7 +1147,10 @@ export default function TodayPage() {
         .from("family_notifications")
         .select("id, memory_id, type, actor_name, emoji, created_at")
         .eq("user_id", effectiveUserId)
-        .is("read_at", null)
+        // Using `read` column to stay aligned with supabase/migrations schema.
+        // The `read_at` column exists in production but was added outside of
+        // migrations — it will be reconciled in a follow-up cleanup pass.
+        .eq("read", false)
         .order("created_at", { ascending: false })
         .limit(3);
       setFamilyNotifs(data ?? []);
@@ -1160,7 +1163,10 @@ export default function TodayPage() {
     if (ids.length > 0) {
       await supabase
         .from("family_notifications")
-        .update({ read_at: new Date().toISOString() })
+        // Using `read` column to stay aligned with supabase/migrations schema.
+        // The `read_at` column exists in production but was added outside of
+        // migrations — it will be reconciled in a follow-up cleanup pass.
+        .update({ read: true })
         .in("id", ids);
     }
   }
