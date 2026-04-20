@@ -477,6 +477,7 @@ export default function TodayPage() {
   const [familyName,      setFamilyName]      = useState("");
   const [firstName,       setFirstName]       = useState("");
   const [onboarded,       setOnboarded]       = useState<boolean | null>(null);
+  const [profileCreatedAt, setProfileCreatedAt] = useState<string | null>(null);
   const [children,        setChildren]        = useState<Child[]>([]);
   const [selectedChild,   setSelectedChild]   = useState<string | null>(null);
   const [lessons,         setLessons]         = useState<Lesson[]>([]);
@@ -799,7 +800,7 @@ export default function TodayPage() {
       prevMonthResult,
       goalEmojiResult,
     ] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id, notes").eq("user_id", effectiveUserId).or(`date.eq.${today},scheduled_date.eq.${today}`),
@@ -835,6 +836,7 @@ export default function TodayPage() {
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
+    setProfileCreatedAt((profile as { created_at?: string | null } | null)?.created_at ?? null);
     setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
     setTrialStartedAt((profile as any)?.trial_started_at ?? null);
     const pt = (profile as { plan_type?: string } | null)?.plan_type ?? null;
@@ -2366,6 +2368,10 @@ export default function TodayPage() {
       {!loading && onboarded === true && (() => {
         if (typeof window === "undefined") return null;
         if (localStorage.getItem("rooted_whats_new_v1") === "1") return null;
+        const isEstablishedUser = profileCreatedAt
+          ? (Date.now() - new Date(profileCreatedAt).getTime()) > 7 * 24 * 60 * 60 * 1000
+          : false;
+        if (!isEstablishedUser) return null;
         return (
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 relative">
             <p className="text-[15px] font-medium text-[#2d2926] mb-2.5" style={{ fontFamily: "var(--font-display)" }}>
