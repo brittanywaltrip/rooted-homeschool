@@ -134,7 +134,10 @@ export default function SignupPage() {
                 const browserClient = createSupabaseBrowserClient();
                 await browserClient.auth.signInWithOAuth({
                   provider: "google",
-                  options: { redirectTo: `${window.location.origin}/auth/callback` },
+                  options: {
+                    redirectTo: `${window.location.origin}/auth/callback`,
+                    queryParams: { prompt: 'select_account' },
+                  },
                 });
               }}
               className="w-full flex items-center justify-center gap-3 bg-white border border-[#e8e2d9] hover:bg-[#f8f7f4] text-[#2d2926] font-medium py-3 rounded-xl transition-colors"
