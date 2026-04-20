@@ -1166,14 +1166,12 @@ export default function TodayPage() {
   async function dismissFamilyNotifs() {
     setFamilyNotifsDismissed(true);
     const ids = familyNotifs.map((n) => n.id);
-    if (ids.length > 0) {
+    if (ids.length > 0 && effectiveUserId) {
       await supabase
         .from("family_notifications")
-        // Using `read` column to stay aligned with supabase/migrations schema.
-        // The `read_at` column exists in production but was added outside of
-        // migrations — it will be reconciled in a follow-up cleanup pass.
-        .update({ read: true })
-        .in("id", ids);
+        .update({ read: true, read_at: new Date().toISOString() })
+        .in("id", ids)
+        .eq("user_id", effectiveUserId);
     }
   }
 

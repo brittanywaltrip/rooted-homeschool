@@ -252,6 +252,15 @@ export default function UnifiedTimeline({
   useEffect(() => {
     const { cat, args } = computeStatus();
     if (cat !== statusCat || statusMsg === null) {
+      // earlyProgress is redundant with the header's "X of N done" counter —
+      // suppress the sub-banner for this state. Other categories (day-off,
+      // all-done, appt-soon, morning vibes, evening, etc.) are still shown.
+      if (cat === "earlyProgress") {
+        prevMsgRef.current = null;
+        setStatusCat(cat);
+        setStatusMsg(null);
+        return;
+      }
       const msg = pickRandom(STATUS_MESSAGES[cat], prevMsgRef.current, ...args);
       prevMsgRef.current = msg;
       setStatusCat(cat);
