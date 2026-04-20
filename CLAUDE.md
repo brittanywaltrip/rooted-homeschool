@@ -5,6 +5,36 @@ A living memory book that also plans your homeschool.
 Tagline: "Stay Rooted. Teach with Intention."
 Hero copy: "The homeschool years go by so fast. Rooted helps you plan your days, capture the moments, and hold onto it all."
 
+## Auth Invariants — DO NOT VIOLATE
+
+The Google OAuth flow broke multiple times because these rules weren't documented. If you are touching ANY file that deals with auth, sessions, cookies, or Supabase clients, read this first.
+
+1. NEVER import `{ supabase }` from `@/lib/supabase` in a new client component. That client uses implicit flow (localStorage). Our auth uses PKCE (cookies). ALWAYS use: `import { createSupabaseBrowserClient } from "@/lib/supabase-browser"` and then `const supabase = useMemo(() => createSupabaseBrowserClient(), [])`.
+
+2. NEVER hardcode `https://www.rootedhomeschoolapp.com` in OAuth redirects. ALWAYS use `${window.location.origin}/auth/callback` on the client. On the server, derive BASE_URL from the incoming request.
+
+3. NEVER hardcode cookie domain as `.rootedhomeschoolapp.com` without the `getCookieDomain()` helper in `lib/cookie-domain.ts`. Hardcoded domains break on vercel.app staging previews.
+
+4. When the auth callback copies cookies between responses, ALWAYS preserve the full options object (domain, path, secure, httpOnly, sameSite, maxAge, expires). Never just `.set(name, value)` — that strips the domain.
+
+5. Keep `queryParams: { prompt: 'select_account' }` in every signInWithOAuth call so the Google account picker always shows. Removing it breaks multi-Google-account users.
+
+### Auth file manifest — these files are the only ones touching auth:
+- app/auth/callback/route.ts
+- lib/supabase.ts and lib/supabase-browser.ts
+- lib/cookie-domain.ts
+- app/login/page.tsx and app/signup/page.tsx
+- app/onboarding/page.tsx
+- app/dashboard/layout.tsx
+
+### BEFORE merging anything that touches the files above, manually verify this end-to-end flow on staging:
+1. Clear cookies for the staging domain (or use a private window)
+2. Go to staging /login or /signup
+3. Click "Continue with Google" → pick a Google account that has never used Rooted
+4. Complete the onboarding wizard
+5. Confirm you land on /dashboard (Today page)
+If any step fails, DO NOT MERGE. Diagnose, fix, re-test.
+
 ## Positioning
 Memory book FIRST. Planner second. Memories lead emotionally.
 
