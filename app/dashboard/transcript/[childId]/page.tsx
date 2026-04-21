@@ -272,7 +272,8 @@ export default function TranscriptBuilderPage() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       for (const c of yc) {
-        checkPage(rowH + 4);
+        const providerExtra = c.external_provider ? 10 : 0;
+        checkPage(rowH + 4 + providerExtra);
 
         // Light border line
         doc.setDrawColor(...lineColor);
@@ -314,7 +315,18 @@ export default function TranscriptBuilderPage() {
         doc.setFont("helvetica", "bold");
         doc.text(c.grade_letter || "—", colX.grade + 30, y, { align: "right" });
         doc.setFont("helvetica", "normal");
-        y += rowH;
+
+        // Optional institution sub-line: italic, one size smaller than course name
+        if (c.external_provider) {
+          const provider = c.external_provider.length > 45 ? c.external_provider.slice(0, 43) + "…" : c.external_provider;
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8);
+          doc.setTextColor(...muted);
+          doc.text(provider, colX.course, y + 10);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9);
+        }
+        y += rowH + providerExtra;
       }
       y += 12;
     }
@@ -763,8 +775,8 @@ export default function TranscriptBuilderPage() {
       semester: form.semester,
       course_description: form.course_description?.trim() || null,
       curriculum_goal_id: form.curriculum_goal_id || null,
-      is_external: form.is_external,
-      external_provider: form.is_external ? (form.external_provider?.trim() || null) : null,
+      is_external: !!form.external_provider?.trim(),
+      external_provider: form.external_provider?.trim() || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -999,6 +1011,9 @@ export default function TranscriptBuilderPage() {
                                     )}
                                   </div>
                                   <div className="text-[11px] text-[#8a8580] mt-0.5 truncate">{subjectLabel(course.subject_category)}</div>
+                                  {course.external_provider && (
+                                    <div className="text-[11px] text-[#8a8580] mt-0.5 truncate">📍 {course.external_provider}</div>
+                                  )}
                                 </div>
                                 <div className="text-right shrink-0">
                                   <div className="text-[13px] font-medium text-[#3c3a37]">{course.grade_letter || "—"}</div>
@@ -1150,16 +1165,21 @@ export default function TranscriptBuilderPage() {
                               <span className="col-span-2 text-right">Grade</span>
                             </div>
                             {yc.map(c => (
-                              <div key={c.id} className="grid grid-cols-12 gap-1 px-3 py-1.5 border-t border-[#f0ece6]">
-                                <span className="col-span-5 truncate">
-                                  {c.course_name}
-                                  {(() => {
-                                    const level = (c as any).course_level || "standard";
-                                    if (level === "standard") return null;
-                                    const labels: Record<string, string> = { honors: "H", ap: "AP", dual_enrollment: "DE" };
-                                    return <span className="ml-1 text-[10px] font-bold text-white bg-[#2D5A3D] rounded px-1 py-0.5 inline-block leading-none">{labels[level] || ""}</span>;
-                                  })()}
-                                </span>
+                              <div key={c.id} className="grid grid-cols-12 gap-1 px-3 py-1.5 border-t border-[#f0ece6] items-start">
+                                <div className="col-span-5 min-w-0">
+                                  <div className="truncate">
+                                    {c.course_name}
+                                    {(() => {
+                                      const level = (c as any).course_level || "standard";
+                                      if (level === "standard") return null;
+                                      const labels: Record<string, string> = { honors: "H", ap: "AP", dual_enrollment: "DE" };
+                                      return <span className="ml-1 text-[10px] font-bold text-white bg-[#2D5A3D] rounded px-1 py-0.5 inline-block leading-none">{labels[level] || ""}</span>;
+                                    })()}
+                                  </div>
+                                  {c.external_provider && (
+                                    <div className="text-[10px] italic text-[#8a8580] truncate mt-0.5">{c.external_provider}</div>
+                                  )}
+                                </div>
                                 <span className="col-span-3 text-[#6b6560] truncate">{subjectLabel(c.subject_category)}</span>
                                 <span className="col-span-2 text-right">{c.credits_earned}</span>
                                 <span className="col-span-2 text-right font-medium">{c.grade_letter || "—"}</span>
@@ -1254,6 +1274,15 @@ export default function TranscriptBuilderPage() {
                   <input type="text" value={form.course_name} onChange={e => updateForm("course_name", e.target.value)}
                     placeholder="e.g. Algebra I"
                     className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]" />
+                </div>
+
+                {/* Institution (optional — leave blank for home school) */}
+                <div>
+                  <label className="text-[12px] font-medium text-[#6b6560] block mb-1">Institution</label>
+                  <input type="text" value={form.external_provider || ""} onChange={e => updateForm("external_provider", e.target.value)}
+                    placeholder="e.g. Riverside High School — leave blank if home school"
+                    className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]" />
+                  <p className="text-[11px] text-[#8a8580] mt-1">Use this for courses taken at a different school, co-op, or online provider. The homeschool name on your transcript is used when this is blank.</p>
                 </div>
 
                 {/* Year + Grade level */}
@@ -1352,19 +1381,6 @@ export default function TranscriptBuilderPage() {
                     className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white resize-none focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]" />
                 </div>
 
-                {/* External */}
-                <div className="flex items-center gap-3">
-                  <button type="button" onClick={() => updateForm("is_external", !form.is_external)}
-                    className={`w-10 h-6 rounded-full relative transition-colors ${form.is_external ? "bg-[#2D5A3D]" : "bg-[#e8e2d9]"}`}>
-                    <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${form.is_external ? "left-[18px]" : "left-0.5"}`} />
-                  </button>
-                  <span className="text-[13px] text-[#3c3a37]">External course (co-op, online, etc.)</span>
-                </div>
-                {form.is_external && (
-                  <input type="text" value={form.external_provider || ""} onChange={e => updateForm("external_provider", e.target.value)}
-                    placeholder="Provider name (e.g. Khan Academy)"
-                    className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]" />
-                )}
               </div>
 
               {/* Actions */}
