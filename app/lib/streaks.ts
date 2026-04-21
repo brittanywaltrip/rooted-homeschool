@@ -4,21 +4,21 @@ import { supabase } from "@/lib/supabase";
  * Check if a given date falls on a school day.
  * schoolDays: array of day names like ["Mon", "Tue", "Wed", "Thu", "Fri"]
  */
-function isSchoolDay(date: Date, schoolDays: string[]): boolean {
+export function isSchoolDay(date: Date, schoolDays: string[]): boolean {
   const dayMap: Record<number, string> = {
     0: "Sun", 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat",
   };
   return schoolDays.includes(dayMap[date.getDay()]);
 }
 
-function toDateStr(d: Date): string {
+export function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 /**
  * Find the previous school day before the given date.
  */
-function previousSchoolDay(date: Date, schoolDays: string[]): Date {
+export function previousSchoolDay(date: Date, schoolDays: string[]): Date {
   const d = new Date(date);
   for (let i = 0; i < 14; i++) {
     d.setDate(d.getDate() - 1);

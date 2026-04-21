@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
 import { onLogAction } from "@/app/lib/onLogAction";
+import { getPhotoCount } from "@/app/lib/integrity-checks";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -150,8 +151,8 @@ export default function LogTodayModal({
       let photoUrl: string | undefined;
       if (photoFile) {
         if (!isPro) {
-          const { data: countProfile } = await supabase.from("profiles").select("photo_count").eq("id", user.id).single();
-          if ((countProfile?.photo_count ?? 0) >= 50) {
+          const photoCount = await getPhotoCount(user.id);
+          if (photoCount >= 50) {
             setUploadError("You've reached your memory limit 🤍 New photo memories won't be saved until you upgrade.");
             setSaving(false);
             return;
@@ -169,9 +170,6 @@ export default function LogTodayModal({
         }
         const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
         photoUrl = urlData.publicUrl;
-        if (!isPro) {
-          await supabase.rpc("increment_photo_count", { p_user_id: user.id });
-        }
       }
 
       // Determine event type
