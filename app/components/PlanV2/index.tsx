@@ -1,15 +1,28 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, MousePointerSquareDashed } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Plus, MousePointerSquareDashed, X } from "lucide-react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import MonthGrid from "./MonthGrid";
 import DayDetailPanelV2 from "./DayDetailPanel";
+import UndoBar, { type UndoAction } from "./UndoBar";
 import { usePlanV2Data } from "./usePlanV2Data";
 import { usePlanLessonActions } from "./usePlanLessonActions";
 import { resolveChildColor } from "./colors";
+import { PillShell } from "./LessonPill";
+import { useIsMobile } from "./useIsMobile";
+import { hapticTap } from "./haptic";
 import type { PlanV2Appointment, PlanV2Lesson } from "./types";
 import type {
   TodayLessonCardChild,
@@ -61,12 +74,23 @@ type ViewMode = "week" | "month";
 export default function PlanV2() {
   const { effectiveUserId, isPartner } = usePartner();
   const todayStr = useMemo(() => toDateStr(new Date()), []);
+  const isMobile = useIsMobile();
 
   const [monthStart, setMonthStart] = useState<Date>(() => firstOfMonth(new Date()));
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [childFilter, setChildFilter] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [openDayStr, setOpenDayStr] = useState<string | null>(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [recentlyLandedIds, setRecentlyLandedIds] = useState<Set<string>>(() => new Set());
+  const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<{ lessonId: string; fromDateStr: string } | null>(null);
+  const recentTimersRef = useRef<Map<string, number>>(new Map());
+
+  // Sensors — activate after 8px of movement so taps still register as clicks.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  );
 
   const { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons } =
     usePlanV2Data({ effectiveUserId, monthStart });
@@ -81,7 +105,7 @@ export default function PlanV2() {
     setMonthLessons: setLessons,
     effectiveUserId,
     onSkipUndo: () => {
-      // Universal undo bar lands in Phase 5 — for now just refresh.
+      // Drop + reschedule share UndoBar; skip refresh is good enough here.
       reload();
     },
   });
@@ -169,6 +193,150 @@ export default function PlanV2() {
     },
     [reload],
   );
+
+  // ── Ring state for newly-landed pills ──────────────────────────────────────
+  const flagLanded = useCallback((lessonId: string) => {
+    setRecentlyLandedIds((prev) => {
+      const next = new Set(prev);
+      next.add(lessonId);
+      return next;
+    });
+    const prevTimer = recentTimersRef.current.get(lessonId);
+    if (prevTimer !== undefined) window.clearTimeout(prevTimer);
+    const timer = window.setTimeout(() => {
+      setRecentlyLandedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(lessonId);
+        return next;
+      });
+      recentTimersRef.current.delete(lessonId);
+    }, 2500);
+    recentTimersRef.current.set(lessonId, timer);
+  }, []);
+
+  // ── Move a single lesson to a new date ────────────────────────────────────
+  // Shared by drag-drop AND the mobile/desktop reschedule dialog. Handles
+  // vacation rejection, weekend warn-but-allow, optimistic state, rollback on
+  // DB failure, and the universal undo bar entry.
+  const performMove = useCallback(
+    async (lessonId: string, fromDateStr: string, toDateStr: string) => {
+      if (fromDateStr === toDateStr) return;
+
+      const inVacation = vacationBlocks.some(
+        (b) => toDateStr >= b.start_date && toDateStr <= b.end_date,
+      );
+      if (inVacation) {
+        flashNotice("That day is blocked off as a vacation — pick another day.");
+        return;
+      }
+
+      const source = lessons.find((l) => l.id === lessonId);
+      if (!source) return;
+
+      const [ty, tm, td] = toDateStr.split("-").map(Number);
+      const toNative = new Date(ty, tm - 1, td).getDay();
+      const toIsWeekend = toNative === 0 || toNative === 6;
+
+      const label =
+        (source.title && source.title.trim().length > 0)
+          ? source.title
+          : source.lesson_number
+            ? `Lesson ${source.lesson_number}`
+            : "Lesson";
+      const toLabel = new Date(`${toDateStr}T12:00:00`).toLocaleDateString("en-US", {
+        weekday: "short", month: "short", day: "numeric",
+      });
+
+      // Optimistic update + ring + haptic.
+      setLessons((prev) =>
+        prev.map((l) =>
+          l.id === lessonId ? { ...l, scheduled_date: toDateStr, date: toDateStr } : l,
+        ),
+      );
+      flagLanded(lessonId);
+      hapticTap(20);
+
+      // DB write with try/catch + rollback.
+      try {
+        const { error } = await supabase
+          .from("lessons")
+          .update({ scheduled_date: toDateStr, date: toDateStr })
+          .eq("id", lessonId);
+        if (error) throw error;
+      } catch {
+        setLessons((prev) =>
+          prev.map((l) =>
+            l.id === lessonId ? { ...l, scheduled_date: fromDateStr, date: fromDateStr } : l,
+          ),
+        );
+        flashNotice("Couldn't save — check your connection and try again.");
+        return;
+      }
+
+      // Success path — register the universal undo action and reload for
+      // upstream consistency (per Phase 5 safety rule #2).
+      const weekendSuffix = toIsWeekend ? " · weekend" : "";
+      setUndoAction({
+        message: `Moved "${label}" to ${toLabel}${weekendSuffix}`,
+        key: `${lessonId}:${toDateStr}:${Date.now()}`,
+        onUndo: async () => {
+          setLessons((prev) =>
+            prev.map((l) =>
+              l.id === lessonId
+                ? { ...l, scheduled_date: fromDateStr, date: fromDateStr }
+                : l,
+            ),
+          );
+          hapticTap(20);
+          flagLanded(lessonId);
+          try {
+            await supabase
+              .from("lessons")
+              .update({ scheduled_date: fromDateStr, date: fromDateStr })
+              .eq("id", lessonId);
+          } catch {
+            flashNotice("Couldn't undo — check your connection.");
+          }
+          reload();
+        },
+      });
+
+      reload();
+    },
+    [lessons, vacationBlocks, setLessons, reload, flagLanded],
+  );
+
+  // ── DnD handlers ───────────────────────────────────────────────────────────
+  const handleDragStart = useCallback((e: DragStartEvent) => {
+    setActiveDragId(String(e.active.id));
+    hapticTap(12);
+  }, []);
+
+  const handleDragEnd = useCallback(
+    (e: DragEndEvent) => {
+      setActiveDragId(null);
+      const { active, over } = e;
+      if (!over) return;
+      const aData = active.data.current as { type?: string; lessonId?: string; sourceDateStr?: string } | undefined;
+      const oData = over.data.current as { type?: string; dateStr?: string; isVacation?: boolean } | undefined;
+      if (aData?.type !== "lesson" || oData?.type !== "day") return;
+      if (!aData.lessonId || !aData.sourceDateStr || !oData.dateStr) return;
+      if (oData.isVacation) return;
+      void performMove(aData.lessonId, aData.sourceDateStr, oData.dateStr);
+    },
+    [performMove],
+  );
+
+  const handleDragCancel = useCallback(() => {
+    setActiveDragId(null);
+  }, []);
+
+  // Look up the currently-dragged lesson for the overlay.
+  const activeLesson = useMemo<PlanV2Lesson | null>(() => {
+    if (!activeDragId) return null;
+    const id = activeDragId.startsWith("lesson:") ? activeDragId.slice("lesson:".length) : activeDragId;
+    return lessons.find((l) => l.id === id) ?? null;
+  }, [activeDragId, lessons]);
 
   const viewingCurrentMonth =
     monthStart.getFullYear() === new Date().getFullYear() &&
@@ -314,24 +482,81 @@ export default function PlanV2() {
               </div>
             ) : null}
 
-            {/* Month grid */}
+            {/* Month grid — wrapped in DndContext on desktop; on mobile the
+                grid renders without drag sensors so page scroll isn't hijacked. */}
             <div className="p-3">
-              <MonthGrid
-                monthStart={monthStart}
-                todayStr={todayStr}
-                kids={kids}
-                lessons={filteredLessons}
-                appointments={filteredAppointments}
-                vacationBlocks={vacationBlocks}
-                loading={loading}
-                onCellClick={(dateStr) => setOpenDayStr(dateStr)}
-                onLessonClick={(lesson) => {
-                  const d = lesson.scheduled_date ?? lesson.date;
-                  if (d) setOpenDayStr(d);
-                }}
-                onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
-                onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
-              />
+              {isMobile ? (
+                <MonthGrid
+                  monthStart={monthStart}
+                  todayStr={todayStr}
+                  kids={kids}
+                  lessons={filteredLessons}
+                  appointments={filteredAppointments}
+                  vacationBlocks={vacationBlocks}
+                  loading={loading}
+                  dndEnabled={false}
+                  recentlyLandedIds={recentlyLandedIds}
+                  onCellClick={(dateStr) => setOpenDayStr(dateStr)}
+                  onLessonClick={(lesson) => {
+                    const d = lesson.scheduled_date ?? lesson.date;
+                    if (d) setOpenDayStr(d);
+                  }}
+                  onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                  onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
+                />
+              ) : (
+                <DndContext
+                  sensors={sensors}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  onDragCancel={handleDragCancel}
+                >
+                  <MonthGrid
+                    monthStart={monthStart}
+                    todayStr={todayStr}
+                    kids={kids}
+                    lessons={filteredLessons}
+                    appointments={filteredAppointments}
+                    vacationBlocks={vacationBlocks}
+                    loading={loading}
+                    dndEnabled
+                    isDragActive={activeDragId !== null}
+                    recentlyLandedIds={recentlyLandedIds}
+                    onCellClick={(dateStr) => setOpenDayStr(dateStr)}
+                    onLessonClick={(lesson) => {
+                      const d = lesson.scheduled_date ?? lesson.date;
+                      if (d) setOpenDayStr(d);
+                    }}
+                    onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                    onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
+                  />
+                  <DragOverlay dropAnimation={null}>
+                    {activeLesson ? (() => {
+                      const meta = activeLesson.child_id
+                        ? { child: kids.find((k) => k.id === activeLesson.child_id), index: kids.findIndex((k) => k.id === activeLesson.child_id) }
+                        : null;
+                      const color = resolveChildColor(meta?.child ?? null, meta?.index ?? 0);
+                      const label = activeLesson.title && activeLesson.title.trim().length > 0
+                        ? activeLesson.title
+                        : activeLesson.lesson_number
+                          ? `Lesson ${activeLesson.lesson_number}`
+                          : "Lesson";
+                      const initial = meta?.child ? meta.child.name.charAt(0).toUpperCase() : "·";
+                      return (
+                        <PillShell
+                          color={color}
+                          initial={initial}
+                          subject={activeLesson.subjects?.name ?? null}
+                          label={label}
+                          done={activeLesson.completed}
+                          overlay
+                          ariaLabel=""
+                        />
+                      );
+                    })() : null}
+                  </DragOverlay>
+                </DndContext>
+              )}
             </div>
           </div>
         )}
@@ -361,7 +586,16 @@ export default function PlanV2() {
                 if (full) void skipLesson(full);
               }}
               onEditLesson={() => flashNotice("Edit lesson opens in a later phase.")}
-              onRescheduleLesson={() => flashNotice("Reschedule lands via drag in the next phase.")}
+              onRescheduleLesson={(l) => {
+                const full = lessons.find((x) => x.id === l.id);
+                const fromDateStr = full?.scheduled_date ?? full?.date ?? null;
+                if (!full || !fromDateStr) {
+                  flashNotice("This lesson isn't on the calendar yet — edit it from the Plan page.");
+                  return;
+                }
+                setOpenDayStr(null);
+                setRescheduleTarget({ lessonId: l.id, fromDateStr });
+              }}
               onMinutesUpdate={handleMinutesUpdate}
               onToggleAppointment={handleAppointmentToggle}
               onLessonChanged={handleLessonChanged}
@@ -379,6 +613,113 @@ export default function PlanV2() {
             </div>
           </div>
         ) : null}
+
+        {/* Reschedule dialog — opened from the DayDetailPanel 3-dot menu.
+            Uses the native <input type="date"> picker (opens the OS picker
+            on mobile, a calendar popover on desktop). */}
+        {rescheduleTarget ? (
+          <RescheduleDialog
+            lessonId={rescheduleTarget.lessonId}
+            fromDateStr={rescheduleTarget.fromDateStr}
+            minDateStr={todayStr}
+            vacationBlocks={vacationBlocks}
+            onCancel={() => setRescheduleTarget(null)}
+            onPick={async (toDateStr) => {
+              setRescheduleTarget(null);
+              await performMove(rescheduleTarget.lessonId, rescheduleTarget.fromDateStr, toDateStr);
+            }}
+          />
+        ) : null}
+
+        {/* Global undo bar */}
+        <UndoBar action={undoAction} onDismiss={() => setUndoAction(null)} />
+      </div>
+    </>
+  );
+}
+
+// ─── Reschedule dialog ───────────────────────────────────────────────────────
+
+function RescheduleDialog(props: {
+  lessonId: string;
+  fromDateStr: string;
+  minDateStr: string;
+  vacationBlocks: { start_date: string; end_date: string }[];
+  onCancel: () => void;
+  onPick: (toDateStr: string) => void;
+}) {
+  const { fromDateStr, minDateStr, vacationBlocks, onCancel, onPick } = props;
+  const [value, setValue] = useState<string>(fromDateStr);
+  const inVacation = vacationBlocks.some(
+    (b) => value >= b.start_date && value <= b.end_date,
+  );
+  const fromLabel = new Date(`${fromDateStr}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "long", month: "short", day: "numeric",
+  });
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[70]"
+        onClick={onCancel}
+        aria-hidden
+      />
+      <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-3 pointer-events-none">
+        <div
+          className="bg-[#fefcf9] rounded-2xl shadow-xl w-full max-w-sm pointer-events-auto overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between px-5 pt-4 pb-2">
+            <div>
+              <h2 className="text-base font-bold text-[#2d2926]">Reschedule lesson</h2>
+              <p className="text-xs text-[#7a6f65] mt-0.5">Currently on {fromLabel}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label="Cancel reschedule"
+              className="w-8 h-8 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="px-5 pb-5 pt-2 space-y-3">
+            <label className="block">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">
+                New date
+              </span>
+              <input
+                type="date"
+                value={value}
+                min={minDateStr}
+                onChange={(e) => setValue(e.target.value)}
+                className="mt-1.5 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2.5 text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
+              />
+            </label>
+            {inVacation ? (
+              <p className="text-[11px] text-[#b91c1c]">
+                That day is blocked off as a vacation — pick a different day.
+              </p>
+            ) : null}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="flex-1 min-h-[44px] text-sm font-medium text-[#7a6f65] bg-[#f4f0e8] rounded-xl hover:bg-[#e8e2d9] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!value || inVacation || value === fromDateStr}
+                onClick={() => onPick(value)}
+                className="flex-1 min-h-[44px] text-sm font-bold text-white bg-[#2D5A3D] rounded-xl hover:bg-[var(--g-deep)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Save new date
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </>
   );
