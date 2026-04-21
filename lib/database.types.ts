@@ -1310,7 +1310,6 @@ export type Database = {
           onboarded: boolean | null
           onboarded_at: string | null
           partner_email: string | null
-          photo_count: number | null
           plan_type: string | null
           printable_style: string | null
           re_engagement_sent: boolean | null
@@ -1350,7 +1349,6 @@ export type Database = {
           onboarded?: boolean | null
           onboarded_at?: string | null
           partner_email?: string | null
-          photo_count?: number | null
           plan_type?: string | null
           printable_style?: string | null
           re_engagement_sent?: boolean | null
@@ -1390,7 +1388,6 @@ export type Database = {
           onboarded?: boolean | null
           onboarded_at?: string | null
           partner_email?: string | null
-          photo_count?: number | null
           plan_type?: string | null
           printable_style?: string | null
           re_engagement_sent?: boolean | null
@@ -1920,7 +1917,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      increment_photo_count: { Args: { p_user_id: string }; Returns: undefined }
       seed_default_list: { Args: { p_user_id: string }; Returns: undefined }
     }
     Enums: {

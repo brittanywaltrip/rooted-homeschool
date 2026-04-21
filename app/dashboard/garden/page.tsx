@@ -16,6 +16,7 @@ import {
 import PageHero from "@/app/components/PageHero";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { validateStreak } from "@/app/lib/integrity-checks";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -387,6 +388,8 @@ export default function GardenPage() {
     subscription_status?: string;
     current_streak_days?: number;
     longest_streak_days?: number;
+    last_logged_date?: string | null;
+    school_days?: string[] | null;
   } | null>(null);
   const [isAffiliate, setIsAffiliate]   = useState(false);
   const [celebrationData, setCelebrationData] = useState<{
@@ -442,7 +445,7 @@ export default function GardenPage() {
         supabase.from("lessons").select("child_id, date, scheduled_date, hours").eq("user_id", effectiveUserId).eq("completed", true),
         supabase.from("memories").select("child_id, type").eq("user_id", effectiveUserId),
         supabase.from("vacation_blocks").select("start_date, end_date, name").eq("user_id", effectiveUserId),
-        supabase.from("profiles").select("display_name, plan_type, subscription_status, current_streak_days, longest_streak_days").eq("id", effectiveUserId).maybeSingle(),
+        supabase.from("profiles").select("display_name, plan_type, subscription_status, current_streak_days, longest_streak_days, last_logged_date, school_days").eq("id", effectiveUserId).maybeSingle(),
         supabase.from("activity_logs").select("activity_id, completed").eq("user_id", effectiveUserId).eq("completed", true),
         supabase.from("activities").select("id, child_ids").eq("user_id", effectiveUserId),
       ]);
@@ -555,7 +558,7 @@ export default function GardenPage() {
     ? ((selectedLeaves - selectedStage.min) / (nextStage.min - selectedStage.min)) * 100
     : 100;
 
-  const currentStreak = profile?.current_streak_days ?? 0;
+  const currentStreak = validateStreak(profile);
 
   if (loading) {
     return (
