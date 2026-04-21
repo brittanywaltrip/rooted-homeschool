@@ -18,6 +18,8 @@ import MonthGrid from "./MonthGrid";
 import DayDetailPanelV2 from "./DayDetailPanel";
 import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
+import DayCellContextMenu from "./DayCellContextMenu";
+import AppointmentWizard from "@/app/components/AppointmentWizard";
 import { usePlanV2Data } from "./usePlanV2Data";
 import { usePlanLessonActions } from "./usePlanLessonActions";
 import { resolveChildColor } from "./colors";
@@ -86,6 +88,10 @@ export default function PlanV2() {
   const [recentlyLandedIds, setRecentlyLandedIds] = useState<Set<string>>(() => new Set());
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<{ lessonId: string; fromDateStr: string } | null>(null);
+  // Context menu — right-click on desktop / cell long-press on mobile.
+  const [contextMenu, setContextMenu] = useState<{ dateStr: string; x: number; y: number } | null>(null);
+  // Appointment wizard opened from "+ Add appointment" menu item.
+  const [apptWizardDate, setApptWizardDate] = useState<string | null>(null);
   const recentTimersRef = useRef<Map<string, number>>(new Map());
 
   // Select-mode state — owns the selected set, whether the dark-green toolbar
@@ -740,6 +746,103 @@ export default function PlanV2() {
     exitSelectMode();
   }, [lessons, setLessons, reload, exitSelectMode, commitPendingBulkDelete]);
 
+  // ── Day-cell context menu actions ─────────────────────────────────────────
+  // Helpers scoped to the day the menu is open for. All actions close the
+  // menu first, then run their handler.
+
+  const lessonsOnDate = useCallback(
+    (dateStr: string) => lessons.filter((l) => (l.scheduled_date ?? l.date) === dateStr),
+    [lessons],
+  );
+
+  const handleMenuSelectAll = useCallback((dateStr: string) => {
+    setContextMenu(null);
+    const ids = lessonsOnDate(dateStr).map((l) => l.id);
+    if (ids.length === 0) return;
+    setSelectMode(true);
+    setSelectedIds(new Set(ids));
+    hapticTap(20);
+  }, [lessonsOnDate]);
+
+  const handleMenuMoveAll = useCallback((dateStr: string) => {
+    setContextMenu(null);
+    const ids = lessonsOnDate(dateStr).map((l) => l.id);
+    if (ids.length === 0) return;
+    setSelectMode(true);
+    setSelectedIds(new Set(ids));
+    setMoveTargetMode(true);
+    hapticTap(20);
+  }, [lessonsOnDate]);
+
+  const handleMenuSkipAll = useCallback((dateStr: string) => {
+    setContextMenu(null);
+    const ids = lessonsOnDate(dateStr).map((l) => l.id);
+    if (ids.length === 0) return;
+    void performBulkSkip(ids);
+  }, [lessonsOnDate, performBulkSkip]);
+
+  const handleMenuOpenDay = useCallback((dateStr: string) => {
+    setContextMenu(null);
+    setOpenDayStr(dateStr);
+  }, []);
+
+  const handleMenuAddLesson = useCallback(() => {
+    setContextMenu(null);
+    flashNotice("Adding a lesson from Plan lands in a later phase. Use Today or Plan (week view) in the meantime.");
+  }, []);
+
+  const handleMenuAddAppointment = useCallback((dateStr: string) => {
+    setContextMenu(null);
+    setApptWizardDate(dateStr);
+  }, []);
+
+  // "Mark as break day" — INSERTs a single-day vacation_block. No automatic
+  // lesson shift (that's legacy saveVacationBlock behavior tightly coupled to
+  // plan/page.tsx's state); any lessons on that day stay in the DB but the
+  // cell hides them while the block exists. Undo removes the block.
+  const handleMenuMarkBreak = useCallback(async (dateStr: string) => {
+    setContextMenu(null);
+    if (!effectiveUserId) return;
+    // Optimistic: show the block immediately by writing to local state via reload after insert.
+    try {
+      const { data, error } = await supabase
+        .from("vacation_blocks")
+        .insert({
+          user_id: effectiveUserId,
+          name: "Break",
+          start_date: dateStr,
+          end_date: dateStr,
+        })
+        .select("id, name, start_date, end_date")
+        .single();
+      if (error || !data) {
+        flashNotice("Couldn't save — check your connection and try again.");
+        return;
+      }
+      hapticTap(20);
+      const insertedId = (data as { id: string }).id;
+      const dateLabel = new Date(`${dateStr}T12:00:00`).toLocaleDateString("en-US", {
+        weekday: "short", month: "short", day: "numeric",
+      });
+      setUndoAction({
+        message: `Marked ${dateLabel} as a break day`,
+        key: `mark-break:${insertedId}`,
+        onUndo: async () => {
+          hapticTap(20);
+          try {
+            await supabase.from("vacation_blocks").delete().eq("id", insertedId);
+          } catch {
+            flashNotice("Couldn't undo — check your connection.");
+          }
+          reload();
+        },
+      });
+      reload();
+    } catch {
+      flashNotice("Couldn't save — check your connection and try again.");
+    }
+  }, [effectiveUserId, reload]);
+
   const viewingCurrentMonth =
     monthStart.getFullYear() === new Date().getFullYear() &&
     monthStart.getMonth() === new Date().getMonth();
@@ -972,6 +1075,10 @@ export default function PlanV2() {
                   onMoveTargetPick={(dateStr) => {
                     void performBulkMove(Array.from(selectedIds), dateStr);
                   }}
+                  onCellContextMenu={(dateStr, x, y) => {
+                    if (selectMode) return;
+                    setContextMenu({ dateStr, x, y });
+                  }}
                 />
               ) : (
                 <DndContext
@@ -999,6 +1106,7 @@ export default function PlanV2() {
                     onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
                     onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
                     onLessonLongPress={(lesson) => enterSelectMode(lesson.id)}
+                    onCellContextMenu={(dateStr, x, y) => setContextMenu({ dateStr, x, y })}
                   />
                   <DragOverlay dropAnimation={null}>
                     {activeLesson ? (() => {
@@ -1100,6 +1208,35 @@ export default function PlanV2() {
             }}
           />
         ) : null}
+
+        {/* Day-cell context menu — right-click on desktop, long-press on mobile. */}
+        {contextMenu ? (
+          <DayCellContextMenu
+            dateStr={contextMenu.dateStr}
+            lessonCount={lessonsOnDate(contextMenu.dateStr).length}
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onSelectAll={() => handleMenuSelectAll(contextMenu.dateStr)}
+            onMoveAll={() => handleMenuMoveAll(contextMenu.dateStr)}
+            onSkipAll={() => handleMenuSkipAll(contextMenu.dateStr)}
+            onMarkBreak={() => void handleMenuMarkBreak(contextMenu.dateStr)}
+            onAddLesson={handleMenuAddLesson}
+            onAddAppointment={() => handleMenuAddAppointment(contextMenu.dateStr)}
+            onOpenDay={() => handleMenuOpenDay(contextMenu.dateStr)}
+            onClose={() => setContextMenu(null)}
+          />
+        ) : null}
+
+        {/* Appointment wizard — opened from "+ Add appointment" menu item. */}
+        <AppointmentWizard
+          isOpen={apptWizardDate !== null}
+          onClose={() => setApptWizardDate(null)}
+          onSaved={() => {
+            setApptWizardDate(null);
+            reload();
+          }}
+          initialDate={apptWizardDate ?? undefined}
+        />
 
         {/* Global undo bar */}
         <UndoBar action={undoAction} onDismiss={() => setUndoAction(null)} />

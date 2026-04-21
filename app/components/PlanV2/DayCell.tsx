@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import LessonPill from "./LessonPill";
 import AppointmentPill from "./AppointmentPill";
+import { useLongPress } from "./useLongPress";
 import type {
   PlanV2Appointment,
   PlanV2Child,
@@ -53,6 +54,10 @@ interface Props {
   onLessonLongPress?: (lesson: PlanV2Lesson) => void;
   onLessonSelectToggle?: (lesson: PlanV2Lesson) => void;
   onMoveTargetPick?: (dateStr: string) => void;
+  /** Cell-level context menu: fired by right-click (desktop) and cell-level
+   * long-press (mobile). Pill-level long-press never reaches here because the
+   * pill wrapper stops pointer/contextmenu propagation. */
+  onCellContextMenu?: (dateStr: string, x: number, y: number) => void;
 }
 
 function sortAppointments(appts: PlanV2Appointment[]): PlanV2Appointment[] {
@@ -72,7 +77,21 @@ export default function DayCell(props: Props) {
     selectMode, selectedIds, moveTargetMode,
     onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
     onLessonLongPress, onLessonSelectToggle, onMoveTargetPick,
+    onCellContextMenu,
   } = props;
+
+  // Track the last pointerdown position so the cell-level long-press can
+  // spawn the context menu at the correct coordinates without needing another
+  // pointer event.
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const cellLongPress = useLongPress(
+    () => {
+      const p = lastPointerRef.current;
+      if (!p) return;
+      onCellContextMenu?.(dateStr, p.x, p.y);
+    },
+    { holdMs: 400, moveThresholdPx: 8 },
+  );
 
   const isPast = dateStr < todayStr;
 
@@ -140,7 +159,28 @@ export default function DayCell(props: Props) {
       ref={setDropRef}
       role="gridcell"
       aria-label={date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-      onClick={handleCellClick}
+      onClick={(e) => {
+        // Long-press just fired? Swallow the synthetic click.
+        if (cellLongPress.wasLongPress()) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        handleCellClick();
+      }}
+      onContextMenu={(e) => {
+        if (!onCellContextMenu) return;
+        e.preventDefault();
+        onCellContextMenu(dateStr, e.clientX, e.clientY);
+      }}
+      onPointerDown={(e) => {
+        lastPointerRef.current = { x: e.clientX, y: e.clientY };
+        cellLongPress.onPointerDown(e);
+      }}
+      onPointerUp={cellLongPress.onPointerUp}
+      onPointerMove={cellLongPress.onPointerMove}
+      onPointerCancel={cellLongPress.onPointerCancel}
+      onPointerLeave={cellLongPress.onPointerLeave}
       className="relative min-h-[82px] flex flex-col gap-[3px] p-1.5 transition-colors hover:bg-[#faf8f4]"
       style={{
         backgroundColor: cellBg,
