@@ -128,11 +128,15 @@ function DraggableLessonPill(p: DraggableProps) {
   // long-press timer counts down for the hold. If the user hasn't moved by the
   // time the timer fires, onLongPress takes the interaction.
   const onPointerDown = (e: React.PointerEvent) => {
+    // Stop the gesture from bubbling to the DayCell, otherwise a long-press
+    // on a pill would ALSO trigger the cell's context-menu long-press.
+    e.stopPropagation();
     longPress.onPointerDown(e);
     const l = listeners as Record<string, (e: React.PointerEvent) => void> | undefined;
     l?.onPointerDown?.(e);
   };
   const onPointerUp = (e: React.PointerEvent) => {
+    e.stopPropagation();
     longPress.onPointerUp(e);
     const l = listeners as Record<string, (e: React.PointerEvent) => void> | undefined;
     l?.onPointerUp?.(e);
@@ -147,6 +151,7 @@ function DraggableLessonPill(p: DraggableProps) {
       onPointerMove={longPress.onPointerMove}
       onPointerCancel={longPress.onPointerCancel}
       onPointerLeave={longPress.onPointerLeave}
+      onContextMenu={(e) => e.stopPropagation()}
       className="touch-none"
     >
       <PillShell
@@ -180,11 +185,18 @@ function NonDraggablePill(p: Omit<ShellProps, "overlay" | "dragging"> & { onLong
   const longPress = useLongPress(() => p.onLongPress?.(), { holdMs: 150 });
   return (
     <div
-      onPointerDown={longPress.onPointerDown}
-      onPointerUp={longPress.onPointerUp}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        longPress.onPointerDown(e);
+      }}
+      onPointerUp={(e) => {
+        e.stopPropagation();
+        longPress.onPointerUp(e);
+      }}
       onPointerMove={longPress.onPointerMove}
       onPointerCancel={longPress.onPointerCancel}
       onPointerLeave={longPress.onPointerLeave}
+      onContextMenu={(e) => e.stopPropagation()}
     >
       <PillShell
         {...p}

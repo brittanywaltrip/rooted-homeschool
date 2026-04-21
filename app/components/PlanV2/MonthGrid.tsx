@@ -45,6 +45,7 @@ interface Props {
   onLessonLongPress?: (lesson: PlanV2Lesson) => void;
   onLessonSelectToggle?: (lesson: PlanV2Lesson) => void;
   onMoveTargetPick?: (dateStr: string) => void;
+  onCellContextMenu?: (dateStr: string, x: number, y: number) => void;
 }
 
 function SkeletonCell() {
@@ -63,6 +64,7 @@ export default function MonthGrid(props: Props) {
     selectMode, selectedIds, moveTargetMode,
     onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
     onLessonLongPress, onLessonSelectToggle, onMoveTargetPick,
+    onCellContextMenu,
   } = props;
 
   const { cells } = useMemo(() => computeGridRange(monthStart), [monthStart]);
@@ -144,6 +146,7 @@ export default function MonthGrid(props: Props) {
                   onLessonLongPress={onLessonLongPress}
                   onLessonSelectToggle={onLessonSelectToggle}
                   onMoveTargetPick={onMoveTargetPick}
+                  onCellContextMenu={onCellContextMenu}
                 />
               );
             })}
