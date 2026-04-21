@@ -36,23 +36,92 @@ type AppointmentRow = {
   created_at: string
 }
 
-type ExpandedAppointment = AppointmentRow & { instance_date: string }
+type AppointmentException = {
+  id: string
+  appointment_id: string
+  exception_date: string
+  override_fields: Partial<AppointmentRow> | null
+  skipped: boolean
+}
+
+// Expanded-instance shape. `exception_id` is set when this instance has an
+// override row applied; the client uses it to know edits/deletes are
+// targeting an existing exception vs. creating a new one.
+type ExpandedAppointment = AppointmentRow & {
+  instance_date: string
+  exception_id?: string | null
+}
 
 function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function dayBefore(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() - 1)
+  return fmtDate(d)
+}
+
+/** Fields callers are allowed to update directly on the base appointment
+ * row (scope="series" path). Also the set of fields copied/overlaid when
+ * splitting or building exception overrides. */
+const ALLOWED_FIELDS = [
+  'title', 'emoji', 'date', 'time', 'duration_minutes',
+  'location', 'notes', 'child_ids', 'is_recurring', 'recurrence_rule', 'completed',
+] as const
+
+type EditableKey = (typeof ALLOWED_FIELDS)[number]
+
+function pickAllowed(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const k of ALLOWED_FIELDS) {
+    if (k in body) out[k] = body[k]
+  }
+  return out
+}
+
+/** Merge exception.override_fields over the base appointment row. Only keys
+ * present in override_fields win; everything else keeps base values. */
+function applyOverride(
+  base: AppointmentRow,
+  override: Partial<AppointmentRow> | null,
+): AppointmentRow {
+  if (!override) return base
+  const merged: AppointmentRow = { ...base }
+  for (const k of Object.keys(override) as EditableKey[]) {
+    // We only allow editable keys through — ignore anything else the client
+    // may have shoved into override_fields.
+    if ((ALLOWED_FIELDS as readonly string[]).includes(k)) {
+      // Cast through unknown so TS doesn't fight the Partial<Row>→Row narrowing.
+      (merged as unknown as Record<string, unknown>)[k] =
+        (override as unknown as Record<string, unknown>)[k]
+    }
+  }
+  return merged
 }
 
 function expandRecurring(
   appt: AppointmentRow,
   rangeStart: string,
   rangeEnd: string,
+  exceptionsForAppt: Map<string, AppointmentException>,
 ): ExpandedAppointment[] {
   const rule = appt.recurrence_rule
+
+  const emitInstance = (ds: string): ExpandedAppointment | null => {
+    const exc = exceptionsForAppt.get(ds)
+    if (exc?.skipped) return null
+    const base: AppointmentRow = exc?.override_fields
+      ? applyOverride(appt, exc.override_fields)
+      : appt
+    return { ...base, id: appt.id, instance_date: ds, exception_id: exc?.id ?? null }
+  }
 
   // No rule or no days: just return the appointment on its own date if in range
   if (!rule || !rule.days || rule.days.length === 0) {
     if (appt.date >= rangeStart && appt.date <= rangeEnd) {
-      return [{ ...appt, instance_date: appt.date }]
+      const inst = emitInstance(appt.date)
+      return inst ? [inst] : []
     }
     return []
   }
@@ -66,8 +135,14 @@ function expandRecurring(
 
   // Always include the appointment's own start date if it falls within the range
   if (appt.date >= rangeStart && appt.date <= rangeEnd && (!ruleEnd || apptStart <= ruleEnd)) {
-    results.push({ ...appt, instance_date: appt.date })
-    addedDates.add(appt.date)
+    const inst = emitInstance(appt.date)
+    if (inst) {
+      results.push(inst)
+      addedDates.add(appt.date)
+    } else {
+      // Still reserve the slot so duplicate-prevention catches recurrence hits.
+      addedDates.add(appt.date)
+    }
   }
 
   // For biweekly: determine the reference week from the appointment's start date
@@ -102,7 +177,8 @@ function expandRecurring(
       if (include) {
         const ds = fmtDate(cursor)
         if (!addedDates.has(ds)) {
-          results.push({ ...appt, instance_date: ds })
+          const inst = emitInstance(ds)
+          if (inst) results.push(inst)
           addedDates.add(ds)
         }
       }
@@ -159,13 +235,37 @@ export async function GET(req: NextRequest) {
 
   if (e2) return NextResponse.json({ error: e2.message }, { status: 500 })
 
+  // Batch-load exceptions for the recurring appointments in this range. We
+  // fetch exceptions for the full visible window, not just by appointment id,
+  // so a single roundtrip covers the whole grid.
+  const recurringIds = (recurring ?? []).map((a) => (a as AppointmentRow).id)
+  const exceptionsByAppt = new Map<string, Map<string, AppointmentException>>()
+  if (recurringIds.length > 0) {
+    const { data: exceptions, error: e3 } = await supabaseAdmin
+      .from('appointment_exceptions')
+      .select('id, appointment_id, exception_date, override_fields, skipped')
+      .in('appointment_id', recurringIds)
+      .gte('exception_date', rangeStart)
+      .lte('exception_date', rangeEnd)
+    if (e3) return NextResponse.json({ error: e3.message }, { status: 500 })
+    for (const row of (exceptions ?? []) as AppointmentException[]) {
+      let bucket = exceptionsByAppt.get(row.appointment_id)
+      if (!bucket) {
+        bucket = new Map()
+        exceptionsByAppt.set(row.appointment_id, bucket)
+      }
+      bucket.set(row.exception_date, row)
+    }
+  }
+
   // Expand recurring into instances
   const expanded: ExpandedAppointment[] = []
   for (const appt of (oneOff ?? []) as AppointmentRow[]) {
-    expanded.push({ ...appt, instance_date: appt.date })
+    expanded.push({ ...appt, instance_date: appt.date, exception_id: null })
   }
   for (const appt of (recurring ?? []) as AppointmentRow[]) {
-    expanded.push(...expandRecurring(appt, rangeStart, rangeEnd))
+    const bucket = exceptionsByAppt.get(appt.id) ?? new Map<string, AppointmentException>()
+    expanded.push(...expandRecurring(appt, rangeStart, rangeEnd, bucket))
   }
 
   // Sort: date asc, time asc (nulls first = all-day at top)
@@ -214,27 +314,131 @@ export async function POST(req: NextRequest) {
 }
 
 // ─── PATCH ───────────────────────────────────────────────────────────────────
-
+//
+// Scope handling for recurring appointments:
+//   - "series"  (default / omitted)  → update the base appointment row
+//   - "this"                         → upsert appointment_exceptions with
+//                                      override_fields set (single occurrence
+//                                      only; base row unchanged)
+//   - "future"                       → cap the base row's recurrence_rule.end_date
+//                                      at the day before instance_date, then
+//                                      INSERT a new appointment starting on
+//                                      instance_date carrying the edited fields
+//                                      + original rule days/frequency.
+//
+// Non-recurring PATCH calls (scope absent or "series") keep their existing
+// behavior — this is safety rule 4 in the phase spec.
 export async function PATCH(req: NextRequest) {
   const user = await getUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { id, ...fields } = await req.json()
+  const body = await req.json() as Record<string, unknown>
+  const id = body.id as string | undefined
+  const scope = body.scope as ('this' | 'future' | 'series' | undefined)
+  const instanceDate = body.instance_date as string | undefined
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
-  const allowed = [
-    'title', 'emoji', 'date', 'time', 'duration_minutes',
-    'location', 'notes', 'child_ids', 'is_recurring', 'recurrence_rule', 'completed',
-  ] as const
-  const patch: Record<string, unknown> = {}
-  for (const key of allowed) {
-    if (key in fields) patch[key] = fields[key]
-  }
-
+  const patch = pickAllowed(body)
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'No valid fields provided' }, { status: 400 })
   }
 
+  // scope="this" — create or update an exception row. The base row is left
+  // alone so other occurrences continue to render from the series.
+  if (scope === 'this') {
+    if (!instanceDate) {
+      return NextResponse.json({ error: 'instance_date is required for scope=this' }, { status: 400 })
+    }
+    // Ownership check — only the appointment owner can attach exceptions.
+    const { data: baseOwn } = await supabaseAdmin
+      .from('appointments')
+      .select('id, user_id')
+      .eq('id', id)
+      .maybeSingle()
+    if (!baseOwn || (baseOwn as { user_id: string }).user_id !== user.id) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    const { data, error } = await supabaseAdmin
+      .from('appointment_exceptions')
+      .upsert(
+        {
+          appointment_id: id,
+          exception_date: instanceDate,
+          override_fields: patch,
+          skipped: false,
+        },
+        { onConflict: 'appointment_id,exception_date' },
+      )
+      .select()
+      .single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true, exception: data })
+  }
+
+  // scope="future" — split the series. Cap the base row and insert a new
+  // appointment for instance_date onward with the edited fields + carry the
+  // base's recurrence rule.
+  if (scope === 'future') {
+    if (!instanceDate) {
+      return NextResponse.json({ error: 'instance_date is required for scope=future' }, { status: 400 })
+    }
+    const { data: base } = await supabaseAdmin
+      .from('appointments')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (!base) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const baseRow = base as AppointmentRow
+
+    // Cap old series' end_date. Keep existing rule days/frequency.
+    const oldRule = baseRow.recurrence_rule
+    const capped: RecurrenceRule | null = oldRule
+      ? { ...oldRule, end_date: dayBefore(instanceDate) }
+      : null
+    const { error: capErr } = await supabaseAdmin
+      .from('appointments')
+      .update({ recurrence_rule: capped })
+      .eq('id', id)
+      .eq('user_id', user.id)
+    if (capErr) return NextResponse.json({ error: capErr.message }, { status: 500 })
+
+    // Any exceptions on dates >= instance_date now belong to a series window
+    // that no longer emits — clear them so they don't resurrect if the user
+    // later extends the old series.
+    await supabaseAdmin
+      .from('appointment_exceptions')
+      .delete()
+      .eq('appointment_id', id)
+      .gte('exception_date', instanceDate)
+
+    // Build the new row: base values + edited overrides, starting at
+    // instance_date, same rule (minus any end_date change the user didn't ask
+    // for — we preserve the user's original end_date if it was set).
+    const newRow: Partial<AppointmentRow> = {
+      ...baseRow,
+      ...patch,
+      id: undefined as unknown as string,
+      created_at: undefined as unknown as string,
+      date: instanceDate,
+      user_id: user.id,
+      is_recurring: true,
+      recurrence_rule: oldRule ? { ...oldRule } : null,
+    }
+    // Strip fields we shouldn't reinsert.
+    delete newRow.id
+    delete newRow.created_at
+
+    const { data: created, error: insErr } = await supabaseAdmin
+      .from('appointments')
+      .insert(newRow)
+      .select()
+      .single()
+    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
+    return NextResponse.json({ ok: true, appointment: created })
+  }
+
+  // scope="series" (default): existing behaviour.
   const { data, error } = await supabaseAdmin
     .from('appointments')
     .update(patch)
@@ -248,14 +452,80 @@ export async function PATCH(req: NextRequest) {
 }
 
 // ─── DELETE ──────────────────────────────────────────────────────────────────
-
+//
+// Scope handling mirrors PATCH:
+//   - "series" (default / omitted) → delete the appointment row (cascades to
+//                                    exceptions via FK ON DELETE CASCADE)
+//   - "this"                        → upsert a skipped exception for that date
+//   - "future"                      → cap the base row's recurrence_rule.end_date
 export async function DELETE(req: NextRequest) {
   const user = await getUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { id } = await req.json()
+  const body = await req.json() as Record<string, unknown>
+  const id = body.id as string | undefined
+  const scope = body.scope as ('this' | 'future' | 'series' | undefined)
+  const instanceDate = body.instance_date as string | undefined
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
+  if (scope === 'this') {
+    if (!instanceDate) {
+      return NextResponse.json({ error: 'instance_date is required for scope=this' }, { status: 400 })
+    }
+    const { data: baseOwn } = await supabaseAdmin
+      .from('appointments')
+      .select('id, user_id')
+      .eq('id', id)
+      .maybeSingle()
+    if (!baseOwn || (baseOwn as { user_id: string }).user_id !== user.id) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    const { error } = await supabaseAdmin
+      .from('appointment_exceptions')
+      .upsert(
+        {
+          appointment_id: id,
+          exception_date: instanceDate,
+          override_fields: null,
+          skipped: true,
+        },
+        { onConflict: 'appointment_id,exception_date' },
+      )
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
+  if (scope === 'future') {
+    if (!instanceDate) {
+      return NextResponse.json({ error: 'instance_date is required for scope=future' }, { status: 400 })
+    }
+    const { data: base } = await supabaseAdmin
+      .from('appointments')
+      .select('recurrence_rule')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (!base) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const oldRule = (base as { recurrence_rule: RecurrenceRule | null }).recurrence_rule
+    const capped: RecurrenceRule | null = oldRule
+      ? { ...oldRule, end_date: dayBefore(instanceDate) }
+      : null
+    const { error } = await supabaseAdmin
+      .from('appointments')
+      .update({ recurrence_rule: capped })
+      .eq('id', id)
+      .eq('user_id', user.id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // Clear exceptions beyond the cap.
+    await supabaseAdmin
+      .from('appointment_exceptions')
+      .delete()
+      .eq('appointment_id', id)
+      .gte('exception_date', instanceDate)
+    return NextResponse.json({ ok: true })
+  }
+
+  // scope="series" (default): existing behaviour — cascade handles exceptions.
   const { error } = await supabaseAdmin
     .from('appointments')
     .delete()

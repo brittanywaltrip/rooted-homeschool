@@ -2564,6 +2564,7 @@ export default function TodayPage() {
               location: a.location,
               child_ids: a.child_ids,
               is_recurring: false,
+              recurrence_rule: null,
               completed: a.completed,
               instance_date: a.instance_date,
             }))}

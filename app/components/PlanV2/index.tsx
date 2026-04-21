@@ -92,6 +92,11 @@ export default function PlanV2() {
   const [contextMenu, setContextMenu] = useState<{ dateStr: string; x: number; y: number } | null>(null);
   // Appointment wizard opened from "+ Add appointment" menu item.
   const [apptWizardDate, setApptWizardDate] = useState<string | null>(null);
+  // Appointment edit target — set when the Pencil button is tapped on an
+  // appointment pill in the day panel.
+  const [apptEditTarget, setApptEditTarget] = useState<{
+    appt: PlanV2Appointment;
+  } | null>(null);
   const recentTimersRef = useRef<Map<string, number>>(new Map());
 
   // Select-mode state — owns the selected set, whether the dark-green toolbar
@@ -1176,6 +1181,10 @@ export default function PlanV2() {
               }}
               onMinutesUpdate={handleMinutesUpdate}
               onToggleAppointment={handleAppointmentToggle}
+              onEditAppointment={(appt) => {
+                setOpenDayStr(null);
+                setApptEditTarget({ appt });
+              }}
               onLessonChanged={handleLessonChanged}
             />
           );
@@ -1227,15 +1236,43 @@ export default function PlanV2() {
           />
         ) : null}
 
-        {/* Appointment wizard — opened from "+ Add appointment" menu item. */}
+        {/* Appointment wizard — opens for either "+ Add appointment" (initialDate)
+            or "Edit" on an existing appointment (editingAppointment + optional
+            editingInstanceDate for a recurring instance). */}
         <AppointmentWizard
-          isOpen={apptWizardDate !== null}
-          onClose={() => setApptWizardDate(null)}
+          isOpen={apptWizardDate !== null || apptEditTarget !== null}
+          onClose={() => {
+            setApptWizardDate(null);
+            setApptEditTarget(null);
+          }}
           onSaved={() => {
             setApptWizardDate(null);
+            setApptEditTarget(null);
             reload();
           }}
           initialDate={apptWizardDate ?? undefined}
+          editingAppointment={
+            apptEditTarget
+              ? {
+                  id: apptEditTarget.appt.id,
+                  title: apptEditTarget.appt.title,
+                  emoji: apptEditTarget.appt.emoji ?? "📅",
+                  date: apptEditTarget.appt.date,
+                  time: apptEditTarget.appt.time,
+                  duration_minutes: apptEditTarget.appt.duration_minutes,
+                  location: apptEditTarget.appt.location,
+                  notes: apptEditTarget.appt.notes ?? null,
+                  child_ids: apptEditTarget.appt.child_ids,
+                  is_recurring: apptEditTarget.appt.is_recurring,
+                  recurrence_rule: apptEditTarget.appt.recurrence_rule,
+                }
+              : null
+          }
+          editingInstanceDate={
+            apptEditTarget && apptEditTarget.appt.is_recurring
+              ? apptEditTarget.appt.instance_date
+              : undefined
+          }
         />
 
         {/* Global undo bar */}

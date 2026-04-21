@@ -33,11 +33,15 @@ export type PlanV2Appointment = {
   time: string | null;
   duration_minutes: number;
   location: string | null;
+  notes?: string | null;
   child_ids: string[];
   is_recurring: boolean;
+  recurrence_rule: { frequency: string; days: number[]; end_date?: string } | null;
   completed: boolean;
   /** Present on expanded recurring instances from GET /api/appointments. */
   instance_date: string;
+  /** Set when an exception row was merged into this instance (phase 8). */
+  exception_id?: string | null;
 };
 
 export type PlanV2Vacation = {
