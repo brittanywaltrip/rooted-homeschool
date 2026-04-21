@@ -119,7 +119,7 @@ export default function PlanV2() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
-  const { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons } =
+  const { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons, setAppointments } =
     usePlanV2Data({ effectiveUserId, monthStart });
 
   // Lesson mutation handlers. Pass setLessons for both arrays (PlanV2 has one
@@ -204,21 +204,39 @@ export default function PlanV2() {
 
   const handleAppointmentToggle = useCallback(
     async (appt: PlanV2Appointment) => {
+      // Optimistic local flip so the check lands instantly. Rollback on any
+      // failure (auth, network, non-2xx response).
+      const nextCompleted = !appt.completed;
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a.id === appt.id && a.instance_date === appt.instance_date
+            ? { ...a, completed: nextCompleted }
+            : a,
+        ),
+      );
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
-        if (!token) return;
-        await fetch("/api/appointments", {
+        if (!token) throw new Error("no session");
+        const res = await fetch("/api/appointments", {
           method: "PATCH",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ id: appt.id, completed: !appt.completed }),
+          body: JSON.stringify({ id: appt.id, completed: nextCompleted }),
         });
+        if (!res.ok) throw new Error("patch failed");
         reload();
       } catch {
-        /* surface later — for now a silent retry on next reload */
+        setAppointments((prev) =>
+          prev.map((a) =>
+            a.id === appt.id && a.instance_date === appt.instance_date
+              ? { ...a, completed: appt.completed }
+              : a,
+          ),
+        );
+        flashNotice("Couldn't save — check your connection and try again.");
       }
     },
-    [reload],
+    [reload, setAppointments],
   );
 
   // ── Ring state for newly-landed pills ──────────────────────────────────────
@@ -525,6 +543,9 @@ export default function PlanV2() {
             }),
           );
           hapticTap(20);
+          // Re-animate each reverted pill so the user sees where their lessons
+          // just landed back — mirrors the single-move undo path.
+          succeeded.forEach((m) => flagLanded(m.id));
           await Promise.allSettled(
             succeeded.map((m) =>
               supabase.from("lessons").update({ scheduled_date: m.from, date: m.from }).eq("id", m.id),
@@ -688,6 +709,9 @@ export default function PlanV2() {
             }),
           );
           hapticTap(20);
+          // Reappearing pills get the "just-landed" ring so the eye finds
+          // where the skipped lessons reattach on the calendar.
+          succeeded.forEach((s) => flagLanded(s.id));
           await Promise.allSettled(
             succeeded.map((s) =>
               supabase.from("lessons").update({ scheduled_date: s.from, date: s.from }).eq("id", s.id),
@@ -703,7 +727,7 @@ export default function PlanV2() {
     reload();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode]);
+  }, [lessons, setLessons, reload, exitSelectMode, flagLanded]);
 
   // ── Bulk: delete (deferred DB write to undo window) ──────────────────────
 

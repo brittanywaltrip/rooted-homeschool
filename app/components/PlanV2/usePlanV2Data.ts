@@ -55,6 +55,8 @@ export type PlanV2Data = {
   reload: () => void;
   /** Exposed so consumers can run optimistic updates via usePlanLessonActions. */
   setLessons: React.Dispatch<React.SetStateAction<PlanV2Lesson[]>>;
+  /** Exposed for optimistic appointment toggles (Phase 10 fix). */
+  setAppointments: React.Dispatch<React.SetStateAction<PlanV2Appointment[]>>;
 };
 
 export function usePlanV2Data(opts: {
@@ -141,5 +143,5 @@ export function usePlanV2Data(opts: {
 
   const reload = useCallback(() => setReloadNonce((n) => n + 1), []);
 
-  return { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons };
+  return { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons, setAppointments };
 }
