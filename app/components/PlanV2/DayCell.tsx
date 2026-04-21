@@ -17,7 +17,15 @@ import type {
  * When dndEnabled is true (desktop path), the cell registers as a drop
  * target. Vacation cells are disabled (can't drop at all). Weekends remain
  * droppable but render dimmer so users understand the visual warning; the
- * orchestrator's drop handler decides whether to warn-but-allow, per spec. */
+ * orchestrator's drop handler decides whether to warn-but-allow, per spec.
+ *
+ * Select mode adds a checkbox affordance to lessons and routes lesson taps
+ * to onLessonSelectToggle. Long-press on a pill (mobile) fires
+ * onLessonLongPress — used to enter select mode.
+ *
+ * Move-target sub-mode dims the cell's normal behavior: clicking the cell
+ * calls onMoveTargetPick(dateStr) instead of onCellClick. Vacation cells
+ * remain invalid targets. Weekend targets are visually warned but allowed. */
 
 const MAX_VISIBLE_PILLS = 4;
 
@@ -32,17 +40,19 @@ interface Props {
   appointments: PlanV2Appointment[];
   childrenById: Map<string, { child: PlanV2Child; index: number }>;
   todayStr: string;
-  /** Global "a pill is currently being dragged" flag — powers the "glow green
-   * for valid drop targets" visual. */
   isDragActive?: boolean;
-  /** Lesson IDs that landed on this cell within the last few seconds —
-   * forwarded to LessonPill so it renders a green ring for confirmation. */
   recentlyLandedIds?: Set<string>;
   dndEnabled?: boolean;
+  selectMode?: boolean;
+  selectedIds?: Set<string>;
+  moveTargetMode?: boolean;
   onCellClick?: (dateStr: string) => void;
   onLessonClick?: (lesson: PlanV2Lesson) => void;
   onAppointmentClick?: (appt: PlanV2Appointment) => void;
   onOverflowClick?: (dateStr: string) => void;
+  onLessonLongPress?: (lesson: PlanV2Lesson) => void;
+  onLessonSelectToggle?: (lesson: PlanV2Lesson) => void;
+  onMoveTargetPick?: (dateStr: string) => void;
 }
 
 function sortAppointments(appts: PlanV2Appointment[]): PlanV2Appointment[] {
@@ -59,7 +69,9 @@ export default function DayCell(props: Props) {
     date, dateStr, isCurrentMonth, isToday, isWeekend, vacation,
     lessons, appointments, childrenById, todayStr,
     isDragActive, recentlyLandedIds, dndEnabled,
+    selectMode, selectedIds, moveTargetMode,
     onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
+    onLessonLongPress, onLessonSelectToggle, onMoveTargetPick,
   } = props;
 
   const isPast = dateStr < todayStr;
@@ -71,13 +83,13 @@ export default function DayCell(props: Props) {
   const visibleLessons = lessons.slice(0, remainingLessonCap);
   const overflowCount = totalItems - visibleAppts.length - visibleLessons.length;
 
-  // Droppable registration. Disabled when the cell is in a vacation block —
-  // the orchestrator additionally blocks drops on vacation at the data layer
-  // as belt-and-suspenders. Weekends stay droppable (warn-but-allow path).
+  // Droppable registration. Disabled when the cell is in a vacation block,
+  // when select mode is on (drag is suppressed to avoid gesture conflict),
+  // or when move-target mode is on (cell-click is the interaction).
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `day:${dateStr}`,
     data: { type: "day", dateStr, isVacation: !!vacation, isWeekend },
-    disabled: !dndEnabled || !!vacation,
+    disabled: !dndEnabled || !!vacation || !!selectMode || !!moveTargetMode,
   });
 
   const cellBg =
@@ -87,12 +99,18 @@ export default function DayCell(props: Props) {
   const borderColor = isToday ? "#5c7f63" : "#ece8e0";
 
   // Visual states during a drag.
-  const dragValidHint = !!isDragActive && !vacation && dndEnabled;
+  const dragValidHint = !!isDragActive && !vacation && dndEnabled && !selectMode && !moveTargetMode;
   const dragHovered = dragValidHint && isOver;
 
+  // Visual states during move-target mode. Valid targets glow green-dashed;
+  // vacation cells are disabled and non-interactive.
+  const moveTargetValid = !!moveTargetMode && !vacation;
+  const moveTargetInvalid = !!moveTargetMode && !!vacation;
+
   let border: string;
-  if (dragHovered) border = "1.5px dashed #5c7f63";
-  else if (dragValidHint) border = "1px dashed #b7d1bb";
+  if (dragHovered || (moveTargetValid && !moveTargetInvalid)) {
+    border = moveTargetValid && !dragHovered ? "1.5px dashed #5c7f63" : "1.5px dashed #5c7f63";
+  } else if (dragValidHint) border = "1px dashed #b7d1bb";
   else if (isToday) border = `1.5px solid ${borderColor}`;
   else border = `0.5px solid ${borderColor}`;
 
@@ -102,19 +120,35 @@ export default function DayCell(props: Props) {
       ? "linear-gradient(180deg, #e8f0e9 0%, #d4e8d4 100%)"
       : undefined;
 
+  // Dim other cells during move-target mode to focus attention on valid targets.
+  const moveTargetOpacity = moveTargetMode
+    ? moveTargetValid ? 1 : 0.4
+    : isCurrentMonth ? 1 : 0.45;
+
+  const handleCellClick = () => {
+    if (moveTargetMode) {
+      if (moveTargetValid) onMoveTargetPick?.(dateStr);
+      return;
+    }
+    onCellClick?.(dateStr);
+  };
+
+  const cellCursor = moveTargetMode && !moveTargetValid ? "not-allowed" : "pointer";
+
   return (
     <div
       ref={setDropRef}
       role="gridcell"
       aria-label={date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-      onClick={() => onCellClick?.(dateStr)}
-      className="relative min-h-[82px] flex flex-col gap-[3px] p-1.5 transition-colors hover:bg-[#faf8f4] cursor-pointer"
+      onClick={handleCellClick}
+      className="relative min-h-[82px] flex flex-col gap-[3px] p-1.5 transition-colors hover:bg-[#faf8f4]"
       style={{
         backgroundColor: cellBg,
         backgroundImage,
         border,
         borderRadius: 8,
-        opacity: isCurrentMonth ? 1 : 0.45,
+        opacity: moveTargetOpacity,
+        cursor: cellCursor,
       }}
     >
       {/* Header row: day number + count */}
@@ -156,6 +190,13 @@ export default function DayCell(props: Props) {
         </p>
       ) : null}
 
+      {/* Move-target mode cue */}
+      {moveTargetValid && !dragHovered ? (
+        <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--g-deep)] mt-0.5">
+          Move here
+        </p>
+      ) : null}
+
       {/* Pills */}
       {!vacation ? (
         <div className="flex flex-col gap-[3px] min-w-0">
@@ -179,7 +220,11 @@ export default function DayCell(props: Props) {
                 missed={missed}
                 justLanded={recentlyLandedIds?.has(l.id)}
                 draggable={!!dndEnabled}
+                selectMode={!!selectMode}
+                selected={selectedIds?.has(l.id)}
                 onClick={() => onLessonClick?.(l)}
+                onLongPress={() => onLessonLongPress?.(l)}
+                onRequestSelect={() => onLessonSelectToggle?.(l)}
               />
             );
           })}

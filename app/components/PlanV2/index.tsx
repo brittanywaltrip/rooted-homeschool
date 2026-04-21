@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, MousePointerSquareDashed, X } from "lucide-react";
 import {
   DndContext,
@@ -17,6 +17,7 @@ import PageHero from "@/app/components/PageHero";
 import MonthGrid from "./MonthGrid";
 import DayDetailPanelV2 from "./DayDetailPanel";
 import UndoBar, { type UndoAction } from "./UndoBar";
+import SelectActionBar from "./SelectActionBar";
 import { usePlanV2Data } from "./usePlanV2Data";
 import { usePlanLessonActions } from "./usePlanLessonActions";
 import { resolveChildColor } from "./colors";
@@ -86,6 +87,16 @@ export default function PlanV2() {
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<{ lessonId: string; fromDateStr: string } | null>(null);
   const recentTimersRef = useRef<Map<string, number>>(new Map());
+
+  // Select-mode state — owns the selected set, whether the dark-green toolbar
+  // is showing, and whether the user is currently picking a bulk-move target.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [moveTargetMode, setMoveTargetMode] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  // Deferred bulk delete — rows are removed from state immediately; DB DELETE
+  // fires when the undo window expires. Snapshot lets Undo restore them.
+  const pendingBulkDeleteRef = useRef<{ rows: PlanV2Lesson[]; timer: number } | null>(null);
 
   // Sensors — activate after 8px of movement so taps still register as clicks.
   const sensors = useSensors(
@@ -338,6 +349,397 @@ export default function PlanV2() {
     return lessons.find((l) => l.id === id) ?? null;
   }, [activeDragId, lessons]);
 
+  // ── Select-mode helpers ───────────────────────────────────────────────────
+
+  const enterSelectMode = useCallback((initialLessonId?: string) => {
+    setSelectMode(true);
+    if (initialLessonId) {
+      setSelectedIds(new Set([initialLessonId]));
+    }
+    hapticTap(20);
+  }, []);
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setMoveTargetMode(false);
+  }, []);
+
+  const toggleSelect = useCallback((lessonId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(lessonId)) next.delete(lessonId);
+      else next.add(lessonId);
+      return next;
+    });
+  }, []);
+
+  const selectedLessons = useMemo<PlanV2Lesson[]>(
+    () => lessons.filter((l) => selectedIds.has(l.id)),
+    [lessons, selectedIds],
+  );
+
+  // Date breakdown "N from Tue · M from Wed" for the SelectActionBar.
+  const selectionDateBreakdown = useMemo(() => {
+    const byDate = new Map<string, number>();
+    for (const l of selectedLessons) {
+      const d = l.scheduled_date ?? l.date;
+      if (!d) continue;
+      byDate.set(d, (byDate.get(d) ?? 0) + 1);
+    }
+    return Array.from(byDate.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([dateStr, count]) => ({ dateStr, count }));
+  }, [selectedLessons]);
+
+  // Commit any pending bulk delete (run on unmount + before starting a new one).
+  const commitPendingBulkDelete = useCallback(async () => {
+    const pending = pendingBulkDeleteRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timer);
+    pendingBulkDeleteRef.current = null;
+    const ids = pending.rows.map((r) => r.id);
+    try {
+      await supabase.from("lessons").delete().in("id", ids);
+    } catch {
+      /* best-effort on unmount; next loadData will reconcile */
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      // Capture the timer/rows at unmount time; can't await inside cleanup.
+      const pending = pendingBulkDeleteRef.current;
+      if (pending) {
+        window.clearTimeout(pending.timer);
+        pendingBulkDeleteRef.current = null;
+        const ids = pending.rows.map((r) => r.id);
+        // Fire and forget — we're tearing down.
+        supabase.from("lessons").delete().in("id", ids).then(() => {}, () => {});
+      }
+    };
+  }, []);
+
+  // ── Bulk: move ────────────────────────────────────────────────────────────
+
+  const performBulkMove = useCallback(async (ids: string[], toDateStr: string) => {
+    const inVacation = vacationBlocks.some(
+      (b) => toDateStr >= b.start_date && toDateStr <= b.end_date,
+    );
+    if (inVacation) {
+      flashNotice("That day is blocked off as a vacation — pick another day.");
+      return;
+    }
+
+    const moves: { id: string; from: string }[] = [];
+    for (const id of ids) {
+      const l = lessons.find((x) => x.id === id);
+      if (!l) continue;
+      const from = l.scheduled_date ?? l.date;
+      if (!from || from === toDateStr) continue;
+      moves.push({ id, from });
+    }
+    if (moves.length === 0) {
+      flashNotice("No lessons needed moving — pick a different day.");
+      return;
+    }
+
+    const [ty, tm, td] = toDateStr.split("-").map(Number);
+    const toNative = new Date(ty, tm - 1, td).getDay();
+    const toIsWeekend = toNative === 0 || toNative === 6;
+    const toLabel = new Date(`${toDateStr}T12:00:00`).toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric",
+    });
+
+    setBulkBusy(true);
+    const idsSet = new Set(moves.map((m) => m.id));
+
+    // Optimistic batch update.
+    setLessons((prev) =>
+      prev.map((l) => (idsSet.has(l.id) ? { ...l, scheduled_date: toDateStr, date: toDateStr } : l)),
+    );
+    moves.forEach((m) => flagLanded(m.id));
+    hapticTap(20);
+
+    // Per-item DB writes so partial failures are visible.
+    const results = await Promise.allSettled(
+      moves.map((m) =>
+        supabase
+          .from("lessons")
+          .update({ scheduled_date: toDateStr, date: toDateStr })
+          .eq("id", m.id)
+          .then(({ error }) => (error ? Promise.reject(error) : true)),
+      ),
+    );
+
+    const succeeded: { id: string; from: string }[] = [];
+    const failedIds: string[] = [];
+    moves.forEach((m, i) => {
+      if (results[i].status === "fulfilled") succeeded.push(m);
+      else failedIds.push(m.id);
+    });
+
+    // Rollback any failures.
+    if (failedIds.length > 0) {
+      const failedMap = new Map(moves.filter((m) => failedIds.includes(m.id)).map((m) => [m.id, m.from]));
+      setLessons((prev) =>
+        prev.map((l) => {
+          const origFrom = failedMap.get(l.id);
+          return origFrom ? { ...l, scheduled_date: origFrom, date: origFrom } : l;
+        }),
+      );
+    }
+
+    // Notice + undo.
+    const total = moves.length;
+    const weekendSuffix = toIsWeekend ? " · weekend" : "";
+    if (succeeded.length > 0) {
+      setUndoAction({
+        message:
+          failedIds.length > 0
+            ? `Moved ${succeeded.length} of ${total} to ${toLabel}${weekendSuffix} — ${failedIds.length} couldn't be moved`
+            : `Moved ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"} to ${toLabel}${weekendSuffix}`,
+        key: `bulk-move:${Date.now()}`,
+        onUndo: async () => {
+          const succeededMap = new Map(succeeded.map((m) => [m.id, m.from]));
+          setLessons((prev) =>
+            prev.map((l) => {
+              const from = succeededMap.get(l.id);
+              return from ? { ...l, scheduled_date: from, date: from } : l;
+            }),
+          );
+          hapticTap(20);
+          await Promise.allSettled(
+            succeeded.map((m) =>
+              supabase.from("lessons").update({ scheduled_date: m.from, date: m.from }).eq("id", m.id),
+            ),
+          );
+          reload();
+        },
+      });
+    } else {
+      flashNotice(`Couldn't move ${failedIds.length} lesson${failedIds.length === 1 ? "" : "s"} — check your connection.`);
+    }
+
+    reload();
+    setBulkBusy(false);
+    exitSelectMode();
+  }, [lessons, vacationBlocks, setLessons, reload, flagLanded, exitSelectMode]);
+
+  // ── Bulk: mark done ───────────────────────────────────────────────────────
+
+  const performBulkMarkDone = useCallback(async (ids: string[]) => {
+    const toComplete = ids.filter((id) => {
+      const l = lessons.find((x) => x.id === id);
+      return l && !l.completed;
+    });
+    if (toComplete.length === 0) {
+      flashNotice("Those lessons are already done.");
+      exitSelectMode();
+      return;
+    }
+
+    setBulkBusy(true);
+    hapticTap(20);
+
+    // Optimistic.
+    const completeSet = new Set(toComplete);
+    setLessons((prev) =>
+      prev.map((l) => (completeSet.has(l.id) ? { ...l, completed: true } : l)),
+    );
+
+    const results = await Promise.allSettled(
+      toComplete.map((id) =>
+        supabase
+          .from("lessons")
+          .update({ completed: true, completed_at: new Date().toISOString() })
+          .eq("id", id)
+          .then(({ error }) => (error ? Promise.reject(error) : true)),
+      ),
+    );
+
+    const succeededIds: string[] = [];
+    const failedIds: string[] = [];
+    toComplete.forEach((id, i) => {
+      if (results[i].status === "fulfilled") succeededIds.push(id);
+      else failedIds.push(id);
+    });
+
+    // Rollback failed.
+    if (failedIds.length > 0) {
+      const failedSet = new Set(failedIds);
+      setLessons((prev) => prev.map((l) => (failedSet.has(l.id) ? { ...l, completed: false } : l)));
+    }
+
+    if (succeededIds.length > 0) {
+      setUndoAction({
+        message:
+          failedIds.length > 0
+            ? `Marked ${succeededIds.length} of ${toComplete.length} done — ${failedIds.length} couldn't be marked`
+            : `Marked ${succeededIds.length} lesson${succeededIds.length === 1 ? "" : "s"} done`,
+        key: `bulk-done:${Date.now()}`,
+        onUndo: async () => {
+          const sSet = new Set(succeededIds);
+          setLessons((prev) =>
+            prev.map((l) => (sSet.has(l.id) ? { ...l, completed: false } : l)),
+          );
+          hapticTap(20);
+          await Promise.allSettled(
+            succeededIds.map((id) =>
+              supabase
+                .from("lessons")
+                .update({ completed: false, completed_at: null })
+                .eq("id", id),
+            ),
+          );
+          reload();
+        },
+      });
+    } else {
+      flashNotice(`Couldn't mark ${failedIds.length} lesson${failedIds.length === 1 ? "" : "s"} done.`);
+    }
+
+    reload();
+    setBulkBusy(false);
+    exitSelectMode();
+  }, [lessons, setLessons, reload, exitSelectMode]);
+
+  // ── Bulk: skip (clear scheduled_date) ─────────────────────────────────────
+
+  const performBulkSkip = useCallback(async (ids: string[]) => {
+    const snap: { id: string; from: string }[] = [];
+    for (const id of ids) {
+      const l = lessons.find((x) => x.id === id);
+      if (!l) continue;
+      const from = l.scheduled_date ?? l.date;
+      if (!from) continue;
+      snap.push({ id, from });
+    }
+    if (snap.length === 0) {
+      flashNotice("Those lessons aren't on the calendar.");
+      exitSelectMode();
+      return;
+    }
+
+    setBulkBusy(true);
+    const snapIds = new Set(snap.map((s) => s.id));
+    setLessons((prev) =>
+      prev.map((l) => (snapIds.has(l.id) ? { ...l, scheduled_date: null, date: null } : l)),
+    );
+    hapticTap(20);
+
+    const results = await Promise.allSettled(
+      snap.map((s) =>
+        supabase
+          .from("lessons")
+          .update({ scheduled_date: null, date: null })
+          .eq("id", s.id)
+          .then(({ error }) => (error ? Promise.reject(error) : true)),
+      ),
+    );
+
+    const succeeded: { id: string; from: string }[] = [];
+    const failedIds: string[] = [];
+    snap.forEach((s, i) => {
+      if (results[i].status === "fulfilled") succeeded.push(s);
+      else failedIds.push(s.id);
+    });
+
+    // Rollback failures.
+    if (failedIds.length > 0) {
+      const failedMap = new Map(snap.filter((s) => failedIds.includes(s.id)).map((s) => [s.id, s.from]));
+      setLessons((prev) =>
+        prev.map((l) => {
+          const from = failedMap.get(l.id);
+          return from ? { ...l, scheduled_date: from, date: from } : l;
+        }),
+      );
+    }
+
+    if (succeeded.length > 0) {
+      setUndoAction({
+        message:
+          failedIds.length > 0
+            ? `Skipped ${succeeded.length} of ${snap.length} — ${failedIds.length} couldn't be skipped`
+            : `Skipped ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"}`,
+        key: `bulk-skip:${Date.now()}`,
+        onUndo: async () => {
+          const sMap = new Map(succeeded.map((s) => [s.id, s.from]));
+          setLessons((prev) =>
+            prev.map((l) => {
+              const from = sMap.get(l.id);
+              return from ? { ...l, scheduled_date: from, date: from } : l;
+            }),
+          );
+          hapticTap(20);
+          await Promise.allSettled(
+            succeeded.map((s) =>
+              supabase.from("lessons").update({ scheduled_date: s.from, date: s.from }).eq("id", s.id),
+            ),
+          );
+          reload();
+        },
+      });
+    } else {
+      flashNotice(`Couldn't skip ${failedIds.length} lesson${failedIds.length === 1 ? "" : "s"}.`);
+    }
+
+    reload();
+    setBulkBusy(false);
+    exitSelectMode();
+  }, [lessons, setLessons, reload, exitSelectMode]);
+
+  // ── Bulk: delete (deferred DB write to undo window) ──────────────────────
+
+  const performBulkDelete = useCallback(async (ids: string[]) => {
+    // Commit any prior pending delete before starting a new one — only one
+    // undoable batch can sit open at a time (matches 93f9be6 semantics).
+    await commitPendingBulkDelete();
+
+    const rows = lessons.filter((l) => ids.includes(l.id));
+    if (rows.length === 0) {
+      exitSelectMode();
+      return;
+    }
+
+    const rowIdSet = new Set(rows.map((r) => r.id));
+    setLessons((prev) => prev.filter((l) => !rowIdSet.has(l.id)));
+    hapticTap(20);
+
+    // Defer the DB delete to the end of the 30s undo window. If the user
+    // taps Undo first, the timer is cleared and the rows are restored.
+    const timer = window.setTimeout(async () => {
+      pendingBulkDeleteRef.current = null;
+      try {
+        await supabase.from("lessons").delete().in("id", Array.from(rowIdSet));
+      } catch {
+        /* silent — next reload reconciles */
+      }
+      reload();
+    }, 30_000);
+    pendingBulkDeleteRef.current = { rows, timer };
+
+    setUndoAction({
+      message: `Deleted ${rows.length} lesson${rows.length === 1 ? "" : "s"}`,
+      key: `bulk-delete:${Date.now()}`,
+      onUndo: () => {
+        const pending = pendingBulkDeleteRef.current;
+        if (!pending) return;
+        window.clearTimeout(pending.timer);
+        const restored = pending.rows;
+        pendingBulkDeleteRef.current = null;
+        setLessons((prev) => {
+          const existing = new Set(prev.map((l) => l.id));
+          const needed = restored.filter((l) => !existing.has(l.id));
+          return [...prev, ...needed];
+        });
+        hapticTap(20);
+      },
+    });
+
+    exitSelectMode();
+  }, [lessons, setLessons, reload, exitSelectMode, commitPendingBulkDelete]);
+
   const viewingCurrentMonth =
     monthStart.getFullYear() === new Date().getFullYear() &&
     monthStart.getMonth() === new Date().getMonth();
@@ -445,10 +847,14 @@ export default function PlanV2() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => flashNotice("Multi-select lands in a later phase of the redesign.")}
-                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#5C5346] hover:bg-[#f0ede8] transition-colors"
+                  onClick={() => (selectMode ? exitSelectMode() : enterSelectMode())}
+                  className={`flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors ${
+                    selectMode
+                      ? "bg-[#2D5A3D] text-white hover:bg-[var(--g-deep)]"
+                      : "text-[#5C5346] hover:bg-[#f0ede8]"
+                  }`}
                 >
-                  <MousePointerSquareDashed size={13} /> Select
+                  <MousePointerSquareDashed size={13} /> {selectMode ? "Cancel" : "Select"}
                 </button>
               </div>
             </div>
@@ -482,10 +888,53 @@ export default function PlanV2() {
               </div>
             ) : null}
 
+            {/* Select-mode action bar — shown above the grid whenever the user
+                is picking lessons. Replaces the normal filter chip row. */}
+            {selectMode ? (
+              <SelectActionBar
+                count={selectedIds.size}
+                dateBreakdown={selectionDateBreakdown}
+                inMoveTargetMode={moveTargetMode}
+                busy={bulkBusy}
+                onMoveTo={() => {
+                  if (selectedIds.size === 0) {
+                    flashNotice("Select at least one lesson first.");
+                    return;
+                  }
+                  setMoveTargetMode(true);
+                }}
+                onMarkDone={() => {
+                  if (selectedIds.size === 0) {
+                    flashNotice("Select at least one lesson first.");
+                    return;
+                  }
+                  void performBulkMarkDone(Array.from(selectedIds));
+                }}
+                onSkipAll={() => {
+                  if (selectedIds.size === 0) {
+                    flashNotice("Select at least one lesson first.");
+                    return;
+                  }
+                  void performBulkSkip(Array.from(selectedIds));
+                }}
+                onDelete={() => {
+                  if (selectedIds.size === 0) {
+                    flashNotice("Select at least one lesson first.");
+                    return;
+                  }
+                  void performBulkDelete(Array.from(selectedIds));
+                }}
+                onCancel={exitSelectMode}
+                onBackToSelection={() => setMoveTargetMode(false)}
+              />
+            ) : null}
+
             {/* Month grid — wrapped in DndContext on desktop; on mobile the
-                grid renders without drag sensors so page scroll isn't hijacked. */}
+                grid renders without drag sensors so page scroll isn't hijacked.
+                Drag is also disabled in select mode + move-target mode so
+                gesture intent stays unambiguous. */}
             <div className="p-3">
-              {isMobile ? (
+              {isMobile || selectMode ? (
                 <MonthGrid
                   monthStart={monthStart}
                   todayStr={todayStr}
@@ -496,13 +945,33 @@ export default function PlanV2() {
                   loading={loading}
                   dndEnabled={false}
                   recentlyLandedIds={recentlyLandedIds}
-                  onCellClick={(dateStr) => setOpenDayStr(dateStr)}
+                  selectMode={selectMode}
+                  selectedIds={selectedIds}
+                  moveTargetMode={moveTargetMode}
+                  onCellClick={(dateStr) => {
+                    if (selectMode) return;
+                    setOpenDayStr(dateStr);
+                  }}
                   onLessonClick={(lesson) => {
+                    if (selectMode) return;
                     const d = lesson.scheduled_date ?? lesson.date;
                     if (d) setOpenDayStr(d);
                   }}
-                  onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
-                  onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
+                  onAppointmentClick={(appt) => {
+                    if (selectMode) return;
+                    setOpenDayStr(appt.instance_date);
+                  }}
+                  onOverflowClick={(dateStr) => {
+                    if (selectMode) return;
+                    setOpenDayStr(dateStr);
+                  }}
+                  onLessonLongPress={(lesson) => {
+                    if (!selectMode) enterSelectMode(lesson.id);
+                  }}
+                  onLessonSelectToggle={(lesson) => toggleSelect(lesson.id)}
+                  onMoveTargetPick={(dateStr) => {
+                    void performBulkMove(Array.from(selectedIds), dateStr);
+                  }}
                 />
               ) : (
                 <DndContext
@@ -529,6 +998,7 @@ export default function PlanV2() {
                     }}
                     onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
                     onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
+                    onLessonLongPress={(lesson) => enterSelectMode(lesson.id)}
                   />
                   <DragOverlay dropAnimation={null}>
                     {activeLesson ? (() => {

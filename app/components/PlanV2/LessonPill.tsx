@@ -1,15 +1,19 @@
 "use client";
 
 import { useDraggable } from "@dnd-kit/core";
+import { useLongPress } from "./useLongPress";
 import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 
 /* Compact lesson chip used in DayCell. Color-coded by child.
  *
- * When draggable=true (desktop only — PlanV2 wires this per the mobile gate),
- * the pill registers with @dnd-kit as a draggable whose id is the lesson id
- * and whose data carries the source dateStr. Dragging dims the source at
- * opacity 0.35; a DragOverlay at the root renders the floating ghost. */
+ * Three interaction modes:
+ *   - default           tap → onClick (opens day panel); drag works on desktop
+ *   - long-press        mobile-only; 150ms hold → onLongPress (enters select mode)
+ *   - select-mode       no drag; tap → onRequestSelect (toggles selection);
+ *                       renders a checkbox affordance on the right edge
+ *
+ * Dragging dims the source to opacity 0.35; a DragOverlay renders the ghost. */
 
 interface Props {
   lesson: PlanV2Lesson;
@@ -22,9 +26,13 @@ interface Props {
   missed?: boolean;
   /** True if this pill should render the "newly-landed" green ring. */
   justLanded?: boolean;
-  /** When false, useDraggable is skipped entirely (mobile path). */
+  /** When false, useDraggable is skipped entirely (mobile path or select mode). */
   draggable?: boolean;
+  selectMode?: boolean;
+  selected?: boolean;
   onClick?: () => void;
+  onLongPress?: () => void;
+  onRequestSelect?: () => void;
 }
 
 function displayTitle(l: PlanV2Lesson): string {
@@ -33,19 +41,54 @@ function displayTitle(l: PlanV2Lesson): string {
   return "Untitled";
 }
 
-export default function LessonPill({
-  lesson, child, childOrderedIndex, sourceDateStr, missed, justLanded, draggable = true, onClick,
-}: Props) {
+export default function LessonPill(props: Props) {
+  const {
+    lesson, child, childOrderedIndex, sourceDateStr,
+    missed, justLanded, draggable = true,
+    selectMode, selected,
+    onClick, onLongPress, onRequestSelect,
+  } = props;
+
   const color = resolveChildColor(child, childOrderedIndex);
   const subject = lesson.subjects?.name ?? null;
   const initial = child ? child.name.charAt(0).toUpperCase() : "·";
   const done = lesson.completed;
   const label = displayTitle(lesson);
+  const ariaLabel = buildAria(label, child, done, !!selected);
 
-  return draggable ? (
-    <DraggableLessonPill
-      lesson={lesson}
-      sourceDateStr={sourceDateStr}
+  // Drag is suppressed in select mode even on desktop — users are picking, not moving.
+  const dragActive = draggable && !selectMode;
+
+  const handleClick = () => {
+    if (selectMode) onRequestSelect?.();
+    else onClick?.();
+  };
+
+  if (dragActive) {
+    return (
+      <DraggableLessonPill
+        lesson={lesson}
+        sourceDateStr={sourceDateStr}
+        onLongPress={onLongPress}
+        color={color}
+        initial={initial}
+        subject={subject}
+        label={label}
+        done={done}
+        missed={missed}
+        justLanded={justLanded}
+        selectMode={selectMode}
+        selected={selected}
+        onClick={handleClick}
+        ariaLabel={ariaLabel}
+      />
+    );
+  }
+
+  return (
+    <NonDraggablePill
+      onLongPress={onLongPress}
+      onClick={handleClick}
       color={color}
       initial={initial}
       subject={subject}
@@ -53,40 +96,23 @@ export default function LessonPill({
       done={done}
       missed={missed}
       justLanded={justLanded}
-      onClick={onClick}
-      child={child}
-    />
-  ) : (
-    <PillShell
-      onClick={onClick}
-      color={color}
-      initial={initial}
-      subject={subject}
-      label={label}
-      done={done}
-      missed={missed}
-      justLanded={justLanded}
-      ariaLabel={buildAria(label, child, done)}
+      selectMode={selectMode}
+      selected={selected}
+      ariaLabel={ariaLabel}
     />
   );
 }
 
-function buildAria(label: string, child: PlanV2Child | undefined, done: boolean): string {
-  return `Lesson: ${label}${child ? ` for ${child.name}` : ""}${done ? ", completed" : ""}`;
+function buildAria(label: string, child: PlanV2Child | undefined, done: boolean, selected: boolean): string {
+  return `Lesson: ${label}${child ? ` for ${child.name}` : ""}${done ? ", completed" : ""}${selected ? ", selected" : ""}`;
 }
 
-interface DraggableProps {
+// ── Draggable wrapper ──────────────────────────────────────────────────────
+
+interface DraggableProps extends Omit<ShellProps, "overlay" | "dragging"> {
   lesson: PlanV2Lesson;
   sourceDateStr: string;
-  color: string;
-  initial: string;
-  subject: string | null;
-  label: string;
-  done: boolean;
-  missed?: boolean;
-  justLanded?: boolean;
-  onClick?: () => void;
-  child: PlanV2Child | undefined;
+  onLongPress?: () => void;
 }
 
 function DraggableLessonPill(p: DraggableProps) {
@@ -95,8 +121,34 @@ function DraggableLessonPill(p: DraggableProps) {
     data: { type: "lesson", lessonId: p.lesson.id, sourceDateStr: p.sourceDateStr },
   });
 
+  const longPress = useLongPress(() => p.onLongPress?.(), { holdMs: 150 });
+
+  // Merge @dnd-kit pointer listeners with long-press tracking. When both fire
+  // onPointerDown, both get a chance: the draggable stays armed for move, the
+  // long-press timer counts down for the hold. If the user hasn't moved by the
+  // time the timer fires, onLongPress takes the interaction.
+  const onPointerDown = (e: React.PointerEvent) => {
+    longPress.onPointerDown(e);
+    const l = listeners as Record<string, (e: React.PointerEvent) => void> | undefined;
+    l?.onPointerDown?.(e);
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    longPress.onPointerUp(e);
+    const l = listeners as Record<string, (e: React.PointerEvent) => void> | undefined;
+    l?.onPointerUp?.(e);
+  };
+
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className="touch-none">
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerMove={longPress.onPointerMove}
+      onPointerCancel={longPress.onPointerCancel}
+      onPointerLeave={longPress.onPointerLeave}
+      className="touch-none"
+    >
       <PillShell
         color={p.color}
         initial={p.initial}
@@ -105,13 +157,51 @@ function DraggableLessonPill(p: DraggableProps) {
         done={p.done}
         missed={p.missed}
         justLanded={p.justLanded}
+        selectMode={p.selectMode}
+        selected={p.selected}
         dragging={isDragging}
-        onClick={p.onClick}
-        ariaLabel={buildAria(p.label, p.child, p.done)}
+        onClick={(e) => {
+          if (longPress.wasLongPress()) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          p.onClick?.(e);
+        }}
+        ariaLabel={p.ariaLabel}
       />
     </div>
   );
 }
+
+// ── Plain wrapper with just long-press + click ─────────────────────────────
+
+function NonDraggablePill(p: Omit<ShellProps, "overlay" | "dragging"> & { onLongPress?: () => void }) {
+  const longPress = useLongPress(() => p.onLongPress?.(), { holdMs: 150 });
+  return (
+    <div
+      onPointerDown={longPress.onPointerDown}
+      onPointerUp={longPress.onPointerUp}
+      onPointerMove={longPress.onPointerMove}
+      onPointerCancel={longPress.onPointerCancel}
+      onPointerLeave={longPress.onPointerLeave}
+    >
+      <PillShell
+        {...p}
+        onClick={(e) => {
+          if (longPress.wasLongPress()) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          p.onClick?.(e);
+        }}
+      />
+    </div>
+  );
+}
+
+// ── Visual shell ───────────────────────────────────────────────────────────
 
 interface ShellProps {
   color: string;
@@ -121,8 +211,10 @@ interface ShellProps {
   done: boolean;
   missed?: boolean;
   justLanded?: boolean;
+  selectMode?: boolean;
+  selected?: boolean;
   dragging?: boolean;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent) => void;
   ariaLabel: string;
   /** When true the shell is rendered inside a DragOverlay — no button,
    * no cursor handling; just the visual. */
@@ -130,13 +222,14 @@ interface ShellProps {
 }
 
 export function PillShell({
-  color, initial, subject, label, done, missed, justLanded, dragging, onClick, ariaLabel, overlay,
+  color, initial, subject, label, done, missed, justLanded, selectMode, selected, dragging, onClick, ariaLabel, overlay,
 }: ShellProps) {
   const baseClasses = [
     "w-full text-left rounded-md px-1.5 py-[3px] text-[10px] font-medium bg-white border transition-colors flex items-center gap-1 min-w-0",
     overlay ? "" : "hover:bg-[#faf8f4]",
     missed ? "ring-1 ring-[#dc6b53]" : "",
     justLanded ? "ring-1 ring-[#5c7f63]" : "",
+    selected ? "ring-2 ring-[#2D5A3D]" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -167,7 +260,23 @@ export function PillShell({
         {subject ? <span className="text-[#7a6f65]">{subject} · </span> : null}
         {label}
       </span>
-      {missed ? (
+      {selectMode ? (
+        <span
+          aria-hidden
+          className="shrink-0 inline-flex items-center justify-center rounded-full"
+          style={{
+            width: 12, height: 12,
+            backgroundColor: selected ? "#2D5A3D" : "transparent",
+            border: selected ? "1.5px solid #2D5A3D" : "1.5px solid #c8bfb5",
+          }}
+        >
+          {selected ? (
+            <svg viewBox="0 0 8 7" width="7" height="6" fill="none">
+              <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : null}
+        </span>
+      ) : missed ? (
         <span
           aria-hidden
           className="shrink-0 rounded-full"
@@ -186,7 +295,14 @@ export function PillShell({
   }
 
   return (
-    <button type="button" onClick={onClick} aria-label={ariaLabel} className={baseClasses} style={style}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      aria-pressed={selectMode ? !!selected : undefined}
+      className={baseClasses}
+      style={style}
+    >
       {content}
     </button>
   );
