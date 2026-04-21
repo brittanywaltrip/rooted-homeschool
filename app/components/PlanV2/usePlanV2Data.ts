@@ -53,6 +53,8 @@ export type PlanV2Data = {
   vacationBlocks: PlanV2Vacation[];
   loading: boolean;
   reload: () => void;
+  /** Exposed so consumers can run optimistic updates via usePlanLessonActions. */
+  setLessons: React.Dispatch<React.SetStateAction<PlanV2Lesson[]>>;
 };
 
 export function usePlanV2Data(opts: {
@@ -101,7 +103,7 @@ export function usePlanV2Data(opts: {
 
     const lessonReq = supabase
       .from("lessons")
-      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, subjects(name, color)")
+      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color)")
       .eq("user_id", effectiveUserId)
       .gte("scheduled_date", startStr)
       .lte("scheduled_date", endStr);
@@ -139,5 +141,5 @@ export function usePlanV2Data(opts: {
 
   const reload = useCallback(() => setReloadNonce((n) => n + 1), []);
 
-  return { kids, lessons, appointments, vacationBlocks, loading, reload };
+  return { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons };
 }

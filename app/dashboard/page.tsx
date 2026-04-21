@@ -36,6 +36,9 @@ import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
+import TodayLessonCard from "@/app/components/TodayLessonCard";
+import DayDetailPanelV2 from "@/app/components/PlanV2/DayDetailPanel";
+import { useFeatureFlag } from "@/app/lib/feature-flags";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -177,22 +180,6 @@ function toTitleCase(name: string) {
   return name.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
 }
 
-function getSubjectStyle(subjectName: string | undefined): { bg: string; text: string } {
-  if (!subjectName) return { bg: "#f0ede8", text: "#5c5248" };
-  const n = subjectName.toLowerCase();
-  if (n.includes("math") || n.includes("algebra") || n.includes("geometry") || n.includes("calculus"))
-    return { bg: "#e4f0f4", text: "#1a4a5a" };
-  if (n.includes("read") || n.includes("language") || n.includes("english") || n.includes("writing") || n.includes("grammar") || n.includes("lit") || n.includes("spelling") || n.includes("phonics"))
-    return { bg: "#f0e8f4", text: "#4a2a5a" };
-  if (n.includes("science") || n.includes("biology") || n.includes("chemistry") || n.includes("physics") || n.includes("nature"))
-    return { bg: "#e8f0e9", text: "var(--g-deep)" };
-  if (n.includes("history") || n.includes("social") || n.includes("geography") || n.includes("civics") || n.includes("government"))
-    return { bg: "#fef0e4", text: "#7a4a1a" };
-  if (n.includes("art") || n.includes("music") || n.includes("drama") || n.includes("theater") || n.includes("craft") || n.includes("draw"))
-    return { bg: "#fce8ec", text: "#7a2a36" };
-  return { bg: "#f0ede8", text: "#5c5248" };
-}
-
 /** Parse "HH:MM:SS" or "HH:MM" time string into total minutes from midnight */
 function parseTimeToMinutes(t: string | null): number | null {
   if (!t) return null;
@@ -265,6 +252,7 @@ export default function TodayPage() {
   const { isPartner, effectiveUserId } = usePartner();
   const { setHideFab } = useDashboardLayout();
   const { earnLeaf } = useLeafAnimationContext();
+  const newPlanViewEnabled = useFeatureFlag("new_plan_view");
 
   // Family activity notifications
   const [familyNotifs, setFamilyNotifs] = useState<FamilyNotification[]>([]);
