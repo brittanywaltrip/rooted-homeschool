@@ -35,10 +35,16 @@ interface Props {
   dndEnabled?: boolean;
   isDragActive?: boolean;
   recentlyLandedIds?: Set<string>;
+  selectMode?: boolean;
+  selectedIds?: Set<string>;
+  moveTargetMode?: boolean;
   onCellClick?: (dateStr: string) => void;
   onLessonClick?: (lesson: PlanV2Lesson) => void;
   onAppointmentClick?: (appt: PlanV2Appointment) => void;
   onOverflowClick?: (dateStr: string) => void;
+  onLessonLongPress?: (lesson: PlanV2Lesson) => void;
+  onLessonSelectToggle?: (lesson: PlanV2Lesson) => void;
+  onMoveTargetPick?: (dateStr: string) => void;
 }
 
 function SkeletonCell() {
@@ -54,7 +60,9 @@ export default function MonthGrid(props: Props) {
   const {
     monthStart, todayStr, kids, lessons, appointments, vacationBlocks,
     loading, dndEnabled, isDragActive, recentlyLandedIds,
+    selectMode, selectedIds, moveTargetMode,
     onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
+    onLessonLongPress, onLessonSelectToggle, onMoveTargetPick,
   } = props;
 
   const { cells } = useMemo(() => computeGridRange(monthStart), [monthStart]);
@@ -126,10 +134,16 @@ export default function MonthGrid(props: Props) {
                   dndEnabled={dndEnabled}
                   isDragActive={isDragActive}
                   recentlyLandedIds={recentlyLandedIds}
+                  selectMode={selectMode}
+                  selectedIds={selectedIds}
+                  moveTargetMode={moveTargetMode}
                   onCellClick={onCellClick}
                   onLessonClick={onLessonClick}
                   onAppointmentClick={onAppointmentClick}
                   onOverflowClick={onOverflowClick}
+                  onLessonLongPress={onLessonLongPress}
+                  onLessonSelectToggle={onLessonSelectToggle}
+                  onMoveTargetPick={onMoveTargetPick}
                 />
               );
             })}
