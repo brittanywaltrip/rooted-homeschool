@@ -32,6 +32,9 @@ interface Props {
   appointments: PlanV2Appointment[];
   vacationBlocks: PlanV2Vacation[];
   loading: boolean;
+  dndEnabled?: boolean;
+  isDragActive?: boolean;
+  recentlyLandedIds?: Set<string>;
   onCellClick?: (dateStr: string) => void;
   onLessonClick?: (lesson: PlanV2Lesson) => void;
   onAppointmentClick?: (appt: PlanV2Appointment) => void;
@@ -50,7 +53,8 @@ function SkeletonCell() {
 export default function MonthGrid(props: Props) {
   const {
     monthStart, todayStr, kids, lessons, appointments, vacationBlocks,
-    loading, onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
+    loading, dndEnabled, isDragActive, recentlyLandedIds,
+    onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
   } = props;
 
   const { cells } = useMemo(() => computeGridRange(monthStart), [monthStart]);
@@ -119,6 +123,9 @@ export default function MonthGrid(props: Props) {
                   appointments={apptsByDate.get(dateStr) ?? []}
                   childrenById={childrenById}
                   todayStr={todayStr}
+                  dndEnabled={dndEnabled}
+                  isDragActive={isDragActive}
+                  recentlyLandedIds={recentlyLandedIds}
                   onCellClick={onCellClick}
                   onLessonClick={onLessonClick}
                   onAppointmentClick={onAppointmentClick}

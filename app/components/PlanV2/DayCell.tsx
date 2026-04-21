@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useDroppable } from "@dnd-kit/core";
 import LessonPill from "./LessonPill";
 import AppointmentPill from "./AppointmentPill";
 import type {
@@ -13,9 +14,10 @@ import type {
 /* A single day in the MonthGrid. Pure props — no data fetching or state
  * beyond click handling. Parent owns filtering and selection state.
  *
- * Pills render order: all appointments first (sorted by time), then lessons.
- * Visible pill cap = 4; the rest collapse into a "+ N more" affordance that
- * opens the DayDetailPanel for the same date (wired by parent in Phase 4). */
+ * When dndEnabled is true (desktop path), the cell registers as a drop
+ * target. Vacation cells are disabled (can't drop at all). Weekends remain
+ * droppable but render dimmer so users understand the visual warning; the
+ * orchestrator's drop handler decides whether to warn-but-allow, per spec. */
 
 const MAX_VISIBLE_PILLS = 4;
 
@@ -30,6 +32,13 @@ interface Props {
   appointments: PlanV2Appointment[];
   childrenById: Map<string, { child: PlanV2Child; index: number }>;
   todayStr: string;
+  /** Global "a pill is currently being dragged" flag — powers the "glow green
+   * for valid drop targets" visual. */
+  isDragActive?: boolean;
+  /** Lesson IDs that landed on this cell within the last few seconds —
+   * forwarded to LessonPill so it renders a green ring for confirmation. */
+  recentlyLandedIds?: Set<string>;
+  dndEnabled?: boolean;
   onCellClick?: (dateStr: string) => void;
   onLessonClick?: (lesson: PlanV2Lesson) => void;
   onAppointmentClick?: (appt: PlanV2Appointment) => void;
@@ -49,6 +58,7 @@ export default function DayCell(props: Props) {
   const {
     date, dateStr, isCurrentMonth, isToday, isWeekend, vacation,
     lessons, appointments, childrenById, todayStr,
+    isDragActive, recentlyLandedIds, dndEnabled,
     onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
   } = props;
 
@@ -61,26 +71,50 @@ export default function DayCell(props: Props) {
   const visibleLessons = lessons.slice(0, remainingLessonCap);
   const overflowCount = totalItems - visibleAppts.length - visibleLessons.length;
 
+  // Droppable registration. Disabled when the cell is in a vacation block —
+  // the orchestrator additionally blocks drops on vacation at the data layer
+  // as belt-and-suspenders. Weekends stay droppable (warn-but-allow path).
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `day:${dateStr}`,
+    data: { type: "day", dateStr, isVacation: !!vacation, isWeekend },
+    disabled: !dndEnabled || !!vacation,
+  });
+
   const cellBg =
     !isCurrentMonth ? "#fbfaf7"
     : isWeekend ? "#faf8f4"
     : "#ffffff";
   const borderColor = isToday ? "#5c7f63" : "#ece8e0";
 
+  // Visual states during a drag.
+  const dragValidHint = !!isDragActive && !vacation && dndEnabled;
+  const dragHovered = dragValidHint && isOver;
+
+  let border: string;
+  if (dragHovered) border = "1.5px dashed #5c7f63";
+  else if (dragValidHint) border = "1px dashed #b7d1bb";
+  else if (isToday) border = `1.5px solid ${borderColor}`;
+  else border = `0.5px solid ${borderColor}`;
+
+  const backgroundImage = vacation
+    ? "repeating-linear-gradient(135deg, #fff8f0 0 6px, #fef0dc 6px 12px)"
+    : dragHovered
+      ? "linear-gradient(180deg, #e8f0e9 0%, #d4e8d4 100%)"
+      : undefined;
+
   return (
     <div
+      ref={setDropRef}
       role="gridcell"
       aria-label={date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
       onClick={() => onCellClick?.(dateStr)}
       className="relative min-h-[82px] flex flex-col gap-[3px] p-1.5 transition-colors hover:bg-[#faf8f4] cursor-pointer"
       style={{
         backgroundColor: cellBg,
-        border: isToday ? `1.5px solid ${borderColor}` : `0.5px solid ${borderColor}`,
+        backgroundImage,
+        border,
         borderRadius: 8,
         opacity: isCurrentMonth ? 1 : 0.45,
-        backgroundImage: vacation
-          ? "repeating-linear-gradient(135deg, #fff8f0 0 6px, #fef0dc 6px 12px)"
-          : undefined,
       }}
     >
       {/* Header row: day number + count */}
@@ -115,6 +149,13 @@ export default function DayCell(props: Props) {
         </p>
       ) : null}
 
+      {/* "Drop here" preview — only when this specific cell is hovered during a drag */}
+      {dragHovered ? (
+        <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--g-deep)] mt-0.5">
+          Drop here
+        </p>
+      ) : null}
+
       {/* Pills */}
       {!vacation ? (
         <div className="flex flex-col gap-[3px] min-w-0">
@@ -134,7 +175,10 @@ export default function DayCell(props: Props) {
                 lesson={l}
                 child={meta?.child}
                 childOrderedIndex={meta?.index ?? 0}
+                sourceDateStr={dateStr}
                 missed={missed}
+                justLanded={recentlyLandedIds?.has(l.id)}
+                draggable={!!dndEnabled}
                 onClick={() => onLessonClick?.(l)}
               />
             );
