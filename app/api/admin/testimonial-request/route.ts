@@ -88,7 +88,7 @@ export async function POST(req: Request) {
       Thank you for believing in Rooted early on. I'm so glad you're here.
     </p>
     <p style="color:#2d2926;font-size:15px;line-height:1.7;margin:24px 0 0">
-      With love,<br/>
+      Sincerely,<br/>
       <span style="color:#5c7f63;font-weight:500">Brittany</span><br/>
       <span style="color:#7a6f65;font-size:13px">Founder, Rooted</span>
     </p>
@@ -106,7 +106,7 @@ It doesn't have to be polished or fancy. Just honest words from your heart. You 
 
 Thank you for believing in Rooted early on. I'm so glad you're here.
 
-With love,
+Sincerely,
 Brittany
 Founder, Rooted${emailFooterText()}`;
 
