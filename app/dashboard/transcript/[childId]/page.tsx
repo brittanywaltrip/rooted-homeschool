@@ -139,6 +139,7 @@ export default function TranscriptBuilderPage() {
   const [showExportGate, setShowExportGate] = useState(false);
   const [profileAccess, setProfileAccess] = useState<{ is_pro?: boolean | null; trial_started_at?: string | null }>({});
   const [lastName, setLastName] = useState<string>("");
+  const [pastProviders, setPastProviders] = useState<string[]>([]);
 
   // Courses
   const [courses, setCourses] = useState<Course[]>([]);
@@ -610,10 +611,25 @@ export default function TranscriptBuilderPage() {
 
   // ── Load data ─────────────────────────────────────────────────────────────
 
+  const refreshPastProviders = useCallback(async (uid: string) => {
+    const { data: providers } = await supabase
+      .from("transcript_courses")
+      .select("external_provider")
+      .eq("user_id", uid)
+      .not("external_provider", "is", null);
+    const distinct = Array.from(new Set(
+      (providers || [])
+        .map((p: { external_provider: string | null }) => (p.external_provider || "").trim())
+        .filter((p: string) => p.length > 0)
+    )).sort((a, b) => a.localeCompare(b));
+    setPastProviders(distinct);
+  }, []);
+
   const loadData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserId(user.id);
+    refreshPastProviders(user.id);
 
     const [{ data: childData }, { data: settingsData }, { data: coursesData }, { data: goalsData }, { data: profile }] = await Promise.all([
       supabase.from("children").select("id, name, color, birthday").eq("id", childId).maybeSingle(),
@@ -677,7 +693,7 @@ export default function TranscriptBuilderPage() {
     }
 
     setLoading(false);
-  }, [childId, router]);
+  }, [childId, router, refreshPastProviders]);
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => {
@@ -794,6 +810,7 @@ export default function TranscriptBuilderPage() {
       if (data) setCourses(prev => [{ id: data.id, ...payload } as Course, ...prev]);
     }
 
+    refreshPastProviders(userId);
     setFormSaving(false);
     closeModal();
     showToast(editingCourse ? "Course updated" : "Course added");
@@ -1314,9 +1331,12 @@ export default function TranscriptBuilderPage() {
                 {/* Institution (optional — leave blank for home school) */}
                 <div>
                   <label className="text-[12px] font-medium text-[#6b6560] block mb-1">Institution</label>
-                  <input type="text" value={form.external_provider || ""} onChange={e => updateForm("external_provider", e.target.value)}
+                  <input type="text" list="institution-suggestions" value={form.external_provider || ""} onChange={e => updateForm("external_provider", e.target.value)}
                     placeholder="e.g. Riverside High School — leave blank if home school"
                     className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]" />
+                  <datalist id="institution-suggestions">
+                    {pastProviders.map((p) => <option key={p} value={p} />)}
+                  </datalist>
                   <p className="text-[11px] text-[#8a8580] mt-1">Use this for courses taken at a different school, co-op, or online provider. The homeschool name on your transcript is used when this is blank.</p>
                 </div>
 
