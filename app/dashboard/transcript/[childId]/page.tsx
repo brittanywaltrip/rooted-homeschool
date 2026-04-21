@@ -482,6 +482,7 @@ export default function TranscriptBuilderPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncingInitial, setSyncingInitial] = useState(false);
   const hasSyncedRef = useRef(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   // ── Sync courses from Plan ────────────────────────────────────────────────
 
@@ -892,7 +893,7 @@ export default function TranscriptBuilderPage() {
 
         {/* Settings panel (gear-triggered) */}
         {settingsOpen && (
-          <div className="bg-white rounded-2xl mb-4 overflow-hidden" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+          <div ref={settingsRef} className="bg-white rounded-2xl mb-4 overflow-hidden" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
             <div className="px-5 py-5 space-y-3">
               <div>
                 <label className="text-[12px] font-medium text-[#6b6560] block mb-1">School name</label>
@@ -991,6 +992,27 @@ export default function TranscriptBuilderPage() {
           {/* ─── Tab: Courses ────────────────────────────────────────────── */}
           {tab === "courses" && (
             <div className="p-4">
+              {courses.length > 0 && !settings.school_name?.trim() && (
+                <div className="mb-4 rounded-lg bg-[#f0faf3] border border-[#cef0d4] px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-start gap-2 min-w-0">
+                    <span className="text-[16px] leading-none mt-0.5 shrink-0">🏫</span>
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium text-[#2D5A3D]">Add your school info to finish the transcript</p>
+                      <p className="text-[11px] text-[#5a6b50] mt-0.5">Your school name and administrator appear on the transcript header. Without these, the transcript prints with a blank top.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettingsOpen(true);
+                      requestAnimationFrame(() => settingsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                    }}
+                    className="text-[13px] font-medium text-[#2D5A3D] whitespace-nowrap hover:underline shrink-0"
+                  >
+                    Set up →
+                  </button>
+                </div>
+              )}
               {syncingInitial ? (
                 <div className="text-center py-10">
                   <RefreshCw size={20} className="mx-auto mb-2 text-[#2D5A3D] animate-spin" />
