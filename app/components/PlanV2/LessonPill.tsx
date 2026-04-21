@@ -54,7 +54,7 @@ export default function LessonPill(props: Props) {
   const initial = child ? child.name.charAt(0).toUpperCase() : "·";
   const done = lesson.completed;
   const label = displayTitle(lesson);
-  const ariaLabel = buildAria(label, child, done, !!selected);
+  const ariaLabel = buildAria(label, child, subject, sourceDateStr, done, !!selected, !!missed);
 
   // Drag is suppressed in select mode even on desktop — users are picking, not moving.
   const dragActive = draggable && !selectMode;
@@ -103,8 +103,24 @@ export default function LessonPill(props: Props) {
   );
 }
 
-function buildAria(label: string, child: PlanV2Child | undefined, done: boolean, selected: boolean): string {
-  return `Lesson: ${label}${child ? ` for ${child.name}` : ""}${done ? ", completed" : ""}${selected ? ", selected" : ""}`;
+function buildAria(
+  label: string,
+  child: PlanV2Child | undefined,
+  subject: string | null,
+  dateStr: string,
+  done: boolean,
+  selected: boolean,
+  missed: boolean,
+): string {
+  // "Lesson: Emma's Math Lesson 45, scheduled Tuesday April 21"
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dateLabel = new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric",
+  });
+  const whose = child ? `${child.name}'s` : "";
+  const subjectPart = subject ? ` ${subject}` : "";
+  const head = `Lesson:${whose ? ` ${whose}` : ""}${subjectPart} ${label}`.replace(/\s+/g, " ").trim();
+  return `${head}, scheduled ${dateLabel}${done ? ", completed" : ""}${missed ? ", missed" : ""}${selected ? ", selected" : ""}`;
 }
 
 // ── Draggable wrapper ──────────────────────────────────────────────────────

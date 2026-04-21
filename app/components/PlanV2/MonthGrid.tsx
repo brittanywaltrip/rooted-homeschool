@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import DayCell from "./DayCell";
+import DayCell, { CELL_ID_PREFIX } from "./DayCell";
 import { computeGridRange } from "./usePlanV2Data";
 import type {
   PlanV2Appointment,
@@ -10,12 +10,16 @@ import type {
   PlanV2Vacation,
 } from "./types";
 
-/* 42-cell month grid. Owns only layout + per-cell bucket precomputation;
- * DayCell is pure. Parent passes the already-filtered collections so the
- * child-filter chips and "hide completed" toggles live in the orchestrator. */
+/* 42-cell month grid. Owns layout, per-cell bucket precomputation, and
+ * keyboard navigation. DayCell stays pure. */
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function parseDateStr(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
 function vacationFor(dateStr: string, blocks: PlanV2Vacation[]): PlanV2Vacation | null {
@@ -38,6 +42,9 @@ interface Props {
   selectMode?: boolean;
   selectedIds?: Set<string>;
   moveTargetMode?: boolean;
+  /** Currently focused cell for keyboard nav ("YYYY-MM-DD"). */
+  focusedDateStr?: string | null;
+  onFocusedDateChange?: (dateStr: string) => void;
   onCellClick?: (dateStr: string) => void;
   onLessonClick?: (lesson: PlanV2Lesson) => void;
   onAppointmentClick?: (appt: PlanV2Appointment) => void;
@@ -62,6 +69,7 @@ export default function MonthGrid(props: Props) {
     monthStart, todayStr, kids, lessons, appointments, vacationBlocks,
     loading, dndEnabled, isDragActive, recentlyLandedIds,
     selectMode, selectedIds, moveTargetMode,
+    focusedDateStr, onFocusedDateChange,
     onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
     onLessonLongPress, onLessonSelectToggle, onMoveTargetPick,
     onCellContextMenu,
@@ -94,8 +102,83 @@ export default function MonthGrid(props: Props) {
     return { lessonsByDate: lMap, apptsByDate: aMap };
   }, [lessons, appointments]);
 
+  // Clamp the focused cell to the 42-cell window. The orchestrator may set
+  // a focusedDateStr that falls outside (e.g. in the previous month) after
+  // month nav — we fall back to the first same-month cell in that case.
+  const visibleDateStrs = useMemo(() => cells.map(toDateStr), [cells]);
+  const effectiveFocusedDateStr = useMemo(() => {
+    if (focusedDateStr && visibleDateStrs.includes(focusedDateStr)) return focusedDateStr;
+    // Fallback: today if visible, else first day of the current month.
+    if (visibleDateStrs.includes(todayStr)) return todayStr;
+    const firstCurrent = visibleDateStrs.find((s) => {
+      const d = parseDateStr(s);
+      return d.getMonth() === monthIndex;
+    });
+    return firstCurrent ?? visibleDateStrs[0] ?? null;
+  }, [focusedDateStr, visibleDateStrs, todayStr, monthIndex]);
+
+  function moveFocus(deltaDays: number) {
+    if (!effectiveFocusedDateStr) return;
+    const base = parseDateStr(effectiveFocusedDateStr);
+    base.setDate(base.getDate() + deltaDays);
+    const next = toDateStr(base);
+    // Only move within the visible window. Beyond-edge = no-op (prev/next
+    // month are reachable via the toolbar arrows; avoids surprise jumps).
+    if (visibleDateStrs.includes(next)) onFocusedDateChange?.(next);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    // Allow unmodified arrow/Enter/Space/Home/End only — don't intercept
+    // browser shortcuts or screen reader pass-throughs.
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    switch (e.key) {
+      case "ArrowLeft":
+        e.preventDefault(); moveFocus(-1); break;
+      case "ArrowRight":
+        e.preventDefault(); moveFocus(1); break;
+      case "ArrowUp":
+        e.preventDefault(); moveFocus(-7); break;
+      case "ArrowDown":
+        e.preventDefault(); moveFocus(7); break;
+      case "Home":
+        e.preventDefault();
+        if (effectiveFocusedDateStr) {
+          const base = parseDateStr(effectiveFocusedDateStr);
+          const idx = base.getDay();
+          base.setDate(base.getDate() - idx);
+          const next = toDateStr(base);
+          if (visibleDateStrs.includes(next)) onFocusedDateChange?.(next);
+        }
+        break;
+      case "End":
+        e.preventDefault();
+        if (effectiveFocusedDateStr) {
+          const base = parseDateStr(effectiveFocusedDateStr);
+          const idx = base.getDay();
+          base.setDate(base.getDate() + (6 - idx));
+          const next = toDateStr(base);
+          if (visibleDateStrs.includes(next)) onFocusedDateChange?.(next);
+        }
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        if (effectiveFocusedDateStr) onCellClick?.(effectiveFocusedDateStr);
+        break;
+    }
+  }
+
   return (
-    <div role="grid" aria-label="Month calendar" className="w-full">
+    <div
+      role="grid"
+      aria-label="Month calendar"
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+      aria-activedescendant={
+        effectiveFocusedDateStr ? `${CELL_ID_PREFIX}${effectiveFocusedDateStr}` : undefined
+      }
+      className="w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2D5A3D] focus-visible:ring-offset-2 rounded-lg"
+    >
       {/* Day-of-week headers */}
       <div className="grid grid-cols-7 gap-1 pb-1.5">
         {HEADERS.map((h, i) => (
@@ -139,7 +222,11 @@ export default function MonthGrid(props: Props) {
                   selectMode={selectMode}
                   selectedIds={selectedIds}
                   moveTargetMode={moveTargetMode}
-                  onCellClick={onCellClick}
+                  isKeyboardFocused={effectiveFocusedDateStr === dateStr}
+                  onCellClick={(ds) => {
+                    onFocusedDateChange?.(ds);
+                    onCellClick?.(ds);
+                  }}
                   onLessonClick={onLessonClick}
                   onAppointmentClick={onAppointmentClick}
                   onOverflowClick={onOverflowClick}

@@ -58,7 +58,12 @@ interface Props {
    * long-press (mobile). Pill-level long-press never reaches here because the
    * pill wrapper stops pointer/contextmenu propagation. */
   onCellContextMenu?: (dateStr: string, x: number, y: number) => void;
+  /** Set by MonthGrid's keyboard nav. Renders a visible focus ring so
+   * keyboard users can see which cell is currently "hot". */
+  isKeyboardFocused?: boolean;
 }
+
+export const CELL_ID_PREFIX = "planv2-cell-";
 
 function sortAppointments(appts: PlanV2Appointment[]): PlanV2Appointment[] {
   return [...appts].sort((a, b) => {
@@ -77,7 +82,7 @@ export default function DayCell(props: Props) {
     selectMode, selectedIds, moveTargetMode,
     onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
     onLessonLongPress, onLessonSelectToggle, onMoveTargetPick,
-    onCellContextMenu,
+    onCellContextMenu, isKeyboardFocused,
   } = props;
 
   // Track the last pointerdown position so the cell-level long-press can
@@ -154,11 +159,25 @@ export default function DayCell(props: Props) {
 
   const cellCursor = moveTargetMode && !moveTargetValid ? "not-allowed" : "pointer";
 
+  // Extra ring for keyboard-focused cell. We layer it via outline so it
+  // overlays any drag/today border without changing layout.
+  const keyboardFocusOutline = isKeyboardFocused
+    ? "2px solid #2D5A3D"
+    : undefined;
+
+  const ariaLabelParts: string[] = [
+    date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+  ];
+  if (vacation) ariaLabelParts.push(`vacation: ${vacation.name}`);
+  if (totalItems > 0) ariaLabelParts.push(`${totalItems} ${totalItems === 1 ? "item" : "items"}`);
+  if (isToday) ariaLabelParts.push("today");
+
   return (
     <div
       ref={setDropRef}
+      id={`${CELL_ID_PREFIX}${dateStr}`}
       role="gridcell"
-      aria-label={date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+      aria-label={ariaLabelParts.join(", ")}
       onClick={(e) => {
         // Long-press just fired? Swallow the synthetic click.
         if (cellLongPress.wasLongPress()) {
@@ -189,6 +208,8 @@ export default function DayCell(props: Props) {
         borderRadius: 8,
         opacity: moveTargetOpacity,
         cursor: cellCursor,
+        outline: keyboardFocusOutline,
+        outlineOffset: keyboardFocusOutline ? 2 : undefined,
       }}
     >
       {/* Header row: day number + count */}
