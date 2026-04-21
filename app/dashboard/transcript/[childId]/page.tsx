@@ -137,6 +137,7 @@ export default function TranscriptBuilderPage() {
   const [stateAutoDetected, setStateAutoDetected] = useState(false);
   const [showExportGate, setShowExportGate] = useState(false);
   const [profileAccess, setProfileAccess] = useState<{ is_pro?: boolean | null; trial_started_at?: string | null }>({});
+  const [lastName, setLastName] = useState<string>("");
 
   // Courses
   const [courses, setCourses] = useState<Course[]>([]);
@@ -194,7 +195,7 @@ export default function TranscriptBuilderPage() {
     // ── Student info ────────────────────────────────────────
     doc.setFontSize(10);
     const infoLeft: [string, string][] = [];
-    infoLeft.push(["Student:", child?.name || ""]);
+    infoLeft.push(["Student:", [child?.name, lastName].filter(Boolean).join(" ") || ""]);
     if ((child as any)?.birthday) {
       const bday = new Date((child as any).birthday + "T00:00:00");
       infoLeft.push(["Date of Birth:", bday.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })]);
@@ -456,7 +457,7 @@ export default function TranscriptBuilderPage() {
     }
 
     // ── Save ────────────────────────────────────────────────
-    const safeName = (child?.name || "student").replace(/[^a-zA-Z0-9]/g, "_");
+    const safeName = ([child?.name, lastName].filter(Boolean).join(" ") || "student").replace(/[^a-zA-Z0-9]/g, "_");
     doc.save(`${safeName}_transcript.pdf`);
   }
 
@@ -630,6 +631,7 @@ export default function TranscriptBuilderPage() {
 
     // Always set profile access (controls watermark + export gate)
     setProfileAccess({ is_pro: (profile as any)?.is_pro, trial_started_at: (profile as any)?.trial_started_at });
+    setLastName(((profile as any)?.last_name ?? "") as string);
 
     if (settingsData) {
       setSettings({
@@ -661,7 +663,11 @@ export default function TranscriptBuilderPage() {
   }, [childId, router]);
 
   useEffect(() => { loadData(); }, [loadData]);
-  useEffect(() => { if (child) document.title = `${child.name}'s Transcript · Rooted`; }, [child]);
+  useEffect(() => {
+    if (!child) return;
+    const full = [child.name, lastName].filter(Boolean).join(" ");
+    document.title = `${full}'s Transcript · Rooted`;
+  }, [child, lastName]);
 
   // ── Settings save ─────────────────────────────────────────────────────────
 
@@ -833,7 +839,7 @@ export default function TranscriptBuilderPage() {
 
   return (
     <>
-      <PageHero overline="Transcripts" title={`${child.name}'s Transcript`} subtitle={settings.school_name || undefined} />
+      <PageHero overline="Transcripts" title={`${[child.name, lastName].filter(Boolean).join(" ")}'s Transcript`} subtitle={settings.school_name || undefined} />
 
       <div className="max-w-2xl mx-auto px-5 pt-4 pb-10">
         {/* Back link + settings gear */}
@@ -1120,7 +1126,7 @@ export default function TranscriptBuilderPage() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[12px] mb-5">
-                      <div><span className="text-[#8a8580]">Student:</span> <span className="font-medium">{child.name}</span></div>
+                      <div><span className="text-[#8a8580]">Student:</span> <span className="font-medium">{[child.name, lastName].filter(Boolean).join(" ")}</span></div>
                       {child.birthday && (
                         <div><span className="text-[#8a8580]">Date of Birth:</span> <span className="font-medium">{new Date(child.birthday + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span></div>
                       )}
