@@ -41,3 +41,10 @@ yarn-error.log*
 next-env.d.ts
 .env*.local
 public/hero-video.mp4
+
+# playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/blob-report/
+tests/e2e/.auth/
