@@ -1,13 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, MousePointerSquareDashed } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import MonthGrid from "./MonthGrid";
+import DayDetailPanelV2 from "./DayDetailPanel";
 import { usePlanV2Data } from "./usePlanV2Data";
+import { usePlanLessonActions } from "./usePlanLessonActions";
 import { resolveChildColor } from "./colors";
 import type { PlanV2Appointment, PlanV2Lesson } from "./types";
+import type {
+  TodayLessonCardChild,
+  TodayLessonCardLesson,
+} from "@/app/components/TodayLessonCard";
 
 /* PlanV2 orchestrator. Owns month nav, view toggle, child filter chips, and
  * wires the toolbar to the MonthGrid. Day-detail panel, drag-drop, select
@@ -26,19 +33,58 @@ function firstOfMonth(d: Date): Date {
   return x;
 }
 
+/** Narrow PlanV2Lesson → TodayLessonCardLesson. Drops null-child_id rows
+ * (unassigned lessons render as "Unassigned" in the panel via a synthetic
+ * child_id). TodayLessonCard requires a non-null child_id; we coerce so the
+ * panel can still show the lesson under an Unassigned block. */
+function toTodayLessons(ls: PlanV2Lesson[]): TodayLessonCardLesson[] {
+  return ls.map((l) => ({
+    id: l.id,
+    title: l.title ?? "",
+    completed: l.completed,
+    child_id: l.child_id ?? "__unassigned",
+    hours: l.hours,
+    minutes_spent: l.minutes_spent,
+    subjects: l.subjects,
+    lesson_number: l.lesson_number,
+    curriculum_goal_id: l.curriculum_goal_id,
+    notes: l.notes,
+  }));
+}
+
+function toTodayKids(ks: { id: string; name: string; color: string | null }[]): TodayLessonCardChild[] {
+  return ks.map((k) => ({ id: k.id, name: k.name, color: k.color }));
+}
+
 type ViewMode = "week" | "month";
 
 export default function PlanV2() {
-  const { effectiveUserId } = usePartner();
+  const { effectiveUserId, isPartner } = usePartner();
   const todayStr = useMemo(() => toDateStr(new Date()), []);
 
   const [monthStart, setMonthStart] = useState<Date>(() => firstOfMonth(new Date()));
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [childFilter, setChildFilter] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
+  const [openDayStr, setOpenDayStr] = useState<string | null>(null);
 
-  const { kids, lessons, appointments, vacationBlocks, loading } =
+  const { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons } =
     usePlanV2Data({ effectiveUserId, monthStart });
+
+  // Lesson mutation handlers. Pass setLessons for both arrays (PlanV2 has one
+  // state; the hook's dual setter model collapses cleanly). setAllLessons is
+  // omitted — PlanV2 doesn't track an "all lessons" store.
+  const { toggleLesson, deleteLesson, skipLesson } = usePlanLessonActions<PlanV2Lesson>({
+    lessons,
+    monthLessons: lessons,
+    setLessons,
+    setMonthLessons: setLessons,
+    effectiveUserId,
+    onSkipUndo: () => {
+      // Universal undo bar lands in Phase 5 — for now just refresh.
+      reload();
+    },
+  });
 
   // Default: every child selected. Once data loads, ensure filter includes all
   // current child IDs.
@@ -86,6 +132,43 @@ export default function PlanV2() {
     setNotice(msg);
     window.setTimeout(() => setNotice((n) => (n === msg ? null : n)), 3500);
   }
+
+  const handleLessonChanged = useCallback(
+    (lessonId: string, patch: Partial<TodayLessonCardLesson>) => {
+      setLessons((prev) =>
+        prev.map((l) => (l.id === lessonId ? { ...l, ...patch } as PlanV2Lesson : l)),
+      );
+    },
+    [setLessons],
+  );
+
+  const handleMinutesUpdate = useCallback(
+    (id: string, mins: number) => {
+      setLessons((prev) =>
+        prev.map((l) => (l.id === id ? { ...l, minutes_spent: mins } : l)),
+      );
+    },
+    [setLessons],
+  );
+
+  const handleAppointmentToggle = useCallback(
+    async (appt: PlanV2Appointment) => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) return;
+        await fetch("/api/appointments", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: appt.id, completed: !appt.completed }),
+        });
+        reload();
+      } catch {
+        /* surface later — for now a silent retry on next reload */
+      }
+    },
+    [reload],
+  );
 
   const viewingCurrentMonth =
     monthStart.getFullYear() === new Date().getFullYear() &&
@@ -241,22 +324,50 @@ export default function PlanV2() {
                 appointments={filteredAppointments}
                 vacationBlocks={vacationBlocks}
                 loading={loading}
-                onCellClick={(dateStr) =>
-                  flashNotice(`Day detail for ${dateStr} opens in the next phase.`)
-                }
-                onLessonClick={() =>
-                  flashNotice("Lesson actions move into Plan in the next phase.")
-                }
-                onAppointmentClick={() =>
-                  flashNotice("Appointment edit lands in the appointments phase.")
-                }
-                onOverflowClick={(dateStr) =>
-                  flashNotice(`All items for ${dateStr} will show in the day panel (next phase).`)
-                }
+                onCellClick={(dateStr) => setOpenDayStr(dateStr)}
+                onLessonClick={(lesson) => {
+                  const d = lesson.scheduled_date ?? lesson.date;
+                  if (d) setOpenDayStr(d);
+                }}
+                onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
               />
             </div>
           </div>
         )}
+
+        {/* Day-detail sheet */}
+        {openDayStr ? (() => {
+          const panelLessons = toTodayLessons(
+            lessons.filter((l) => (l.scheduled_date ?? l.date) === openDayStr),
+          );
+          const panelAppts = appointments.filter((a) => a.instance_date === openDayStr);
+          const panelKids = toTodayKids(kids);
+          const [y, m, d] = openDayStr.split("-").map(Number);
+          const panelDate = new Date(y, m - 1, d);
+          return (
+            <DayDetailPanelV2
+              date={panelDate}
+              lessons={panelLessons}
+              appointments={panelAppts}
+              kids={panelKids}
+              isPartner={isPartner}
+              variant="sheet"
+              onClose={() => setOpenDayStr(null)}
+              onToggleLesson={(id, current) => { void toggleLesson(id, current); }}
+              onDeleteLesson={(id) => { void deleteLesson(id); }}
+              onSkipLesson={(l) => {
+                const full = lessons.find((x) => x.id === l.id);
+                if (full) void skipLesson(full);
+              }}
+              onEditLesson={() => flashNotice("Edit lesson opens in a later phase.")}
+              onRescheduleLesson={() => flashNotice("Reschedule lands via drag in the next phase.")}
+              onMinutesUpdate={handleMinutesUpdate}
+              onToggleAppointment={handleAppointmentToggle}
+              onLessonChanged={handleLessonChanged}
+            />
+          );
+        })() : null}
 
         {notice ? (
           <div

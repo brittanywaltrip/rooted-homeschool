@@ -1,9 +1,321 @@
 "use client";
 
-// DayDetailPanel (v2) — shared by Today page and Plan cell tap.
-// Built in Step 4. Extraction of TodayLessonCard happens here.
-// Existing app/components/DayDetailPanel.tsx stays in place until flag flips.
+import { useRef, useState } from "react";
+import { X } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import TodayLessonCard, {
+  type TodayLessonCardLesson,
+  type TodayLessonCardChild,
+} from "@/app/components/TodayLessonCard";
+import { resolveChildColor } from "./colors";
+import type { PlanV2Appointment } from "./types";
 
-export default function DayDetailPanel() {
-  return null;
+/* ============================================================================
+ * DayDetailPanel v2 — shared day view.
+ *
+ * Two variants:
+ *   - "inline"  content renders in place (used by the Today page when the
+ *               new_plan_view flag is on)
+ *   - "sheet"   content sits inside a bottom-sheet overlay with backdrop
+ *               (used by PlanV2 when a month cell is tapped)
+ *
+ * Presentational — callers own data and mutation. Note-editor state lives
+ * inside the panel so multiple TodayLessonCards can coordinate through one
+ * editor; the DB write for notes happens here to keep the parent contract
+ * small (caller only supplies an optional onLessonChanged for optimistic
+ * parent syncing).
+ * ==========================================================================*/
+
+function formatTimeRange(time: string | null, durationMinutes: number): string | null {
+  if (!time) return null;
+  const [hStr, mStr] = time.split(":");
+  const h = Number(hStr);
+  const m = Number(mStr);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  const start12 = ((h + 11) % 12) + 1;
+  const startSuffix = h >= 12 ? "PM" : "AM";
+  const endMinutes = h * 60 + m + durationMinutes;
+  const eH = Math.floor((endMinutes / 60) % 24);
+  const eM = endMinutes % 60;
+  const end12 = ((eH + 11) % 12) + 1;
+  const endSuffix = eH >= 12 ? "PM" : "AM";
+  const fmt = (hh: number, mm: number, s: string) =>
+    mm === 0 ? `${hh} ${s}` : `${hh}:${String(mm).padStart(2, "0")} ${s}`;
+  return `${fmt(start12, m, startSuffix)} – ${fmt(end12, eM, endSuffix)}`;
+}
+
+function sortAppointments(appts: PlanV2Appointment[]): PlanV2Appointment[] {
+  return [...appts].sort((a, b) => {
+    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    if (a.time === null && b.time !== null) return -1;
+    if (a.time !== null && b.time === null) return 1;
+    if (a.time && b.time) return a.time.localeCompare(b.time);
+    return 0;
+  });
+}
+
+export interface DayDetailPanelV2Props {
+  date: Date;
+  lessons: TodayLessonCardLesson[];
+  appointments: PlanV2Appointment[];
+  kids: TodayLessonCardChild[];
+  isPartner: boolean;
+  onToggleLesson: (id: string, current: boolean) => void;
+  onEditLesson: (lesson: TodayLessonCardLesson) => void;
+  onDeleteLesson: (id: string) => void;
+  onRescheduleLesson: (lesson: TodayLessonCardLesson) => void;
+  onSkipLesson: (lesson: TodayLessonCardLesson) => void;
+  onMinutesUpdate: (id: string, mins: number) => void;
+  onToggleAppointment?: (appt: PlanV2Appointment) => void;
+  /** Called after a note is saved so the parent can sync local state. */
+  onLessonChanged?: (lessonId: string, patch: Partial<TodayLessonCardLesson>) => void;
+  variant?: "inline" | "sheet";
+  onClose?: () => void;
+}
+
+type NoteSaveState = "idle" | "saving" | "saved" | "error";
+
+export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
+  const {
+    date, lessons, appointments, kids, isPartner,
+    onToggleLesson, onEditLesson, onDeleteLesson, onRescheduleLesson,
+    onSkipLesson, onMinutesUpdate, onToggleAppointment, onLessonChanged,
+    variant = "inline", onClose,
+  } = props;
+
+  // ── Note editor state (internal to the panel) ──────────────────────────────
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+  const [noteSaveState, setNoteSaveState] = useState<NoteSaveState>("idle");
+  const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const noteSaveTimerRef = useRef<number | null>(null);
+
+  function startEditingNote(lessonId: string, currentNotes: string | null | undefined) {
+    setEditingNoteId(lessonId);
+    setEditingNoteText(currentNotes ?? "");
+    setNoteSaveState("idle");
+    setTimeout(() => noteTextareaRef.current?.focus(), 0);
+  }
+  function cancelEditingNote() {
+    setEditingNoteId(null);
+    setEditingNoteText("");
+    setNoteSaveState("idle");
+    if (noteSaveTimerRef.current !== null) {
+      window.clearTimeout(noteSaveTimerRef.current);
+      noteSaveTimerRef.current = null;
+    }
+  }
+  async function saveNote(lessonId: string) {
+    setNoteSaveState("saving");
+    const text = editingNoteText.trim();
+    const { error } = await supabase
+      .from("lessons")
+      .update({ notes: text.length === 0 ? null : text })
+      .eq("id", lessonId);
+    if (error) {
+      setNoteSaveState("error");
+      return;
+    }
+    onLessonChanged?.(lessonId, { notes: text.length === 0 ? null : text });
+    setNoteSaveState("saved");
+    if (noteSaveTimerRef.current !== null) window.clearTimeout(noteSaveTimerRef.current);
+    noteSaveTimerRef.current = window.setTimeout(() => {
+      setEditingNoteId(null);
+      setEditingNoteText("");
+      setNoteSaveState("idle");
+      noteSaveTimerRef.current = null;
+    }, 1500);
+  }
+
+  // ── Derived data ───────────────────────────────────────────────────────────
+  const dateLabel = date.toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric",
+  });
+  const sortedAppts = sortAppointments(appointments);
+
+  const lessonsByChild = new Map<string | null, TodayLessonCardLesson[]>();
+  for (const l of lessons) {
+    const key = l.child_id || null;
+    const list = lessonsByChild.get(key) ?? [];
+    list.push(l);
+    lessonsByChild.set(key, list);
+  }
+
+  const totalItems = lessons.length + sortedAppts.length;
+  const lessonsDone = lessons.filter((l) => l.completed).length;
+
+  const kidsById = new Map<string, { child: TodayLessonCardChild; index: number }>();
+  kids.forEach((c, i) => kidsById.set(c.id, { child: c, index: i }));
+
+  // ── Content ────────────────────────────────────────────────────────────────
+  const content = (
+    <div className="flex flex-col gap-4 min-w-0">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-base font-bold text-[#2d2926] leading-tight">{dateLabel}</h2>
+          <p className="text-xs text-[#7a6f65] mt-0.5">
+            {totalItems === 0
+              ? "Nothing scheduled"
+              : lessons.length === 0
+                ? `${sortedAppts.length} appointment${sortedAppts.length === 1 ? "" : "s"}`
+                : `${lessonsDone} of ${lessons.length} lesson${lessons.length === 1 ? "" : "s"} complete`}
+          </p>
+        </div>
+        {variant === "sheet" && onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close day detail"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors shrink-0"
+          >
+            <X size={16} />
+          </button>
+        ) : null}
+      </div>
+
+      {/* Appointments section */}
+      {sortedAppts.length > 0 ? (
+        <section>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2">
+            Appointments
+          </p>
+          <div className="space-y-1.5">
+            {sortedAppts.map((a) => {
+              const range = formatTimeRange(a.time, a.duration_minutes);
+              return (
+                <button
+                  key={`${a.id}-${a.instance_date}`}
+                  type="button"
+                  onClick={() => onToggleAppointment?.(a)}
+                  className="w-full text-left bg-white rounded-xl px-3 py-2.5 flex items-start gap-2.5 transition-colors hover:bg-[#faf8f4]"
+                  style={{ border: "1px dashed #c4b5d8", opacity: a.completed ? 0.6 : 1 }}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
+                      a.completed ? "bg-[#7C3AED] border-[#7C3AED]" : "border-[#c4b5d8]"
+                    }`}
+                    aria-hidden
+                  >
+                    {a.completed ? (
+                      <svg viewBox="0 0 8 7" className="w-2.5 h-2">
+                        <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    ) : null}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className="text-sm font-medium leading-snug"
+                      style={{
+                        color: "#2d2926",
+                        textDecoration: a.completed ? "line-through" : "none",
+                      }}
+                    >
+                      <span aria-hidden>📍 </span>
+                      {a.title}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#7a6f65]">
+                      {range ? <span className="font-semibold text-[#5c7f63]">{range}</span> : <span>All day</span>}
+                      {a.location ? <span className="truncate">· {a.location}</span> : null}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Lessons by child */}
+      {lessons.length > 0 ? (
+        <section>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2">
+            Lessons
+          </p>
+          <div className="space-y-3">
+            {Array.from(lessonsByChild.entries()).map(([childId, childLessons]) => {
+              const meta = childId ? kidsById.get(childId) : undefined;
+              const child = meta?.child;
+              const colorIdx = meta?.index ?? 0;
+              const color = resolveChildColor(child, colorIdx);
+              const done = childLessons.filter((l) => l.completed).length;
+              const name = child?.name ?? "Unassigned";
+              return (
+                <div key={childId ?? "__unassigned"} className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white shrink-0"
+                      style={{ backgroundColor: color }}
+                      aria-hidden
+                    >
+                      {name.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="text-xs font-semibold text-[#2d2926]">{name}</span>
+                    <span className="text-[11px] text-[#7a6f65]">
+                      · {done} of {childLessons.length} done
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {childLessons.map((lesson) => (
+                      <TodayLessonCard
+                        key={lesson.id}
+                        lesson={lesson}
+                        childObj={child}
+                        onToggle={onToggleLesson}
+                        onEdit={onEditLesson}
+                        onDelete={onDeleteLesson}
+                        onReschedule={onRescheduleLesson}
+                        onSkip={onSkipLesson}
+                        onStartEditingNote={startEditingNote}
+                        onMinutesUpdate={onMinutesUpdate}
+                        isPartner={isPartner}
+                        editingNoteId={editingNoteId}
+                        editingNoteText={editingNoteText}
+                        noteSaveState={noteSaveState}
+                        noteTextareaRef={noteTextareaRef}
+                        onNoteTextChange={setEditingNoteText}
+                        onSaveNote={saveNote}
+                        onCancelEditingNote={cancelEditingNote}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Empty state */}
+      {totalItems === 0 ? (
+        <p className="text-sm text-[#b5aca4] text-center py-6">
+          Nothing scheduled for this day.
+        </p>
+      ) : null}
+    </div>
+  );
+
+  if (variant === "sheet") {
+    return (
+      <>
+        <div
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50"
+          onClick={onClose}
+          aria-hidden
+        />
+        <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
+          <div
+            className="bg-[#fefcf9] rounded-t-3xl shadow-xl w-full max-w-lg flex flex-col pointer-events-auto"
+            style={{ maxHeight: "85vh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-10 h-1 bg-[#e8e2d9] rounded-full mx-auto mt-3 shrink-0" aria-hidden />
+            <div className="flex-1 overflow-y-auto px-5 py-4">{content}</div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  return content;
 }
