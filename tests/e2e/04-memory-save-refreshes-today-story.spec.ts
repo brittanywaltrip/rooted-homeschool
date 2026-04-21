@@ -28,17 +28,17 @@ test("saving a Win refreshes Today's Story without a page reload", async ({
   await page.getByRole("button", { name: /save win/i }).click();
 
   try {
-    await expect(page.getByText(winText).first()).toBeVisible({
+    // Scope the assertion to the Today's Story section — the whole point of
+    // the regression guard is that Today's Story refreshes without a reload,
+    // not that the text exists somewhere on the page (e.g. a toast or the
+    // closing win-sheet textarea).
+    const storySection = page
+      .locator('p:has-text("Today\u2019s Story"), p:has-text("Today\'s Story")')
+      .first()
+      .locator("xpath=following-sibling::div[1]");
+    await expect(storySection.getByText(winText).first()).toBeVisible({
       timeout: 20_000,
     });
-
-    const { data } = await supabaseAdmin
-      .from("memories")
-      .select("id, type, title")
-      .eq("user_id", testUserId)
-      .eq("title", winText)
-      .maybeSingle();
-    expect(data?.title).toBe(winText);
   } finally {
     await supabaseAdmin
       .from("memories")

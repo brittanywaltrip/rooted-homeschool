@@ -31,9 +31,18 @@ test("mark a lesson done — UI strike-through + DB completed", async ({
     await page.goto("/dashboard");
     await page.waitForURL(/\/dashboard/);
 
-    const lessonItem = page.getByText(marker).first();
-    await lessonItem.waitFor({ state: "visible", timeout: 15_000 });
-    await lessonItem.click();
+    // The lesson row has two sibling buttons: a check-circle (triggers the
+    // check-off modal) and a title button (only expands the card). Target the
+    // circle specifically — it's the <button> immediately preceding the title
+    // button in the DOM.
+    const titleBtn = page
+      .getByRole("button", {
+        name: new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      })
+      .first();
+    await titleBtn.waitFor({ state: "visible", timeout: 15_000 });
+    const circle = titleBtn.locator("xpath=preceding-sibling::button[1]");
+    await circle.click();
 
     await page.getByRole("button", { name: /log it/i }).click();
 
