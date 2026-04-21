@@ -548,47 +548,35 @@ export default function CurriculumWizard({
       console.warn(`[CurriculumWizard] partial save: only ${actual}/${rows.length} lessons for goal ${goalId}`);
     }
 
-    // Auto-fill gap lessons 1..(startNum-1) when user said "start at lesson N"
-    // but didn't enable explicit backfill. Without this, lesson_number is
-    // non-contiguous (Bug 1: gaps) and current_lesson can't track actual rows.
-    // We mark these as is_backfill/completed with yesterday noon as completed_at.
-    if (goalId && startNum > 1 && !backfillEnabled) {
-      const yday = new Date(); yday.setDate(yday.getDate() - 1); yday.setHours(12, 0, 0, 0);
-      const ydayStr = toDateStr(yday);
-      const gapInserts = [];
-      for (let n = 1; n < startNum; n++) {
-        gapInserts.push({
-          user_id: user.id,
-          child_id: childId || null,
-          subject_id: subjectId,
-          title: `${saveName} — Lesson ${n}`,
-          date: ydayStr,
-          scheduled_date: ydayStr,
-          completed: true,
-          completed_at: `${ydayStr}T12:00:00Z`,
-          is_backfill: true,
-          hours: 0,
-          curriculum_goal_id: goalId,
-          lesson_number: n,
-          school_year_id: schoolYearId || null,
-        });
-      }
-      for (let i = 0; i < gapInserts.length; i += 100) {
-        const batch = gapInserts.slice(i, i + 100);
-        const { error: gapErr } = await supabase.from("lessons").insert(batch);
-        if (gapErr) console.error(`[CurriculumWizard] gap-fill batch failed:`, gapErr);
-      }
-      await supabase.from("curriculum_goals").update({
-        is_backfilled: true,
-        start_at_lesson: startNum,
-      }).eq("id", goalId);
-    }
-
     // ── Backfill entries ─────────────────────────────────────────────────────
+    // Two entry conditions funnel through the same distributed path:
+    //   • Explicit: user toggled backfillEnabled and picked a range + mode.
+    //   • Implicit: user said "I'm on lesson N" (startNum > 1) without toggling
+    //     backfill. Default the range to "today minus (startNum - 1) school
+    //     days" so every backfilled lesson lands on a distinct prior school day
+    //     instead of stacking on yesterday.
+    const implicitBackfill = !backfillEnabled && startNum > 1;
+    const effectiveBackfillLessonsNum = backfillEnabled ? backfillLessonsNum : (implicitBackfill ? startNum - 1 : 0);
+    const effectiveBackfillStartDate = (() => {
+      if (backfillEnabled) return backfillStartDate;
+      if (!implicitBackfill) return "";
+      const target = startNum - 1;
+      const cursor = new Date(); cursor.setDate(cursor.getDate() - 1); cursor.setHours(0, 0, 0, 0);
+      let found = 0;
+      let safety = 0;
+      while (found < target && safety < 3650) {
+        const idx = (cursor.getDay() + 6) % 7;
+        if (schoolDays[idx]) found++;
+        if (found < target) cursor.setDate(cursor.getDate() - 1);
+        safety++;
+      }
+      return toDateStr(cursor);
+    })();
+
     let backfillInserted = 0;
-    if (backfillEnabled && backfillLessonsNum > 0 && backfillStartDate) {
+    if (goalId && effectiveBackfillLessonsNum > 0 && effectiveBackfillStartDate) {
       const bfStartObj = (() => {
-        const [y, m, d] = backfillStartDate.split("-").map(Number);
+        const [y, m, d] = effectiveBackfillStartDate.split("-").map(Number);
         return new Date(y, m - 1, d);
       })();
       const yesterdayDate = new Date(); yesterdayDate.setDate(yesterdayDate.getDate() - 1); yesterdayDate.setHours(0,0,0,0);
@@ -605,17 +593,21 @@ export default function CurriculumWizard({
       }
 
       if (schoolDayDates.length > 0) {
-        const perDayMinutes = backfillMode === "per_lesson"
-          ? (parseInt(defaultMinutes) || 30)
-          : Math.round((backfillHoursNum * 60) / backfillLessonsNum);
+        // Implicit backfill doesn't know real per-lesson time — record 0 rather
+        // than claim estimated minutes the user didn't enter.
+        const perDayMinutes = backfillEnabled
+          ? (backfillMode === "per_lesson"
+              ? (parseInt(defaultMinutes) || 30)
+              : Math.round((backfillHoursNum * 60) / effectiveBackfillLessonsNum))
+          : 0;
         const perDayHours = perDayMinutes / 60;
 
         // Distribute lessons across school days
         const bfInserts: Array<Record<string, unknown>> = [];
         let lessonIdx = 0;
-        if (backfillLessonsNum <= schoolDayDates.length) {
+        if (effectiveBackfillLessonsNum <= schoolDayDates.length) {
           // 1 per day, fill forward
-          for (let i = 0; i < backfillLessonsNum; i++) {
+          for (let i = 0; i < effectiveBackfillLessonsNum; i++) {
             const dateStr = schoolDayDates[i];
             bfInserts.push({
               user_id: user.id,
@@ -628,7 +620,7 @@ export default function CurriculumWizard({
               completed_at: `${dateStr}T12:00:00Z`,
               is_backfill: true,
               hours: perDayHours,
-              minutes_spent: perDayMinutes,
+              minutes_spent: perDayMinutes || null,
               curriculum_goal_id: goalId,
               lesson_number: i + 1,
               school_year_id: schoolYearId || null,
@@ -636,9 +628,9 @@ export default function CurriculumWizard({
           }
         } else {
           // More lessons than days: distribute evenly
-          const perDay = Math.ceil(backfillLessonsNum / schoolDayDates.length);
+          const perDay = Math.ceil(effectiveBackfillLessonsNum / schoolDayDates.length);
           for (const dateStr of schoolDayDates) {
-            for (let j = 0; j < perDay && lessonIdx < backfillLessonsNum; j++, lessonIdx++) {
+            for (let j = 0; j < perDay && lessonIdx < effectiveBackfillLessonsNum; j++, lessonIdx++) {
               bfInserts.push({
                 user_id: user.id,
                 child_id: childId || null,
@@ -650,7 +642,7 @@ export default function CurriculumWizard({
                 completed_at: `${dateStr}T12:00:00Z`,
                 is_backfill: true,
                 hours: perDayHours,
-                minutes_spent: perDayMinutes,
+                minutes_spent: perDayMinutes || null,
                 curriculum_goal_id: goalId,
                 lesson_number: lessonIdx + 1,
                 school_year_id: schoolYearId || null,
@@ -1101,32 +1093,48 @@ export default function CurriculumWizard({
           .eq("user_id", user.id);
         const vacList = (vacBlocks ?? []) as { start_date: string; end_date: string }[];
 
-        // Partition: numbers < startAtLesson get is_backfill rows dated
-        // yesterday (the user implicitly completed them). Numbers >= startAt
-        // get real schedule dates on future school days.
-        const yday = new Date(); yday.setDate(yday.getDate() - 1); yday.setHours(12, 0, 0, 0);
-        const ydayStr = toDateStr(yday);
-
+        // Partition: numbers < startAtLesson get is_backfill rows distributed
+        // across the most-recent prior school days (oldest lesson_number → oldest
+        // date). Numbers >= startAtLesson get real schedule dates on future
+        // school days.
         const pastMissing = missing.filter((n) => n < startAtLesson);
         const futureMissing = missing.filter((n) => n >= startAtLesson);
 
         const healInserts: Array<Record<string, unknown>> = [];
-        for (const n of pastMissing) {
-          healInserts.push({
-            user_id: user.id,
-            child_id: editData.childId || null,
-            subject_id: healSubjectId,
-            title: `${saveName} — Lesson ${n}`,
-            date: ydayStr,
-            scheduled_date: ydayStr,
-            completed: true,
-            completed_at: `${ydayStr}T12:00:00Z`,
-            is_backfill: true,
-            hours: 0,
-            curriculum_goal_id: activeGoalId,
-            lesson_number: n,
-            school_year_id: schoolYearId || null,
-          });
+
+        if (pastMissing.length > 0) {
+          // Walk backward from yesterday, collecting pastMissing.length school
+          // days. unshift() keeps the array in oldest-first order so index i
+          // aligns with the i-th smallest missing lesson_number.
+          const priorSchoolDays: string[] = [];
+          const backCursor = new Date(); backCursor.setDate(backCursor.getDate() - 1); backCursor.setHours(0, 0, 0, 0);
+          let backSafety = 0;
+          while (priorSchoolDays.length < pastMissing.length && backSafety < 3650) {
+            const idx = (backCursor.getDay() + 6) % 7;
+            if (schoolDays[idx]) priorSchoolDays.unshift(toDateStr(backCursor));
+            backCursor.setDate(backCursor.getDate() - 1);
+            backSafety++;
+          }
+          const pastSorted = [...pastMissing].sort((a, b) => a - b);
+          for (let i = 0; i < pastSorted.length; i++) {
+            const n = pastSorted[i];
+            const dateStr = priorSchoolDays[i] ?? priorSchoolDays[priorSchoolDays.length - 1];
+            healInserts.push({
+              user_id: user.id,
+              child_id: editData.childId || null,
+              subject_id: healSubjectId,
+              title: `${saveName} — Lesson ${n}`,
+              date: dateStr,
+              scheduled_date: dateStr,
+              completed: true,
+              completed_at: `${dateStr}T12:00:00Z`,
+              is_backfill: true,
+              hours: 0,
+              curriculum_goal_id: activeGoalId,
+              lesson_number: n,
+              school_year_id: schoolYearId || null,
+            });
+          }
         }
 
         if (futureMissing.length > 0) {
