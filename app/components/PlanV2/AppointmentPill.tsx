@@ -21,6 +21,25 @@ function formatTimeShort(t: string | null): string | null {
   return m === 0 ? `${hour12}${suffix}` : `${hour12}:${String(m).padStart(2, "0")}${suffix}`;
 }
 
+function formatTime12Full(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  const hour12 = ((h + 11) % 12) + 1;
+  const suffix = h >= 12 ? "PM" : "AM";
+  return m === 0 ? `${hour12} ${suffix}` : `${hour12}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+function buildApptAria(appt: PlanV2Appointment): string {
+  const [y, m, d] = appt.instance_date.split("-").map(Number);
+  const dateLabel = new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric",
+  });
+  const timePart = appt.time ? ` at ${formatTime12Full(appt.time)}` : " all day";
+  const locationPart = appt.location ? `, ${appt.location}` : "";
+  const recurringPart = appt.is_recurring ? ", recurring" : "";
+  const donePart = appt.completed ? ", completed" : "";
+  return `Appointment: ${appt.title}${timePart} on ${dateLabel}${locationPart}${recurringPart}${donePart}`;
+}
+
 export default function AppointmentPill({ appt, onClick }: Props) {
   const time = formatTimeShort(appt.time);
   const done = appt.completed;
@@ -29,7 +48,7 @@ export default function AppointmentPill({ appt, onClick }: Props) {
     <button
       type="button"
       onClick={onClick}
-      aria-label={`Appointment: ${appt.title}${time ? ` at ${time}` : ""}${done ? ", completed" : ""}`}
+      aria-label={buildApptAria(appt)}
       className="w-full text-left rounded-md px-1.5 py-[3px] text-[10px] font-medium bg-white transition-colors hover:bg-[#faf8f4] flex items-center gap-1 min-w-0"
       style={{
         border: "1px dashed #c4b5d8",

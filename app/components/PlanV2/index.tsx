@@ -20,6 +20,7 @@ import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
 import DayCellContextMenu from "./DayCellContextMenu";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
+import { useLiveAnnouncer, SR_ONLY_STYLE } from "./useLiveAnnouncer";
 import { usePlanV2Data } from "./usePlanV2Data";
 import { usePlanLessonActions } from "./usePlanLessonActions";
 import { resolveChildColor } from "./colors";
@@ -97,7 +98,11 @@ export default function PlanV2() {
   const [apptEditTarget, setApptEditTarget] = useState<{
     appt: PlanV2Appointment;
   } | null>(null);
+  // Keyboard-nav focused cell. Null = not-yet-focused; MonthGrid's own
+  // fallback chooses today (or the first current-month cell) on Tab-focus.
+  const [focusedDateStr, setFocusedDateStr] = useState<string | null>(null);
   const recentTimersRef = useRef<Map<string, number>>(new Map());
+  const { announce, liveText } = useLiveAnnouncer();
 
   // Select-mode state — owns the selected set, whether the dark-green toolbar
   // is showing, and whether the user is currently picking a bulk-move target.
@@ -848,6 +853,27 @@ export default function PlanV2() {
     }
   }, [effectiveUserId, reload]);
 
+  // Global Escape handler — unwinds the top-most open UI in a predictable
+  // order. Also powers keyboard nav #4 in the Phase 9 spec.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (rescheduleTarget) { setRescheduleTarget(null); return; }
+      if (apptEditTarget) { setApptEditTarget(null); return; }
+      if (openDayStr) { setOpenDayStr(null); return; }
+      if (contextMenu) { setContextMenu(null); return; }
+      if (moveTargetMode) { setMoveTargetMode(false); return; }
+      if (selectMode) { exitSelectMode(); return; }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+
+  // Announce universal-undo messages to screen readers when they appear.
+  useEffect(() => {
+    if (undoAction?.message) announce(undoAction.message);
+  }, [undoAction, announce]);
+
   const viewingCurrentMonth =
     monthStart.getFullYear() === new Date().getFullYear() &&
     monthStart.getMonth() === new Date().getMonth();
@@ -1037,6 +1063,30 @@ export default function PlanV2() {
               />
             ) : null}
 
+            {/* Empty-state notice — shown above the grid so the grid itself
+                remains keyboard/drop-navigable even when there's nothing to
+                render. Distinguishes "truly empty month" from "filters hid
+                everything". */}
+            {!loading && filteredLessons.length === 0 && filteredAppointments.length === 0 ? (
+              <div className="px-4 py-3 border-b border-[#f0ede8] text-center">
+                {lessons.length > 0 || appointments.length > 0 ? (
+                  <>
+                    <p className="text-[13px] font-medium text-[#2d2926]">No lessons match your filters</p>
+                    <p className="text-[11px] text-[#7a6f65] mt-0.5">
+                      Turn a child filter chip back on to bring lessons back.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[13px] font-medium text-[#2d2926]">Nothing scheduled this month</p>
+                    <p className="text-[11px] text-[#7a6f65] mt-0.5">
+                      Head to Add Lesson to start your year.
+                    </p>
+                  </>
+                )}
+              </div>
+            ) : null}
+
             {/* Month grid — wrapped in DndContext on desktop; on mobile the
                 grid renders without drag sensors so page scroll isn't hijacked.
                 Drag is also disabled in select mode + move-target mode so
@@ -1056,6 +1106,8 @@ export default function PlanV2() {
                   selectMode={selectMode}
                   selectedIds={selectedIds}
                   moveTargetMode={moveTargetMode}
+                  focusedDateStr={focusedDateStr}
+                  onFocusedDateChange={setFocusedDateStr}
                   onCellClick={(dateStr) => {
                     if (selectMode) return;
                     setOpenDayStr(dateStr);
@@ -1103,6 +1155,8 @@ export default function PlanV2() {
                     dndEnabled
                     isDragActive={activeDragId !== null}
                     recentlyLandedIds={recentlyLandedIds}
+                    focusedDateStr={focusedDateStr}
+                    onFocusedDateChange={setFocusedDateStr}
                     onCellClick={(dateStr) => setOpenDayStr(dateStr)}
                     onLessonClick={(lesson) => {
                       const d = lesson.scheduled_date ?? lesson.date;
@@ -1277,6 +1331,12 @@ export default function PlanV2() {
 
         {/* Global undo bar */}
         <UndoBar action={undoAction} onDismiss={() => setUndoAction(null)} />
+
+        {/* Screen reader live region — polite announcements for the
+            biggest actions (drag/drop result, bulk action outcome, undo). */}
+        <div role="status" aria-live="polite" aria-atomic="true" style={SR_ONLY_STYLE}>
+          {liveText}
+        </div>
       </div>
     </>
   );
