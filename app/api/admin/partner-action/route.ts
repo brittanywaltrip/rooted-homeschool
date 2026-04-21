@@ -135,14 +135,14 @@ async function handleApprove(body: Record<string, unknown>) {
     Reply to this email anytime with questions \u2014 I read every one.
   </p>
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
-    With love,<br/>Brittany
+    Sincerely,<br/>Brittany
   </p>
 </div>`
 
   await sendEmail(
     contactEmail,
     'Welcome to the Rooted Partner Program \uD83C\uDF3F',
-    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets ${rate}% off their first year.\n\nYou earn 20% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nYour Rooted subscription is now complimentary \u2014 our gift to you.\n\nTrack your stats in Settings \u2192 Partner Dashboard.\n\nFTC DISCLOSURE\n\nBecause you\u2019ll be earning commission through your referrals, the FTC requires a clear disclosure anytime you share your link or code. This applies across all platforms \u2014 Instagram, TikTok, YouTube, blogs, Facebook groups, and more.\n\nYou can use simple language like:\n- \u201cAd: I partner with Rooted and earn a commission if you sign up using my link.\u201d\n- \u201cPaid partnership with Rooted.\u201d\n- \u201cThis is an affiliate link \u2014 I earn a small commission at no extra cost to you.\u201d\n\nThe key is that it\u2019s clear, upfront, and easy to see \u2014 this protects both of us.\n\nReply anytime!\n\nWith love,\nBrittany`,
+    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets ${rate}% off their first year.\n\nYou earn 20% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nYour Rooted subscription is now complimentary \u2014 our gift to you.\n\nTrack your stats in Settings \u2192 Partner Dashboard.\n\nFTC DISCLOSURE\n\nBecause you\u2019ll be earning commission through your referrals, the FTC requires a clear disclosure anytime you share your link or code. This applies across all platforms \u2014 Instagram, TikTok, YouTube, blogs, Facebook groups, and more.\n\nYou can use simple language like:\n- \u201cAd: I partner with Rooted and earn a commission if you sign up using my link.\u201d\n- \u201cPaid partnership with Rooted.\u201d\n- \u201cThis is an affiliate link \u2014 I earn a small commission at no extra cost to you.\u201d\n\nThe key is that it\u2019s clear, upfront, and easy to see \u2014 this protects both of us.\n\nReply anytime!\n\nSincerely,\nBrittany`,
     welcomeHtml,
   )
 
@@ -303,14 +303,14 @@ async function handleCompleteSetup(body: Record<string, unknown>) {
     Your Rooted subscription is now <strong>complimentary</strong> \u2014 our gift to you for being part of this.
   </p>
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
-    With love,<br/>Brittany
+    Sincerely,<br/>Brittany
   </p>
 </div>`
 
   await sendEmail(
     contactEmail,
     'Welcome to the Rooted Partner Program \uD83C\uDF3F',
-    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets 15% off Rooted+.\n\nYou earn ${rate}% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nYour Rooted subscription is now complimentary \u2014 our gift to you.\n\nWith love,\nBrittany`,
+    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets 15% off Rooted+.\n\nYou earn ${rate}% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nYour Rooted subscription is now complimentary \u2014 our gift to you.\n\nSincerely,\nBrittany`,
     welcomeHtml,
   )
 
@@ -350,14 +350,14 @@ async function handleReject(body: Record<string, unknown>) {
     We're rooting for you and your family. \uD83C\uDF3F
   </p>
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
-    With love,<br/>Brittany
+    Sincerely,<br/>Brittany
   </p>
 </div>`
 
   await sendEmail(
     contactEmail,
     'Your Rooted Partner Application',
-    `Hi ${firstName},\n\nThank you so much for your interest in the Rooted Partner Program. At this time we aren't able to move forward with your application, but we'd love for you to keep using Rooted and maybe apply again in the future!\n\nWith love,\nBrittany`,
+    `Hi ${firstName},\n\nThank you so much for your interest in the Rooted Partner Program. At this time we aren't able to move forward with your application, but we'd love for you to keep using Rooted and maybe apply again in the future!\n\nSincerely,\nBrittany`,
     rejectHtml,
   )
 
@@ -413,14 +413,14 @@ async function handlePaymentEmail(body: Record<string, unknown>) {
     Questions? Reply to this email.
   </p>
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
-    With love,<br/>Brittany
+    Sincerely,<br/>Brittany
   </p>
 </div>`
 
   await sendEmail(
     contactEmail,
     `Your Rooted Commission for ${month} has been sent! \uD83C\uDF3F`,
-    `Hi ${firstName}!\n\nYour commission for ${month} is on its way to your PayPal (${paypalEmail || 'on file'}).\n\nFamilies referred: ${payingCount ?? 1}\nTotal sent: $${Number(amount).toFixed(2)}\nAll-time earnings: $${Number(lifetimeTotal).toFixed(2)}\n\nYou are literally helping homeschool families find a place to preserve their story. Keep sharing!\n\nWith love,\nBrittany`,
+    `Hi ${firstName}!\n\nYour commission for ${month} is on its way to your PayPal (${paypalEmail || 'on file'}).\n\nFamilies referred: ${payingCount ?? 1}\nTotal sent: $${Number(amount).toFixed(2)}\nAll-time earnings: $${Number(lifetimeTotal).toFixed(2)}\n\nYou are literally helping homeschool families find a place to preserve their story. Keep sharing!\n\nSincerely,\nBrittany`,
     paymentHtml,
   )
 

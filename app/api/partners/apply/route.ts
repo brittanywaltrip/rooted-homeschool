@@ -75,14 +75,14 @@ export async function POST(req: NextRequest) {
     — it'll make your onboarding even faster once you're approved.
   </p>
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
-    With love,<br />Brittany
+    Sincerely,<br />Brittany
   </p>
 </div>`
 
     await sendEmail(
       email,
       'We got your Rooted Partner application! \uD83C\uDF3F',
-      `Hi ${firstName},\n\nThank you so much for applying to the Rooted Partner Program! I personally review every application and will be in touch within 48 hours.\n\nIn the meantime, if you haven't already, sign up for a free Rooted account at rootedhomeschoolapp.com.\n\nWith love,\nBrittany`,
+      `Hi ${firstName},\n\nThank you so much for applying to the Rooted Partner Program! I personally review every application and will be in touch within 48 hours.\n\nIn the meantime, if you haven't already, sign up for a free Rooted account at rootedhomeschoolapp.com.\n\nSincerely,\nBrittany`,
       confirmHtml,
     )
 
