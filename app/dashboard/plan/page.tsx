@@ -951,13 +951,18 @@ export default function PlanPage() {
     }
 
     const originalDate = planRescheduleLesson.scheduled_date ?? planRescheduleLesson.date ?? todayStr;
+    const targetSchoolDays = getSchoolDaysForLesson(planRescheduleLesson);
+    const isNonSchoolDay = !isSchoolDayDate(targetDate, targetSchoolDays);
     await supabase.from("lessons").update({ scheduled_date: targetDate, date: targetDate }).eq("id", planRescheduleLesson.id);
     setAllLessons(prev => prev.map(l => l.id === planRescheduleLesson.id ? { ...l, scheduled_date: targetDate, date: targetDate } : l));
     setLessons(prev => prev.filter(l => l.id !== planRescheduleLesson.id));
     setPlanRescheduleLesson(null);
     setPlanPickerConfirmDate(null);
     const label = new Date(targetDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-    showPlanRescheduleUndo(`Lesson moved to ${label}`, [{ lessonId: planRescheduleLesson.id, date: originalDate }]);
+    const message = isNonSchoolDay
+      ? `Moved to ${label} — not a scheduled school day`
+      : `Lesson moved to ${label}`;
+    showPlanRescheduleUndo(message, [{ lessonId: planRescheduleLesson.id, date: originalDate }]);
     loadData(); loadAllLessons();
   }
 
@@ -3167,18 +3172,14 @@ export default function PlanPage() {
                           <button
                             onClick={() => {
                               if (!planReschedulePickerDate || planReschedulePickerDate < todayStr) return;
-                              if (!isSchoolDayDate(planReschedulePickerDate, schoolDays)) return;
                               planRescheduleMoveTo(planReschedulePickerDate);
                             }}
-                            disabled={!planReschedulePickerDate || planReschedulePickerDate < todayStr || !isSchoolDayDate(planReschedulePickerDate, schoolDays)}
+                            disabled={!planReschedulePickerDate || planReschedulePickerDate < todayStr}
                             className="px-5 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-[var(--g-deep)] transition-colors"
                           >
                             Move
                           </button>
                         </div>
-                      )}
-                      {planReschedulePicker && planReschedulePickerDate && !isSchoolDayDate(planReschedulePickerDate, schoolDays) && (
-                        <p className="text-xs text-[#b91c1c] mt-1 px-1">That&apos;s not a school day — pick a day your family schools.</p>
                       )}
                     </div>
                   </div>
