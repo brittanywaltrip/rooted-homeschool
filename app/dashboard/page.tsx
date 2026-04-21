@@ -2530,12 +2530,18 @@ export default function TodayPage() {
         const left = getTrialDaysLeft(trialStartedAt);
         if (left <= 8) return null;
         return (
-          <div className="flex items-center gap-2 bg-[#f0f7f0] border border-[#c8dfc8] rounded-xl px-3 py-2 mb-3">
+          <Link
+            href="/upgrade"
+            className="flex items-center gap-2 bg-[#f0f7f0] border border-[#c8dfc8] rounded-xl px-3 py-2 mb-3 hover:bg-[#e6f0e6] hover:border-[#a8cfa8] transition-colors group"
+          >
             <span className="text-sm">🌿</span>
-            <p className="text-[11px] text-[#5c7f63] font-medium">
+            <p className="text-[11px] text-[#5c7f63] font-medium flex-1">
               You&apos;re on your free Rooted+ trial · {left} day{left !== 1 ? 's' : ''} left
             </p>
-          </div>
+            <span className="text-[11px] text-[#2d5a3d] font-semibold whitespace-nowrap group-hover:translate-x-0.5 transition-transform">
+              Upgrade →
+            </span>
+          </Link>
         );
       })()}
 
