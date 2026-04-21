@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import TodayLessonCard, {
   type TodayLessonCardLesson,
@@ -67,6 +67,7 @@ export interface DayDetailPanelV2Props {
   onSkipLesson: (lesson: TodayLessonCardLesson) => void;
   onMinutesUpdate: (id: string, mins: number) => void;
   onToggleAppointment?: (appt: PlanV2Appointment) => void;
+  onEditAppointment?: (appt: PlanV2Appointment) => void;
   /** Called after a note is saved so the parent can sync local state. */
   onLessonChanged?: (lessonId: string, patch: Partial<TodayLessonCardLesson>) => void;
   variant?: "inline" | "sheet";
@@ -79,7 +80,7 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
   const {
     date, lessons, appointments, kids, isPartner,
     onToggleLesson, onEditLesson, onDeleteLesson, onRescheduleLesson,
-    onSkipLesson, onMinutesUpdate, onToggleAppointment, onLessonChanged,
+    onSkipLesson, onMinutesUpdate, onToggleAppointment, onEditAppointment, onLessonChanged,
     variant = "inline", onClose,
   } = props;
 
@@ -184,26 +185,30 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
             {sortedAppts.map((a) => {
               const range = formatTimeRange(a.time, a.duration_minutes);
               return (
-                <button
+                <div
                   key={`${a.id}-${a.instance_date}`}
-                  type="button"
-                  onClick={() => onToggleAppointment?.(a)}
-                  className="w-full text-left bg-white rounded-xl px-3 py-2.5 flex items-start gap-2.5 transition-colors hover:bg-[#faf8f4]"
+                  className="w-full bg-white rounded-xl px-3 py-2.5 flex items-start gap-2.5 transition-colors"
                   style={{ border: "1px dashed #c4b5d8", opacity: a.completed ? 0.6 : 1 }}
                 >
-                  <div
+                  <button
+                    type="button"
+                    onClick={() => onToggleAppointment?.(a)}
+                    aria-label={a.completed ? "Mark appointment incomplete" : "Mark appointment complete"}
                     className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
                       a.completed ? "bg-[#7C3AED] border-[#7C3AED]" : "border-[#c4b5d8]"
                     }`}
-                    aria-hidden
                   >
                     {a.completed ? (
                       <svg viewBox="0 0 8 7" className="w-2.5 h-2">
                         <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     ) : null}
-                  </div>
-                  <div className="flex-1 min-w-0">
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onToggleAppointment?.(a)}
+                    className="flex-1 min-w-0 text-left hover:bg-[#faf8f4] -my-1.5 py-1.5 -mx-1.5 px-1.5 rounded-lg transition-colors"
+                  >
                     <p
                       className="text-sm font-medium leading-snug"
                       style={{
@@ -213,13 +218,31 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
                     >
                       <span aria-hidden>📍 </span>
                       {a.title}
+                      {a.is_recurring ? (
+                        <span
+                          className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider text-[#7C3AED] align-middle"
+                          aria-label="recurring"
+                        >
+                          ↻
+                        </span>
+                      ) : null}
                     </p>
                     <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#7a6f65]">
                       {range ? <span className="font-semibold text-[#5c7f63]">{range}</span> : <span>All day</span>}
                       {a.location ? <span className="truncate">· {a.location}</span> : null}
                     </div>
-                  </div>
-                </button>
+                  </button>
+                  {!isPartner && onEditAppointment ? (
+                    <button
+                      type="button"
+                      onClick={() => onEditAppointment(a)}
+                      aria-label={`Edit appointment: ${a.title}`}
+                      className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[#b5aca4] hover:text-[#7C3AED] hover:bg-[#f5f0ff] transition-colors"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  ) : null}
+                </div>
               );
             })}
           </div>
