@@ -6,10 +6,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Commissioned plans only. Monthly subscriptions intentionally excluded — Brittany's
+// policy as of 2026-04-21 is to not pay partner commissions on monthly subs (revisit
+// when the partner program scales). If a customer signs up monthly via a partner code,
+// that referral counts toward conversion stats but contributes $0 to revenueDriven.
 const PLAN_PRICES: Record<string, number> = {
   founding_family: 39,
-  standard: 49,
-  monthly: 7.99,
+  standard: 59,
 }
 
 const DISCOUNT_MULTIPLIER = 0.85

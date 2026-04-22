@@ -236,6 +236,7 @@ export default function SettingsPage() {
   const [showAffiliatePreview, setShowAffiliatePreview] = useState(false);
   const [previewAffiliate, setPreviewAffiliate] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number; name: string } | null>(null);
   const [previewStats, setPreviewStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
+  const [previewPayments, setPreviewPayments] = useState<{ id: string; amount: number; month: string; paid_at: string }[]>([]);
 
   // School year transition
   const [showYearModal,    setShowYearModal]    = useState(false);
@@ -470,17 +471,28 @@ export default function SettingsPage() {
     setRefreshingAffiliate(false);
   }
 
+  async function loadPreviewPayments(code: string) {
+    const { data: pmts } = await supabase
+      .from("commission_payments")
+      .select("id, amount, month, paid_at")
+      .eq("affiliate_code", code)
+      .order("paid_at", { ascending: false });
+    setPreviewPayments(pmts ?? []);
+  }
+
   async function openAffiliatePreview() {
     const first = allAffiliates[0];
     if (!first) { setShowAffiliatePreview(false); return; }
     setPreviewAffiliate({ ...first });
     setPreviewStats(null);
+    setPreviewPayments([]);
     setShowAffiliatePreview(true);
     try {
       const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(first.code)}`);
       const stats = await r.json();
       setPreviewStats(stats);
     } catch {}
+    loadPreviewPayments(first.code);
   }
 
   async function selectPreviewAffiliate(affId: string) {
@@ -488,11 +500,13 @@ export default function SettingsPage() {
     if (!aff) return;
     setPreviewAffiliate({ ...aff });
     setPreviewStats(null);
+    setPreviewPayments([]);
     try {
       const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(aff.code)}`);
       const stats = await r.json();
       setPreviewStats(stats);
     } catch {}
+    loadPreviewPayments(aff.code);
   }
 
   useEffect(() => {
@@ -1998,16 +2012,23 @@ export default function SettingsPage() {
                         <p className="text-[9px] text-[#a09080] mt-1">Payouts processed on the 1st of each month</p>
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
-                        <p className="text-2xl font-bold text-[var(--g-deep)]">$0.00</p>
-                        <p className="text-[10px] text-[#7a6f65] mt-0.5">This month</p>
-                      </div>
-                      <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
-                        <p className="text-2xl font-bold text-[#2d2926]">$0.00</p>
-                        <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time earnings</p>
-                      </div>
-                    </div>
+                    {(() => {
+                      const monthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+                      const monthPaid = previewPayments.filter(p => p.month === monthLabel).reduce((s, p) => s + Number(p.amount), 0);
+                      const allTimePaid = previewPayments.reduce((s, p) => s + Number(p.amount), 0);
+                      return (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
+                            <p className="text-2xl font-bold text-[var(--g-deep)]">${monthPaid.toFixed(2)}</p>
+                            <p className="text-[10px] text-[#7a6f65] mt-0.5">Paid this month</p>
+                          </div>
+                          <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
+                            <p className="text-2xl font-bold text-[#2d2926]">${allTimePaid.toFixed(2)}</p>
+                            <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time paid</p>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   {/* Download cards */}
                   <div>
@@ -2269,11 +2290,11 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
                       <p className="text-2xl font-bold text-[var(--g-deep)]">${thisMonthPaid.toFixed(2)}</p>
-                      <p className="text-[10px] text-[#7a6f65] mt-0.5">This month</p>
+                      <p className="text-[10px] text-[#7a6f65] mt-0.5">Paid this month</p>
                     </div>
                     <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
                       <p className="text-2xl font-bold text-[#2d2926]">${allTimePaid.toFixed(2)}</p>
-                      <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time earnings</p>
+                      <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time paid</p>
                     </div>
                   </div>
                   {affiliatePayments.length > 0 && (
