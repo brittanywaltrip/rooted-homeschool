@@ -25,7 +25,11 @@ function printCardHtml(name: string, code: string, url: string, qrDataUrl: strin
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  body{background:#f8f7f4;font-family:'Inter',system-ui,sans-serif;display:flex;justify-content:center;padding:40px 20px}
+  body{background:#f8f7f4;font-family:'Inter',system-ui,sans-serif;display:flex;justify-content:center;padding:72px 20px 40px}
+  .rooted-navbar{position:fixed;top:0;left:0;right:0;background:rgba(255,255,255,0.96);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:10px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid #e8e2d9;z-index:100;font-family:'Inter',system-ui,sans-serif}
+  .rooted-navbtn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 14px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:none;text-decoration:none;font-family:inherit}
+  .rooted-navbtn-back{background:#f8f7f4;color:#2d5a3d;border:1px solid #e8e2d9}
+  .rooted-navbtn-print{background:#2d5a3d;color:#fff}
   .card{width:680px;background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.08)}
   .header{background:linear-gradient(145deg,#162e1f 0%,#1a3d24 30%,#2d5a3d 70%,#1a3d24 100%);padding:48px 40px;position:relative;overflow:hidden;text-align:center}
   .header::before{content:'🌿';position:absolute;top:-20px;right:-10px;font-size:140px;opacity:0.06;transform:rotate(15deg)}
@@ -47,8 +51,12 @@ function printCardHtml(name: string, code: string, url: string, qrDataUrl: strin
   .feat span{margin-right:6px}
   .url{text-align:center;padding:0 40px 32px;font-size:13px;color:#7a6f65}
   .url a{color:#5c7f63;font-weight:600;text-decoration:none}
-  @media print{body{padding:0;background:#fff}.card{box-shadow:none;border-radius:0;width:100%}}
+  @media print{body{padding:0;background:#fff}.card{box-shadow:none;border-radius:0;width:100%}.rooted-navbar{display:none}}
 </style></head><body>
+<div class="rooted-navbar">
+  <button onclick="window.close()" class="rooted-navbtn rooted-navbtn-back" type="button">← Close</button>
+  <button onclick="window.print()" class="rooted-navbtn rooted-navbtn-print" type="button">🖨️ Print</button>
+</div>
 <div class="card">
   <div class="header">
     <img class="logo-img" src="${logoB64}" alt="Rooted">
@@ -88,7 +96,10 @@ function shareCardHtml(name: string, code: string, url: string, qrDataUrl: strin
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  body{background:#1a3d24;font-family:'Inter',system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px}
+  body{background:#1a3d24;font-family:'Inter',system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:84px 20px 20px}
+  .rooted-navbar{position:fixed;top:0;left:0;right:0;background:rgba(26,61,36,0.92);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);padding:10px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;z-index:100;font-family:'Inter',system-ui,sans-serif}
+  .rooted-navbtn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 14px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:none;text-decoration:none;font-family:inherit;background:#fff;color:#2d5a3d}
+  .rooted-hint{font-size:11px;color:rgba(255,255,255,0.75);font-family:'Inter',system-ui,sans-serif}
   .card{width:380px;background:#fff;border-radius:28px;overflow:hidden;box-shadow:0 16px 60px rgba(0,0,0,0.3)}
   .top{background:linear-gradient(145deg,#162e1f 0%,#1a3d24 30%,#2d5a3d 70%,#1a3d24 100%);padding:36px 24px 28px;text-align:center;position:relative;overflow:hidden}
   .top::before{content:'🌿';position:absolute;top:-15px;right:-10px;font-size:90px;opacity:0.08;transform:rotate(20deg)}
@@ -107,6 +118,10 @@ function shareCardHtml(name: string, code: string, url: string, qrDataUrl: strin
   .bottom{background:#f0ede6;padding:14px 24px;text-align:center;border-top:1px solid #e3ded5}
   .bottom a{font-size:12px;color:#5c7f63;font-weight:600;text-decoration:none}
 </style></head><body>
+<div class="rooted-navbar">
+  <button onclick="window.close()" class="rooted-navbtn" type="button">← Close</button>
+  <span class="rooted-hint">Screenshot to share</span>
+</div>
 <div class="card">
   <div class="top">
     <img class="logo-img" src="${logoB64}" alt="Rooted">
