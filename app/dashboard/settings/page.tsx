@@ -236,6 +236,7 @@ export default function SettingsPage() {
   const [showAffiliatePreview, setShowAffiliatePreview] = useState(false);
   const [previewAffiliate, setPreviewAffiliate] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number; name: string } | null>(null);
   const [previewStats, setPreviewStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
+  const [previewPayments, setPreviewPayments] = useState<{ id: string; amount: number; month: string; paid_at: string }[]>([]);
 
   // School year transition
   const [showYearModal,    setShowYearModal]    = useState(false);
@@ -470,17 +471,28 @@ export default function SettingsPage() {
     setRefreshingAffiliate(false);
   }
 
+  async function loadPreviewPayments(code: string) {
+    const { data: pmts } = await supabase
+      .from("commission_payments")
+      .select("id, amount, month, paid_at")
+      .eq("affiliate_code", code)
+      .order("paid_at", { ascending: false });
+    setPreviewPayments(pmts ?? []);
+  }
+
   async function openAffiliatePreview() {
     const first = allAffiliates[0];
     if (!first) { setShowAffiliatePreview(false); return; }
     setPreviewAffiliate({ ...first });
     setPreviewStats(null);
+    setPreviewPayments([]);
     setShowAffiliatePreview(true);
     try {
       const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(first.code)}`);
       const stats = await r.json();
       setPreviewStats(stats);
     } catch {}
+    loadPreviewPayments(first.code);
   }
 
   async function selectPreviewAffiliate(affId: string) {
@@ -488,11 +500,13 @@ export default function SettingsPage() {
     if (!aff) return;
     setPreviewAffiliate({ ...aff });
     setPreviewStats(null);
+    setPreviewPayments([]);
     try {
       const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(aff.code)}`);
       const stats = await r.json();
       setPreviewStats(stats);
     } catch {}
+    loadPreviewPayments(aff.code);
   }
 
   useEffect(() => {
@@ -1998,16 +2012,23 @@ export default function SettingsPage() {
                         <p className="text-[9px] text-[#a09080] mt-1">Payouts processed on the 1st of each month</p>
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
-                        <p className="text-2xl font-bold text-[var(--g-deep)]">$0.00</p>
-                        <p className="text-[10px] text-[#7a6f65] mt-0.5">This month</p>
-                      </div>
-                      <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
-                        <p className="text-2xl font-bold text-[#2d2926]">$0.00</p>
-                        <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time earnings</p>
-                      </div>
-                    </div>
+                    {(() => {
+                      const monthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+                      const monthPaid = previewPayments.filter(p => p.month === monthLabel).reduce((s, p) => s + Number(p.amount), 0);
+                      const allTimePaid = previewPayments.reduce((s, p) => s + Number(p.amount), 0);
+                      return (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
+                            <p className="text-2xl font-bold text-[var(--g-deep)]">${monthPaid.toFixed(2)}</p>
+                            <p className="text-[10px] text-[#7a6f65] mt-0.5">Paid this month</p>
+                          </div>
+                          <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
+                            <p className="text-2xl font-bold text-[#2d2926]">${allTimePaid.toFixed(2)}</p>
+                            <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time paid</p>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   {/* Download cards */}
                   <div>
@@ -2015,10 +2036,22 @@ export default function SettingsPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={async () => {
-                          const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
-                          const { cardHtml } = await res.json();
+                          // Open the new tab SYNCHRONOUSLY on tap so mobile Safari/Chrome
+                          // ties it to the user gesture. Awaiting fetch first causes the
+                          // browser to silently block the popup on mobile.
                           const w = window.open('', '_blank');
-                          if (w) { w.document.write(cardHtml); w.document.close(); }
+                          if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
+                          try {
+                            const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
+                            const { cardHtml } = await res.json();
+                            if (w && !w.closed) {
+                              w.document.open();
+                              w.document.write(cardHtml);
+                              w.document.close();
+                            }
+                          } catch {
+                            if (w && !w.closed) w.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px;color:#b91c1c;text-align:center">Could not load the card. Please try again.</p>';
+                          }
                         }}
                         className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                       >
@@ -2026,10 +2059,19 @@ export default function SettingsPage() {
                       </button>
                       <button
                         onClick={async () => {
-                          const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
-                          const { shareHtml } = await res.json();
                           const w = window.open('', '_blank');
-                          if (w) { w.document.write(shareHtml); w.document.close(); }
+                          if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
+                          try {
+                            const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
+                            const { shareHtml } = await res.json();
+                            if (w && !w.closed) {
+                              w.document.open();
+                              w.document.write(shareHtml);
+                              w.document.close();
+                            }
+                          } catch {
+                            if (w && !w.closed) w.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px;color:#b91c1c;text-align:center">Could not load the card. Please try again.</p>';
+                          }
                         }}
                         className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                       >
@@ -2248,11 +2290,11 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
                       <p className="text-2xl font-bold text-[var(--g-deep)]">${thisMonthPaid.toFixed(2)}</p>
-                      <p className="text-[10px] text-[#7a6f65] mt-0.5">This month</p>
+                      <p className="text-[10px] text-[#7a6f65] mt-0.5">Paid this month</p>
                     </div>
                     <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 text-center">
                       <p className="text-2xl font-bold text-[#2d2926]">${allTimePaid.toFixed(2)}</p>
-                      <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time earnings</p>
+                      <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time paid</p>
                     </div>
                   </div>
                   {affiliatePayments.length > 0 && (
@@ -2306,10 +2348,22 @@ export default function SettingsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={async () => {
-                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
-                    const { cardHtml } = await res.json();
+                    // Open the new tab SYNCHRONOUSLY on tap so mobile Safari/Chrome
+                    // ties it to the user gesture. Awaiting fetch first causes the
+                    // browser to silently block the popup on mobile.
                     const w = window.open('', '_blank');
-                    if (w) { w.document.write(cardHtml); w.document.close(); }
+                    if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
+                    try {
+                      const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
+                      const { cardHtml } = await res.json();
+                      if (w && !w.closed) {
+                        w.document.open();
+                        w.document.write(cardHtml);
+                        w.document.close();
+                      }
+                    } catch {
+                      if (w && !w.closed) w.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px;color:#b91c1c;text-align:center">Could not load the card. Please try again.</p>';
+                    }
                   }}
                   className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                 >
@@ -2317,10 +2371,19 @@ export default function SettingsPage() {
                 </button>
                 <button
                   onClick={async () => {
-                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
-                    const { shareHtml } = await res.json();
                     const w = window.open('', '_blank');
-                    if (w) { w.document.write(shareHtml); w.document.close(); }
+                    if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
+                    try {
+                      const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
+                      const { shareHtml } = await res.json();
+                      if (w && !w.closed) {
+                        w.document.open();
+                        w.document.write(shareHtml);
+                        w.document.close();
+                      }
+                    } catch {
+                      if (w && !w.closed) w.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px;color:#b91c1c;text-align:center">Could not load the card. Please try again.</p>';
+                    }
                   }}
                   className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                 >
