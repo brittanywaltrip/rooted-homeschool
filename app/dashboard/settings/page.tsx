@@ -2015,10 +2015,22 @@ export default function SettingsPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={async () => {
-                          const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
-                          const { cardHtml } = await res.json();
+                          // Open the new tab SYNCHRONOUSLY on tap so mobile Safari/Chrome
+                          // ties it to the user gesture. Awaiting fetch first causes the
+                          // browser to silently block the popup on mobile.
                           const w = window.open('', '_blank');
-                          if (w) { w.document.write(cardHtml); w.document.close(); }
+                          if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
+                          try {
+                            const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
+                            const { cardHtml } = await res.json();
+                            if (w && !w.closed) {
+                              w.document.open();
+                              w.document.write(cardHtml);
+                              w.document.close();
+                            }
+                          } catch {
+                            if (w && !w.closed) w.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px;color:#b91c1c;text-align:center">Could not load the card. Please try again.</p>';
+                          }
                         }}
                         className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                       >
@@ -2026,10 +2038,19 @@ export default function SettingsPage() {
                       </button>
                       <button
                         onClick={async () => {
-                          const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
-                          const { shareHtml } = await res.json();
                           const w = window.open('', '_blank');
-                          if (w) { w.document.write(shareHtml); w.document.close(); }
+                          if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
+                          try {
+                            const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
+                            const { shareHtml } = await res.json();
+                            if (w && !w.closed) {
+                              w.document.open();
+                              w.document.write(shareHtml);
+                              w.document.close();
+                            }
+                          } catch {
+                            if (w && !w.closed) w.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px;color:#b91c1c;text-align:center">Could not load the card. Please try again.</p>';
+                          }
                         }}
                         className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                       >
@@ -2306,10 +2327,22 @@ export default function SettingsPage() {
               <div className="flex gap-2">
                 <button
                   onClick={async () => {
-                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
-                    const { cardHtml } = await res.json();
+                    // Open the new tab SYNCHRONOUSLY on tap so mobile Safari/Chrome
+                    // ties it to the user gesture. Awaiting fetch first causes the
+                    // browser to silently block the popup on mobile.
                     const w = window.open('', '_blank');
-                    if (w) { w.document.write(cardHtml); w.document.close(); }
+                    if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
+                    try {
+                      const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
+                      const { cardHtml } = await res.json();
+                      if (w && !w.closed) {
+                        w.document.open();
+                        w.document.write(cardHtml);
+                        w.document.close();
+                      }
+                    } catch {
+                      if (w && !w.closed) w.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px;color:#b91c1c;text-align:center">Could not load the card. Please try again.</p>';
+                    }
                   }}
                   className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                 >
@@ -2317,10 +2350,19 @@ export default function SettingsPage() {
                 </button>
                 <button
                   onClick={async () => {
-                    const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
-                    const { shareHtml } = await res.json();
                     const w = window.open('', '_blank');
-                    if (w) { w.document.write(shareHtml); w.document.close(); }
+                    if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
+                    try {
+                      const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
+                      const { shareHtml } = await res.json();
+                      if (w && !w.closed) {
+                        w.document.open();
+                        w.document.write(shareHtml);
+                        w.document.close();
+                      }
+                    } catch {
+                      if (w && !w.closed) w.document.body.innerHTML = '<p style="font-family:system-ui;padding:24px;color:#b91c1c;text-align:center">Could not load the card. Please try again.</p>';
+                    }
                   }}
                   className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-[#c7d2fe] rounded-xl px-3 py-2.5 text-sm font-medium text-[#4338ca] hover:bg-[#f5f5ff] transition-colors"
                 >
