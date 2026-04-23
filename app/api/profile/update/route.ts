@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { attributeReferral } from '@/lib/referrals'
 
 export async function POST(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
@@ -22,17 +23,44 @@ export async function POST(req: NextRequest) {
     if (key in body) patch[key] = body[key]
   }
 
-  if (Object.keys(patch).length === 0) {
+  // Partner attribution runs through the atomic RPC so the referrals ledger
+  // and profiles.referred_by never drift apart. Strip the field from the
+  // generic patch — the RPC will set it.
+  const requestedReferralCode =
+    typeof patch.referred_by === 'string' && patch.referred_by.trim()
+      ? (patch.referred_by as string).trim().toUpperCase()
+      : null
+  delete patch.referred_by
+
+  if (Object.keys(patch).length === 0 && !requestedReferralCode) {
     return NextResponse.json({ error: 'No valid fields provided' }, { status: 400 })
   }
 
-  // upsert: creates row if missing, updates if exists (fixes silent no-op for new accounts)
-  const { data: upsertData, error } = await supabase
-    .from('profiles')
-    .upsert({ id: user.id, ...patch }, { onConflict: 'id' })
-    .select()
+  // Ensure the profile row exists before the RPC runs — the RPC assumes it
+  // can UPDATE profiles by id, and new accounts may not have a row yet.
+  const { error } = Object.keys(patch).length > 0
+    ? await supabase.from('profiles').upsert({ id: user.id, ...patch }, { onConflict: 'id' })
+    : await supabase.from('profiles').upsert({ id: user.id }, { onConflict: 'id', ignoreDuplicates: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  if (requestedReferralCode) {
+    const result = await attributeReferral({
+      supabase,
+      userId: user.id,
+      affiliateCode: requestedReferralCode,
+      converted: false,
+    })
+    if (result.error && result.error !== 'missing_code') {
+      // Unknown code or RPC failure — log but don't fail the whole request
+      // since the rest of the profile update already succeeded.
+      console.warn('[profile/update] referral attribution skipped', {
+        userId: user.id,
+        code: requestedReferralCode,
+        error: result.error,
+      })
+    }
+  }
 
   // Sync first_name / last_name to auth user_metadata so it's available everywhere
   if (patch.first_name !== undefined || patch.last_name !== undefined) {

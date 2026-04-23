@@ -3,6 +3,14 @@ import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
+import { affiliateCodeForStripeCoupon } from '@/lib/referrals'
+import {
+  couponIdFromSubscription,
+  linkStripeSubscription,
+  periodEndFromSubscription,
+  planTypeForPriceId,
+  type LinkedPlanType,
+} from '@/lib/link-stripe-to-profile'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-02-25.clover',
@@ -23,13 +31,6 @@ function planLabel(priceId: string | undefined): string {
   if (priceId === STANDARD_PRICE_ID) return 'Rooted+ ($59/yr)'
   if (priceId === MONTHLY_PRICE_ID)  return 'Rooted+ Monthly ($6.99/mo)'
   return 'Unknown plan'
-}
-
-function planType(priceId: string | undefined): string {
-  if (priceId === FOUNDING_PRICE_ID) return 'founding_family'
-  if (priceId === STANDARD_PRICE_ID) return 'standard'
-  if (priceId === MONTHLY_PRICE_ID)  return 'monthly'
-  return 'free'
 }
 
 async function getActiveSubCount(): Promise<number> {
@@ -54,17 +55,20 @@ async function sendEmail(to: string, subject: string, text: string, from = 'Root
 }
 
 
-// Helper: find user by email and activate their account
-async function activateByEmail(email: string, plan: string, stripeCustomerId: string, sessionId: string, stripeSubscriptionId?: string | null): Promise<{ userId: string; firstName: string; wasAlreadyActive: boolean } | null> {
-  console.log('[webhook] activateByEmail called — email:', email, 'plan:', plan, 'stripeCustomerId:', stripeCustomerId)
-
-  // Find user by email — paginated search through auth users
+// Find a user by email. Returns the auth user id plus some cached profile
+// fields the webhook needs for idempotent email decisions. Writes nothing —
+// linkStripeSubscription() owns every subscription write so there is a single
+// place to audit field-level linkage.
+async function findUserByEmail(
+  email: string,
+  sourceEventId: string,
+): Promise<{ userId: string; firstName: string; wasAlreadyActive: boolean } | null> {
   let matchedUser: { id: string; email?: string } | undefined
   let page = 1
   const perPage = 200
   while (true) {
     const { data: { users }, error: listErr } = await supabase.auth.admin.listUsers({ page, perPage })
-    if (listErr) { console.error('[webhook] FAILED to list users page', page, ':', listErr.message); break }
+    if (listErr) { console.error('[webhook] listUsers page', page, 'failed:', listErr.message); break }
     if (!users || users.length === 0) break
     const match = users.find(u => u.email?.toLowerCase() === email.toLowerCase())
     if (match) { matchedUser = match; break }
@@ -72,58 +76,59 @@ async function activateByEmail(email: string, plan: string, stripeCustomerId: st
     page++
   }
   if (!matchedUser) {
-    console.error('[webhook] NO USER FOUND for email:', email, 'sessionId:', sessionId)
+    console.error('[webhook] NO USER FOUND for email:', email, 'source:', sourceEventId)
     await sendEmail(
       ADMIN_EMAIL,
       '⚠️ Payment received but no matching user found',
-      `A payment was received but could not be matched to a user.\n\nEmail: ${email}\nSession/Sub: ${sessionId}\n\nPlease manually update this account in Supabase.`
+      `A payment was received but could not be matched to a user.\n\nEmail: ${email}\nSession/Sub: ${sourceEventId}\n\nPlease manually update this account in Supabase.`,
     ).catch(() => {})
     return null
   }
 
-  console.log('[webhook] Found user:', matchedUser.id, 'for email:', email)
+  const { data: currentProfile } = await supabase
+    .from('profiles')
+    .select('subscription_status, first_name')
+    .eq('id', matchedUser.id)
+    .maybeSingle()
 
-  // Check current status for idempotency — if already active, this is a retry
-  const { data: currentProfile } = await supabase.from('profiles').select('subscription_status').eq('id', matchedUser.id).maybeSingle()
-  const wasAlreadyActive = currentProfile?.subscription_status === 'active'
-  if (wasAlreadyActive) {
-    console.log('[webhook] profile already active for:', email, '— skipping activation (idempotent retry)')
+  return {
+    userId: matchedUser.id,
+    firstName: currentProfile?.first_name ?? 'friend',
+    wasAlreadyActive: currentProfile?.subscription_status === 'active',
   }
+}
 
-  const updateData: Record<string, unknown> = {
-    is_pro: true,
-    subscription_status: 'active',
-    plan_type: plan,
-    stripe_customer_id: stripeCustomerId,
-  }
-  if (stripeSubscriptionId) updateData.stripe_subscription_id = stripeSubscriptionId
-  const { error: updateErr } = await supabase.from('profiles').update(updateData).eq('id', matchedUser.id)
-  if (updateErr) {
-    console.error('[webhook] FAILED to update profile for:', email, 'userId:', matchedUser.id, 'error:', updateErr.message)
-    // Try upsert as fallback
-    const { error: upsertErr } = await supabase.from('profiles').upsert({ id: matchedUser.id, ...updateData })
-    if (upsertErr) {
-      console.error('[webhook] UPSERT ALSO FAILED:', upsertErr.message)
-      return null
+// Expand a checkout session so we can read total_details.breakdown.discounts
+// (the coupon info Stripe attached to the checkout). Swallows errors — the
+// caller falls back to profiles.referred_by when this returns null.
+async function couponCodeForCheckoutSession(sessionId: string): Promise<string | null> {
+  try {
+    const expanded = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['total_details.breakdown.discounts'],
+    })
+    const discountList = expanded.total_details?.breakdown?.discounts ?? []
+    for (const entry of discountList) {
+      const coupon = entry.discount?.source?.coupon
+      const couponId = typeof coupon === 'string' ? coupon : coupon?.id ?? null
+      if (!couponId) continue
+      const code = await affiliateCodeForStripeCoupon(supabase, couponId)
+      if (code) return code
     }
-    console.log('[webhook] upsert fallback succeeded for:', email)
-  } else {
-    console.log('[webhook] profile updated successfully for:', email, 'plan:', plan)
+  } catch (e) {
+    console.error('[webhook] coupon attribution lookup failed:', e)
   }
+  return null
+}
 
-  // Verify the update stuck
-  const { data: verify } = await supabase.from('profiles').select('is_pro, plan_type, subscription_status').eq('id', matchedUser.id).maybeSingle()
-  console.log('[webhook] VERIFY after update — is_pro:', verify?.is_pro, 'plan_type:', verify?.plan_type, 'subscription_status:', verify?.subscription_status)
-
-  // Notify admin about fallback activation
-  await sendEmail(
-    ADMIN_EMAIL,
-    `🌱 New subscriber activated via email fallback`,
-    `New subscription on Rooted!\n\nEmail: ${email}\nPlan: ${plan}\nUserId: ${matchedUser.id}\nNote: matched via email fallback (no userId in metadata)\n\nRooted is growing! 🌱`
-  ).catch(err => console.error('[webhook] admin notify error:', err))
-
-  const { data: profile } = await supabase.from('profiles').select('first_name').eq('id', matchedUser.id).maybeSingle()
-  return { userId: matchedUser.id, firstName: profile?.first_name ?? 'friend', wasAlreadyActive }
+// Read the stored profiles.referred_by so a URL-ref signup still gets
+// credited when the checkout itself didn't carry a coupon.
+async function storedReferralCode(userId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('profiles')
+    .select('referred_by')
+    .eq('id', userId)
+    .maybeSingle()
+  return data?.referred_by ? String(data.referred_by).toUpperCase() : null
 }
 
 export async function POST(req: NextRequest) {
@@ -227,79 +232,88 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true })
     }
 
-    // Determine plan from line items
-    let plan = 'founding_family' // safe default
+    // Determine plan_type + priceId from the session's line items.
+    let priceId: string | undefined
+    let plan: LinkedPlanType = 'founding_family'
     try {
       const lineItems = await stripe.checkout.sessions.listLineItems(session.id)
-      const priceId = lineItems.data[0]?.price?.id
-      plan = planType(priceId)
+      priceId = lineItems.data[0]?.price?.id
+      plan = planTypeForPriceId(priceId)
       console.log('[webhook] plan determined from line items:', plan, 'priceId:', priceId)
     } catch (e) {
       console.error('[webhook] failed to get line items, defaulting to founding_family:', e)
     }
 
-    let activated = false
+    // ── Resolve the user ───────────────────────────────────────────────────
+    // metadata.userId is the primary path (set by /api/stripe/checkout). Fall
+    // back to the email on the session when metadata is missing (manual
+    // payment links, legacy flows).
     let activatedUserId: string | null = null
     let firstName = 'friend'
     let wasAlreadyActive = false
+    let viaEmailFallback = false
 
-    // Path 1: use metadata userId
     if (metaUserId) {
-      // Idempotency check — read status BEFORE updating
-      const { data: existing } = await supabase.from('profiles').select('subscription_status, first_name').eq('id', metaUserId).maybeSingle()
+      const { data: existing } = await supabase
+        .from('profiles')
+        .select('subscription_status, first_name')
+        .eq('id', metaUserId)
+        .maybeSingle()
+      activatedUserId = metaUserId
+      firstName = existing?.first_name ?? 'friend'
       wasAlreadyActive = existing?.subscription_status === 'active'
-      if (wasAlreadyActive) {
-        console.log('[webhook] profile already active for metaUserId:', metaUserId, '— idempotent retry, skipping welcome email')
-      }
-
-      const updateData = {
-        is_pro: true,
-        subscription_status: 'active',
-        plan_type: plan,
-        stripe_customer_id: stripeCustomerId,
-        stripe_subscription_id: (session.subscription as string) ?? null,
-      }
-      const { error } = await supabase.from('profiles').update(updateData).eq('id', metaUserId)
-      if (error) {
-        console.error('[webhook] metadata userId update FAILED:', error.message, '— falling back to email')
-      } else {
-        console.log('[webhook] metadata userId update succeeded for:', metaUserId)
-        activated = true
-        activatedUserId = metaUserId
-        firstName = existing?.first_name ?? 'friend'
-      }
-    }
-
-    // Path 2: email fallback (always try if path 1 failed or was missing)
-    if (!activated && customerEmail) {
-      const result = await activateByEmail(customerEmail, plan, stripeCustomerId, session.id, (session.subscription as string) ?? null)
+    } else if (customerEmail) {
+      const result = await findUserByEmail(customerEmail, session.id)
       if (result) {
-        activated = true
         activatedUserId = result.userId
         firstName = result.firstName
         wasAlreadyActive = result.wasAlreadyActive
+        viaEmailFallback = true
       }
     }
 
-    if (!activated) {
+    if (!activatedUserId) {
       console.error('[webhook] CRITICAL: could not activate account — metaUserId:', metaUserId, 'email:', customerEmail, 'sessionId:', session.id)
+      return NextResponse.json({ received: true })
     }
 
-    // ── Referral tracking ───────────────────────────────────────────────────
-    const referralCode = (session.metadata?.referral ?? '').toUpperCase()
-    if (referralCode && activatedUserId) {
-      // Tag the profile with the affiliate code
-      await supabase.from('profiles').update({ referred_by: referralCode }).eq('id', activatedUserId)
+    // ── Resolve referral code (metadata → coupon → stored referred_by) ────
+    let attributedCode: string | null =
+      (session.metadata?.referral ?? '').trim().toUpperCase() || null
+    if (!attributedCode) attributedCode = await couponCodeForCheckoutSession(session.id)
+    if (!attributedCode) attributedCode = await storedReferralCode(activatedUserId)
 
-      // Insert referral ledger row
-      await supabase.from('referrals').insert({
-        affiliate_code: referralCode,
-        user_id: activatedUserId,
-        stripe_session_id: session.id,
-        converted: true,
-      })
+    // ── Link Stripe to the profile (idempotent + retries) ─────────────────
+    const subscriptionId = (session.subscription as string | null) ?? null
+    let activated = wasAlreadyActive
+    if (subscriptionId) {
+      try {
+        const sub = await stripe.subscriptions.retrieve(subscriptionId)
+        await linkStripeSubscription({
+          userId: activatedUserId,
+          customerId: stripeCustomerId,
+          subscriptionId,
+          periodEnd: periodEndFromSubscription(sub),
+          couponCode: attributedCode,
+          planType: plan,
+          stripeSessionId: session.id,
+          supabase,
+        })
+        activated = true
+      } catch (e) {
+        console.error('[webhook] linkStripeSubscription threw for session:', session.id, e)
+        throw e
+      }
+    } else {
+      console.warn('[webhook] checkout.session.completed with no subscription id — skipping link, sessionId:', session.id)
+    }
 
-      console.log('[webhook] referral tracked — code:', referralCode, 'userId:', activatedUserId)
+    if (viaEmailFallback && activated) {
+      await sendEmail(
+        ADMIN_EMAIL,
+        `🌱 New subscriber activated via email fallback`,
+        `New subscription on Rooted!\n\nEmail: ${customerEmail}\nPlan: ${plan}\nUserId: ${activatedUserId}\nNote: matched via email fallback (no userId in session metadata)\n\nRooted is growing! 🌱`,
+      ).catch(err => console.error('[webhook] admin notify error:', err))
     }
 
     // Send emails — but only welcome email on FIRST activation (idempotency)
@@ -313,7 +327,7 @@ export async function POST(req: NextRequest) {
       await sendEmail(
         ADMIN_EMAIL,
         `🌱 New ${plan === 'founding_family' ? 'Founding Member' : 'Subscriber'}! ${familyName} just subscribed`,
-        `New subscription on Rooted!\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(undefined)}\nTime: ${now}\nTotal active subscribers: ${activeCount}\n\nRooted is growing! 🌱`
+        `New subscription on Rooted!\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nPlan: ${planLabel(priceId)}\nTime: ${now}\nTotal active subscribers: ${activeCount}\n\nRooted is growing! 🌱`
       ).catch((err) => console.error('[webhook] admin email error:', err))
 
       // Welcome email — only on first activation, not retries
@@ -338,37 +352,71 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── customer.subscription.created ────────────────────────────────────────
-  if (event.type === 'customer.subscription.created') {
+  // ── customer.subscription.created / customer.subscription.updated ──────
+  if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
     const sub = event.data.object as Stripe.Subscription
     const customerId = sub.customer as string
     const priceId = sub.items.data[0]?.price?.id
-    const plan = planType(priceId)
-    console.log('[webhook] subscription.created — customerId:', customerId, 'plan:', plan, 'status:', sub.status)
+    const plan = planTypeForPriceId(priceId)
+    const isActive = sub.status === 'active' || sub.status === 'trialing'
+    console.log('[webhook]', event.type, '— customerId:', customerId, 'plan:', plan, 'status:', sub.status, 'subId:', sub.id)
 
-    if (sub.status === 'active' || sub.status === 'trialing') {
-      // Try to update by stripe_customer_id first
-      const { data: existing } = await supabase.from('profiles').select('id').eq('stripe_customer_id', customerId).maybeSingle()
-      if (existing) {
-        await supabase.from('profiles').update({
-          is_pro: true,
-          subscription_status: 'active',
-          plan_type: plan,
-        }).eq('id', existing.id)
-        console.log('[webhook] subscription.created — updated existing profile:', existing.id)
-      } else {
-        // Fallback: look up customer email from Stripe
-        try {
-          const customer = await stripe.customers.retrieve(customerId)
-          if (!customer.deleted && (customer as Stripe.Customer).email) {
-            const email = (customer as Stripe.Customer).email!
-            console.log('[webhook] subscription.created — no profile with customerId, trying email:', email)
-            await activateByEmail(email, plan, customerId, sub.id)
-          }
-        } catch (e) {
-          console.error('[webhook] subscription.created — customer lookup failed:', e)
+    // Find the user — either by stored customerId or by email fallback.
+    let userId: string | null = null
+    let storedReferredBy: string | null = null
+    const { data: byCustomer } = await supabase
+      .from('profiles')
+      .select('id, referred_by')
+      .eq('stripe_customer_id', customerId)
+      .maybeSingle()
+    if (byCustomer) {
+      userId = byCustomer.id
+      storedReferredBy = byCustomer.referred_by
+        ? String(byCustomer.referred_by).toUpperCase()
+        : null
+    } else if (isActive) {
+      try {
+        const customer = await stripe.customers.retrieve(customerId)
+        if (!customer.deleted && (customer as Stripe.Customer).email) {
+          const email = (customer as Stripe.Customer).email!
+          console.log('[webhook]', event.type, '— no profile for customerId, trying email:', email)
+          const result = await findUserByEmail(email, sub.id)
+          if (result) userId = result.userId
         }
+      } catch (e) {
+        console.error('[webhook]', event.type, '— customer lookup failed:', e)
       }
+    }
+
+    if (isActive && userId) {
+      // Resolve the coupon code either from the subscription's coupon or the
+      // profile's stored referred_by (URL ?ref= on signup).
+      let couponCode = storedReferredBy ?? (await storedReferralCode(userId))
+      if (!couponCode) {
+        const couponId = couponIdFromSubscription(sub)
+        if (couponId) couponCode = await affiliateCodeForStripeCoupon(supabase, couponId)
+      }
+
+      await linkStripeSubscription({
+        userId,
+        customerId,
+        subscriptionId: sub.id,
+        periodEnd: periodEndFromSubscription(sub),
+        couponCode,
+        planType: plan,
+        stripeSessionId: sub.id,
+        supabase,
+      })
+    } else if (!isActive && userId) {
+      // Non-terminal non-active state (past_due, unpaid, incomplete). Mirror
+      // Stripe's status onto the profile but don't promote them to paid.
+      await supabase.from('profiles').update({
+        is_pro: false,
+        subscription_status: sub.status,
+      }).eq('id', userId)
+      console.log('[webhook]', event.type, '— mirrored non-active status', { userId, status: sub.status })
+    } else if (!userId) {
+      console.error('[webhook]', event.type, '— could not resolve user for customerId:', customerId, 'subId:', sub.id)
     }
   }
 
@@ -415,38 +463,47 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── customer.subscription.updated ─────────────────────────────────────────
-  if (event.type === 'customer.subscription.updated') {
-    const sub = event.data.object as Stripe.Subscription
-    const customerId = sub.customer as string
-    const priceId = sub.items.data[0]?.price.id
-    const plan = planType(priceId)
-    const isActive = sub.status === 'active'
-    console.log('[webhook] subscription.updated — customerId:', customerId, 'plan:', plan, 'status:', sub.status)
-
-    const updateData = {
-      is_pro: isActive,
-      subscription_status: isActive ? 'active' : sub.status,
-      plan_type: isActive ? plan : 'free',
+  // ── invoice.payment_failed ───────────────────────────────────────────────
+  // Fires when Stripe fails to charge a renewal. Stripe will keep retrying on
+  // its own schedule (and eventually fire subscription.updated/deleted once
+  // the final state is known), so we don't touch profile state here — we just
+  // log + notify admin so we can reach out before the sub goes to past_due.
+  if (event.type === 'invoice.payment_failed') {
+    const invoice = event.data.object as Stripe.Invoice & {
+      subscription?: string | Stripe.Subscription | null
     }
+    const customerId = invoice.customer as string
+    const subId =
+      typeof invoice.subscription === 'string'
+        ? invoice.subscription
+        : invoice.subscription?.id ?? null
+    const amountDue = invoice.amount_due ? invoice.amount_due / 100 : 0
+    console.warn('[webhook] invoice.payment_failed', {
+      customerId,
+      subscriptionId: subId,
+      invoiceId: invoice.id,
+      attempt: invoice.attempt_count,
+      amountDue,
+    })
 
-    const { data: existing } = await supabase.from('profiles').select('id').eq('stripe_customer_id', customerId).maybeSingle()
-    if (existing) {
-      await supabase.from('profiles').update(updateData).eq('id', existing.id)
-      console.log('[webhook] subscription.updated — updated profile:', existing.id)
-    } else if (isActive) {
-      // No profile with this customer ID — try email lookup
-      try {
-        const customer = await stripe.customers.retrieve(customerId)
-        if (!customer.deleted && (customer as Stripe.Customer).email) {
-          const email = (customer as Stripe.Customer).email!
-          console.log('[webhook] subscription.updated — no profile with customerId, trying email:', email)
-          await activateByEmail(email, plan, customerId, sub.id)
-        }
-      } catch (e) {
-        console.error('[webhook] subscription.updated — customer lookup failed:', e)
-      }
-    }
+    let customerEmail = '—'
+    let familyName = 'Unknown Family'
+    try {
+      const customer = await stripe.customers.retrieve(customerId)
+      if (!customer.deleted) customerEmail = (customer as Stripe.Customer).email ?? '—'
+    } catch { /* best-effort */ }
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id, display_name')
+      .eq('stripe_customer_id', customerId)
+      .maybeSingle()
+    if (profile?.display_name) familyName = profile.display_name
+
+    await sendEmail(
+      ADMIN_EMAIL,
+      `⚠️ Payment failed — ${familyName}`,
+      `A subscription payment just failed on Rooted.\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nCustomer: ${customerId}\nSubscription: ${subId ?? '—'}\nAmount due: $${amountDue.toFixed(2)}\nAttempt #: ${invoice.attempt_count ?? '—'}\n\nStripe will retry automatically. Watch for a follow-up subscription.updated event if the retry fails.`,
+    ).catch((err) => console.error('[webhook] payment_failed admin email error:', err))
   }
 
   return NextResponse.json({ received: true })
