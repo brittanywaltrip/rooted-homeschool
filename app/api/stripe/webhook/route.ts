@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
+import { affiliateCodeForStripeCoupon, attributeReferral } from '@/lib/referrals'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-02-25.clover',
@@ -286,20 +287,50 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Referral tracking ───────────────────────────────────────────────────
-    const referralCode = (session.metadata?.referral ?? '').toUpperCase()
-    if (referralCode && activatedUserId) {
-      // Tag the profile with the affiliate code
-      await supabase.from('profiles').update({ referred_by: referralCode }).eq('id', activatedUserId)
+    // Three ways to attribute this paying conversion, in priority order:
+    //  1. metadata.referral set by our /api/stripe/checkout flow
+    //  2. a Stripe coupon/promotion code that maps back to an affiliate row
+    //  3. profiles.referred_by already set from a prior URL ref on signup
+    if (activatedUserId) {
+      let attributedCode: string | null =
+        (session.metadata?.referral ?? '').trim().toUpperCase() || null
 
-      // Insert referral ledger row
-      await supabase.from('referrals').insert({
-        affiliate_code: referralCode,
-        user_id: activatedUserId,
-        stripe_session_id: session.id,
-        converted: true,
-      })
+      if (!attributedCode) {
+        try {
+          const expanded = await stripe.checkout.sessions.retrieve(session.id, {
+            expand: ['total_details.breakdown.discounts'],
+          })
+          const discountList = expanded.total_details?.breakdown?.discounts ?? []
+          for (const entry of discountList) {
+            const coupon = entry.discount?.source?.coupon
+            const couponId =
+              typeof coupon === 'string' ? coupon : coupon?.id ?? null
+            const code = await affiliateCodeForStripeCoupon(supabase, couponId)
+            if (code) { attributedCode = code; break }
+          }
+        } catch (e) {
+          console.error('[webhook] coupon attribution lookup failed:', e)
+        }
+      }
 
-      console.log('[webhook] referral tracked — code:', referralCode, 'userId:', activatedUserId)
+      if (!attributedCode) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('referred_by')
+          .eq('id', activatedUserId)
+          .maybeSingle()
+        if (prof?.referred_by) attributedCode = String(prof.referred_by).toUpperCase()
+      }
+
+      if (attributedCode) {
+        await attributeReferral({
+          supabase,
+          userId: activatedUserId,
+          affiliateCode: attributedCode,
+          stripeSessionId: session.id,
+          converted: true,
+        })
+      }
     }
 
     // Send emails — but only welcome email on FIRST activation (idempotency)
@@ -347,8 +378,10 @@ export async function POST(req: NextRequest) {
     console.log('[webhook] subscription.created — customerId:', customerId, 'plan:', plan, 'status:', sub.status)
 
     if (sub.status === 'active' || sub.status === 'trialing') {
+      let activatedUserId: string | null = null
+
       // Try to update by stripe_customer_id first
-      const { data: existing } = await supabase.from('profiles').select('id').eq('stripe_customer_id', customerId).maybeSingle()
+      const { data: existing } = await supabase.from('profiles').select('id, referred_by').eq('stripe_customer_id', customerId).maybeSingle()
       if (existing) {
         await supabase.from('profiles').update({
           is_pro: true,
@@ -356,6 +389,7 @@ export async function POST(req: NextRequest) {
           plan_type: plan,
         }).eq('id', existing.id)
         console.log('[webhook] subscription.created — updated existing profile:', existing.id)
+        activatedUserId = existing.id
       } else {
         // Fallback: look up customer email from Stripe
         try {
@@ -363,10 +397,58 @@ export async function POST(req: NextRequest) {
           if (!customer.deleted && (customer as Stripe.Customer).email) {
             const email = (customer as Stripe.Customer).email!
             console.log('[webhook] subscription.created — no profile with customerId, trying email:', email)
-            await activateByEmail(email, plan, customerId, sub.id)
+            const result = await activateByEmail(email, plan, customerId, sub.id)
+            if (result) activatedUserId = result.userId
           }
         } catch (e) {
           console.error('[webhook] subscription.created — customer lookup failed:', e)
+        }
+      }
+
+      // Flip the referrals row to converted=true now that they've paid. Covers
+      // three cases:
+      //  • profiles.referred_by already set from a URL ?ref= on signup
+      //  • a Stripe coupon on the subscription maps to an affiliate
+      //  • neither — skip silently
+      if (activatedUserId) {
+        let code: string | null = existing?.referred_by
+          ? String(existing.referred_by).toUpperCase()
+          : null
+
+        if (!code) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('referred_by')
+            .eq('id', activatedUserId)
+            .maybeSingle()
+          if (prof?.referred_by) code = String(prof.referred_by).toUpperCase()
+        }
+
+        if (!code) {
+          // Pull a coupon id off the subscription (supports both legacy
+          // `discount` and the newer `discounts` array).
+          const subAny = sub as unknown as {
+            discount?: { coupon?: { id?: string } | null } | null
+            discounts?: Array<string | { coupon?: { id?: string } | null }> | null
+          }
+          let couponId: string | null = subAny.discount?.coupon?.id ?? null
+          if (!couponId && Array.isArray(subAny.discounts)) {
+            for (const entry of subAny.discounts) {
+              if (typeof entry === 'string') continue
+              if (entry?.coupon?.id) { couponId = entry.coupon.id; break }
+            }
+          }
+          if (couponId) code = await affiliateCodeForStripeCoupon(supabase, couponId)
+        }
+
+        if (code) {
+          await attributeReferral({
+            supabase,
+            userId: activatedUserId,
+            affiliateCode: code,
+            stripeSessionId: sub.id,
+            converted: true,
+          })
         }
       }
     }
