@@ -143,6 +143,8 @@ export default function LogTodayModal({
           { user_id: user.id, date: effectiveDate, reflection: title.trim(), is_private: reflectionPrivate, updated_at: new Date().toISOString() },
           { onConflict: "user_id,date" }
         );
+        // Reflections count as daily engagement — keep the streak.
+        onLogAction({ userId: user.id, actionType: "memory" });
         onSaved("reflection");
         return;
       }

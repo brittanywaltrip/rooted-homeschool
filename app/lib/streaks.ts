@@ -1,4 +1,12 @@
-import { supabase } from "@/lib/supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+// The default browser client chains through @/ path aliases that node --test
+// can't resolve, so load it lazily. Tests always pass opts.supabase and
+// never take this branch.
+async function getDefaultSupabase(): Promise<SupabaseClient> {
+  const mod = await import("../../lib/supabase.ts");
+  return mod.supabase as SupabaseClient;
+}
 
 /**
  * Check if a given date falls on a school day.
@@ -40,10 +48,11 @@ export function previousSchoolDay(date: Date, schoolDays: string[]): Date {
  * - Update longest_streak_days if current > longest
  * - Update last_logged_date to today
  */
-export async function updateStreak(userId: string): Promise<{
-  currentStreak: number;
-  longestStreak: number;
-}> {
+export async function updateStreak(
+  userId: string,
+  opts: { supabase?: SupabaseClient; now?: Date } = {},
+): Promise<{ currentStreak: number; longestStreak: number }> {
+  const supabase = opts.supabase ?? (await getDefaultSupabase());
   // Fetch profile streak data and school days
   const { data: profile } = await supabase
     .from("profiles")
@@ -54,7 +63,7 @@ export async function updateStreak(userId: string): Promise<{
   if (!profile) return { currentStreak: 0, longestStreak: 0 };
 
   const schoolDays: string[] = profile.school_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
-  const today = new Date();
+  const today = new Date(opts.now ?? Date.now());
   today.setHours(0, 0, 0, 0);
   const todayStr = toDateStr(today);
 
@@ -100,4 +109,53 @@ export async function updateStreak(userId: string): Promise<{
     .eq("id", userId);
 
   return { currentStreak: newStreak, longestStreak: newLongest };
+}
+
+/**
+ * Belt-and-suspenders recompute for the Today page. Writes
+ * `current_streak_days = 0` to the DB when the user's stored streak has
+ * gone stale (last_logged_date is older than the previous school day),
+ * so the Garden page and badge checker see the corrected value even
+ * though the Today page computes its own live streak from lesson rows.
+ *
+ * `longest_streak_days` is never touched — that's the user's record.
+ * Safe to call fire-and-forget; errors are swallowed.
+ */
+export async function recomputeStaleStreak(
+  userId: string,
+  opts: { supabase?: SupabaseClient; now?: Date } = {},
+): Promise<"reset" | "kept" | "skipped"> {
+  const supabase = opts.supabase ?? (await getDefaultSupabase());
+  try {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("current_streak_days, last_logged_date, school_days")
+      .eq("id", userId)
+      .single();
+    if (!profile) return "skipped";
+
+    const stored = profile.current_streak_days ?? 0;
+    if (stored === 0) return "kept";
+    const lastLogged = profile.last_logged_date;
+    if (!lastLogged) return "kept";
+
+    const schoolDays: string[] = profile.school_days?.length
+      ? profile.school_days
+      : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+    const anchor = new Date(opts.now ?? Date.now());
+    anchor.setHours(0, 0, 0, 0);
+    const todayStr = toDateStr(anchor);
+    if (lastLogged === todayStr) return "kept";
+    const prevSchoolDayStr = toDateStr(previousSchoolDay(anchor, schoolDays));
+    if (lastLogged >= prevSchoolDayStr) return "kept";
+
+    await supabase
+      .from("profiles")
+      .update({ current_streak_days: 0 })
+      .eq("id", userId);
+    return "reset";
+  } catch (err) {
+    console.error("[recomputeStaleStreak] failed:", err);
+    return "skipped";
+  }
 }

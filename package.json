@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test lib/**/*.test.ts",
+    "test": "node --test 'lib/**/*.test.ts' 'app/lib/**/*.test.ts'",
     "audit:stripe-linkage": "node --env-file=.env.local scripts/audit-stripe-linkage.ts"
   },
   "dependencies": {
