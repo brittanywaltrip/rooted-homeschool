@@ -10,6 +10,7 @@ import UpgradeBanner from "@/app/components/UpgradeBanner";
 import { ProfileProvider, useProfile } from "@/lib/profile-context";
 import { BadgeNotificationListener } from "@/components/BadgeNotification";
 import { checkAndAwardBadges } from "@/lib/badges";
+import { onLogAction } from "@/app/lib/onLogAction";
 import { compressImage } from "@/lib/compress-image";
 import { DashboardLayoutProvider, useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -274,6 +275,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       earnLeaf();
       setFabToast("Memory saved 🌿"); setTimeout(() => setFabToast(null), 2000);
       checkAndAwardBadges(user.id);
+      onLogAction({ userId: user.id, childId: fabChildId || undefined, actionType: "memory" });
     } catch {
       setFabSaving(false); setFabToast("Upload failed — check your connection and try again"); setTimeout(() => setFabToast(null), 3000);
     }

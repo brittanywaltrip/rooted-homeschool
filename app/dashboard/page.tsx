@@ -11,6 +11,7 @@ import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
 import { recomputeCurrentLesson } from "@/app/lib/scheduler";
+import { recomputeStaleStreak } from "@/app/lib/streaks";
 import { compressImage } from "@/lib/compress-image";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
@@ -843,6 +844,12 @@ export default function TodayPage() {
     if (loadDataBusy.current) return;
     loadDataBusy.current = true;
     try {
+
+    // Belt and suspenders: reset profiles.current_streak_days to 0 when
+    // last_logged_date is older than the previous school day. Fire-and-forget
+    // — the Today UI computes its own live streak; this keeps the Garden
+    // page and badge checker honest. longest_streak_days is untouched.
+    recomputeStaleStreak(effectiveUserId);
 
     // ── Phase 1: Fire all independent queries in parallel ────────────────
     const thirtyDaysAgo = new Date();
@@ -1732,6 +1739,10 @@ export default function TodayPage() {
 
     setSavingExtra(false);
     setShowExtraLessons(false);
+    // Fire one streak update for the whole batch (per-user, not per-lesson).
+    if (extraChecked.size > 0) {
+      onLogAction({ userId: effectiveUserId, actionType: "lesson" });
+    }
     loadData();
   }
 
@@ -1898,6 +1909,7 @@ export default function TodayPage() {
     // Toast
     showCaptureToast("Extra lesson logged! 🌱", null);
     setExtraLessonLoading(null);
+    onLogAction({ userId: user.id, childId: childId || undefined, actionType: "lesson" });
   }
 
   async function rescheduleAfterExtra(childId: string) {
@@ -3399,6 +3411,7 @@ export default function TodayPage() {
                 setTotalMemories(prev => prev + 1);
                 await loadData();
                 checkAndAwardBadges(user.id);
+                onLogAction({ userId: user.id, actionType: memType === "drawing" ? "drawing" : "memory" });
               } finally {
                 if (e.target) e.target.value = "";
               }
