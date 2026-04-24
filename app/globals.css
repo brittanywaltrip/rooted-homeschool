@@ -259,6 +259,13 @@ input:-webkit-autofill:focus {
 
 /* ─── Print styles ───────────────────────────────────────────────────────────── */
 
+/* Screen-only visibility for print-switching containers (yearbook etc).
+   In print media the .yearbook-screen-only nodes are hidden and the
+   .yearbook-print-only stack is revealed. */
+.yearbook-print-only {
+  display: none;
+}
+
 @media print {
   aside, nav, .no-print, header {
     display: none !important;
@@ -297,5 +304,46 @@ input:-webkit-autofill:focus {
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
+  }
+
+  /* ── Yearbook PDF download ───────────────────────────────────
+     The reader uses a fixed-position paginated UI that only mounts one
+     spread at a time, so we swap in a stacked print-only layout for
+     window.print(). US Letter portrait, 0.5in margins. */
+  @page {
+    size: letter portrait;
+    margin: 0.5in;
+  }
+  html, body {
+    background: white !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  /* Hide the on-screen reader shell so the browser doesn't try to
+     paginate its fixed layout. */
+  .yearbook-screen-only {
+    display: none !important;
+  }
+  .yearbook-print-only {
+    display: block !important;
+    position: static !important;
+  }
+  .yearbook-print-spread {
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    width: 100%;
+    min-height: 9.5in;
+    display: block;
+  }
+  .yearbook-print-spread:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  /* Any control inside the yearbook flow — Download button, caption,
+     edit links — must be suppressed in the printed output. */
+  .yearbook-no-print {
+    display: none !important;
   }
 }

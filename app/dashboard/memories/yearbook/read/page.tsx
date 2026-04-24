@@ -1017,12 +1017,18 @@ export default function YearbookReadPage() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
+  const canDownload = getUserAccess(profile) !== 'free';
+  const handlePrint = () => {
+    if (!canDownload) return;
+    if (typeof window !== 'undefined') window.print();
+  };
+
   return (
     <>
       {/* ── Mobile view ──────────────────────────────────────── */}
       {/* Nav bar is ~64px (py-3 + 40px avatar). Position reader below it. */}
       <div
-        className="md:hidden fixed left-0 right-0 z-50 flex flex-col"
+        className="yearbook-screen-only md:hidden fixed left-0 right-0 z-50 flex flex-col"
         style={{ top: 64, height: "calc(100dvh - 64px)", overflow: "hidden", background: "#1a1a1a" }}
       >
         {/* Back button bar */}
@@ -1030,9 +1036,30 @@ export default function YearbookReadPage() {
           <Link href="/dashboard/memories/yearbook" className="text-[12px] text-[#9a8f85] hover:text-white transition-colors">
             ← Yearbook
           </Link>
-          <Link href="/dashboard/memories/yearbook/edit" className="text-[16px] opacity-60 hover:opacity-100 transition-opacity" aria-label="Customize yearbook">
-            ⚙️
-          </Link>
+          <div className="flex items-center gap-3">
+            {canDownload ? (
+              <button
+                onClick={handlePrint}
+                className="px-3 py-1 rounded-md text-[11px] font-bold text-white shadow-sm hover:brightness-110 transition-all"
+                style={{ background: "var(--g-gold)" }}
+                title="Select 'Save as PDF' in the browser's print dialog"
+                aria-label="Download yearbook as PDF"
+              >
+                Download PDF
+              </button>
+            ) : (
+              <Link
+                href="/upgrade"
+                className="px-3 py-1 rounded-md text-[11px] font-bold text-[#9a8f85] border border-[#3d3530] hover:text-white hover:border-white/40 transition-all"
+                aria-label="Upgrade to unlock PDF download"
+              >
+                Download PDF (Founding Family)
+              </Link>
+            )}
+            <Link href="/dashboard/memories/yearbook/edit" className="text-[16px] opacity-60 hover:opacity-100 transition-opacity" aria-label="Customize yearbook">
+              ⚙️
+            </Link>
+          </div>
         </div>
 
         {/* Book page area */}
@@ -1107,7 +1134,7 @@ export default function YearbookReadPage() {
 
       {/* ── Desktop view ─────────────────────────────────────── */}
       <div
-        className="hidden md:flex fixed inset-0 flex-col items-center justify-center"
+        className="yearbook-screen-only hidden md:flex fixed inset-0 flex-col items-center justify-center"
         style={{ background: "#2d2926", height: "100dvh", overflow: "hidden" }}
       >
         {/* Back button + settings */}
@@ -1116,7 +1143,35 @@ export default function YearbookReadPage() {
             ← Yearbook
           </Link>
         </div>
-        <div className="absolute top-4 right-6 z-30">
+        <div className="absolute top-4 right-6 z-30 flex items-center gap-4">
+          {canDownload ? (
+            <div className="flex flex-col items-end">
+              <button
+                onClick={handlePrint}
+                className="px-4 py-2 rounded-lg text-[13px] font-bold text-white shadow-[0_2px_8px_rgba(196,150,42,0.3)] hover:-translate-y-0.5 transition-all"
+                style={{ background: "var(--g-gold)" }}
+                aria-label="Download yearbook as PDF"
+              >
+                ⬇ Download PDF
+              </button>
+              <p className="text-[10px] text-[#9a8f85] mt-1 max-w-[220px] text-right leading-tight">
+                Select &ldquo;Save as PDF&rdquo; as the destination in your browser&apos;s print dialog.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-end">
+              <Link
+                href="/upgrade"
+                className="px-4 py-2 rounded-lg text-[13px] font-bold text-[#c4b89a] border border-[#4d453f] hover:text-white hover:border-white/40 transition-all"
+                aria-label="Upgrade to unlock PDF download"
+              >
+                ⬇ Download PDF (Founding Family)
+              </Link>
+              <p className="text-[10px] text-[#9a8f85] mt-1 max-w-[240px] text-right leading-tight">
+                Unlock PDF download with Founding Family — yours to save, print, or share.
+              </p>
+            </div>
+          )}
           <Link href="/dashboard/memories/yearbook/edit" className="text-[18px] opacity-50 hover:opacity-100 transition-opacity" aria-label="Customize yearbook">
             ⚙️
           </Link>
@@ -1171,6 +1226,43 @@ export default function YearbookReadPage() {
           </p>
         </div>
       </div>
+
+      {/* ── Print-only stacked layout ─────────────────────────
+         The on-screen reader shows one spread at a time via
+         AnimatePresence, so window.print() can't capture the whole
+         yearbook from that view. This sibling mounts every page in
+         flat order with page-break-after on each spread. Gated to
+         paying/trial users — a free user hitting Ctrl+P gets a single
+         upgrade pitch page instead of the full yearbook. */}
+      {canDownload ? (
+        <div className="yearbook-print-only" aria-hidden>
+          {pages.map((p, i) => (
+            <div
+              key={`print-${i}`}
+              className="yearbook-print-spread"
+              style={{ background: "#FAFAF7" }}
+            >
+              <div style={{ padding: "12px 16px", textAlign: "center" }}>
+                <p style={{ fontSize: 10, letterSpacing: "0.15em", textTransform: "uppercase", color: "#7a6f65" }}>
+                  {p.header}
+                </p>
+              </div>
+              <div style={{ padding: "0 16px 16px" }}>{p.content}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="yearbook-print-only" aria-hidden>
+          <div className="yearbook-print-spread" style={{ padding: "2in 0.5in", textAlign: "center" }}>
+            <h1 style={{ fontSize: 28, color: "#2d2926", marginBottom: 12 }}>Your Rooted Yearbook</h1>
+            <p style={{ fontSize: 14, color: "#7a6f65", lineHeight: 1.6, maxWidth: 420, margin: "0 auto" }}>
+              PDF download is available to Founding Family members. Visit
+              <span style={{ fontWeight: 600, color: "#2d2926" }}> rootedhomeschoolapp.com/upgrade </span>
+              to unlock your yearbook to save, print, or share.
+            </p>
+          </div>
+        </div>
+      )}
 
     </>
   );
