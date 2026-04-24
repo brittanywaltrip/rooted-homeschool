@@ -22,7 +22,7 @@ import { supabase } from "@/lib/supabase";
 
 // ── Event catalog ───────────────────────────────────────────────────────────
 
-export type PlanEventActor = "user" | "bulk" | "drag";
+export type PlanEventActor = "user" | "bulk" | "drag" | "backfill";
 
 export type LessonMovedPayload = {
   lesson_id: string;
@@ -128,6 +128,30 @@ export type VacationBlockCreatedPayload = {
 };
 export type VacationBlockDeletedPayload = VacationBlockCreatedPayload;
 
+export type CurriculumGoalCreatedPayload = {
+  goal_id: string;
+  curriculum_name: string;
+  total_lessons: number;
+  child_id: string | null;
+};
+export type CurriculumGoalUpdatedPayload = {
+  goal_id: string;
+  curriculum_name: string;
+  changed_field_count: number;
+};
+export type CurriculumGoalDeletedPayload = {
+  goal_id: string;
+  curriculum_name: string;
+};
+
+export type ActivityCreatedPayload = {
+  activity_id: string;
+  name: string;
+  emoji: string;
+};
+export type ActivityUpdatedPayload = ActivityCreatedPayload;
+export type ActivityDeletedPayload = ActivityCreatedPayload;
+
 export const PLAN_EVENT_TYPES = [
   "lesson.created",
   "lesson.updated",
@@ -143,6 +167,12 @@ export const PLAN_EVENT_TYPES = [
   "appointment.deleted",
   "vacation_block.created",
   "vacation_block.deleted",
+  "curriculum_goal.created",
+  "curriculum_goal.updated",
+  "curriculum_goal.deleted",
+  "activity.created",
+  "activity.updated",
+  "activity.deleted",
 ] as const;
 
 export type PlanEventType = (typeof PLAN_EVENT_TYPES)[number];
@@ -343,6 +373,14 @@ export function formatEvent(row: PlanEventRow): FormattedEvent {
     case "lesson.created": {
       const title = titleOrFallback(p.lesson_title);
       const date = shortDateLabel(p.date as string | null);
+      const isBackfill = p.actor === "backfill";
+      if (isBackfill) {
+        return {
+          summary: `Logged past ${title}${date ? ` on ${date}` : ""}`,
+          category: "completed",
+          icon: "📥",
+        };
+      }
       return {
         summary: `Added ${title}${date ? ` on ${date}` : ""}`,
         category: "completed",
@@ -521,6 +559,58 @@ export function formatEvent(row: PlanEventRow): FormattedEvent {
         summary: `Removed break: ${name}`,
         category: "vacation",
         icon: "🏖",
+      };
+    }
+    case "curriculum_goal.created": {
+      const name = typeof p.curriculum_name === "string" ? p.curriculum_name : "curriculum";
+      const total = Number(p.total_lessons ?? 0);
+      return {
+        summary: `Added curriculum: ${name}${total > 0 ? ` (${total} lesson${total === 1 ? "" : "s"})` : ""}`,
+        category: "completed",
+        icon: "📚",
+      };
+    }
+    case "curriculum_goal.updated": {
+      const name = typeof p.curriculum_name === "string" ? p.curriculum_name : "curriculum";
+      const n = Number(p.changed_field_count ?? 0);
+      return {
+        summary: `Edited curriculum ${name}${n > 0 ? ` (changed ${n} field${n === 1 ? "" : "s"})` : ""}`,
+        category: "moved",
+        icon: "✏️",
+      };
+    }
+    case "curriculum_goal.deleted": {
+      const name = typeof p.curriculum_name === "string" ? p.curriculum_name : "curriculum";
+      return {
+        summary: `Deleted curriculum: ${name}`,
+        category: "deleted",
+        icon: "🗑",
+      };
+    }
+    case "activity.created": {
+      const name = typeof p.name === "string" ? p.name : "activity";
+      const emoji = typeof p.emoji === "string" ? p.emoji : "•";
+      return {
+        summary: `Added activity: ${emoji} ${name}`,
+        category: "completed",
+        icon: "➕",
+      };
+    }
+    case "activity.updated": {
+      const name = typeof p.name === "string" ? p.name : "activity";
+      const emoji = typeof p.emoji === "string" ? p.emoji : "•";
+      return {
+        summary: `Edited activity: ${emoji} ${name}`,
+        category: "moved",
+        icon: "✏️",
+      };
+    }
+    case "activity.deleted": {
+      const name = typeof p.name === "string" ? p.name : "activity";
+      return {
+        summary: `Deleted activity: ${name}`,
+        category: "deleted",
+        icon: "🗑",
       };
     }
     default: {
