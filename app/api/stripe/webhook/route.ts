@@ -11,6 +11,7 @@ import {
   planTypeForPriceId,
   type LinkedPlanType,
 } from '@/lib/link-stripe-to-profile'
+import { commissionFromCents } from '@/lib/commission'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-02-25.clover',
@@ -118,6 +119,32 @@ async function couponCodeForCheckoutSession(sessionId: string): Promise<string |
     console.error('[webhook] coupon attribution lookup failed:', e)
   }
   return null
+}
+
+// Returns the dollars-commission a partner earned for a given subscription,
+// based on what Stripe actually charged after any coupon. Prefers the
+// latest invoice's `amount_paid` (real money that moved); falls back to the
+// subscription line's `unit_amount` when the invoice isn't available yet.
+// Returns null if no signal can be derived — the caller leaves the
+// referrals.commission_amount column NULL and display falls back to $6.63.
+async function commissionFromSubscription(sub: Stripe.Subscription): Promise<number | null> {
+  const latest = (sub as unknown as { latest_invoice?: string | Stripe.Invoice | null }).latest_invoice
+  const invoiceId = typeof latest === 'string' ? latest : latest?.id ?? null
+  if (invoiceId) {
+    try {
+      const invoice = await stripe.invoices.retrieve(invoiceId)
+      const paid = (invoice as unknown as { amount_paid?: number | null }).amount_paid ?? null
+      const viaPaid = commissionFromCents(paid)
+      if (viaPaid !== null) return viaPaid
+      const due = (invoice as unknown as { amount_due?: number | null }).amount_due ?? null
+      const viaDue = commissionFromCents(due)
+      if (viaDue !== null) return viaDue
+    } catch (e) {
+      console.error('[webhook] failed to retrieve latest invoice for commission:', e)
+    }
+  }
+  const unitAmount = sub.items?.data?.[0]?.price?.unit_amount ?? null
+  return commissionFromCents(unitAmount)
 }
 
 // Read the stored profiles.referred_by so a URL-ref signup still gets
@@ -289,6 +316,13 @@ export async function POST(req: NextRequest) {
     if (subscriptionId) {
       try {
         const sub = await stripe.subscriptions.retrieve(subscriptionId)
+        // Prefer session.amount_total (what Stripe actually charged on this
+        // checkout, post-coupon) — it's the most accurate signal at this
+        // event time. Fall back to the subscription invoice for parity with
+        // the subscription.created path.
+        const commissionAmount =
+          commissionFromCents(session.amount_total ?? null) ??
+          (await commissionFromSubscription(sub))
         await linkStripeSubscription({
           userId: activatedUserId,
           customerId: stripeCustomerId,
@@ -298,6 +332,7 @@ export async function POST(req: NextRequest) {
           planType: plan,
           stripeSessionId: session.id,
           supabase,
+          commissionAmount,
         })
         activated = true
       } catch (e) {
@@ -397,6 +432,8 @@ export async function POST(req: NextRequest) {
         if (couponId) couponCode = await affiliateCodeForStripeCoupon(supabase, couponId)
       }
 
+      const commissionAmount = await commissionFromSubscription(sub)
+
       await linkStripeSubscription({
         userId,
         customerId,
@@ -406,6 +443,7 @@ export async function POST(req: NextRequest) {
         planType: plan,
         stripeSessionId: sub.id,
         supabase,
+        commissionAmount,
       })
     } else if (!isActive && userId) {
       // Non-terminal non-active state (past_due, unpaid, incomplete). Mirror

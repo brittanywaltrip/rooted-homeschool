@@ -1,21 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+import { COMMISSION_RATE, LEGACY_COMMISSION_PER_PAYING, displayCommission } from '@/lib/commission'
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Conservative flat commission per paying referral. Matches Brittany's current
-// policy of assuming every paying referral used the 15%-off coupon ($39 × 0.85
-// = $33.15 net) and paying 20% on that net. Not plan-specific.
-//
-// TODO: track coupon_used on referrals row so commission math can
-// differentiate $33.15 vs $39 per referral.
-const NET_PER_PAYING_REFERRAL = 33.15
-const COMMISSION_RATE = 0.20
-const COMMISSION_PER_PAYING_REFERRAL =
-  Math.round(NET_PER_PAYING_REFERRAL * COMMISSION_RATE * 100) / 100 // $6.63
+// Each referral row's commission now comes from the webhook at conversion
+// time (stored in referrals.commission_amount). Pre-migration rows fall
+// back to the legacy flat rate exposed by lib/commission.ts.
+const COMMISSION_PER_PAYING_REFERRAL = LEGACY_COMMISSION_PER_PAYING
 
 function firstOfMonthISO(now = new Date()): string {
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
@@ -39,7 +35,7 @@ export async function GET(req: NextRequest) {
   try {
     const { data: referrals, error: refErr } = await supabase
       .from('referrals')
-      .select('id, user_id, converted, commission_note, stripe_session_id, created_at')
+      .select('id, user_id, converted, commission_note, commission_amount, stripe_session_id, created_at')
       .ilike('affiliate_code', affiliateCode)
       .order('created_at', { ascending: false })
 
@@ -69,17 +65,21 @@ export async function GET(req: NextRequest) {
       converted: Boolean(r.converted),
       commissionNote: r.commission_note ?? null,
       hasSubscription: r.user_id ? subscriptionMap.get(r.user_id) === true : false,
-      commissionAmount: r.converted ? COMMISSION_PER_PAYING_REFERRAL : 0,
+      commissionAmount: displayCommission({
+        converted: Boolean(r.converted),
+        commission_amount: (r as { commission_amount?: number | string | null }).commission_amount ?? null,
+      }),
     }))
 
     const totalRedemptions = rows.length
     const payingCount = rows.filter((r) => r.converted).length
     const signupsThisMonth = rows.filter((r) => r.createdAt >= monthStart).length
     const payingThisMonth = rows.filter((r) => r.converted && r.createdAt >= monthStart).length
-    const commissionEarned = Math.round(payingCount * COMMISSION_PER_PAYING_REFERRAL * 100) / 100
+    const commissionEarned =
+      Math.round(rows.reduce((sum, r) => sum + r.commissionAmount, 0) * 100) / 100
     // `revenueDriven` is kept for back-compat with older UI usages that compute
-    // `revenueDriven * 0.20`. With the flat commission model, that expression
-    // now equals `commissionEarned`.
+    // `revenueDriven * 0.20`. With per-row commissions, this inverts to the
+    // implied gross that generated the paid commissions.
     const revenueDriven = Math.round((commissionEarned / COMMISSION_RATE) * 100) / 100
 
     // Clicks live on the affiliates table as a single all-time counter — there's

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { displayCommission } from "@/lib/commission";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
@@ -43,10 +44,11 @@ export async function GET(req: Request) {
     .select("id, referred_by, plan_type, first_name, last_name, display_name")
     .not("referred_by", "is", null);
 
-  // Fetch referrals ledger (includes commission_note since 20260423200000 migration)
+  // Fetch referrals ledger. commission_note added in 20260423200000,
+  // commission_amount added in 20260423210000.
   const { data: refRows } = await supabaseAdmin
     .from("referrals")
-    .select("id, affiliate_code, user_id, stripe_session_id, converted, commission_note, created_at")
+    .select("id, affiliate_code, user_id, stripe_session_id, converted, commission_note, commission_amount, created_at")
     .order("created_at", { ascending: false })
     .limit(100);
 
@@ -67,13 +69,9 @@ export async function GET(req: Request) {
     allProfiles.map((p) => [p.id, p])
   );
 
-  // Conservative flat commission matches the partner-facing dashboard:
-  // $33.15 net × 20% = $6.63 per paying referral.
-  // TODO: track coupon_used on referrals row so commission math can
-  // differentiate $33.15 vs $39 per referral.
-  const COMMISSION_PER_PAYING = Math.round(33.15 * 0.20 * 100) / 100;
-
-  // Build affiliate stats
+  // Commission owed = sum of per-referral stored amounts (webhook writes the
+  // actual post-coupon commission at conversion time), with pre-migration
+  // rows falling back to the $6.63 legacy default via displayCommission.
   const affiliates = (affRows ?? []).map((a) => {
     const referred = (referredProfiles ?? []).filter(
       (p) => p.referred_by?.toUpperCase() === a.code?.toUpperCase()
@@ -81,7 +79,16 @@ export async function GET(req: Request) {
     const convertedReferrals = (refRows ?? []).filter(
       (r) => r.affiliate_code?.toUpperCase() === a.code?.toUpperCase() && r.converted === true
     );
-    const commissionOwed = Math.round(convertedReferrals.length * COMMISSION_PER_PAYING * 100) / 100;
+    const commissionOwed =
+      Math.round(
+        convertedReferrals.reduce(
+          (sum, r) => sum + displayCommission({
+            converted: true,
+            commission_amount: (r as { commission_amount?: number | string | null }).commission_amount ?? null,
+          }),
+          0,
+        ) * 100,
+      ) / 100;
 
     return {
       ...a,
@@ -126,7 +133,10 @@ export async function GET(req: Request) {
       stripe_session_id: r.stripe_session_id,
       converted: r.converted,
       commission_note: (r as { commission_note?: string | null }).commission_note ?? null,
-      commission_amount: r.converted ? COMMISSION_PER_PAYING : 0,
+      commission_amount: displayCommission({
+        converted: Boolean(r.converted),
+        commission_amount: (r as { commission_amount?: number | string | null }).commission_amount ?? null,
+      }),
       created_at: r.created_at,
       user_name: prof
         ? (prof.first_name ? `${prof.first_name} ${prof.last_name ?? ""}`.trim() : prof.display_name ?? "Unknown")

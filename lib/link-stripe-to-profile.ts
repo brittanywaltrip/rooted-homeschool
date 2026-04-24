@@ -30,6 +30,10 @@ export interface LinkStripeSubscriptionOpts {
   planType?: LinkedPlanType
   stripeSessionId?: string | null
   supabase?: SupabaseClient
+  // Per-referral commission in dollars, computed from the actual Stripe
+  // charge. Passed through to attributeReferral so the ledger row records
+  // the real number instead of falling back to the flat $6.63 default.
+  commissionAmount?: number | null
 }
 
 export interface LinkResult {
@@ -147,6 +151,7 @@ export async function linkStripeSubscription(
         affiliateCode: couponCode,
         stripeSessionId: opts.stripeSessionId ?? subscriptionId,
         converted: true,
+        commissionAmount: opts.commissionAmount ?? null,
       })
     }
     return { action: 'already_linked', userId, subscriptionId }
@@ -169,6 +174,7 @@ export async function linkStripeSubscription(
           affiliateCode: couponCode,
           stripeSessionId: opts.stripeSessionId ?? subscriptionId,
           converted: true,
+          commissionAmount: opts.commissionAmount ?? null,
         })
       }
       return { action: 'linked', userId, subscriptionId }

@@ -13,6 +13,11 @@ export interface AttributeReferralArgs {
   affiliateCode: string | null | undefined
   stripeSessionId?: string | null
   converted: boolean
+  // Per-referral commission in dollars, computed by the webhook from the
+  // actual Stripe charge (post-coupon). Written via a follow-up UPDATE
+  // after the attribution RPC succeeds. Ignored when converted=false or
+  // when the RPC skipped the write.
+  commissionAmount?: number | null
 }
 
 export interface AttributionResult {
@@ -30,6 +35,7 @@ export async function attributeReferral({
   affiliateCode,
   stripeSessionId,
   converted,
+  commissionAmount,
 }: AttributeReferralArgs): Promise<AttributionResult> {
   const code = (affiliateCode ?? '').trim().toUpperCase()
   if (!code) return { action: 'skipped', error: 'missing_code' }
@@ -62,6 +68,35 @@ export async function attributeReferral({
     converted,
     stripeSessionId,
   })
+
+  // Stamp commission_amount on the row once attribution succeeded. Separate
+  // UPDATE because the RPC was created before this column existed — keeps
+  // the deployed function signature stable. Best-effort: a failure here
+  // doesn't unwind the attribution (display falls back to $6.63).
+  if (
+    converted &&
+    typeof commissionAmount === 'number' &&
+    Number.isFinite(commissionAmount) &&
+    commissionAmount >= 0
+  ) {
+    const rounded = Math.round(commissionAmount * 100) / 100
+    const { error: commissionErr } = await supabase
+      .from('referrals')
+      .update({ commission_amount: rounded })
+      .eq('user_id', userId)
+      .ilike('affiliate_code', code)
+    if (commissionErr) {
+      console.error('[referrals] commission_amount update failed', {
+        userId,
+        code,
+        commissionAmount: rounded,
+        message: commissionErr.message,
+      })
+    } else {
+      console.log('[referrals] commission_amount set', { userId, code, commissionAmount: rounded })
+    }
+  }
+
   return { action, affiliateCode: code }
 }
 
