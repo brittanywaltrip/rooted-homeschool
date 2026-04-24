@@ -6,6 +6,7 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  pointerWithin,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -2666,6 +2667,18 @@ export default function PlanV2() {
               ) : (
                 <DndContext
                   sensors={sensors}
+                  // Switch from the default `rectIntersection` to
+                  // `pointerWithin`. The default tests whether the
+                  // DragOverlay's rect intersects each droppable's rect; with
+                  // Week-view cells at 160px tall, that intersection becomes
+                  // intermittent because the overlay's small pill ghost
+                  // doesn't always cross enough of the larger droppable to
+                  // register as "over". `pointerWithin` instead checks the
+                  // cursor position itself — drop target = the cell under
+                  // the cursor — which behaves identically in Month view
+                  // (the cursor is over a cell when the ghost is too) and
+                  // reliably in Week view regardless of cell size.
+                  collisionDetection={pointerWithin}
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}
                   onDragCancel={handleDragCancel}
