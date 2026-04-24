@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
+import { compPartnerProfile } from '@/lib/comp-partner'
 
 const ADMIN_EMAILS = ['garfieldbrittany@gmail.com', 'christopherwaltrip@gmail.com', 'hello@rootedhomeschoolapp.com']
 
@@ -73,9 +74,10 @@ async function handleApprove(body: Record<string, unknown>) {
   })
   if (affErr) return NextResponse.json({ error: affErr.message }, { status: 500 })
 
-  // Comp the user's account if found
+  // Comp the user's account if found. compPartnerProfile writes every
+  // webhook-owned field so approved partners never keep stale Stripe linkage.
   if (matchedUserId) {
-    await supabaseAdmin.from('profiles').update({ plan_type: 'founding_family' }).eq('id', matchedUserId)
+    await compPartnerProfile(matchedUserId, { supabase: supabaseAdmin })
   }
 
   // Update application status
@@ -222,13 +224,12 @@ async function handleCompAccount(body: Record<string, unknown>) {
   const { profileId } = body as { profileId: string }
   if (!profileId) return NextResponse.json({ error: 'Missing profileId' }, { status: 400 })
 
-  const { error } = await supabaseAdmin.from('profiles').update({
-    is_pro: true,
-    subscription_status: 'active',
-    plan_type: 'partner_comp',
-  }).eq('id', profileId)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  try {
+    await compPartnerProfile(profileId, { supabase: supabaseAdmin })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'comp failed'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
   return NextResponse.json({ ok: true })
 }
 
@@ -270,6 +271,18 @@ async function handleCompleteSetup(body: Record<string, unknown>) {
     notes: notesStr || null,
   })
   if (affErr) return NextResponse.json({ error: affErr.message }, { status: 500 })
+
+  // Comp the partner's profile if we matched a user — without this the
+  // partner stays on the free plan and sees the upgrade banner despite
+  // being an approved partner.
+  if (profileId) {
+    try {
+      await compPartnerProfile(profileId, { supabase: supabaseAdmin })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'comp failed'
+      return NextResponse.json({ error: message }, { status: 500 })
+    }
+  }
 
   await supabaseAdmin.from('partner_apps').update({
     status: 'approved',
