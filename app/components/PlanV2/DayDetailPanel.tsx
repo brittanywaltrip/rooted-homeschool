@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Pencil, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import TodayLessonCard, {
   type TodayLessonCardLesson,
@@ -9,6 +9,11 @@ import TodayLessonCard, {
 } from "@/app/components/TodayLessonCard";
 import { resolveChildColor } from "./colors";
 import type { PlanV2Appointment } from "./types";
+import {
+  formatEvent,
+  relativeTimestamp,
+  type PlanEventRow,
+} from "@/lib/audit-log";
 
 /* ============================================================================
  * DayDetailPanel v2 — shared day view.
@@ -70,6 +75,11 @@ export interface DayDetailPanelV2Props {
   onEditAppointment?: (appt: PlanV2Appointment) => void;
   /** Called after a note is saved so the parent can sync local state. */
   onLessonChanged?: (lessonId: string, patch: Partial<TodayLessonCardLesson>) => void;
+  /** Optional — audit-log rows whose payload touches this day. When omitted
+   * or empty, the "Activity on this day" section is hidden, so the panel's
+   * use on the Today page (which doesn't load Plan audit events) is
+   * unaffected. */
+  dayEvents?: PlanEventRow[];
   variant?: "inline" | "sheet";
   onClose?: () => void;
 }
@@ -81,8 +91,14 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
     date, lessons, appointments, kids, isPartner,
     onToggleLesson, onEditLesson, onDeleteLesson, onRescheduleLesson,
     onSkipLesson, onMinutesUpdate, onToggleAppointment, onEditAppointment, onLessonChanged,
+    dayEvents,
     variant = "inline", onClose,
   } = props;
+
+  // Per-day activity section expansion state. Defaults to collapsed — the
+  // section is an "on-demand receipt", not primary content.
+  const [activityExpanded, setActivityExpanded] = useState(false);
+  const [activityVisible, setActivityVisible] = useState(10);
 
   // ── Note editor state (internal to the panel) ──────────────────────────────
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -314,6 +330,78 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
         <p className="text-sm text-[#b5aca4] text-center py-6">
           Nothing scheduled for this day.
         </p>
+      ) : null}
+
+      {/* Activity on this day — collapsible, only rendered when the parent
+          passes a non-null dayEvents (PlanV2 does; Today page doesn't, so
+          the panel's Today usage is unaffected). */}
+      {dayEvents !== undefined ? (
+        <section className="border-t border-[#f0ede8] pt-3">
+          <button
+            type="button"
+            onClick={() => setActivityExpanded((v) => !v)}
+            aria-expanded={activityExpanded}
+            aria-controls="day-activity-body"
+            className="w-full flex items-center gap-2 text-left hover:bg-[#faf8f4] -mx-2 px-2 py-1 rounded-lg transition-colors"
+          >
+            <span aria-hidden className="text-[13px] leading-none">🕒</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] flex-1">
+              Activity on this day
+              {dayEvents.length > 0 ? (
+                <span className="ml-1.5 text-[10px] text-[#9a8e84] normal-case tracking-normal font-medium">
+                  · {dayEvents.length}
+                </span>
+              ) : null}
+            </span>
+            {activityExpanded ? (
+              <ChevronDown size={14} className="text-[#7a6f65]" />
+            ) : (
+              <ChevronRight size={14} className="text-[#7a6f65]" />
+            )}
+          </button>
+
+          {activityExpanded ? (
+            <div id="day-activity-body" className="mt-2">
+              {dayEvents.length === 0 ? (
+                <p className="text-xs text-[#9a8e84] py-2">
+                  No changes recorded for this day.
+                </p>
+              ) : (
+                <>
+                  <ul className="space-y-1">
+                    {dayEvents.slice(0, activityVisible).map((row) => {
+                      const f = formatEvent(row);
+                      return (
+                        <li
+                          key={row.id}
+                          className="flex items-start gap-2 text-[11px] text-[#2d2926] leading-snug"
+                        >
+                          <span aria-hidden className="mt-0.5">{f.icon}</span>
+                          <span className="flex-1 min-w-0">{f.summary}</span>
+                          <span
+                            className="text-[10px] text-[#9a8e84] tabular-nums shrink-0"
+                            title={new Date(row.created_at).toLocaleString()}
+                          >
+                            {relativeTimestamp(row.created_at)}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {dayEvents.length > activityVisible ? (
+                    <button
+                      type="button"
+                      onClick={() => setActivityVisible((v) => v + 10)}
+                      className="mt-2 text-[11px] font-semibold text-[#5c7f63] hover:text-[var(--g-deep)]"
+                    >
+                      Show more
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : null}
+        </section>
       ) : null}
     </div>
   );

@@ -19,11 +19,20 @@ import DayDetailPanelV2 from "./DayDetailPanel";
 import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
 import MissedLessonsBanner from "./MissedLessonsBanner";
+import RecentChangesCard from "./RecentChangesCard";
 import DayCellContextMenu from "./DayCellContextMenu";
-import AppointmentWizard from "@/app/components/AppointmentWizard";
+import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
 import { useLiveAnnouncer, SR_ONLY_STYLE } from "./useLiveAnnouncer";
 import { usePlanV2Data } from "./usePlanV2Data";
 import { usePlanLessonActions } from "./usePlanLessonActions";
+import {
+  buildOptimisticEventRow,
+  filterEventsForDay,
+  logPlanEvent,
+  PLAN_EVENT_TYPES,
+  type PlanEventRow,
+  type PlanEventType,
+} from "@/lib/audit-log";
 import { resolveChildColor } from "./colors";
 import { PillShell } from "./LessonPill";
 import { useIsMobile } from "./useIsMobile";
@@ -120,6 +129,57 @@ export default function PlanV2() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
+  // ── Audit trail state ────────────────────────────────────────────────────
+  // Loaded once per effectiveUserId. Further events are prepended locally
+  // (buildOptimisticEventRow) so the Recent Changes card updates within a
+  // frame of the mutation. onLoadMore extends the window in 100-row steps.
+  const [planEvents, setPlanEvents] = useState<PlanEventRow[]>([]);
+  const [planEventsPages, setPlanEventsPages] = useState(1);
+  const [planEventsFullyLoaded, setPlanEventsFullyLoaded] = useState(false);
+  const [planEventsLoadingMore, setPlanEventsLoadingMore] = useState(false);
+
+  const loadPlanEvents = useCallback(async (pageCount: number) => {
+    if (!effectiveUserId) return;
+    const { data, error } = await supabase
+      .from("app_events")
+      .select("id, type, payload, created_at")
+      .eq("user_id", effectiveUserId)
+      .in("type", PLAN_EVENT_TYPES as unknown as string[])
+      .order("created_at", { ascending: false })
+      .limit(pageCount * 100);
+    if (error) return;
+    const rows = (data ?? []) as PlanEventRow[];
+    setPlanEvents(rows);
+    setPlanEventsFullyLoaded(rows.length < pageCount * 100);
+  }, [effectiveUserId]);
+
+  useEffect(() => {
+    setPlanEventsPages(1);
+    setPlanEventsFullyLoaded(false);
+    void loadPlanEvents(1);
+  }, [loadPlanEvents]);
+
+  const loadMorePlanEvents = useCallback(async () => {
+    if (planEventsFullyLoaded) return;
+    setPlanEventsLoadingMore(true);
+    const next = planEventsPages + 1;
+    await loadPlanEvents(next);
+    setPlanEventsPages(next);
+    setPlanEventsLoadingMore(false);
+  }, [planEventsFullyLoaded, planEventsPages, loadPlanEvents]);
+
+  /** Append locally + fire-and-forget DB insert. Resolves immediately — the
+   * DB write races in the background. Callers never await this. */
+  const recordEvent = useCallback(
+    (type: PlanEventType, payload: Record<string, unknown>) => {
+      const optimistic = buildOptimisticEventRow(type, payload);
+      setPlanEvents((prev) => [optimistic, ...prev]);
+      // Fire-and-forget. logPlanEvent swallows + warns on failure.
+      void logPlanEvent({ userId: effectiveUserId, type, payload });
+    },
+    [effectiveUserId],
+  );
+
   const { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons, setAppointments } =
     usePlanV2Data({ effectiveUserId, monthStart });
 
@@ -137,6 +197,69 @@ export default function PlanV2() {
       reload();
     },
   });
+
+  // ── Single-lesson wrappers that fire audit events ───────────────────────
+  // Read lesson metadata BEFORE delegating so optimistic deletions don't
+  // erase the title/date we need to log. The base hook's async promise is
+  // awaited so the DB write lands before we record the event — if the hook
+  // fails silently the audit entry still goes out, which is intentional:
+  // the user's intent was recorded even if persistence hiccups.
+  const toggleLessonWithLog = useCallback(
+    async (id: string, current: boolean) => {
+      const snap = lessons.find((l) => l.id === id);
+      await toggleLesson(id, current);
+      if (snap) {
+        const title = snap.title && snap.title.trim().length > 0
+          ? snap.title
+          : snap.lesson_number ? `Lesson ${snap.lesson_number}` : "lesson";
+        recordEvent(current ? "lesson.uncompleted" : "lesson.completed", {
+          lesson_id: id,
+          lesson_title: title,
+          date: snap.scheduled_date ?? snap.date ?? null,
+          actor: "user",
+        });
+      }
+    },
+    [lessons, toggleLesson, recordEvent],
+  );
+
+  const deleteLessonWithLog = useCallback(
+    async (id: string) => {
+      const snap = lessons.find((l) => l.id === id);
+      await deleteLesson(id);
+      if (snap) {
+        const title = snap.title && snap.title.trim().length > 0
+          ? snap.title
+          : snap.lesson_number ? `Lesson ${snap.lesson_number}` : "lesson";
+        recordEvent("lesson.deleted", {
+          lesson_id: id,
+          lesson_title: title,
+          from_date: snap.scheduled_date ?? snap.date ?? null,
+          actor: "user",
+        });
+      }
+    },
+    [lessons, deleteLesson, recordEvent],
+  );
+
+  const skipLessonWithLog = useCallback(
+    async (lesson: PlanV2Lesson) => {
+      const from = lesson.scheduled_date ?? lesson.date;
+      await skipLesson(lesson);
+      if (from) {
+        const title = lesson.title && lesson.title.trim().length > 0
+          ? lesson.title
+          : lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "lesson";
+        recordEvent("lesson.skipped", {
+          lesson_id: lesson.id,
+          lesson_title: title,
+          from_date: from,
+          actor: "user",
+        });
+      }
+    },
+    [skipLesson, recordEvent],
+  );
 
   // Default: every child selected. Once data loads, ensure filter includes all
   // current child IDs.
@@ -279,7 +402,7 @@ export default function PlanV2() {
   // vacation rejection, weekend warn-but-allow, optimistic state, rollback on
   // DB failure, and the universal undo bar entry.
   const performMove = useCallback(
-    async (lessonId: string, fromDateStr: string, toDateStr: string) => {
+    async (lessonId: string, fromDateStr: string, toDateStr: string, actor: "user" | "drag" = "user") => {
       if (fromDateStr === toDateStr) return;
 
       const inVacation = vacationBlocks.some(
@@ -361,9 +484,19 @@ export default function PlanV2() {
         },
       });
 
+      // Record the move. Single events (actor user/drag) go through
+      // lesson.moved — bulk paths use their own lesson.bulk_action.
+      recordEvent("lesson.moved", {
+        lesson_id: lessonId,
+        lesson_title: label,
+        from_date: fromDateStr,
+        to_date: toDateStr,
+        actor,
+      });
+
       reload();
     },
-    [lessons, vacationBlocks, setLessons, reload, flagLanded],
+    [lessons, vacationBlocks, setLessons, reload, flagLanded, recordEvent],
   );
 
   // ── DnD handlers ───────────────────────────────────────────────────────────
@@ -382,7 +515,7 @@ export default function PlanV2() {
       if (aData?.type !== "lesson" || oData?.type !== "day") return;
       if (!aData.lessonId || !aData.sourceDateStr || !oData.dateStr) return;
       if (oData.isVacation) return;
-      void performMove(aData.lessonId, aData.sourceDateStr, oData.dateStr);
+      void performMove(aData.lessonId, aData.sourceDateStr, oData.dateStr, "drag");
     },
     [performMove],
   );
@@ -573,10 +706,20 @@ export default function PlanV2() {
       flashNotice(`Couldn't move ${failedIds.length} lesson${failedIds.length === 1 ? "" : "s"} — check your connection.`);
     }
 
+    recordEvent("lesson.bulk_action", {
+      action: "move",
+      count: moves.length,
+      lesson_ids: moves.map((m) => m.id),
+      from_dates: moves.map((m) => m.from),
+      to_date: toDateStr,
+      succeeded: succeeded.length,
+      failed: failedIds.length,
+    });
+
     reload();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, vacationBlocks, setLessons, reload, flagLanded, exitSelectMode]);
+  }, [lessons, vacationBlocks, setLessons, reload, flagLanded, exitSelectMode, recordEvent]);
 
   // ── Bulk: mark done ───────────────────────────────────────────────────────
 
@@ -651,10 +794,25 @@ export default function PlanV2() {
       flashNotice(`Couldn't mark ${failedIds.length} lesson${failedIds.length === 1 ? "" : "s"} done.`);
     }
 
+    const fromDatesForLog = toComplete
+      .map((id) => {
+        const l = lessons.find((x) => x.id === id);
+        return l?.scheduled_date ?? l?.date ?? null;
+      })
+      .filter((d): d is string => !!d);
+    recordEvent("lesson.bulk_action", {
+      action: "mark_done",
+      count: toComplete.length,
+      lesson_ids: toComplete,
+      from_dates: fromDatesForLog,
+      succeeded: succeededIds.length,
+      failed: failedIds.length,
+    });
+
     reload();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode]);
+  }, [lessons, setLessons, reload, exitSelectMode, recordEvent]);
 
   // ── Bulk: skip (clear scheduled_date) ─────────────────────────────────────
 
@@ -739,10 +897,19 @@ export default function PlanV2() {
       flashNotice(`Couldn't skip ${failedIds.length} lesson${failedIds.length === 1 ? "" : "s"}.`);
     }
 
+    recordEvent("lesson.bulk_action", {
+      action: "skip",
+      count: snap.length,
+      lesson_ids: snap.map((s) => s.id),
+      from_dates: snap.map((s) => s.from),
+      succeeded: succeeded.length,
+      failed: failedIds.length,
+    });
+
     reload();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode, flagLanded]);
+  }, [lessons, setLessons, reload, exitSelectMode, flagLanded, recordEvent]);
 
   // ── Bulk: delete (deferred DB write to undo window) ──────────────────────
 
@@ -792,8 +959,23 @@ export default function PlanV2() {
       },
     });
 
+    // Log on initiation. The actual DB delete runs 30s later unless the
+    // user taps Undo — the audit trail intentionally records intent, not
+    // the eventual DB outcome, which is more useful for "what did I just
+    // do?" than "did the write finally commit?".
+    recordEvent("lesson.bulk_action", {
+      action: "delete",
+      count: rows.length,
+      lesson_ids: rows.map((r) => r.id),
+      from_dates: rows
+        .map((r) => r.scheduled_date ?? r.date ?? null)
+        .filter((d): d is string => !!d),
+      succeeded: rows.length,
+      failed: 0,
+    });
+
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode, commitPendingBulkDelete]);
+  }, [lessons, setLessons, reload, exitSelectMode, commitPendingBulkDelete, recordEvent]);
 
   // ── Day-cell context menu actions ─────────────────────────────────────────
   // Helpers scoped to the day the menu is open for. All actions close the
@@ -883,14 +1065,26 @@ export default function PlanV2() {
           } catch {
             flashNotice("Couldn't undo — check your connection.");
           }
+          recordEvent("vacation_block.deleted", {
+            vacation_block_id: insertedId,
+            name: "Break",
+            start_date: dateStr,
+            end_date: dateStr,
+          });
           reload();
         },
+      });
+      recordEvent("vacation_block.created", {
+        vacation_block_id: insertedId,
+        name: "Break",
+        start_date: dateStr,
+        end_date: dateStr,
       });
       reload();
     } catch {
       flashNotice("Couldn't save — check your connection and try again.");
     }
-  }, [effectiveUserId, reload]);
+  }, [effectiveUserId, reload, recordEvent]);
 
   // Global Escape handler — unwinds the top-most open UI in a predictable
   // order. Also powers keyboard nav #4 in the Phase 9 spec.
@@ -1271,6 +1465,16 @@ export default function PlanV2() {
           </div>
         )}
 
+        {/* Recent changes audit card — lives under the calendar; the day
+            detail panel is a fixed-position sheet so placement order here
+            doesn't disturb it. */}
+        <RecentChangesCard
+          events={planEvents}
+          onLoadMore={loadMorePlanEvents}
+          loadingMore={planEventsLoadingMore}
+          fullyLoaded={planEventsFullyLoaded}
+        />
+
         {/* Day-detail sheet */}
         {openDayStr ? (() => {
           const panelLessons = toTodayLessons(
@@ -1280,6 +1484,7 @@ export default function PlanV2() {
           const panelKids = toTodayKids(kids);
           const [y, m, d] = openDayStr.split("-").map(Number);
           const panelDate = new Date(y, m - 1, d);
+          const dayEvents = filterEventsForDay(planEvents, openDayStr);
           return (
             <DayDetailPanelV2
               date={panelDate}
@@ -1289,11 +1494,11 @@ export default function PlanV2() {
               isPartner={isPartner}
               variant="sheet"
               onClose={() => setOpenDayStr(null)}
-              onToggleLesson={(id, current) => { void toggleLesson(id, current); }}
-              onDeleteLesson={(id) => { void deleteLesson(id); }}
+              onToggleLesson={(id, current) => { void toggleLessonWithLog(id, current); }}
+              onDeleteLesson={(id) => { void deleteLessonWithLog(id); }}
               onSkipLesson={(l) => {
                 const full = lessons.find((x) => x.id === l.id);
-                if (full) void skipLesson(full);
+                if (full) void skipLessonWithLog(full);
               }}
               onEditLesson={() => flashNotice("Edit lesson opens in a later phase.")}
               onRescheduleLesson={(l) => {
@@ -1313,6 +1518,7 @@ export default function PlanV2() {
                 setApptEditTarget({ appt });
               }}
               onLessonChanged={handleLessonChanged}
+              dayEvents={dayEvents}
             />
           );
         })() : null}
@@ -1372,9 +1578,30 @@ export default function PlanV2() {
             setApptWizardDate(null);
             setApptEditTarget(null);
           }}
-          onSaved={() => {
+          onSaved={(info?: AppointmentSavedInfo) => {
             setApptWizardDate(null);
             setApptEditTarget(null);
+            if (info?.id && info.title) {
+              if (info.kind === "create" && info.date) {
+                recordEvent("appointment.created", {
+                  appointment_id: info.id,
+                  title: info.title,
+                  date: info.date,
+                });
+              } else if (info.kind === "update") {
+                recordEvent("appointment.updated", {
+                  appointment_id: info.id,
+                  title: info.title,
+                  changes: { date: info.date ?? null },
+                });
+              } else if (info.kind === "delete" && info.date) {
+                recordEvent("appointment.deleted", {
+                  appointment_id: info.id,
+                  title: info.title,
+                  date: info.date,
+                });
+              }
+            }
             reload();
           }}
           initialDate={apptWizardDate ?? undefined}

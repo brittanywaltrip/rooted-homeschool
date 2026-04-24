@@ -15,10 +15,22 @@ export type EditableAppointment = {
   recurrence_rule: { frequency: string; days: number[] } | null;
 };
 
+/** Optional metadata passed to the parent after a save/delete completes.
+ * Additive — callers that used `onSaved: () => void` still work because
+ * this parameter is optional. Added so audit-log wiring in PlanV2 can
+ * differentiate create vs update vs delete without the parent having to
+ * inspect state it no longer owns. */
+export type AppointmentSavedInfo = {
+  kind: "create" | "update" | "delete";
+  id?: string;
+  title?: string;
+  date?: string;
+};
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (info?: AppointmentSavedInfo) => void;
   editingAppointment?: EditableAppointment | null;
   initialDate?: string;
   /** When editing a specific instance of a recurring series, the caller
@@ -214,7 +226,19 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
       });
       if (res.ok) {
         setSaved(true);
-        onSaved();
+        let createdId: string | undefined;
+        if (!isEdit) {
+          try {
+            const body = (await res.clone().json()) as { id?: string } | null;
+            createdId = body?.id;
+          } catch { /* non-JSON response — audit log will log without id */ }
+        }
+        onSaved({
+          kind: isEdit ? "update" : "create",
+          id: isEdit ? editingAppointment!.id : createdId,
+          title,
+          date,
+        });
         setTimeout(() => { setSaved(false); onClose(); }, 900);
       }
     } catch { /* ignore */ }
@@ -247,7 +271,12 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
         body: JSON.stringify(body),
       });
       if (res.ok) {
-        onSaved();
+        onSaved({
+          kind: "delete",
+          id: editingAppointment!.id,
+          title: editingAppointment!.title,
+          date: editingAppointment!.date,
+        });
         onClose();
       }
     } catch { /* ignore */ }
