@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --test 'lib/**/*.test.ts' 'app/lib/**/*.test.ts'",
-    "audit:stripe-linkage": "node --env-file=.env.local scripts/audit-stripe-linkage.ts"
+    "audit:stripe-linkage": "node --env-file=.env.local scripts/audit-stripe-linkage.ts",
+    "backfill:commission-amounts": "node --env-file=.env.local scripts/backfill-commission-amounts.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.79.0",
