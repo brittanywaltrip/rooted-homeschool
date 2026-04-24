@@ -319,6 +319,29 @@ input:-webkit-autofill:focus {
     height: auto !important;
     overflow: visible !important;
   }
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  /* Belt-and-suspenders chrome suppression. `display: none` on
+     .yearbook-screen-only hides the reader, but the dashboard
+     sidebar / nav / avatar / FAB live OUTSIDE that class (they're
+     rendered by app/dashboard/layout.tsx around every route). Hiding
+     them via visibility keeps the DOM layout untouched (safer for the
+     screen view) while making only the print-only container inked. */
+  body * {
+    visibility: hidden !important;
+  }
+  .yearbook-print-only,
+  .yearbook-print-only * {
+    visibility: visible !important;
+  }
+  .yearbook-print-only {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
   /* Hide the on-screen reader shell so the browser doesn't try to
      paginate its fixed layout. */
   .yearbook-screen-only {
@@ -326,7 +349,6 @@ input:-webkit-autofill:focus {
   }
   .yearbook-print-only {
     display: block !important;
-    position: static !important;
   }
   .yearbook-print-spread {
     break-after: page;

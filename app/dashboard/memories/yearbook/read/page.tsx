@@ -1031,12 +1031,14 @@ export default function YearbookReadPage() {
         className="yearbook-screen-only md:hidden fixed left-0 right-0 z-50 flex flex-col"
         style={{ top: 64, height: "calc(100dvh - 64px)", overflow: "hidden", background: "#1a1a1a" }}
       >
-        {/* Back button bar */}
+        {/* Back button bar — points at Memories (parent tab) since the old
+            /dashboard/memories/yearbook landing now redirects straight
+            here, which would otherwise loop on every click. */}
         <div className="shrink-0 h-11 flex items-center justify-between px-4" style={{ background: "rgba(26,26,26,0.95)" }}>
-          <Link href="/dashboard/memories/yearbook" className="text-[12px] text-[#9a8f85] hover:text-white transition-colors">
-            ← Yearbook
+          <Link href="/dashboard/memories" className="text-[12px] text-[#9a8f85] hover:text-white transition-colors">
+            ← Memories
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {canDownload ? (
               <button
                 onClick={handlePrint}
@@ -1056,8 +1058,12 @@ export default function YearbookReadPage() {
                 Download PDF (Founding Family)
               </Link>
             )}
-            <Link href="/dashboard/memories/yearbook/edit" className="text-[16px] opacity-60 hover:opacity-100 transition-opacity" aria-label="Customize yearbook">
-              ⚙️
+            <Link
+              href="/dashboard/memories/yearbook/edit"
+              className="px-2.5 py-1 rounded-md text-[11px] font-medium text-[#9a8f85] border border-[#3d3530] hover:text-white hover:border-white/40 transition-all"
+              aria-label="Edit yearbook memories"
+            >
+              Edit
             </Link>
           </div>
         </div>
@@ -1137,13 +1143,15 @@ export default function YearbookReadPage() {
         className="yearbook-screen-only hidden md:flex fixed inset-0 flex-col items-center justify-center"
         style={{ background: "#2d2926", height: "100dvh", overflow: "hidden" }}
       >
-        {/* Back button + settings */}
+        {/* Back button + settings. "← Memories" rather than "← Yearbook"
+            because the old /dashboard/memories/yearbook landing now
+            redirects here — clicking it would loop back to /read. */}
         <div className="absolute top-4 left-6 z-30">
-          <Link href="/dashboard/memories/yearbook" className="text-sm text-[#9a8f85] hover:text-white transition-colors">
-            ← Yearbook
+          <Link href="/dashboard/memories" className="text-sm text-[#9a8f85] hover:text-white transition-colors">
+            ← Memories
           </Link>
         </div>
-        <div className="absolute top-4 right-6 z-30 flex items-center gap-4">
+        <div className="absolute top-4 right-6 z-30 flex items-start gap-3">
           {canDownload ? (
             <div className="flex flex-col items-end">
               <button
@@ -1172,8 +1180,14 @@ export default function YearbookReadPage() {
               </p>
             </div>
           )}
-          <Link href="/dashboard/memories/yearbook/edit" className="text-[18px] opacity-50 hover:opacity-100 transition-opacity" aria-label="Customize yearbook">
-            ⚙️
+          {/* Secondary action — preserves the edit entry point that lived
+              on the removed landing page. */}
+          <Link
+            href="/dashboard/memories/yearbook/edit"
+            className="px-3 py-2 rounded-lg text-[12px] font-medium text-[#c4b89a] border border-[#4d453f] hover:text-white hover:border-white/40 transition-all"
+            aria-label="Edit yearbook memories"
+          >
+            Edit Memories
           </Link>
         </div>
 
