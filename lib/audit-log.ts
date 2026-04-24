@@ -51,6 +51,35 @@ export type LessonDeletedPayload = {
   actor: PlanEventActor;
 };
 
+export type LessonCreatedPayload = {
+  lesson_id: string;
+  lesson_title: string;
+  date: string;
+  curriculum_goal_id: string | null;
+  actor: PlanEventActor;
+};
+
+/** Per-field change shape: { from, to }. Payload stores only fields that
+ * actually moved so the Recent Changes card can show compact diffs. */
+export type LessonUpdatedPayload = {
+  lesson_id: string;
+  lesson_title: string;
+  changes: Record<string, { from: unknown; to: unknown }>;
+  actor: PlanEventActor;
+};
+
+/** Notes payload intentionally omits the body — `note_length` only.
+ * Parents often write personal observations in notes, and the audit row
+ * appears in the Recent Changes card; storing the prose there would leak
+ * PII-ish text into a surface meant for "what did I change". */
+export type LessonNotesUpdatedPayload = {
+  lesson_id: string;
+  lesson_title: string;
+  date: string | null;
+  note_length: number;
+  actor: PlanEventActor;
+};
+
 export type LessonBulkAction = "move" | "mark_done" | "skip" | "delete";
 export type LessonBulkActionPayload = {
   action: LessonBulkAction;
@@ -87,6 +116,9 @@ export type VacationBlockCreatedPayload = {
 export type VacationBlockDeletedPayload = VacationBlockCreatedPayload;
 
 export const PLAN_EVENT_TYPES = [
+  "lesson.created",
+  "lesson.updated",
+  "lesson.notes_updated",
   "lesson.moved",
   "lesson.completed",
   "lesson.uncompleted",
@@ -295,6 +327,41 @@ function titleOrFallback(title: unknown): string {
 export function formatEvent(row: PlanEventRow): FormattedEvent {
   const p = (row.payload ?? {}) as Record<string, unknown>;
   switch (row.type) {
+    case "lesson.created": {
+      const title = titleOrFallback(p.lesson_title);
+      const date = shortDateLabel(p.date as string | null);
+      return {
+        summary: `Added ${title}${date ? ` on ${date}` : ""}`,
+        category: "completed",
+        icon: "➕",
+      };
+    }
+    case "lesson.updated": {
+      const title = titleOrFallback(p.lesson_title);
+      const changes = (p.changes ?? {}) as Record<string, { from: unknown; to: unknown }>;
+      const keys = Object.keys(changes);
+      const summaryTail =
+        keys.length === 0
+          ? ""
+          : keys.length === 1
+            ? ` (${keys[0]})`
+            : ` (${keys.slice(0, 2).join(" + ")}${keys.length > 2 ? ` +${keys.length - 2}` : ""})`;
+      return {
+        summary: `Edited ${title}${summaryTail}`,
+        category: "moved",
+        icon: "✏️",
+      };
+    }
+    case "lesson.notes_updated": {
+      const title = titleOrFallback(p.lesson_title);
+      const len = Number(p.note_length ?? 0);
+      const cleared = len === 0;
+      return {
+        summary: cleared ? `Cleared notes on ${title}` : `Updated notes on ${title}`,
+        category: "moved",
+        icon: "📝",
+      };
+    }
     case "lesson.moved": {
       const title = titleOrFallback(p.lesson_title);
       const from = shortDateLabel(p.from_date as string | null);
