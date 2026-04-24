@@ -152,6 +152,13 @@ export type ActivityCreatedPayload = {
 export type ActivityUpdatedPayload = ActivityCreatedPayload;
 export type ActivityDeletedPayload = ActivityCreatedPayload;
 
+export type SchoolYearCreatedPayload = {
+  school_year_id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+};
+
 export const PLAN_EVENT_TYPES = [
   "lesson.created",
   "lesson.updated",
@@ -173,6 +180,7 @@ export const PLAN_EVENT_TYPES = [
   "activity.created",
   "activity.updated",
   "activity.deleted",
+  "school_year.created",
 ] as const;
 
 export type PlanEventType = (typeof PLAN_EVENT_TYPES)[number];
@@ -611,6 +619,17 @@ export function formatEvent(row: PlanEventRow): FormattedEvent {
         summary: `Deleted activity: ${name}`,
         category: "deleted",
         icon: "🗑",
+      };
+    }
+    case "school_year.created": {
+      const name = typeof p.name === "string" ? p.name : "school year";
+      const start = shortDateLabel(p.start_date as string | null);
+      const end = shortDateLabel(p.end_date as string | null);
+      const range = start && end ? ` (${start} – ${end})` : "";
+      return {
+        summary: `Created school year: ${name}${range}`,
+        category: "completed",
+        icon: "🎒",
       };
     }
     default: {

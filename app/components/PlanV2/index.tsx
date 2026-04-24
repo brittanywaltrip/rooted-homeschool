@@ -15,6 +15,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import MonthGrid from "./MonthGrid";
+import WeekStrip from "./WeekStrip";
 import DayDetailPanelV2 from "./DayDetailPanel";
 import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
@@ -28,6 +29,9 @@ import ProgressReportDialog from "./ProgressReportDialog";
 import { downloadProgressReport, type ReportRangePreset } from "@/lib/progress-report";
 import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
 import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
+import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
+import { useSchoolYears } from "@/lib/useSchoolYears";
+import { getSeasonalEmoji, getUSHolidaysForYear } from "@/lib/us-holidays";
 import ShiftForwardModal, { type ShiftMove } from "./ShiftForwardModal";
 import PushBackModal, { type PushBackMove } from "./PushBackModal";
 import VacationBlockModal, { type VacationBlockExisting, type VacationBlockSave } from "./VacationBlockModal";
@@ -116,6 +120,14 @@ export default function PlanV2() {
 
   const [monthStart, setMonthStart] = useState<Date>(() => firstOfMonth(new Date()));
   const [viewMode, setViewMode] = useState<ViewMode>("month");
+  // Sunday on or before today — anchor for the Week view strip.
+  const [weekStart, setWeekStart] = useState<Date>(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - d.getDay());
+    return d;
+  });
+  const [schoolYearModalOpen, setSchoolYearModalOpen] = useState(false);
   const [childFilter, setChildFilter] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [openDayStr, setOpenDayStr] = useState<string | null>(null);
@@ -349,6 +361,59 @@ export default function PlanV2() {
 
   const { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons, setAppointments } =
     usePlanV2Data({ effectiveUserId, monthStart });
+
+  // School years — drives milestone markers + the "Create next year" CTA.
+  const schoolYears = useSchoolYears(effectiveUserId ?? null);
+
+  // US holidays — covered for both the visible month/year and the
+  // surrounding ±1 year so the week-view strip near year boundaries shows
+  // the right labels without re-fetching.
+  const holidaysMap = useMemo(() => {
+    const merged = new Map<string, string>();
+    const baseYear = (viewMode === "week" ? weekStart : monthStart).getFullYear();
+    for (const y of [baseYear - 1, baseYear, baseYear + 1]) {
+      const m = getUSHolidaysForYear(y);
+      m.forEach((v, k) => merged.set(k, v));
+    }
+    return merged;
+  }, [viewMode, weekStart, monthStart]);
+
+  // Milestone markers — first/last day of any active or upcoming year.
+  const milestonesMap = useMemo(() => {
+    const m = new Map<string, string>();
+    if (schoolYears.upcoming) {
+      m.set(schoolYears.upcoming.start_date, `🎒 First day · ${schoolYears.upcoming.name}`);
+      m.set(schoolYears.upcoming.end_date, `🎓 Last day · ${schoolYears.upcoming.name}`);
+    }
+    if (schoolYears.active) {
+      // Don't clobber an upcoming-year start that happens to share a date.
+      if (!m.has(schoolYears.active.start_date)) {
+        m.set(schoolYears.active.start_date, `🎒 First day · ${schoolYears.active.name}`);
+      }
+      m.set(schoolYears.active.end_date, `🎓 Last day · ${schoolYears.active.name}`);
+    }
+    return m;
+  }, [schoolYears.active, schoolYears.upcoming]);
+
+  // CTA visibility: show when there's no upcoming year AND either there's
+  // no active year at all or the active year ends within 60 days.
+  const showCreateSchoolYearCTA = useMemo(() => {
+    if (schoolYears.loading) return false;
+    if (schoolYears.upcoming) return false;
+    if (!schoolYears.active) return true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const end = new Date(`${schoolYears.active.end_date}T00:00:00`);
+    const diffDays = Math.round((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays <= 60;
+  }, [schoolYears.loading, schoolYears.upcoming, schoolYears.active]);
+
+  // Seasonal emoji for the toolbar label — month for Month view, the
+  // start-of-week's month for Week view.
+  const headerSeasonalEmoji = useMemo(() => {
+    const m = (viewMode === "week" ? weekStart : monthStart).getMonth();
+    return getSeasonalEmoji(m);
+  }, [viewMode, weekStart, monthStart]);
 
   // Lesson mutation handlers. Pass setLessons for both arrays (PlanV2 has one
   // state; the hook's dual setter model collapses cleanly). setAllLessons is
@@ -920,13 +985,39 @@ export default function PlanV2() {
   }, [missedLessonsInView, catchUpSuppressedUntil]);
 
   function prevMonth() {
+    if (viewMode === "week") {
+      setWeekStart((d) => {
+        const next = new Date(d);
+        next.setDate(next.getDate() - 7);
+        // Keep monthStart in sync so the loaded data window slides too.
+        setMonthStart(firstOfMonth(next));
+        return next;
+      });
+      return;
+    }
     setMonthStart((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1));
   }
   function nextMonth() {
+    if (viewMode === "week") {
+      setWeekStart((d) => {
+        const next = new Date(d);
+        next.setDate(next.getDate() + 7);
+        setMonthStart(firstOfMonth(next));
+        return next;
+      });
+      return;
+    }
     setMonthStart((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1));
   }
   function jumpToToday() {
-    setMonthStart(firstOfMonth(new Date()));
+    const now = new Date();
+    if (viewMode === "week") {
+      const sun = new Date(now);
+      sun.setHours(0, 0, 0, 0);
+      sun.setDate(sun.getDate() - sun.getDay());
+      setWeekStart(sun);
+    }
+    setMonthStart(firstOfMonth(now));
   }
 
   function toggleChild(id: string) {
@@ -2151,6 +2242,7 @@ export default function PlanV2() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (schoolYearModalOpen) { setSchoolYearModalOpen(false); return; }
       if (deleteGoalConfirm) { setDeleteGoalConfirm(null); return; }
       if (deleteActivityConfirm) { setDeleteActivityConfirm(null); return; }
       if (reportDialogOpen) { setReportDialogOpen(false); return; }
@@ -2170,7 +2262,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [deleteGoalConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [schoolYearModalOpen, deleteGoalConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -2178,10 +2270,32 @@ export default function PlanV2() {
   }, [undoAction, announce]);
 
   const viewingCurrentMonth =
-    monthStart.getFullYear() === new Date().getFullYear() &&
-    monthStart.getMonth() === new Date().getMonth();
+    viewMode === "week"
+      ? (() => {
+          const now = new Date(); now.setHours(0, 0, 0, 0);
+          const sun = new Date(now);
+          sun.setDate(sun.getDate() - sun.getDay());
+          return weekStart.getFullYear() === sun.getFullYear() &&
+                 weekStart.getMonth() === sun.getMonth() &&
+                 weekStart.getDate() === sun.getDate();
+        })()
+      : (monthStart.getFullYear() === new Date().getFullYear() &&
+         monthStart.getMonth() === new Date().getMonth());
 
-  const monthLabel = monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const monthLabel = (() => {
+    if (viewMode === "week") {
+      const end = new Date(weekStart);
+      end.setDate(end.getDate() + 6);
+      const sameMonth = end.getMonth() === weekStart.getMonth();
+      const startStr = weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const endStr = sameMonth
+        ? end.toLocaleDateString("en-US", { day: "numeric" })
+        : end.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      return `${startStr} – ${endStr}, ${weekStart.getFullYear()}`;
+    }
+    return monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  })();
+  const monthLabelWithEmoji = `${headerSeasonalEmoji} ${monthLabel}`;
 
   return (
     <>
@@ -2279,14 +2393,7 @@ export default function PlanV2() {
           />
         ) : null}
 
-        {viewMode === "week" ? (
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl px-5 py-6">
-            <p className="text-sm font-medium text-[#2d2926]">Week view</p>
-            <p className="text-xs text-[#7a6f65] mt-1">
-              Week renders in a later phase of the redesign. Switch to Month to preview the new grid.
-            </p>
-          </div>
-        ) : (
+        {(
           <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
             {/* Toolbar */}
             <div className="flex flex-wrap items-center gap-2 px-4 pt-4 pb-3 border-b border-[#f0ede8]">
@@ -2299,8 +2406,8 @@ export default function PlanV2() {
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <span className="text-[13px] font-semibold text-[#2D2A26] min-w-[120px] text-center">
-                  {monthLabel}
+                <span className="text-[13px] font-semibold text-[#2D2A26] min-w-[140px] text-center">
+                  {monthLabelWithEmoji}
                 </span>
                 <button
                   type="button"
@@ -2319,6 +2426,16 @@ export default function PlanV2() {
                   className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#e8f0e9] text-[#2D5A3D] hover:bg-[#d4e8d4] transition-colors"
                 >
                   Jump to today
+                </button>
+              ) : null}
+
+              {showCreateSchoolYearCTA ? (
+                <button
+                  type="button"
+                  onClick={() => setSchoolYearModalOpen(true)}
+                  className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#fef9e8] text-[#7a4a1a] border border-[#f0dda8] hover:bg-[#fef0d6] transition-colors"
+                >
+                  🎒 Create next school year
                 </button>
               ) : null}
 
@@ -2467,6 +2584,38 @@ export default function PlanV2() {
                 gesture intent stays unambiguous. */}
             <div className="p-3">
               {isMobile || selectMode ? (
+                viewMode === "week" ? (
+                  <WeekStrip
+                    weekStart={weekStart}
+                    todayStr={todayStr}
+                    kids={kids}
+                    lessons={filteredLessons}
+                    appointments={filteredAppointments}
+                    vacationBlocks={vacationBlocks}
+                    loading={loading}
+                    dndEnabled={false}
+                    recentlyLandedIds={recentlyLandedIds}
+                    selectMode={selectMode}
+                    selectedIds={selectedIds}
+                    moveTargetMode={moveTargetMode}
+                    focusedDateStr={focusedDateStr}
+                    onFocusedDateChange={setFocusedDateStr}
+                    onCellClick={(dateStr) => { if (!selectMode) setOpenDayStr(dateStr); }}
+                    onLessonClick={(lesson) => {
+                      if (selectMode) return;
+                      const d = lesson.scheduled_date ?? lesson.date;
+                      if (d) setOpenDayStr(d);
+                    }}
+                    onAppointmentClick={(appt) => { if (!selectMode) setOpenDayStr(appt.instance_date); }}
+                    onOverflowClick={(dateStr) => { if (!selectMode) setOpenDayStr(dateStr); }}
+                    onLessonLongPress={(lesson) => { if (!selectMode) enterSelectMode(lesson.id); }}
+                    onLessonSelectToggle={(lesson) => toggleSelect(lesson.id)}
+                    onMoveTargetPick={(dateStr) => { void performBulkMove(Array.from(selectedIds), dateStr); }}
+                    onCellContextMenu={(dateStr, x, y) => { if (!selectMode) setContextMenu({ dateStr, x, y }); }}
+                    holidays={holidaysMap}
+                    milestones={milestonesMap}
+                  />
+                ) : (
                 <MonthGrid
                   monthStart={monthStart}
                   todayStr={todayStr}
@@ -2510,7 +2659,10 @@ export default function PlanV2() {
                     if (selectMode) return;
                     setContextMenu({ dateStr, x, y });
                   }}
+                  holidays={holidaysMap}
+                  milestones={milestonesMap}
                 />
+                )
               ) : (
                 <DndContext
                   sensors={sensors}
@@ -2518,6 +2670,33 @@ export default function PlanV2() {
                   onDragEnd={handleDragEnd}
                   onDragCancel={handleDragCancel}
                 >
+                  {viewMode === "week" ? (
+                    <WeekStrip
+                      weekStart={weekStart}
+                      todayStr={todayStr}
+                      kids={kids}
+                      lessons={filteredLessons}
+                      appointments={filteredAppointments}
+                      vacationBlocks={vacationBlocks}
+                      loading={loading}
+                      dndEnabled
+                      isDragActive={activeDragId !== null}
+                      recentlyLandedIds={recentlyLandedIds}
+                      focusedDateStr={focusedDateStr}
+                      onFocusedDateChange={setFocusedDateStr}
+                      onCellClick={(dateStr) => setOpenDayStr(dateStr)}
+                      onLessonClick={(lesson) => {
+                        const d = lesson.scheduled_date ?? lesson.date;
+                        if (d) setOpenDayStr(d);
+                      }}
+                      onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                      onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
+                      onLessonLongPress={(lesson) => enterSelectMode(lesson.id)}
+                      onCellContextMenu={(dateStr, x, y) => setContextMenu({ dateStr, x, y })}
+                      holidays={holidaysMap}
+                      milestones={milestonesMap}
+                    />
+                  ) : (
                   <MonthGrid
                     monthStart={monthStart}
                     todayStr={todayStr}
@@ -2540,7 +2719,10 @@ export default function PlanV2() {
                     onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
                     onLessonLongPress={(lesson) => enterSelectMode(lesson.id)}
                     onCellContextMenu={(dateStr, x, y) => setContextMenu({ dateStr, x, y })}
+                    holidays={holidaysMap}
+                    milestones={milestonesMap}
                   />
+                  )}
                   <DragOverlay dropAnimation={null}>
                     {activeLesson ? (() => {
                       const meta = activeLesson.child_id
@@ -2866,6 +3048,39 @@ export default function PlanV2() {
           onClose={() => setReportDialogOpen(false)}
           onGenerate={handleGenerateReport}
         />
+
+        {/* Create School Year modal — opened from the toolbar CTA when the
+            user has no upcoming year (or the current year ends within 60d). */}
+        {schoolYearModalOpen && effectiveUserId ? (
+          <CreateSchoolYearModal
+            userId={effectiveUserId}
+            activeYearName={schoolYears.active?.name}
+            onClose={() => setSchoolYearModalOpen(false)}
+            onCreated={async () => {
+              await schoolYears.reload();
+              // The hook just refreshed; the upcoming row is what we just
+              // inserted. Audit-log it (best-effort lookup by latest start
+              // date so we capture the right row).
+              const { data } = await supabase
+                .from("school_years")
+                .select("id, name, start_date, end_date")
+                .eq("user_id", effectiveUserId)
+                .eq("status", "upcoming")
+                .order("start_date", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              if (data) {
+                const row = data as { id: string; name: string; start_date: string; end_date: string };
+                recordEvent("school_year.created", {
+                  school_year_id: row.id,
+                  name: row.name,
+                  start_date: row.start_date,
+                  end_date: row.end_date,
+                });
+              }
+            }}
+          />
+        ) : null}
 
         {/* Curriculum delete confirm */}
         {deleteGoalConfirm ? (
