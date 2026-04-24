@@ -20,6 +20,14 @@ import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
 import MissedLessonsBanner from "./MissedLessonsBanner";
 import CatchUpBanner from "./CatchUpBanner";
+import StatsBar, { type StatsMemory } from "./StatsBar";
+import CurriculumGroupsPanel, { type CurriculumGoal as PanelGoal } from "./CurriculumGroupsPanel";
+import BackfillPanel, { type BackfillEntry } from "./BackfillPanel";
+import ActivitiesPanel, { type ActivityRow } from "./ActivitiesPanel";
+import ProgressReportDialog from "./ProgressReportDialog";
+import { downloadProgressReport, type ReportRangePreset } from "@/lib/progress-report";
+import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
+import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
 import ShiftForwardModal, { type ShiftMove } from "./ShiftForwardModal";
 import PushBackModal, { type PushBackMove } from "./PushBackModal";
 import VacationBlockModal, { type VacationBlockExisting, type VacationBlockSave } from "./VacationBlockModal";
@@ -204,25 +212,89 @@ export default function PlanV2() {
   const [addLessonInitialDate, setAddLessonInitialDate] = useState<string>(todayStr);
   const [editLessonTarget, setEditLessonTarget] = useState<PlanV2Lesson | null>(null);
 
-  type GoalOption = { id: string; curriculum_name: string; child_id: string | null };
-  const [curriculumGoals, setCurriculumGoals] = useState<GoalOption[]>([]);
+  // Full goal shape — used by the CurriculumGroupsPanel (pace, progress).
+  // AddLesson/EditLesson modals read just the dropdown-relevant subset.
+  type GoalFull = {
+    id: string;
+    curriculum_name: string;
+    subject_label: string | null;
+    child_id: string | null;
+    total_lessons: number;
+    current_lesson: number;
+    target_date: string | null;
+    school_days: string[] | null;
+    default_minutes: number;
+  };
+  const [curriculumGoals, setCurriculumGoals] = useState<GoalFull[]>([]);
+  const [goalsReloadNonce, setGoalsReloadNonce] = useState(0);
 
-  // One-time load of goals for the dropdown. We don't re-fetch on month
-  // change — goals are year-scoped and don't churn.
+  const reloadGoals = useCallback(() => setGoalsReloadNonce((n) => n + 1), []);
+
   useEffect(() => {
     if (!effectiveUserId) return;
     let cancelled = false;
     (async () => {
       const { data } = await supabase
         .from("curriculum_goals")
-        .select("id, curriculum_name, child_id")
+        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, default_minutes")
         .eq("user_id", effectiveUserId)
         .order("created_at");
       if (cancelled) return;
-      setCurriculumGoals((data as GoalOption[]) ?? []);
+      setCurriculumGoals(((data ?? []) as unknown as GoalFull[]));
     })();
     return () => { cancelled = true; };
-  }, [effectiveUserId]);
+  }, [effectiveUserId, goalsReloadNonce]);
+
+  // Activities — used by the ActivitiesPanel below the curriculum list.
+  const [activities, setActivities] = useState<ActivityRow[]>([]);
+  const [activitiesReloadNonce, setActivitiesReloadNonce] = useState(0);
+  const reloadActivities = useCallback(() => setActivitiesReloadNonce((n) => n + 1), []);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("activities")
+        .select("id, name, emoji")
+        .eq("user_id", effectiveUserId)
+        .eq("is_active", true)
+        .order("created_at");
+      if (cancelled) return;
+      setActivities(((data ?? []) as unknown as ActivityRow[]));
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, activitiesReloadNonce]);
+
+  // Memories (books + field trips) in the visible month — powers StatsBar.
+  const [memoriesInRange, setMemoriesInRange] = useState<StatsMemory[]>([]);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const startStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
+      const endDate = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+      const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
+      const { data } = await supabase
+        .from("memories")
+        .select("type, date")
+        .eq("user_id", effectiveUserId)
+        .gte("date", startStr)
+        .lte("date", endStr);
+      if (cancelled) return;
+      setMemoriesInRange(((data ?? []) as unknown as StatsMemory[]));
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, monthStart]);
+
+  // Curriculum wizard + activity modal + report dialog state.
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardEditData, setWizardEditData] = useState<CurriculumWizardEditData | null>(null);
+  const [activityEditing, setActivityEditing] = useState<EditableActivity | null>(null);
+  const [activityModalOpen, setActivityModalOpen] = useState(false);
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [openBackfillGoalId, setOpenBackfillGoalId] = useState<string | null>(null);
+  const [deleteGoalConfirm, setDeleteGoalConfirm] = useState<{ goal: PanelGoal; lessonCount: number } | null>(null);
+  const [deleteActivityConfirm, setDeleteActivityConfirm] = useState<ActivityRow | null>(null);
 
   // ── Audit trail state ────────────────────────────────────────────────────
   // Loaded once per effectiveUserId. Further events are prepended locally
@@ -547,6 +619,228 @@ export default function PlanV2() {
     [lessons, recordEvent],
   );
 
+  // ── Curriculum wizard + activity + report + backfill handlers ───────────
+  // Each compares pre/post counts to figure out create-vs-edit on save (the
+  // wizard's onSaved is fire-and-forget — we don't get a kind back). We
+  // refetch goals, then audit the appropriate event.
+  const handleWizardOpenCreate = useCallback(() => {
+    setWizardEditData(null);
+    setWizardOpen(true);
+  }, []);
+
+  const handleWizardOpenEdit = useCallback((goal: PanelGoal) => {
+    setWizardEditData({
+      goalId: goal.id,
+      childId: goal.child_id ?? "",
+      curricName: goal.curriculum_name,
+      subjectLabel: goal.subject_label,
+      totalLessons: goal.total_lessons,
+      currentLesson: goal.current_lesson,
+      targetDate: goal.target_date ?? "",
+      schoolDays: goal.school_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"],
+    });
+    setWizardOpen(true);
+  }, []);
+
+  const wizardWasEdit = wizardEditData !== null;
+  const handleWizardSaved = useCallback(async () => {
+    // Snapshot the prior goal id set so we can detect new vs updated rows
+    // by diffing after the refetch lands.
+    const priorIds = new Set(curriculumGoals.map((g) => g.id));
+    const editingGoalId = wizardEditData?.goalId;
+    setWizardOpen(false);
+    setWizardEditData(null);
+    if (!effectiveUserId) return;
+    const { data } = await supabase
+      .from("curriculum_goals")
+      .select("id, curriculum_name, total_lessons, child_id")
+      .eq("user_id", effectiveUserId);
+    const after = ((data ?? []) as { id: string; curriculum_name: string; total_lessons: number; child_id: string | null }[]);
+    if (wizardWasEdit && editingGoalId) {
+      const updated = after.find((g) => g.id === editingGoalId);
+      if (updated) {
+        recordEvent("curriculum_goal.updated", {
+          goal_id: updated.id,
+          curriculum_name: updated.curriculum_name,
+          // We don't have a per-field diff post-hoc; record the wizard
+          // touched the goal (1 logical change). The Recent Changes card
+          // collapses to "Edited curriculum X" without a count.
+          changed_field_count: 0,
+        });
+      }
+    } else {
+      const created = after.find((g) => !priorIds.has(g.id));
+      if (created) {
+        recordEvent("curriculum_goal.created", {
+          goal_id: created.id,
+          curriculum_name: created.curriculum_name,
+          total_lessons: created.total_lessons,
+          child_id: created.child_id,
+        });
+      }
+    }
+    reloadGoals();
+    reload();
+  }, [effectiveUserId, wizardEditData, wizardWasEdit, curriculumGoals, recordEvent, reload, reloadGoals]);
+
+  const handleConfirmDeleteGoal = useCallback(async () => {
+    if (!deleteGoalConfirm) return;
+    const { goal } = deleteGoalConfirm;
+    setDeleteGoalConfirm(null);
+    try {
+      // Match legacy: delete the goal AND its lessons. Lessons cascade is
+      // not enabled in the schema, so we do it explicitly.
+      await supabase.from("lessons").delete().eq("curriculum_goal_id", goal.id);
+      await supabase.from("curriculum_goals").delete().eq("id", goal.id);
+    } catch {
+      flashNotice("Couldn't delete curriculum — try again.");
+      return;
+    }
+    recordEvent("curriculum_goal.deleted", {
+      goal_id: goal.id,
+      curriculum_name: goal.curriculum_name,
+    });
+    setOpenBackfillGoalId((id) => (id === goal.id ? null : id));
+    reloadGoals();
+    reload();
+  }, [deleteGoalConfirm, recordEvent, reloadGoals, reload]);
+
+  const handleActivityOpenCreate = useCallback(() => {
+    setActivityEditing(null);
+    setActivityModalOpen(true);
+  }, []);
+
+  const handleActivityOpenEdit = useCallback(async (activity: ActivityRow) => {
+    if (!effectiveUserId) return;
+    // Pull the full row before opening so the modal has all fields.
+    const { data } = await supabase
+      .from("activities")
+      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, location")
+      .eq("id", activity.id)
+      .maybeSingle();
+    if (!data) return;
+    setActivityEditing(data as unknown as EditableActivity);
+    setActivityModalOpen(true);
+  }, [effectiveUserId]);
+
+  const handleActivitySaved = useCallback(async () => {
+    const priorIds = new Set(activities.map((a) => a.id));
+    const editingId = activityEditing?.id;
+    setActivityModalOpen(false);
+    setActivityEditing(null);
+    if (!effectiveUserId) return;
+    const { data } = await supabase
+      .from("activities")
+      .select("id, name, emoji")
+      .eq("user_id", effectiveUserId)
+      .eq("is_active", true);
+    const after = ((data ?? []) as ActivityRow[]);
+    if (editingId) {
+      const updated = after.find((a) => a.id === editingId);
+      if (updated) {
+        recordEvent("activity.updated", {
+          activity_id: updated.id,
+          name: updated.name,
+          emoji: updated.emoji,
+        });
+      }
+    } else {
+      const created = after.find((a) => !priorIds.has(a.id));
+      if (created) {
+        recordEvent("activity.created", {
+          activity_id: created.id,
+          name: created.name,
+          emoji: created.emoji,
+        });
+      }
+    }
+    reloadActivities();
+  }, [effectiveUserId, activities, activityEditing, recordEvent, reloadActivities]);
+
+  const handleConfirmDeleteActivity = useCallback(async () => {
+    if (!deleteActivityConfirm) return;
+    const a = deleteActivityConfirm;
+    setDeleteActivityConfirm(null);
+    try {
+      // Soft-delete to match legacy (is_active = false).
+      await supabase.from("activities").update({ is_active: false }).eq("id", a.id);
+    } catch {
+      flashNotice("Couldn't delete activity — try again.");
+      return;
+    }
+    recordEvent("activity.deleted", {
+      activity_id: a.id,
+      name: a.name,
+      emoji: a.emoji,
+    });
+    reloadActivities();
+  }, [deleteActivityConfirm, recordEvent, reloadActivities]);
+
+  const handleBackfillSubmit = useCallback(async (
+    goalId: string,
+    entries: BackfillEntry[],
+  ): Promise<void> => {
+    if (!effectiveUserId) throw new Error("Not signed in");
+    const goal = curriculumGoals.find((g) => g.id === goalId);
+    const childId = goal?.child_id ?? null;
+    const insertRows = entries.map((e) => ({
+      user_id: effectiveUserId,
+      child_id: childId,
+      curriculum_goal_id: goalId,
+      title: `${goal?.curriculum_name ?? "Lesson"} — backfill`,
+      scheduled_date: e.date,
+      date: e.date,
+      completed: true,
+      completed_at: new Date(`${e.date}T12:00:00`).toISOString(),
+      minutes_spent: e.minutes,
+      hours: e.minutes / 60,
+      notes: e.notes,
+      is_backfill: true,
+    }));
+    const { data: inserted, error } = await supabase
+      .from("lessons")
+      .insert(insertRows)
+      .select("id, title, scheduled_date");
+    if (error) throw new Error(error.message);
+    const rows = (inserted ?? []) as { id: string; title: string | null; scheduled_date: string | null }[];
+    for (const r of rows) {
+      recordEvent("lesson.created", {
+        lesson_id: r.id,
+        lesson_title: r.title ?? "",
+        date: r.scheduled_date ?? "",
+        curriculum_goal_id: goalId,
+        actor: "backfill",
+      });
+    }
+    reload();
+  }, [effectiveUserId, curriculumGoals, recordEvent, reload]);
+
+  const handleGenerateReport = useCallback(async (opts: {
+    childId: string | null;
+    range: ReportRangePreset;
+    customStart?: string;
+    customEnd?: string;
+    includeActivities: boolean;
+  }) => {
+    if (!effectiveUserId) throw new Error("Not signed in");
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("display_name")
+      .eq("id", effectiveUserId)
+      .maybeSingle();
+    const familyName = (prof as { display_name?: string } | null)?.display_name || "Family Academy";
+    await downloadProgressReport({
+      userId: effectiveUserId,
+      familyName,
+      children: kids.map((c) => ({ id: c.id, name: c.name, color: c.color })),
+      childId: opts.childId,
+      range: opts.range,
+      customStart: opts.customStart,
+      customEnd: opts.customEnd,
+      includeActivities: opts.includeActivities,
+    });
+  }, [effectiveUserId, kids]);
+
   // Default: every child selected. Once data loads, ensure filter includes all
   // current child IDs.
   useMemo(() => {
@@ -598,6 +892,16 @@ export default function PlanV2() {
         ((a.scheduled_date ?? a.date) ?? "").localeCompare((b.scheduled_date ?? b.date) ?? ""),
       );
   }, [filteredLessons, todayStr]);
+
+  // Distinct subject names in view — for StatsBar.
+  const subjectCountInView = useMemo(() => {
+    const s = new Set<string>();
+    for (const l of filteredLessons) {
+      const n = l.subjects?.name;
+      if (n) s.add(n);
+    }
+    return s.size;
+  }, [filteredLessons]);
 
   // Catch-up threshold: 5+ past incomplete spanning 2+ distinct days AND
   // the 7-day dismissal window has elapsed. Dismissal count doesn't scope
@@ -1847,6 +2151,11 @@ export default function PlanV2() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (deleteGoalConfirm) { setDeleteGoalConfirm(null); return; }
+      if (deleteActivityConfirm) { setDeleteActivityConfirm(null); return; }
+      if (reportDialogOpen) { setReportDialogOpen(false); return; }
+      if (activityModalOpen) { setActivityModalOpen(false); setActivityEditing(null); return; }
+      if (wizardOpen) { setWizardOpen(false); setWizardEditData(null); return; }
       if (vacationModalOpen) { setVacationModalOpen(false); return; }
       if (pushBackOpen) { setPushBackOpen(false); return; }
       if (shiftForwardOpen) { setShiftForwardOpen(false); return; }
@@ -1861,7 +2170,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [deleteGoalConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -1912,6 +2221,16 @@ export default function PlanV2() {
             Month
           </button>
         </div>
+
+        {/* Stats bar — viewport totals (lessons, hours, subjects, books,
+            field trips). Updates as the month/child filter changes. */}
+        {!loading ? (
+          <StatsBar
+            lessonsInView={filteredLessons}
+            memoriesInRange={memoriesInRange}
+            subjectCount={subjectCountInView}
+          />
+        ) : null}
 
         {/* Catch-up banner — above MissedLessonsBanner when the user has a
             meaningful backlog (5+ across 2+ days) and hasn't dismissed it
@@ -2037,6 +2356,13 @@ export default function PlanV2() {
                   }`}
                 >
                   <MousePointerSquareDashed size={13} /> {selectMode ? "Cancel" : "Select"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportDialogOpen(true)}
+                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#5C5346] hover:bg-[#f0ede8] transition-colors"
+                >
+                  📄 Report
                 </button>
               </div>
             </div>
@@ -2249,6 +2575,50 @@ export default function PlanV2() {
         {/* Recent changes audit card — lives under the calendar; the day
             detail panel is a fixed-position sheet so placement order here
             doesn't disturb it. */}
+        {/* Curriculum panel — pace + progress + per-goal actions + backfill */}
+        <CurriculumGroupsPanel
+          goals={curriculumGoals}
+          lessons={lessons}
+          kids={kids}
+          vacationBlocks={vacationBlocks}
+          onCreate={handleWizardOpenCreate}
+          onEdit={handleWizardOpenEdit}
+          onDelete={(goal, count) => setDeleteGoalConfirm({ goal, lessonCount: count })}
+          onToggleLesson={(id, current) => { void toggleLessonWithLog(id, current); }}
+          onEditLesson={(l) => setEditLessonTarget(l)}
+          onRescheduleLesson={(l) => {
+            const fromDateStr = l.scheduled_date ?? l.date ?? null;
+            if (!fromDateStr) {
+              flashNotice("This lesson isn't scheduled — edit it from the Plan page.");
+              return;
+            }
+            setRescheduleTarget({ lessonId: l.id, fromDateStr });
+          }}
+          onSkipLesson={(l) => { void skipLessonWithLog(l); }}
+          onDeleteLesson={(l) => { void deleteLessonWithLog(l.id); }}
+          onOpenBackfill={(g) => setOpenBackfillGoalId((id) => (id === g.id ? null : g.id))}
+          openBackfillGoalId={openBackfillGoalId}
+          renderBackfillPanel={(g) => (
+            <BackfillPanel
+              goalId={g.id}
+              defaultMinutes={curriculumGoals.find((cg) => cg.id === g.id)?.default_minutes ?? 30}
+              goalLessons={lessons.filter((l) => l.curriculum_goal_id === g.id)}
+              schoolDays={schoolDays}
+              vacationBlocks={vacationBlocks}
+              onSubmit={(entries) => handleBackfillSubmit(g.id, entries)}
+              onClose={() => setOpenBackfillGoalId(null)}
+            />
+          )}
+        />
+
+        {/* Activities panel — anything outside the curriculum (co-op, music…) */}
+        <ActivitiesPanel
+          activities={activities}
+          onCreate={handleActivityOpenCreate}
+          onEdit={handleActivityOpenEdit}
+          onDelete={(a) => setDeleteActivityConfirm(a)}
+        />
+
         <RecentChangesCard
           events={planEvents}
           onLoadMore={loadMorePlanEvents}
@@ -2469,6 +2839,58 @@ export default function PlanV2() {
           onDelete={vacationModalExisting ? handleVacationDelete : undefined}
         />
 
+        {/* Curriculum wizard — create + edit. Shared with the legacy page. */}
+        {wizardOpen ? (
+          <CurriculumWizard
+            mode={wizardEditData ? "edit" : "create"}
+            editData={wizardEditData ?? undefined}
+            onClose={() => { setWizardOpen(false); setWizardEditData(null); }}
+            onSaved={handleWizardSaved}
+            showToast={flashNotice}
+          />
+        ) : null}
+
+        {/* Activity setup modal — create + edit. */}
+        {activityModalOpen ? (
+          <ActivitySetupModal
+            editingActivity={activityEditing}
+            onClose={() => { setActivityModalOpen(false); setActivityEditing(null); }}
+            onSaved={handleActivitySaved}
+          />
+        ) : null}
+
+        {/* Progress report dialog */}
+        <ProgressReportDialog
+          isOpen={reportDialogOpen}
+          kids={kids}
+          onClose={() => setReportDialogOpen(false)}
+          onGenerate={handleGenerateReport}
+        />
+
+        {/* Curriculum delete confirm */}
+        {deleteGoalConfirm ? (
+          <ConfirmDialog
+            title={`Delete ${deleteGoalConfirm.goal.curriculum_name}?`}
+            body={`This removes the goal and ${deleteGoalConfirm.lessonCount} lesson${deleteGoalConfirm.lessonCount === 1 ? "" : "s"} tied to it. Memories and activities are unaffected.`}
+            confirmLabel="Delete curriculum"
+            destructive
+            onCancel={() => setDeleteGoalConfirm(null)}
+            onConfirm={handleConfirmDeleteGoal}
+          />
+        ) : null}
+
+        {/* Activity delete confirm */}
+        {deleteActivityConfirm ? (
+          <ConfirmDialog
+            title={`Delete ${deleteActivityConfirm.name}?`}
+            body="The activity is hidden from your plan. Past logs stay in your records."
+            confirmLabel="Delete activity"
+            destructive
+            onCancel={() => setDeleteActivityConfirm(null)}
+            onConfirm={handleConfirmDeleteActivity}
+          />
+        ) : null}
+
         {/* Global undo bar */}
         <UndoBar action={undoAction} onDismiss={() => setUndoAction(null)} />
 
@@ -2483,6 +2905,61 @@ export default function PlanV2() {
 }
 
 // ─── Reschedule dialog ───────────────────────────────────────────────────────
+
+// Lightweight inline confirm dialog used by the goal + activity delete flows.
+// Mirrors the look-and-feel of RescheduleDialog so the visual language stays
+// consistent across modals.
+function ConfirmDialog(props: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  destructive?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+}) {
+  const { title, body, confirmLabel, destructive, onCancel, onConfirm } = props;
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[70]" onClick={onCancel} aria-hidden />
+      <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-3 pointer-events-none">
+        <div
+          className="bg-[#fefcf9] rounded-2xl shadow-xl w-full max-w-sm pointer-events-auto overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between px-5 pt-4 pb-2">
+            <h2 className="text-base font-bold text-[#2d2926]">{title}</h2>
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label="Cancel"
+              className="w-8 h-8 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <p className="px-5 pb-4 text-sm text-[#5c5346] leading-relaxed">{body}</p>
+          <div className="flex items-center gap-2 px-5 pb-5">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-1 min-h-[44px] text-sm font-medium text-[#7a6f65] bg-[#f4f0e8] rounded-xl hover:bg-[#e8e2d9] transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void onConfirm()}
+              className="flex-1 min-h-[44px] text-sm font-bold text-white rounded-xl transition-colors"
+              style={{ backgroundColor: destructive ? "#b91c1c" : "#2D5A3D" }}
+            >
+              {confirmLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
 
 function RescheduleDialog(props: {
   lessonId: string;
