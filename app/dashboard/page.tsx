@@ -17,6 +17,8 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import ListsSection from "@/app/components/ListsSection";
+import DailyListCard, { type DailyListItem } from "@/app/components/Today/DailyListCard";
+import DailyPrintSheet from "@/app/components/PlanV2/DailyPrintSheet";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import UnifiedTimeline from "@/app/components/UnifiedTimeline";
@@ -240,6 +242,26 @@ export default function TodayPage() {
   // Family activity notifications
   const [familyNotifs, setFamilyNotifs] = useState<FamilyNotification[]>([]);
   const [familyNotifsDismissed, setFamilyNotifsDismissed] = useState(false);
+
+  // Daily List card state — items are mirrored up so the print sheet can
+  // include them. activeDailyPrint flips on while a print job is in flight.
+  const [dailyListItems, setDailyListItems] = useState<DailyListItem[]>([]);
+  const [activeDailyPrint, setActiveDailyPrint] = useState(false);
+
+  const handlePrintDailyList = useCallback(() => {
+    if (typeof window === "undefined") return;
+    setActiveDailyPrint(true);
+    document.body.classList.add("print-mode-daily");
+    const cleanup = () => {
+      document.body.classList.remove("print-mode-daily");
+      setActiveDailyPrint(false);
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    // Defer to next frame so React paints activeDailyPrint=true (which
+    // mounts the off-screen sheet) before the browser snapshots for print.
+    window.requestAnimationFrame(() => window.print());
+  }, []);
 
   const [familyName,      setFamilyName]      = useState("");
   const [firstName,       setFirstName]       = useState("");
@@ -2930,6 +2952,17 @@ export default function TodayPage() {
       {/* Appointments section removed — merged into unified timeline above */}
 
       {/* ═══════════════════════════════════════════════════════════
+          TODAY'S LIST — single auto-created daily checklist
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading ? (
+        <DailyListCard
+          getToken={getToken}
+          onItemsChange={setDailyListItems}
+          onPrint={handlePrintDailyList}
+        />
+      ) : null}
+
+      {/* ═══════════════════════════════════════════════════════════
           MY LISTS — collapsible inline lists
          ═══════════════════════════════════════════════════════════ */}
       {!loading && lists.length > 0 && (
@@ -4409,6 +4442,31 @@ export default function TodayPage() {
       )}
 
       </div>
+
+      {/* Off-screen Daily print sheet — mounted only while a daily print is
+          in flight. Reuses the print isolation CSS in globals.css; the
+          body class set by handlePrintDailyList flips its visibility. */}
+      {activeDailyPrint ? (
+        <div className="plan-print-host">
+          <DailyPrintSheet
+            date={new Date()}
+            childLabel={
+              children.length === 1
+                ? `${children[0].name}'s Plan`
+                : "All Kids"
+            }
+            lessons={[]}
+            appointments={[]}
+            kids={children.map((c) => ({
+              id: c.id,
+              name: c.name,
+              color: c.color,
+              sort_order: null,
+            }))}
+            dailyListItems={dailyListItems}
+          />
+        </div>
+      ) : null}
     </>
   );
 }

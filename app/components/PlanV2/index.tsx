@@ -3187,78 +3187,9 @@ export default function PlanV2() {
           );
         })()}
 
-        {/* Print isolation + @page rules. Lives in the page so the @page
-            rule only applies while a print mode is active, leaving other
-            printables (Year Planner / Yearbook PDF) unaffected. */}
-        <style
-          dangerouslySetInnerHTML={{
-            __html: `
-/* Off-screen on screen — only the sheet for the active print mode shows
-   when the matching body class is present. */
-.plan-print-host { display: none; }
-
-@media print {
-  body.print-mode-daily,
-  body.print-mode-weekly,
-  body.print-mode-monthly { background: #FAF7F0 !important; }
-
-  body.print-mode-daily .plan-print-host,
-  body.print-mode-weekly .plan-print-host,
-  body.print-mode-monthly .plan-print-host { display: block; }
-
-  body.print-mode-daily *,
-  body.print-mode-weekly *,
-  body.print-mode-monthly * { visibility: hidden !important; }
-  body.print-mode-daily .plan-print-sheet,
-  body.print-mode-daily .plan-print-sheet *,
-  body.print-mode-weekly .plan-print-sheet,
-  body.print-mode-weekly .plan-print-sheet *,
-  body.print-mode-monthly .plan-print-sheet,
-  body.print-mode-monthly .plan-print-sheet * { visibility: visible !important; }
-
-  body.print-mode-daily .plan-print-sheet,
-  body.print-mode-weekly .plan-print-sheet,
-  body.print-mode-monthly .plan-print-sheet {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 100% !important;
-    margin: 0 !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-  }
-  body.print-mode-daily .plan-print-sheet *,
-  body.print-mode-weekly .plan-print-sheet *,
-  body.print-mode-monthly .plan-print-sheet * {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-
-  /* Page orientation — portrait for daily, landscape for week/month. The
-     @page rule is global per-document so the active body class drives which
-     orientation the printer uses. The unused selectors below carry no
-     state on a given print, so only one set of @page rules applies. */
-  body.print-mode-daily { /* portrait */ }
-  body.print-mode-weekly,
-  body.print-mode-monthly { /* landscape — declared on @page below */ }
-}
-
-@media print {
-  @page { size: letter; margin: 0.3in; }
-}
-@media print {
-  body.print-mode-weekly,
-  body.print-mode-monthly {
-    /* landscape via inline style override below */
-  }
-}
-`,
-          }}
-        />
-
-        {/* When weekly/monthly is active, switch @page to landscape via an
-            inline injected rule — keeps the daily portrait default working
-            without conditionally regenerating the static stylesheet. */}
+        {/* The base print isolation CSS lives in app/globals.css so the
+            Today page can also print a Daily sheet. Here we only inject
+            the landscape @page override when the active mode needs it. */}
         {activePrintMode === "weekly" || activePrintMode === "monthly" ? (
           <style
             dangerouslySetInnerHTML={{

@@ -306,3 +306,50 @@ input:-webkit-autofill:focus {
     width: 100% !important;
   }
 }
+
+/* ─── Plan / Today print sheets ──────────────────────────────────────────────
+ * Off-screen by default; visible only when the matching body class flips on
+ * during a print job. Used by Plan (Daily/Week/Month) and Today (Daily list
+ * print). The base @page is portrait letter — Plan injects a landscape
+ * override inline when weekly/monthly mode is active. */
+.plan-print-host { display: none; }
+
+@media print {
+  body.print-mode-daily,
+  body.print-mode-weekly,
+  body.print-mode-monthly { background: #FAF7F0 !important; }
+
+  body.print-mode-daily .plan-print-host,
+  body.print-mode-weekly .plan-print-host,
+  body.print-mode-monthly .plan-print-host { display: block; }
+
+  body.print-mode-daily *,
+  body.print-mode-weekly *,
+  body.print-mode-monthly * { visibility: hidden !important; }
+  body.print-mode-daily .plan-print-sheet,
+  body.print-mode-daily .plan-print-sheet *,
+  body.print-mode-weekly .plan-print-sheet,
+  body.print-mode-weekly .plan-print-sheet *,
+  body.print-mode-monthly .plan-print-sheet,
+  body.print-mode-monthly .plan-print-sheet * { visibility: visible !important; }
+
+  body.print-mode-daily .plan-print-sheet,
+  body.print-mode-weekly .plan-print-sheet,
+  body.print-mode-monthly .plan-print-sheet {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  body.print-mode-daily .plan-print-sheet *,
+  body.print-mode-weekly .plan-print-sheet *,
+  body.print-mode-monthly .plan-print-sheet * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  @page { size: letter; margin: 0.3in; }
+}
