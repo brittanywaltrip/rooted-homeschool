@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Pencil, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import TodayLessonCard, {
@@ -75,6 +75,10 @@ export interface DayDetailPanelV2Props {
   onEditAppointment?: (appt: PlanV2Appointment) => void;
   /** Called after a note is saved so the parent can sync local state. */
   onLessonChanged?: (lessonId: string, patch: Partial<TodayLessonCardLesson>) => void;
+  /** Fires after a note save lands successfully (DB ack'd). `noteLength` is
+   * the trimmed character count — the body itself is intentionally not
+   * propagated so audit-log payloads stay PII-light. */
+  onNotesUpdated?: (lessonId: string, noteLength: number) => void;
   /** Optional — audit-log rows whose payload touches this day. When omitted
    * or empty, the "Activity on this day" section is hidden, so the panel's
    * use on the Today page (which doesn't load Plan audit events) is
@@ -91,6 +95,7 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
     date, lessons, appointments, kids, isPartner,
     onToggleLesson, onEditLesson, onDeleteLesson, onRescheduleLesson,
     onSkipLesson, onMinutesUpdate, onToggleAppointment, onEditAppointment, onLessonChanged,
+    onNotesUpdated,
     dayEvents,
     variant = "inline", onClose,
   } = props;
@@ -101,48 +106,149 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
   const [activityVisible, setActivityVisible] = useState(10);
 
   // ── Note editor state (internal to the panel) ──────────────────────────────
+  // Auto-save pattern: 800ms debounce after last keystroke triggers a save;
+  // the Save button stays as a manual retry path when auto-save fails (the
+  // button label flips to "Try again" on error). Two separate timers:
+  //   - autoSaveTimerRef  → the 800ms "user stopped typing" debounce
+  //   - saveStateTimerRef → the brief "Saved ✓" visual indicator timeout
+  // A text ref lets the debounced timer read the freshest value without
+  // re-creating the timer on every keystroke.
+  const AUTO_SAVE_DEBOUNCE_MS = 800;
+  const SAVED_INDICATOR_MS = 1600;
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
   const [noteSaveState, setNoteSaveState] = useState<NoteSaveState>("idle");
   const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const noteSaveTimerRef = useRef<number | null>(null);
+  const autoSaveTimerRef = useRef<number | null>(null);
+  const saveStateTimerRef = useRef<number | null>(null);
+  const editingNoteTextRef = useRef<string>("");
+  const editingNoteIdRef = useRef<string | null>(null);
+  // Snapshot of the note text when the editor opened. Used so we don't
+  // auto-save (and spam audit events) when the editor is simply closed
+  // without any edits.
+  const noteBaselineRef = useRef<string>("");
+
+  function clearAutoSaveTimer() {
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+  }
+  function clearSaveStateTimer() {
+    if (saveStateTimerRef.current !== null) {
+      window.clearTimeout(saveStateTimerRef.current);
+      saveStateTimerRef.current = null;
+    }
+  }
 
   function startEditingNote(lessonId: string, currentNotes: string | null | undefined) {
+    clearAutoSaveTimer();
+    clearSaveStateTimer();
+    const initial = currentNotes ?? "";
     setEditingNoteId(lessonId);
-    setEditingNoteText(currentNotes ?? "");
+    setEditingNoteText(initial);
     setNoteSaveState("idle");
+    editingNoteIdRef.current = lessonId;
+    editingNoteTextRef.current = initial;
+    noteBaselineRef.current = initial;
     setTimeout(() => noteTextareaRef.current?.focus(), 0);
   }
+
   function cancelEditingNote() {
+    clearAutoSaveTimer();
+    clearSaveStateTimer();
     setEditingNoteId(null);
     setEditingNoteText("");
     setNoteSaveState("idle");
-    if (noteSaveTimerRef.current !== null) {
-      window.clearTimeout(noteSaveTimerRef.current);
-      noteSaveTimerRef.current = null;
-    }
+    editingNoteIdRef.current = null;
+    editingNoteTextRef.current = "";
   }
-  async function saveNote(lessonId: string) {
+
+  async function performSave(lessonId: string, text: string) {
+    const trimmed = text.trim();
     setNoteSaveState("saving");
-    const text = editingNoteText.trim();
     const { error } = await supabase
       .from("lessons")
-      .update({ notes: text.length === 0 ? null : text })
+      .update({ notes: trimmed.length === 0 ? null : trimmed })
       .eq("id", lessonId);
+    // The user may have cancelled the editor mid-request — bail so we don't
+    // flash the "Saved ✓" state on top of a closed editor.
+    if (editingNoteIdRef.current !== lessonId) return;
     if (error) {
       setNoteSaveState("error");
       return;
     }
-    onLessonChanged?.(lessonId, { notes: text.length === 0 ? null : text });
+    onLessonChanged?.(lessonId, { notes: trimmed.length === 0 ? null : trimmed });
+    onNotesUpdated?.(lessonId, trimmed.length);
     setNoteSaveState("saved");
-    if (noteSaveTimerRef.current !== null) window.clearTimeout(noteSaveTimerRef.current);
-    noteSaveTimerRef.current = window.setTimeout(() => {
-      setEditingNoteId(null);
-      setEditingNoteText("");
+    clearSaveStateTimer();
+    saveStateTimerRef.current = window.setTimeout(() => {
       setNoteSaveState("idle");
-      noteSaveTimerRef.current = null;
-    }, 1500);
+      saveStateTimerRef.current = null;
+    }, SAVED_INDICATOR_MS);
   }
+
+  function handleNoteTextChange(text: string) {
+    setEditingNoteText(text);
+    editingNoteTextRef.current = text;
+    // Skip auto-save if the user cleared their accidental edits back to the
+    // baseline — no reason to hit the DB for a no-op.
+    if (text === noteBaselineRef.current) {
+      clearAutoSaveTimer();
+      if (noteSaveState === "error") setNoteSaveState("idle");
+      return;
+    }
+    // Any keystroke resets the debounce so the save fires 800ms after the
+    // user actually STOPS typing, not 800ms after they started.
+    clearAutoSaveTimer();
+    // While pending, if we were showing "Saved ✓" or "Try again", step back
+    // to a neutral idle so the user isn't looking at stale status.
+    if (noteSaveState === "saved" || noteSaveState === "error") {
+      setNoteSaveState("idle");
+    }
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      const lessonId = editingNoteIdRef.current;
+      if (!lessonId) return;
+      void performSave(lessonId, editingNoteTextRef.current);
+    }, AUTO_SAVE_DEBOUNCE_MS);
+  }
+
+  function saveNote(lessonId: string) {
+    // Manual trigger from the Save button. Cancels any in-flight debounce
+    // and fires immediately — useful as the retry affordance after an error.
+    clearAutoSaveTimer();
+    void performSave(lessonId, editingNoteTextRef.current);
+  }
+
+  // Flush timers on unmount so a late setState never fires against a
+  // torn-down component (and the pending auto-save, if any, doesn't get
+  // dropped silently — it flushes synchronously if the user had edits).
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+        const lessonId = editingNoteIdRef.current;
+        if (lessonId && editingNoteTextRef.current !== noteBaselineRef.current) {
+          // Fire-and-forget flush. No state updates — component is gone.
+          void supabase
+            .from("lessons")
+            .update({
+              notes:
+                editingNoteTextRef.current.trim().length === 0
+                  ? null
+                  : editingNoteTextRef.current.trim(),
+            })
+            .eq("id", lessonId);
+        }
+      }
+      if (saveStateTimerRef.current !== null) {
+        window.clearTimeout(saveStateTimerRef.current);
+        saveStateTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // ── Derived data ───────────────────────────────────────────────────────────
   const dateLabel = date.toLocaleDateString("en-US", {
@@ -312,7 +418,7 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
                         editingNoteText={editingNoteText}
                         noteSaveState={noteSaveState}
                         noteTextareaRef={noteTextareaRef}
-                        onNoteTextChange={setEditingNoteText}
+                        onNoteTextChange={handleNoteTextChange}
                         onSaveNote={saveNote}
                         onCancelEditingNote={cancelEditingNote}
                       />

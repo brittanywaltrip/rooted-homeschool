@@ -21,6 +21,8 @@ import SelectActionBar from "./SelectActionBar";
 import MissedLessonsBanner from "./MissedLessonsBanner";
 import RecentChangesCard from "./RecentChangesCard";
 import DayCellContextMenu from "./DayCellContextMenu";
+import AddLessonModal, { type AddLessonSubmit } from "./AddLessonModal";
+import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
 import { useLiveAnnouncer, SR_ONLY_STYLE } from "./useLiveAnnouncer";
 import { usePlanV2Data } from "./usePlanV2Data";
@@ -128,6 +130,34 @@ export default function PlanV2() {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
+
+  // ── Add + edit lesson state ──────────────────────────────────────────────
+  // Modals are local state — a single instance of each is enough because
+  // we never open both at once. `addLessonInitialDate` is the pre-filled
+  // date for the form; falls back to today when opened from the toolbar.
+  const [addLessonOpen, setAddLessonOpen] = useState(false);
+  const [addLessonInitialDate, setAddLessonInitialDate] = useState<string>(todayStr);
+  const [editLessonTarget, setEditLessonTarget] = useState<PlanV2Lesson | null>(null);
+
+  type GoalOption = { id: string; curriculum_name: string; child_id: string | null };
+  const [curriculumGoals, setCurriculumGoals] = useState<GoalOption[]>([]);
+
+  // One-time load of goals for the dropdown. We don't re-fetch on month
+  // change — goals are year-scoped and don't churn.
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("curriculum_goals")
+        .select("id, curriculum_name, child_id")
+        .eq("user_id", effectiveUserId)
+        .order("created_at");
+      if (cancelled) return;
+      setCurriculumGoals((data as GoalOption[]) ?? []);
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId]);
 
   // ── Audit trail state ────────────────────────────────────────────────────
   // Loaded once per effectiveUserId. Further events are prepended locally
@@ -259,6 +289,197 @@ export default function PlanV2() {
       }
     },
     [skipLesson, recordEvent],
+  );
+
+  // ── Submit handlers for Add / Edit lesson modals ─────────────────────────
+  // Both paths: optimistic local-state update + audit event + universal undo
+  // entry. Undo for an add = DELETE the inserted row; undo for an edit =
+  // restore the prior column values. Either way the DB writes are awaited
+  // so failures surface to the user (the modal shows the error inline).
+
+  const handleSubmitAddLesson = useCallback(async (values: AddLessonSubmit) => {
+    if (!effectiveUserId) throw new Error("Not signed in");
+    const { data: inserted, error } = await supabase
+      .from("lessons")
+      .insert({
+        user_id: effectiveUserId,
+        child_id: values.child_id,
+        curriculum_goal_id: values.curriculum_goal_id,
+        title: values.title,
+        lesson_number: values.lesson_number,
+        minutes_spent: values.minutes_spent,
+        hours: values.minutes_spent ? values.minutes_spent / 60 : 0,
+        scheduled_date: values.scheduled_date,
+        date: values.scheduled_date,
+        notes: values.notes,
+        completed: false,
+      })
+      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color)")
+      .single();
+    if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
+
+    const row = inserted as unknown as PlanV2Lesson;
+    setLessons((prev) => [...prev, row]);
+    hapticTap(20);
+
+    recordEvent("lesson.created", {
+      lesson_id: row.id,
+      lesson_title: row.title ?? "",
+      date: values.scheduled_date,
+      curriculum_goal_id: values.curriculum_goal_id,
+      actor: "user",
+    });
+
+    const dateLabel = new Date(`${values.scheduled_date}T12:00:00`).toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric",
+    });
+    setUndoAction({
+      message: `Added lesson · ${row.title ?? "Lesson"} on ${dateLabel}`,
+      key: `lesson-add:${row.id}`,
+      onUndo: async () => {
+        setLessons((prev) => prev.filter((l) => l.id !== row.id));
+        hapticTap(20);
+        try {
+          await supabase.from("lessons").delete().eq("id", row.id);
+        } catch {
+          /* best-effort; next reload reconciles */
+        }
+        reload();
+      },
+    });
+
+    reload();
+  }, [effectiveUserId, setLessons, recordEvent, reload]);
+
+  const handleSubmitEditLesson = useCallback(async (
+    lessonId: string,
+    changes: EditLessonChanges,
+    originals: EditLessonChanges,
+  ) => {
+    // Build the DB update payload. `hours` stays in sync with `minutes_spent`
+    // because other parts of the app read `hours` for reporting totals.
+    const update: Record<string, unknown> = { ...changes };
+    if ("minutes_spent" in changes) {
+      const m = changes.minutes_spent;
+      update.hours = m != null ? m / 60 : 0;
+    }
+    // Keep the legacy `date` column in step with `scheduled_date` — PlanV2
+    // reads both interchangeably elsewhere; a stale `date` would misplace
+    // the lesson in any consumer that hasn't migrated.
+    if ("scheduled_date" in changes && changes.scheduled_date) {
+      update.date = changes.scheduled_date;
+    }
+
+    // Optimistic patch so the pill moves/updates immediately.
+    setLessons((prev) => prev.map((l) => {
+      if (l.id !== lessonId) return l;
+      const patched: PlanV2Lesson = { ...l };
+      if (changes.title !== undefined) patched.title = changes.title;
+      if (changes.lesson_number !== undefined) patched.lesson_number = changes.lesson_number;
+      if (changes.minutes_spent !== undefined) {
+        patched.minutes_spent = changes.minutes_spent;
+        patched.hours = changes.minutes_spent != null ? changes.minutes_spent / 60 : 0;
+      }
+      if (changes.scheduled_date !== undefined) {
+        patched.scheduled_date = changes.scheduled_date;
+        patched.date = changes.scheduled_date;
+      }
+      if (changes.curriculum_goal_id !== undefined) patched.curriculum_goal_id = changes.curriculum_goal_id;
+      if (changes.child_id !== undefined) patched.child_id = changes.child_id;
+      return patched;
+    }));
+
+    const { error } = await supabase.from("lessons").update(update).eq("id", lessonId);
+    if (error) {
+      // Roll back the optimistic patch by reloading from DB.
+      reload();
+      throw new Error(error.message);
+    }
+
+    // Build the changes diff payload for the audit event — {from, to} per key.
+    const changesForLog: Record<string, { from: unknown; to: unknown }> = {};
+    for (const key of Object.keys(changes) as (keyof EditLessonChanges)[]) {
+      changesForLog[key] = { from: originals[key], to: changes[key] };
+    }
+    const snap = lessons.find((l) => l.id === lessonId);
+    const titleForLog =
+      (changes.title as string | undefined) ??
+      snap?.title ??
+      "lesson";
+    recordEvent("lesson.updated", {
+      lesson_id: lessonId,
+      lesson_title: titleForLog,
+      changes: changesForLog,
+      actor: "user",
+    });
+
+    setUndoAction({
+      message: `Edited ${titleForLog}`,
+      key: `lesson-edit:${lessonId}:${Date.now()}`,
+      onUndo: async () => {
+        // Restore originals both locally and in DB. Only touch the fields
+        // that actually moved so we don't clobber unrelated columns.
+        setLessons((prev) => prev.map((l) => {
+          if (l.id !== lessonId) return l;
+          const patched: PlanV2Lesson = { ...l };
+          if (originals.title !== undefined) patched.title = (originals.title ?? "") as string;
+          if (originals.lesson_number !== undefined) patched.lesson_number = originals.lesson_number as number | null;
+          if (originals.minutes_spent !== undefined) {
+            patched.minutes_spent = originals.minutes_spent as number | null;
+            patched.hours = originals.minutes_spent != null ? (originals.minutes_spent as number) / 60 : 0;
+          }
+          if (originals.scheduled_date !== undefined) {
+            patched.scheduled_date = originals.scheduled_date as string;
+            patched.date = originals.scheduled_date as string;
+          }
+          if (originals.curriculum_goal_id !== undefined) patched.curriculum_goal_id = originals.curriculum_goal_id as string | null;
+          if (originals.child_id !== undefined) patched.child_id = (originals.child_id ?? null) as string | null;
+          return patched;
+        }));
+
+        const undoUpdate: Record<string, unknown> = {};
+        if (originals.title !== undefined) undoUpdate.title = originals.title;
+        if (originals.lesson_number !== undefined) undoUpdate.lesson_number = originals.lesson_number;
+        if (originals.minutes_spent !== undefined) {
+          undoUpdate.minutes_spent = originals.minutes_spent;
+          undoUpdate.hours = originals.minutes_spent != null ? (originals.minutes_spent as number) / 60 : 0;
+        }
+        if (originals.scheduled_date !== undefined) {
+          undoUpdate.scheduled_date = originals.scheduled_date;
+          undoUpdate.date = originals.scheduled_date;
+        }
+        if (originals.curriculum_goal_id !== undefined) undoUpdate.curriculum_goal_id = originals.curriculum_goal_id;
+        if (originals.child_id !== undefined) undoUpdate.child_id = originals.child_id;
+
+        try {
+          await supabase.from("lessons").update(undoUpdate).eq("id", lessonId);
+        } catch {
+          /* best-effort; reload reconciles */
+        }
+        reload();
+      },
+    });
+  }, [lessons, setLessons, recordEvent, reload]);
+
+  // Fired when a lesson's notes have been auto-saved by the day panel. The
+  // panel doesn't know about PLAN_EVENT_TYPES, so it just passes the id +
+  // new length and we log the audit entry here.
+  const handleLessonNotesUpdated = useCallback(
+    (lessonId: string, noteLength: number) => {
+      const snap = lessons.find((l) => l.id === lessonId);
+      const title =
+        snap?.title && snap.title.trim().length > 0
+          ? snap.title
+          : snap?.lesson_number ? `Lesson ${snap.lesson_number}` : "lesson";
+      recordEvent("lesson.notes_updated", {
+        lesson_id: lessonId,
+        lesson_title: title,
+        date: snap?.scheduled_date ?? snap?.date ?? null,
+        note_length: noteLength,
+        actor: "user",
+      });
+    },
+    [lessons, recordEvent],
   );
 
   // Default: every child selected. Once data loads, ensure filter includes all
@@ -1017,10 +1238,11 @@ export default function PlanV2() {
     setOpenDayStr(dateStr);
   }, []);
 
-  const handleMenuAddLesson = useCallback(() => {
+  const handleMenuAddLesson = useCallback((dateStr?: string) => {
     setContextMenu(null);
-    flashNotice("Adding a lesson from Plan lands in a later phase. Use Today or Plan (week view) in the meantime.");
-  }, []);
+    setAddLessonInitialDate(dateStr ?? todayStr);
+    setAddLessonOpen(true);
+  }, [todayStr]);
 
   const handleMenuAddAppointment = useCallback((dateStr: string) => {
     setContextMenu(null);
@@ -1091,6 +1313,8 @@ export default function PlanV2() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (addLessonOpen) { setAddLessonOpen(false); return; }
+      if (editLessonTarget) { setEditLessonTarget(null); return; }
       if (rescheduleTarget) { setRescheduleTarget(null); return; }
       if (apptEditTarget) { setApptEditTarget(null); return; }
       if (openDayStr) { setOpenDayStr(null); return; }
@@ -1100,7 +1324,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -1234,7 +1458,7 @@ export default function PlanV2() {
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => flashNotice("Adding a lesson from Plan lands in a later phase. Use Today or Plan (week view) in the meantime.")}
+                  onClick={() => { setAddLessonInitialDate(todayStr); setAddLessonOpen(true); }}
                   className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#2D5A3D] hover:bg-[#e8f0e9] transition-colors"
                 >
                   <Plus size={13} /> Lesson
@@ -1500,7 +1724,12 @@ export default function PlanV2() {
                 const full = lessons.find((x) => x.id === l.id);
                 if (full) void skipLessonWithLog(full);
               }}
-              onEditLesson={() => flashNotice("Edit lesson opens in a later phase.")}
+              onEditLesson={(l) => {
+                const full = lessons.find((x) => x.id === l.id);
+                if (!full) return;
+                setOpenDayStr(null);
+                setEditLessonTarget(full);
+              }}
               onRescheduleLesson={(l) => {
                 const full = lessons.find((x) => x.id === l.id);
                 const fromDateStr = full?.scheduled_date ?? full?.date ?? null;
@@ -1518,6 +1747,7 @@ export default function PlanV2() {
                 setApptEditTarget({ appt });
               }}
               onLessonChanged={handleLessonChanged}
+              onNotesUpdated={handleLessonNotesUpdated}
               dayEvents={dayEvents}
             />
           );
@@ -1562,7 +1792,7 @@ export default function PlanV2() {
             onMoveAll={() => handleMenuMoveAll(contextMenu.dateStr)}
             onSkipAll={() => handleMenuSkipAll(contextMenu.dateStr)}
             onMarkBreak={() => void handleMenuMarkBreak(contextMenu.dateStr)}
-            onAddLesson={handleMenuAddLesson}
+            onAddLesson={() => handleMenuAddLesson(contextMenu.dateStr)}
             onAddAppointment={() => handleMenuAddAppointment(contextMenu.dateStr)}
             onOpenDay={() => handleMenuOpenDay(contextMenu.dateStr)}
             onClose={() => setContextMenu(null)}
@@ -1627,6 +1857,27 @@ export default function PlanV2() {
               ? apptEditTarget.appt.instance_date
               : undefined
           }
+        />
+
+        {/* Add lesson modal — opened from "+ Lesson" toolbar + day-cell
+            context menu. Goal list is filtered per child inside the modal. */}
+        <AddLessonModal
+          isOpen={addLessonOpen}
+          initialDate={addLessonInitialDate}
+          childrenList={kids}
+          goals={curriculumGoals}
+          onClose={() => setAddLessonOpen(false)}
+          onSubmit={handleSubmitAddLesson}
+        />
+
+        {/* Edit lesson modal — opened from the day-panel 3-dot "Edit" action. */}
+        <EditLessonModal
+          isOpen={editLessonTarget !== null}
+          lesson={editLessonTarget}
+          childrenList={kids}
+          goals={curriculumGoals}
+          onClose={() => setEditLessonTarget(null)}
+          onSubmit={handleSubmitEditLesson}
         />
 
         {/* Global undo bar */}
