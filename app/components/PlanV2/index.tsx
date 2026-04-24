@@ -18,6 +18,7 @@ import MonthGrid from "./MonthGrid";
 import DayDetailPanelV2 from "./DayDetailPanel";
 import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
+import MissedLessonsBanner from "./MissedLessonsBanner";
 import DayCellContextMenu from "./DayCellContextMenu";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
 import { useLiveAnnouncer, SR_ONLY_STYLE } from "./useLiveAnnouncer";
@@ -159,6 +160,20 @@ export default function PlanV2() {
       return a.child_ids.some((id) => childFilter.has(id));
     });
   }, [appointments, childFilter, kids.length]);
+
+  // Missed = scheduled_date before today AND not completed. Uses filteredLessons
+  // so the banner respects the active child filter chips (Amanda grades one
+  // child at a time and doesn't want bulk actions to leak across kids).
+  const missedLessonsInView = useMemo<PlanV2Lesson[]>(() => {
+    return filteredLessons
+      .filter((l) => {
+        const d = l.scheduled_date ?? l.date;
+        return !!d && d < todayStr && !l.completed;
+      })
+      .sort((a, b) =>
+        ((a.scheduled_date ?? a.date) ?? "").localeCompare((b.scheduled_date ?? b.date) ?? ""),
+      );
+  }, [filteredLessons, todayStr]);
 
   function prevMonth() {
     setMonthStart((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1));
@@ -942,6 +957,40 @@ export default function PlanV2() {
             Month
           </button>
         </div>
+
+        {/* Missed-lessons banner — above the calendar card so partners who
+            grade after the fact can bulk-close the backlog in two clicks.
+            Per-row Reschedule opens the same RescheduleDialog used by the day
+            panel; "Mark all done" calls performBulkMarkDone which fires the
+            universal undo bar; "Select all" enters the existing multi-select
+            mode with the banner items pre-selected. */}
+        {!loading ? (
+          <MissedLessonsBanner
+            missedLessons={missedLessonsInView}
+            busy={bulkBusy}
+            onMarkAllDone={() => {
+              const ids = missedLessonsInView.map((l) => l.id);
+              if (ids.length === 0) return;
+              void performBulkMarkDone(ids);
+            }}
+            onSelectAll={() => {
+              const ids = missedLessonsInView.map((l) => l.id);
+              if (ids.length === 0) return;
+              setSelectMode(true);
+              setSelectedIds(new Set(ids));
+              setMoveTargetMode(false);
+              hapticTap(20);
+            }}
+            onReschedule={(lesson) => {
+              const fromDateStr = lesson.scheduled_date ?? lesson.date ?? null;
+              if (!fromDateStr) {
+                flashNotice("This lesson isn't on the calendar yet — edit it from the Plan page.");
+                return;
+              }
+              setRescheduleTarget({ lessonId: lesson.id, fromDateStr });
+            }}
+          />
+        ) : null}
 
         {viewMode === "week" ? (
           <div className="bg-white border border-[#e8e5e0] rounded-2xl px-5 py-6">
