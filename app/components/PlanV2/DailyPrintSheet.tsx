@@ -23,6 +23,10 @@ export interface DailyPrintSheetProps {
   lessons: PlanV2Lesson[];
   appointments: PlanV2Appointment[];
   kids: PlanV2Child[];
+  /** Optional — when provided + non-empty, a "My List" section renders
+   *  between Today's Lessons and Notes. Driven by the Today page's
+   *  DailyListCard. Plan-page printing leaves this undefined. */
+  dailyListItems?: { id: string; text: string; done: boolean }[];
 }
 
 function formatTime(t: string | null): string {
@@ -40,7 +44,8 @@ function lessonTitle(l: PlanV2Lesson): string {
 }
 
 export default function DailyPrintSheet(props: DailyPrintSheetProps) {
-  const { date, childLabel, lessons, appointments, kids } = props;
+  const { date, childLabel, lessons, appointments, kids, dailyListItems } = props;
+  const showDailyList = !!dailyListItems && dailyListItems.length > 0;
   const childById = new Map(kids.map((k) => [k.id, k]));
 
   const dayName = date.toLocaleDateString("en-US", { weekday: "long" });
@@ -173,6 +178,40 @@ export default function DailyPrintSheet(props: DailyPrintSheetProps) {
                 >
                   {a.time ? formatTime(a.time) : "All day"}
                 </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {/* My List — only renders if the parent supplied items */}
+      {showDailyList ? (
+        <section style={{ marginBottom: 16 }}>
+          <SectionLabel text="My List" />
+          <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
+            {dailyListItems!.map((item) => (
+              <li
+                key={item.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "7px 0",
+                  borderBottom: `0.5px dashed ${MUTED}`,
+                }}
+              >
+                <CheckCircle filled={item.done} size={20} />
+                <p
+                  style={{
+                    margin: 0,
+                    flex: 1,
+                    fontSize: 16,
+                    color: INK,
+                    textDecoration: item.done ? "line-through" : "none",
+                  }}
+                >
+                  {item.text}
+                </p>
               </li>
             ))}
           </ul>
