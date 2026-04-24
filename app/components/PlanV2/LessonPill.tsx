@@ -139,23 +139,35 @@ function DraggableLessonPill(p: DraggableProps) {
 
   const longPress = useLongPress(() => p.onLongPress?.(), { holdMs: 150 });
 
-  // Merge @dnd-kit pointer listeners with long-press tracking. When both fire
-  // onPointerDown, both get a chance: the draggable stays armed for move, the
-  // long-press timer counts down for the hold. If the user hasn't moved by the
-  // time the timer fires, onLongPress takes the interaction.
+  // Merge @dnd-kit pointer listeners with long-press tracking. dnd-kit's
+  // listener MUST run first — otherwise PointerSensor never sees the
+  // pointerdown and desktop drag never activates. Long-press tracking +
+  // bubble-stop run after, so the gesture stays armed for both a move
+  // (drag) and a hold (long-press → select mode).
+  //
+  // Cast: dnd-kit types `listeners` as `SyntheticListenerMap | undefined`
+  // — a record of pointer-event handlers. The narrow cast preserves the
+  // optional-chain on every call site.
+  const l = listeners as Record<string, ((e: React.PointerEvent) => void) | undefined> | undefined;
   const onPointerDown = (e: React.PointerEvent) => {
-    // Stop the gesture from bubbling to the DayCell, otherwise a long-press
-    // on a pill would ALSO trigger the cell's context-menu long-press.
+    l?.onPointerDown?.(e);
+    // Stop the gesture from bubbling to the DayCell so a long-press on a
+    // pill doesn't ALSO trigger the cell's context-menu long-press.
     e.stopPropagation();
     longPress.onPointerDown(e);
-    const l = listeners as Record<string, (e: React.PointerEvent) => void> | undefined;
-    l?.onPointerDown?.(e);
   };
   const onPointerUp = (e: React.PointerEvent) => {
+    l?.onPointerUp?.(e);
     e.stopPropagation();
     longPress.onPointerUp(e);
-    const l = listeners as Record<string, (e: React.PointerEvent) => void> | undefined;
-    l?.onPointerUp?.(e);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    l?.onPointerMove?.(e);
+    longPress.onPointerMove(e);
+  };
+  const onPointerCancel = (e: React.PointerEvent) => {
+    l?.onPointerCancel?.(e);
+    longPress.onPointerCancel();
   };
 
   return (
@@ -164,8 +176,8 @@ function DraggableLessonPill(p: DraggableProps) {
       {...attributes}
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
-      onPointerMove={longPress.onPointerMove}
-      onPointerCancel={longPress.onPointerCancel}
+      onPointerMove={onPointerMove}
+      onPointerCancel={onPointerCancel}
       onPointerLeave={longPress.onPointerLeave}
       onContextMenu={(e) => e.stopPropagation()}
       className="touch-none"
