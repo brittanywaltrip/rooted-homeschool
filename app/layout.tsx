@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Lora } from "next/font/google";
+import { Geist, Geist_Mono, Lora, Caveat } from "next/font/google";
 import "./globals.css";
 import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
 import PostHogInit from "./components/PostHogInit";
@@ -18,6 +18,15 @@ const geistMono = Geist_Mono({
 
 const lora = Lora({
   variable: "--font-display",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+// Caveat — handwritten script used by the Plan print sheets (Daily/Week/
+// Month). Loaded at the layout root so any printable surface can use it via
+// the `font-handwritten` utility class without re-loading the family.
+const caveat = Caveat({
+  variable: "--font-caveat",
   subsets: ["latin"],
   display: "swap",
 });
@@ -75,7 +84,7 @@ export default function RootLayout({
         </Script>
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${lora.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${lora.variable} ${caveat.variable} antialiased`}
       >
         <ServiceWorkerRegistrar />
         <PostHogInit />

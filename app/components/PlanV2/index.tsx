@@ -33,6 +33,11 @@ import ActivitySetupModal, { type EditableActivity } from "@/app/components/Acti
 import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { getSeasonalEmoji, getUSHolidaysForYear } from "@/lib/us-holidays";
+import PlanPrintDialog, { type PlanPrintMode } from "./PlanPrintDialog";
+import DailyPrintSheet from "./DailyPrintSheet";
+import WeeklyPrintSheet from "./WeeklyPrintSheet";
+import MonthlyPrintSheet from "./MonthlyPrintSheet";
+import { canExport } from "@/lib/user-access";
 import ShiftForwardModal, { type ShiftMove } from "./ShiftForwardModal";
 import PushBackModal, { type PushBackMove } from "./PushBackModal";
 import VacationBlockModal, { type VacationBlockExisting, type VacationBlockSave } from "./VacationBlockModal";
@@ -129,6 +134,10 @@ export default function PlanV2() {
     return d;
   });
   const [schoolYearModalOpen, setSchoolYearModalOpen] = useState(false);
+  // Print dialog state — null = closed; "selected" mode is what the print
+  // sheets key off via body class.
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [activePrintMode, setActivePrintMode] = useState<PlanPrintMode | null>(null);
   const [childFilter, setChildFilter] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [openDayStr, setOpenDayStr] = useState<string | null>(null);
@@ -168,6 +177,10 @@ export default function PlanV2() {
 
   // ── School-days + catch-up / push-back / vacation modal state ───────────
   const [schoolDays, setSchoolDays] = useState<string[]>(DEFAULT_SCHOOL_DAYS);
+  // Paid-feature gating for the print dialog (Week + Month sheets).
+  // Mirrors the Year Planner's pattern: trial counts as paid.
+  const [isPro, setIsPro] = useState<boolean>(false);
+  const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!effectiveUserId) return;
@@ -175,12 +188,17 @@ export default function PlanV2() {
     (async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("school_days")
+        .select("school_days, is_pro, trial_started_at")
         .eq("id", effectiveUserId)
         .maybeSingle();
       if (cancelled) return;
-      const sd = (data as { school_days?: string[] | null } | null)?.school_days;
+      const row = data as
+        | { school_days?: string[] | null; is_pro?: boolean | null; trial_started_at?: string | null }
+        | null;
+      const sd = row?.school_days;
       setSchoolDays(sd && sd.length > 0 ? sd : DEFAULT_SCHOOL_DAYS);
+      setIsPro(!!row?.is_pro);
+      setTrialStartedAt(row?.trial_started_at ?? null);
     })();
     return () => { cancelled = true; };
   }, [effectiveUserId]);
@@ -906,6 +924,32 @@ export default function PlanV2() {
       includeActivities: opts.includeActivities,
     });
   }, [effectiveUserId, kids]);
+
+  // ── Print handler — sets body class, calls window.print(), cleans up ────
+  // The print sheets render off-screen always; @media print + the body
+  // class flips visibility for exactly one sheet.
+  const canPrintPaid = canExport({ is_pro: isPro, trial_started_at: trialStartedAt });
+  const handlePickPrintMode = useCallback((mode: PlanPrintMode) => {
+    if ((mode === "weekly" || mode === "monthly") && !canPrintPaid) {
+      // The dialog renders these tiles as Links to /upgrade for free
+      // users, so onPick should never fire — but defensive belt+braces.
+      window.location.href = "/upgrade";
+      return;
+    }
+    setPrintDialogOpen(false);
+    setActivePrintMode(mode);
+    const cls = `print-mode-${mode}`;
+    document.body.classList.add(cls);
+    const cleanup = () => {
+      document.body.classList.remove(cls);
+      setActivePrintMode(null);
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    // Defer to next frame so React has flushed the activePrintMode-driven
+    // re-render before the print preview snapshots the DOM.
+    window.requestAnimationFrame(() => window.print());
+  }, [canPrintPaid]);
 
   // Default: every child selected. Once data loads, ensure filter includes all
   // current child IDs.
@@ -2243,6 +2287,7 @@ export default function PlanV2() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (printDialogOpen) { setPrintDialogOpen(false); return; }
       if (schoolYearModalOpen) { setSchoolYearModalOpen(false); return; }
       if (deleteGoalConfirm) { setDeleteGoalConfirm(null); return; }
       if (deleteActivityConfirm) { setDeleteActivityConfirm(null); return; }
@@ -2263,7 +2308,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [schoolYearModalOpen, deleteGoalConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -2481,6 +2526,13 @@ export default function PlanV2() {
                   className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#5C5346] hover:bg-[#f0ede8] transition-colors"
                 >
                   📄 Report
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintDialogOpen(true)}
+                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#5C5346] hover:bg-[#f0ede8] transition-colors"
+                >
+                  🖨️ Print
                 </button>
               </div>
             </div>
@@ -3061,6 +3113,159 @@ export default function PlanV2() {
           onClose={() => setReportDialogOpen(false)}
           onGenerate={handleGenerateReport}
         />
+
+        {/* Plan print dialog (Daily/Week/Month) */}
+        <PlanPrintDialog
+          isOpen={printDialogOpen}
+          canPrintPaid={canPrintPaid}
+          onClose={() => setPrintDialogOpen(false)}
+          onPick={handlePickPrintMode}
+        />
+
+        {/* Print sheets — always rendered in DOM, hidden on screen via the
+            scoped @media-not-print rule below. The body class
+            `print-mode-{daily|weekly|monthly}` flips the visibility of
+            exactly one sheet at print time via @media print rules. */}
+        {(() => {
+          const todayDate = new Date();
+          const todayKey = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
+          const allKidsSelected = childFilter.size === 0 || childFilter.size === kids.length;
+          const filteredKids = allKidsSelected ? kids : kids.filter((k) => childFilter.has(k.id));
+          const childLabel = filteredKids.length === 1
+            ? `${filteredKids[0].name}'s Plan`
+            : "All Kids";
+
+          // Today-scoped lists for the Daily sheet.
+          const todayLessons = filteredLessons.filter((l) => (l.scheduled_date ?? l.date) === todayKey);
+          const todayAppts = filteredAppointments.filter((a) => a.instance_date === todayKey);
+
+          // Week-scoped lists for the Weekly sheet — relative to the
+          // calendar's weekStart (so user can navigate to a future week
+          // and print that week).
+          const weekEnd = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 6);
+          const weekStartKey = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, "0")}-${String(weekStart.getDate()).padStart(2, "0")}`;
+          const weekEndKey = `${weekEnd.getFullYear()}-${String(weekEnd.getMonth() + 1).padStart(2, "0")}-${String(weekEnd.getDate()).padStart(2, "0")}`;
+          const weekLessons = filteredLessons.filter((l) => {
+            const d = l.scheduled_date ?? l.date;
+            return !!d && d >= weekStartKey && d <= weekEndKey;
+          });
+          const weekAppts = filteredAppointments.filter((a) =>
+            a.instance_date >= weekStartKey && a.instance_date <= weekEndKey,
+          );
+
+          return (
+            <div className="plan-print-host">
+              {activePrintMode === "daily" ? (
+                <DailyPrintSheet
+                  date={todayDate}
+                  childLabel={childLabel}
+                  lessons={todayLessons}
+                  appointments={todayAppts}
+                  kids={filteredKids}
+                />
+              ) : null}
+              {activePrintMode === "weekly" ? (
+                <WeeklyPrintSheet
+                  weekStart={weekStart}
+                  childLabel={childLabel}
+                  lessons={weekLessons}
+                  appointments={weekAppts}
+                  kids={filteredKids}
+                />
+              ) : null}
+              {activePrintMode === "monthly" ? (
+                <MonthlyPrintSheet
+                  monthStart={monthStart}
+                  childLabel={childLabel}
+                  lessons={filteredLessons}
+                  appointments={filteredAppointments}
+                  vacationBlocks={vacationBlocks}
+                  kids={filteredKids}
+                />
+              ) : null}
+            </div>
+          );
+        })()}
+
+        {/* Print isolation + @page rules. Lives in the page so the @page
+            rule only applies while a print mode is active, leaving other
+            printables (Year Planner / Yearbook PDF) unaffected. */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+/* Off-screen on screen — only the sheet for the active print mode shows
+   when the matching body class is present. */
+.plan-print-host { display: none; }
+
+@media print {
+  body.print-mode-daily,
+  body.print-mode-weekly,
+  body.print-mode-monthly { background: #FAF7F0 !important; }
+
+  body.print-mode-daily .plan-print-host,
+  body.print-mode-weekly .plan-print-host,
+  body.print-mode-monthly .plan-print-host { display: block; }
+
+  body.print-mode-daily *,
+  body.print-mode-weekly *,
+  body.print-mode-monthly * { visibility: hidden !important; }
+  body.print-mode-daily .plan-print-sheet,
+  body.print-mode-daily .plan-print-sheet *,
+  body.print-mode-weekly .plan-print-sheet,
+  body.print-mode-weekly .plan-print-sheet *,
+  body.print-mode-monthly .plan-print-sheet,
+  body.print-mode-monthly .plan-print-sheet * { visibility: visible !important; }
+
+  body.print-mode-daily .plan-print-sheet,
+  body.print-mode-weekly .plan-print-sheet,
+  body.print-mode-monthly .plan-print-sheet {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  body.print-mode-daily .plan-print-sheet *,
+  body.print-mode-weekly .plan-print-sheet *,
+  body.print-mode-monthly .plan-print-sheet * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Page orientation — portrait for daily, landscape for week/month. The
+     @page rule is global per-document so the active body class drives which
+     orientation the printer uses. The unused selectors below carry no
+     state on a given print, so only one set of @page rules applies. */
+  body.print-mode-daily { /* portrait */ }
+  body.print-mode-weekly,
+  body.print-mode-monthly { /* landscape — declared on @page below */ }
+}
+
+@media print {
+  @page { size: letter; margin: 0.3in; }
+}
+@media print {
+  body.print-mode-weekly,
+  body.print-mode-monthly {
+    /* landscape via inline style override below */
+  }
+}
+`,
+          }}
+        />
+
+        {/* When weekly/monthly is active, switch @page to landscape via an
+            inline injected rule — keeps the daily portrait default working
+            without conditionally regenerating the static stylesheet. */}
+        {activePrintMode === "weekly" || activePrintMode === "monthly" ? (
+          <style
+            dangerouslySetInnerHTML={{
+              __html: `@media print { @page { size: letter landscape; margin: 0.3in; } }`,
+            }}
+          />
+        ) : null}
 
         {/* Create School Year modal — opened from the toolbar CTA when the
             user has no upcoming year (or the current year ends within 60d). */}
