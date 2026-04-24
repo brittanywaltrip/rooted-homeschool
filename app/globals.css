@@ -33,6 +33,13 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-serif: var(--font-display);
+  --font-handwritten: var(--font-caveat);
+}
+
+/* Tailwind utility for the Caveat handwritten script — used by Plan print
+ * sheets (Daily/Week/Month) to give the planner-page feel. */
+.font-handwritten {
+  font-family: var(--font-caveat), "Caveat", cursive;
 }
 
 body {
