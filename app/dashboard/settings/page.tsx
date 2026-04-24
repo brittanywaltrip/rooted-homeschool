@@ -82,6 +82,31 @@ const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.co
 
 type AffiliateRow = { id: string; name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; user_id: string; clicks: number };
 
+// Anonymized per-referral row as returned by /api/stripe/affiliate-stats.
+// STRICT: no PII. The opaque `id` is the only identifier.
+type ReferralRow = {
+  id: string;
+  createdAt: string;
+  converted: boolean;
+  commissionNote: string | null;
+  hasSubscription: boolean;
+  commissionAmount: number;
+};
+
+type AffiliateStatsPayload = {
+  totalRedemptions: number;
+  payingCount: number;
+  revenueDriven: number;
+  commissionEarned: number;
+  commissionPerPayingReferral: number;
+  clicksAllTime: number;
+  signupsThisMonth: number;
+  payingThisMonth: number;
+  amountOwed: number;
+  nextPayoutAt: string;
+  rows: ReferralRow[];
+};
+
 function AffiliateStatCell({ couponId, code, field, prefix = "" }: { couponId: string; code: string; field: "totalRedemptions" | "payingCount" | "revenueDriven"; prefix?: string }) {
   const [val, setVal] = useState<number | null>(null);
   useEffect(() => {
@@ -227,7 +252,7 @@ export default function SettingsPage() {
 
   // Affiliate / Ambassador
   const [affiliateData, setAffiliateData] = useState<{ name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number } | null>(null);
-  const [affiliateStats, setAffiliateStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
+  const [affiliateStats, setAffiliateStats] = useState<AffiliateStatsPayload | null>(null);
   const [copiedToast, setCopiedToast] = useState<string | false>(false);
   const [refreshingAffiliate, setRefreshingAffiliate] = useState(false);
   const [affiliatePayments, setAffiliatePayments] = useState<{ id: string; amount: number; month: string; paid_at: string }[]>([]);
@@ -235,7 +260,7 @@ export default function SettingsPage() {
   const [allAffiliates, setAllAffiliates] = useState<AffiliateRow[]>([]);
   const [showAffiliatePreview, setShowAffiliatePreview] = useState(false);
   const [previewAffiliate, setPreviewAffiliate] = useState<{ code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number; name: string } | null>(null);
-  const [previewStats, setPreviewStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
+  const [previewStats, setPreviewStats] = useState<AffiliateStatsPayload | null>(null);
   const [previewPayments, setPreviewPayments] = useState<{ id: string; amount: number; month: string; paid_at: string }[]>([]);
 
   // School year transition
@@ -2249,25 +2274,85 @@ export default function SettingsPage() {
               </button>
             </div>
 
-            {/* Stats */}
-            <div className="grid grid-cols-4 divide-x divide-[#c7d2fe] bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
+            {/* Stats — all-time with this-month secondary. Clicks is all-time only
+                because affiliates.clicks is an untimestamped counter. */}
+            <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-[#c7d2fe] bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
               <div className="px-3 py-4 text-center">
                 <p className="text-2xl font-bold text-[#2d2926]">{affiliateData.clicks ?? 0}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Link clicks</p>
+                <p className="text-[9px] text-[#a09080] mt-0.5">all-time</p>
               </div>
               <div className="px-3 py-4 text-center">
                 <p className="text-2xl font-bold text-[#2d2926]">{affiliateStats?.totalRedemptions ?? '—'}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Signups</p>
+                <p className="text-[9px] text-[#a09080] mt-0.5">{affiliateStats ? `${affiliateStats.signupsThisMonth} this month` : '—'}</p>
               </div>
               <div className="px-3 py-4 text-center">
                 <p className="text-2xl font-bold text-[var(--g-deep)]">{affiliateStats?.payingCount ?? '—'}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
+                <p className="text-[9px] text-[#a09080] mt-0.5">{affiliateStats ? `${affiliateStats.payingThisMonth} this month` : '—'}</p>
               </div>
               <div className="px-3 py-4 text-center">
-                <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats ? ((affiliateStats.revenueDriven * 0.20).toFixed(2)) : '—'}</p>
+                <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats?.commissionEarned.toFixed(2) ?? '—'}</p>
                 <p className="text-[11px] text-[#7a6f65] mt-0.5">Earned</p>
+                <p className="text-[9px] text-[#a09080] mt-0.5">to date</p>
               </div>
             </div>
+
+            {/* Next payout */}
+            {affiliateStats && (
+              <div className="bg-white border border-[#c7d2fe] rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] text-[#7a6f65]">Next payout</p>
+                  <p className="text-sm font-medium text-[#2d2926]">
+                    {new Date(affiliateStats.nextPayoutAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[11px] text-[#7a6f65]">Amount owed</p>
+                  <p className="text-lg font-bold text-[var(--g-deep)]">${affiliateStats.amountOwed.toFixed(2)}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Per-referral table — anonymized. No names, no emails, no avatars. */}
+            {affiliateStats && affiliateStats.rows.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your Referrals</p>
+                <div className="bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[#c7d2fe]">
+                        <th className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] w-10">#</th>
+                        <th className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Signed up</th>
+                        <th className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Status</th>
+                        <th className="text-right px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Commission</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {affiliateStats.rows.map((r, i) => {
+                        const status = r.commissionNote
+                          ? r.commissionNote
+                          : r.converted
+                            ? 'Paid subscriber'
+                            : 'Free user';
+                        const commission = r.converted ? `$${r.commissionAmount.toFixed(2)}` : '—';
+                        return (
+                          <tr key={r.id} className="border-b border-[#eee] last:border-0">
+                            <td className="px-3 py-2 text-xs text-[#7a6f65]">{i + 1}</td>
+                            <td className="px-3 py-2 text-xs text-[#2d2926]">
+                              {new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-[#2d2926]">{status}</td>
+                            <td className="px-3 py-2 text-xs font-medium text-[#2d2926] text-right">{commission}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Earnings */}
             {(() => {

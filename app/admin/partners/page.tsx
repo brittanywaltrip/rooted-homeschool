@@ -23,6 +23,13 @@ interface Affiliate {
 interface Referral {
   id: string; affiliate_code: string; stripe_session_id: string | null;
   converted: boolean; created_at: string; user_name: string; user_plan: string;
+  // Extended fields (admin-only — paired with /api/admin/partners route).
+  commission_note: string | null;
+  commission_amount: number;
+  first_name: string | null;
+  last_name: string | null;
+  user_email: string | null;
+  is_also_partner: boolean;
 }
 
 interface Payment {
@@ -524,17 +531,31 @@ export default function AdminPartnersPage() {
             <div className="space-y-2">
               {referrals.map((r) => {
                 const planLabel = r.user_plan === "founding_family" ? "Founding ($39/yr)" : r.user_plan === "standard" ? "Standard ($59/yr)" : r.user_plan === "monthly" ? "Monthly ($6.99/mo)" : r.user_plan;
-                const commission = r.converted
-                  ? `$${(((r.user_plan === "monthly" ? 7.99 : r.user_plan === "standard" ? 49 : 39) * 0.85) * 0.20).toFixed(2)}`
-                  : "$0";
+                const commission = r.converted ? `$${r.commission_amount.toFixed(2)}` : "$0";
+                const status = r.commission_note
+                  ? r.commission_note
+                  : r.converted
+                    ? "Paid subscriber"
+                    : "Free user";
                 return (
                   <div key={r.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-[#2d2926]">{r.user_name}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-[#2d2926]">{r.user_name}</p>
+                        {r.is_also_partner && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#eef0ff] text-[#4338ca]">
+                            Also a partner
+                          </span>
+                        )}
+                      </div>
+                      {r.user_email && (
+                        <p className="text-[11px] text-[#7a6f65] truncate">{r.user_email}</p>
+                      )}
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
                         <span className="text-[11px] text-[#7a6f65]">{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
                         <span className="text-[11px] font-mono text-[#5c7f63]">{r.affiliate_code}</span>
                         <span className="text-[11px] text-[#7a6f65]">{planLabel}</span>
+                        <span className="text-[11px] text-[#2d2926] italic">{status}</span>
                       </div>
                     </div>
                     <p className="text-sm font-bold text-[#2d2926] shrink-0">{commission}</p>

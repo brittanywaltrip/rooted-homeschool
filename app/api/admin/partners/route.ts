@@ -43,10 +43,10 @@ export async function GET(req: Request) {
     .select("id, referred_by, plan_type, first_name, last_name, display_name")
     .not("referred_by", "is", null);
 
-  // Fetch referrals ledger
+  // Fetch referrals ledger (includes commission_note since 20260423200000 migration)
   const { data: refRows } = await supabaseAdmin
     .from("referrals")
-    .select("*")
+    .select("id, affiliate_code, user_id, stripe_session_id, converted, commission_note, created_at")
     .order("created_at", { ascending: false })
     .limit(100);
 
@@ -67,30 +67,21 @@ export async function GET(req: Request) {
     allProfiles.map((p) => [p.id, p])
   );
 
+  // Conservative flat commission matches the partner-facing dashboard:
+  // $33.15 net × 20% = $6.63 per paying referral.
+  // TODO: track coupon_used on referrals row so commission math can
+  // differentiate $33.15 vs $39 per referral.
+  const COMMISSION_PER_PAYING = Math.round(33.15 * 0.20 * 100) / 100;
+
   // Build affiliate stats
   const affiliates = (affRows ?? []).map((a) => {
-    // Signups: all profiles where referred_by = code (free + paid)
     const referred = (referredProfiles ?? []).filter(
       (p) => p.referred_by?.toUpperCase() === a.code?.toUpperCase()
     );
-    // Paying: only referrals where converted = true
     const convertedReferrals = (refRows ?? []).filter(
       (r) => r.affiliate_code?.toUpperCase() === a.code?.toUpperCase() && r.converted === true
     );
-    const rate = a.commission_rate ?? 20;
-    const PLAN_PRICES: Record<string, number> = {
-      founding_family: 39,
-      standard: 49,
-      monthly: 7.99,
-    };
-    const DISCOUNT_MULTIPLIER = 0.85;
-    let commissionOwed = 0;
-    for (const ref of convertedReferrals) {
-      const prof = profileMap.get(ref.user_id);
-      const basePrice = PLAN_PRICES[prof?.plan_type ?? ''] ?? 39;
-      commissionOwed += basePrice * DISCOUNT_MULTIPLIER * (rate / 100);
-    }
-    commissionOwed = Math.round(commissionOwed * 100) / 100;
+    const commissionOwed = Math.round(convertedReferrals.length * COMMISSION_PER_PAYING * 100) / 100;
 
     return {
       ...a,
@@ -101,7 +92,32 @@ export async function GET(req: Request) {
     };
   });
 
-  // Build referrals feed
+  // Collect referred users' auth emails in one paginated sweep so each referral
+  // row can show first_name, last_name, and email for admin oversight.
+  const referredUserIdSet = new Set<string>(refUserIds);
+  const referredEmailMap = new Map<string, string>();
+  if (referredUserIdSet.size > 0) {
+    let page = 1;
+    const perPage = 200;
+    while (referredEmailMap.size < referredUserIdSet.size) {
+      const { data: listData, error: listErr } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
+      if (listErr || !listData?.users || listData.users.length === 0) break;
+      for (const u of listData.users) {
+        if (referredUserIdSet.has(u.id) && u.email) referredEmailMap.set(u.id, u.email);
+      }
+      if (listData.users.length < perPage) break;
+      page++;
+    }
+  }
+
+  // Set of all user_ids that are themselves registered partners — used to flag
+  // referrals where the referred user later joined the program.
+  const partnerUserIds = new Set<string>(
+    (affRows ?? []).map((a) => a.user_id).filter((id): id is string => Boolean(id)),
+  );
+
+  // Build referrals feed — includes admin-only fields (first_name, last_name,
+  // email, is_also_partner) plus commission_note.
   const referrals = (refRows ?? []).map((r) => {
     const prof = profileMap.get(r.user_id);
     return {
@@ -109,11 +125,17 @@ export async function GET(req: Request) {
       affiliate_code: r.affiliate_code,
       stripe_session_id: r.stripe_session_id,
       converted: r.converted,
+      commission_note: (r as { commission_note?: string | null }).commission_note ?? null,
+      commission_amount: r.converted ? COMMISSION_PER_PAYING : 0,
       created_at: r.created_at,
       user_name: prof
         ? (prof.first_name ? `${prof.first_name} ${prof.last_name ?? ""}`.trim() : prof.display_name ?? "Unknown")
         : "Unknown",
       user_plan: prof?.plan_type ?? "free",
+      first_name: prof?.first_name ?? null,
+      last_name: prof?.last_name ?? null,
+      user_email: r.user_id ? referredEmailMap.get(r.user_id) ?? null : null,
+      is_also_partner: r.user_id ? partnerUserIds.has(r.user_id) : false,
     };
   });
 
