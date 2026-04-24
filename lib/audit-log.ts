@@ -80,7 +80,17 @@ export type LessonNotesUpdatedPayload = {
   actor: PlanEventActor;
 };
 
-export type LessonBulkAction = "move" | "mark_done" | "skip" | "delete";
+export type LessonBulkAction =
+  | "move"
+  | "mark_done"
+  | "skip"
+  | "delete"
+  /** Catch-up banner: batch-move past-incomplete lessons to next school days. */
+  | "catch_up_shift"
+  /** Push-back flow: shift all future lessons forward by N school days. */
+  | "push_back_future"
+  /** Push-back flow: fit missed lessons into the now-vacated near-term slots. */
+  | "push_back_missed_fit";
 export type LessonBulkActionPayload = {
   action: LessonBulkAction;
   count: number;
@@ -112,6 +122,9 @@ export type VacationBlockCreatedPayload = {
   name: string;
   start_date: string;
   end_date: string;
+  /** True if, on creation, lessons in the range were auto-shifted forward.
+   * Omitted on older rows — read defensively. */
+  shift_applied?: boolean;
 };
 export type VacationBlockDeletedPayload = VacationBlockCreatedPayload;
 
@@ -431,6 +444,31 @@ export function formatEvent(row: PlanEventRow): FormattedEvent {
           icon: "⏩",
         };
       }
+      if (action === "catch_up_shift") {
+        return {
+          summary: `Shifted ${count} lesson${count === 1 ? "" : "s"} forward to catch up`,
+          category: "bulk",
+          icon: "🗓️",
+        };
+      }
+      if (action === "push_back_future") {
+        const daysVal = Number(p.school_days_shifted ?? 0);
+        const daysLabel = daysVal > 0
+          ? ` by ${daysVal} school day${daysVal === 1 ? "" : "s"}`
+          : "";
+        return {
+          summary: `Pushed ${count} future lesson${count === 1 ? "" : "s"} back${daysLabel}`,
+          category: "bulk",
+          icon: "⏭",
+        };
+      }
+      if (action === "push_back_missed_fit") {
+        return {
+          summary: `Filled vacated days with ${count} missed lesson${count === 1 ? "" : "s"}`,
+          category: "bulk",
+          icon: "🧩",
+        };
+      }
       return {
         summary: `Deleted ${count} lesson${count === 1 ? "" : "s"}${fromLabel}`,
         category: "bulk",
@@ -468,8 +506,11 @@ export function formatEvent(row: PlanEventRow): FormattedEvent {
       const start = shortDateLabel(p.start_date as string | null);
       const end = shortDateLabel(p.end_date as string | null);
       const range = start === end ? start : `${start} – ${end}`;
+      const shifted = p.shift_applied === true;
       return {
-        summary: `Marked break: ${name} on ${range}`,
+        summary: shifted
+          ? `Added break: ${name} (${range}) and shifted lessons forward`
+          : `Added break: ${name} (${range})`,
         category: "vacation",
         icon: "🏖",
       };

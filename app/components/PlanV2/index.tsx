@@ -19,11 +19,20 @@ import DayDetailPanelV2 from "./DayDetailPanel";
 import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
 import MissedLessonsBanner from "./MissedLessonsBanner";
+import CatchUpBanner from "./CatchUpBanner";
+import ShiftForwardModal, { type ShiftMove } from "./ShiftForwardModal";
+import PushBackModal, { type PushBackMove } from "./PushBackModal";
+import VacationBlockModal, { type VacationBlockExisting, type VacationBlockSave } from "./VacationBlockModal";
 import RecentChangesCard from "./RecentChangesCard";
 import DayCellContextMenu from "./DayCellContextMenu";
 import AddLessonModal, { type AddLessonSubmit } from "./AddLessonModal";
 import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
+import {
+  DEFAULT_SCHOOL_DAYS,
+  countSchoolDaysInRange,
+  nthSchoolDay,
+} from "@/lib/school-days";
 import { useLiveAnnouncer, SR_ONLY_STYLE } from "./useLiveAnnouncer";
 import { usePlanV2Data } from "./usePlanV2Data";
 import { usePlanLessonActions } from "./usePlanLessonActions";
@@ -85,6 +94,11 @@ function toTodayKids(ks: { id: string; name: string; color: string | null }[]): 
   return ks.map((k) => ({ id: k.id, name: k.name, color: k.color }));
 }
 
+// Catch-up banner dismissal constants — module-scoped so useEffect/useCallback
+// dependency arrays stay stable.
+const CATCHUP_DISMISS_KEY = "rooted_planv2_catchup_dismissed_at";
+const CATCHUP_DISMISS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 type ViewMode = "week" | "month";
 
 export default function PlanV2() {
@@ -130,6 +144,57 @@ export default function PlanV2() {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
+
+  // ── School-days + catch-up / push-back / vacation modal state ───────────
+  const [schoolDays, setSchoolDays] = useState<string[]>(DEFAULT_SCHOOL_DAYS);
+
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("school_days")
+        .eq("id", effectiveUserId)
+        .maybeSingle();
+      if (cancelled) return;
+      const sd = (data as { school_days?: string[] | null } | null)?.school_days;
+      setSchoolDays(sd && sd.length > 0 ? sd : DEFAULT_SCHOOL_DAYS);
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId]);
+
+  // Catch-up banner dismissal — kept in localStorage as a 7-day quiet period.
+  // Constants live at module scope (see CATCHUP_* above the component) so
+  // the effect + useCallback don't trip exhaustive-deps.
+  const [catchUpSuppressedUntil, setCatchUpSuppressedUntil] = useState<number>(0);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(CATCHUP_DISMISS_KEY);
+      if (!raw) return;
+      const ts = parseInt(raw, 10);
+      if (Number.isFinite(ts)) {
+        setCatchUpSuppressedUntil(ts + CATCHUP_DISMISS_WINDOW_MS);
+      }
+    } catch { /* private-mode / quota — just ignore */ }
+  }, []);
+  const dismissCatchUp = useCallback(() => {
+    const now = Date.now();
+    setCatchUpSuppressedUntil(now + CATCHUP_DISMISS_WINDOW_MS);
+    try {
+      window.localStorage.setItem(CATCHUP_DISMISS_KEY, String(now));
+    } catch { /* ignore */ }
+  }, []);
+
+  const [shiftForwardOpen, setShiftForwardOpen] = useState(false);
+  const [pushBackOpen, setPushBackOpen] = useState(false);
+
+  // Vacation modal — single instance for both create + edit. `existing` is
+  // null in create mode; populated in edit mode with the block we clicked.
+  const [vacationModalOpen, setVacationModalOpen] = useState(false);
+  const [vacationModalInitialDate, setVacationModalInitialDate] = useState<string | null>(null);
+  const [vacationModalExisting, setVacationModalExisting] = useState<VacationBlockExisting | null>(null);
 
   // ── Add + edit lesson state ──────────────────────────────────────────────
   // Modals are local state — a single instance of each is enough because
@@ -518,6 +583,37 @@ export default function PlanV2() {
         ((a.scheduled_date ?? a.date) ?? "").localeCompare((b.scheduled_date ?? b.date) ?? ""),
       );
   }, [filteredLessons, todayStr]);
+
+  // Future lessons (>= today, incomplete) — needed by the push-back modal.
+  // The calendar load window limits this to the visible month, but for the
+  // push-back math we want EVERY future lesson regardless of month; see
+  // below where we lazily load the wider set at the moment push-back fires.
+  const futureLessonsInView = useMemo<PlanV2Lesson[]>(() => {
+    return filteredLessons
+      .filter((l) => {
+        const d = l.scheduled_date ?? l.date;
+        return !!d && d >= todayStr && !l.completed;
+      })
+      .sort((a, b) =>
+        ((a.scheduled_date ?? a.date) ?? "").localeCompare((b.scheduled_date ?? b.date) ?? ""),
+      );
+  }, [filteredLessons, todayStr]);
+
+  // Catch-up threshold: 5+ past incomplete spanning 2+ distinct days AND
+  // the 7-day dismissal window has elapsed. Dismissal count doesn't scope
+  // to child filter — if the user is behind with ANY child filter off, we
+  // still respect the pause.
+  const showCatchUpBanner = useMemo(() => {
+    if (Date.now() < catchUpSuppressedUntil) return false;
+    if (missedLessonsInView.length < 5) return false;
+    const distinctDates = new Set<string>();
+    for (const l of missedLessonsInView) {
+      const d = l.scheduled_date ?? l.date;
+      if (d) distinctDates.add(d);
+      if (distinctDates.size >= 2) break;
+    }
+    return distinctDates.size >= 2;
+  }, [missedLessonsInView, catchUpSuppressedUntil]);
 
   function prevMonth() {
     setMonthStart((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1));
@@ -1198,6 +1294,424 @@ export default function PlanV2() {
     exitSelectMode();
   }, [lessons, setLessons, reload, exitSelectMode, commitPendingBulkDelete, recordEvent]);
 
+  // ── Catch-up + push-back handlers ────────────────────────────────────────
+  // Each of these owns: pre-mutation snapshot, batch UPDATE with
+  // partial-failure tolerance, audit event, and universal-undo registration.
+  // Undo restores each lesson's prior scheduled_date by id.
+
+  const batchUpdateScheduledDates = useCallback(
+    async (pairs: { id: string; date: string }[]): Promise<{ succeededIds: Set<string>; failedIds: Set<string> }> => {
+      const succeededIds = new Set<string>();
+      const failedIds = new Set<string>();
+      // Chunk of 20 is the same step legacy uses — a balance between
+      // Postgres round-trip count and Supabase PostgREST row-limit quirks.
+      for (let i = 0; i < pairs.length; i += 20) {
+        const slice = pairs.slice(i, i + 20);
+        const results = await Promise.allSettled(
+          slice.map((p) =>
+            supabase
+              .from("lessons")
+              .update({ scheduled_date: p.date, date: p.date })
+              .eq("id", p.id)
+              .then(({ error }) => (error ? Promise.reject(error) : true)),
+          ),
+        );
+        results.forEach((r, idx) => {
+          if (r.status === "fulfilled") succeededIds.add(slice[idx].id);
+          else failedIds.add(slice[idx].id);
+        });
+      }
+      return { succeededIds, failedIds };
+    },
+    [],
+  );
+
+  const handleCatchUpShiftConfirm = useCallback(async (moves: ShiftMove[]) => {
+    if (moves.length === 0) return;
+    setBulkBusy(true);
+
+    // Optimistic local update.
+    const movesById = new Map(moves.map((m) => [m.lesson.id, m]));
+    setLessons((prev) =>
+      prev.map((l) => {
+        const m = movesById.get(l.id);
+        return m ? { ...l, scheduled_date: m.toDate, date: m.toDate } : l;
+      }),
+    );
+    moves.forEach((m) => flagLanded(m.lesson.id));
+    hapticTap(20);
+
+    const pairs = moves.map((m) => ({ id: m.lesson.id, date: m.toDate }));
+    const { succeededIds, failedIds } = await batchUpdateScheduledDates(pairs);
+    const succeeded = moves.filter((m) => succeededIds.has(m.lesson.id));
+
+    // Rollback any failures locally.
+    if (failedIds.size > 0) {
+      setLessons((prev) =>
+        prev.map((l) => {
+          const m = movesById.get(l.id);
+          if (!m || !failedIds.has(l.id)) return l;
+          return { ...l, scheduled_date: m.fromDate, date: m.fromDate };
+        }),
+      );
+    }
+
+    recordEvent("lesson.bulk_action", {
+      action: "catch_up_shift",
+      count: moves.length,
+      lesson_ids: moves.map((m) => m.lesson.id),
+      from_dates: moves.map((m) => m.fromDate),
+      to_dates: moves.map((m) => m.toDate),
+      succeeded: succeededIds.size,
+      failed: failedIds.size,
+    });
+
+    if (succeeded.length > 0) {
+      setUndoAction({
+        message:
+          failedIds.size > 0
+            ? `Shifted ${succeeded.length} of ${moves.length} forward — ${failedIds.size} couldn't move`
+            : `Shifted ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"} forward`,
+        key: `catch-up:${Date.now()}`,
+        onUndo: async () => {
+          setLessons((prev) =>
+            prev.map((l) => {
+              const m = movesById.get(l.id);
+              if (!m || !succeededIds.has(l.id)) return l;
+              return { ...l, scheduled_date: m.fromDate, date: m.fromDate };
+            }),
+          );
+          hapticTap(20);
+          succeeded.forEach((m) => flagLanded(m.lesson.id));
+          await batchUpdateScheduledDates(
+            succeeded.map((m) => ({ id: m.lesson.id, date: m.fromDate })),
+          );
+          reload();
+        },
+      });
+    } else {
+      flashNotice(`Couldn't shift ${failedIds.size} lesson${failedIds.size === 1 ? "" : "s"}.`);
+    }
+
+    reload();
+    setBulkBusy(false);
+  }, [setLessons, flagLanded, batchUpdateScheduledDates, recordEvent, reload]);
+
+  const handlePushBackConfirm = useCallback(async (args: {
+    futureMoves: PushBackMove[];
+    missedMoves: PushBackMove[];
+    shiftDays: number;
+  }) => {
+    const { futureMoves, missedMoves, shiftDays } = args;
+    if (futureMoves.length === 0 && missedMoves.length === 0) return;
+    setBulkBusy(true);
+
+    const allMoves = [...futureMoves, ...missedMoves];
+    const movesById = new Map(allMoves.map((m) => [m.lesson.id, m]));
+
+    // Optimistic local apply first — future + missed happen together.
+    setLessons((prev) =>
+      prev.map((l) => {
+        const m = movesById.get(l.id);
+        return m ? { ...l, scheduled_date: m.toDate, date: m.toDate } : l;
+      }),
+    );
+    allMoves.forEach((m) => flagLanded(m.lesson.id));
+    hapticTap(20);
+
+    // Future first, missed second. If future fails we still try missed —
+    // they target vacated slots regardless and can be undone as a unit.
+    const pairs = allMoves.map((m) => ({ id: m.lesson.id, date: m.toDate }));
+    const { succeededIds, failedIds } = await batchUpdateScheduledDates(pairs);
+    const futureSucceeded = futureMoves.filter((m) => succeededIds.has(m.lesson.id));
+    const missedSucceeded = missedMoves.filter((m) => succeededIds.has(m.lesson.id));
+
+    // Roll back any failures locally.
+    if (failedIds.size > 0) {
+      setLessons((prev) =>
+        prev.map((l) => {
+          if (!failedIds.has(l.id)) return l;
+          const m = movesById.get(l.id);
+          if (!m) return l;
+          return { ...l, scheduled_date: m.fromDate, date: m.fromDate };
+        }),
+      );
+    }
+
+    // Two distinct audit events so the Recent Changes card summarizes
+    // each half of the rebalance independently.
+    if (futureMoves.length > 0) {
+      recordEvent("lesson.bulk_action", {
+        action: "push_back_future",
+        count: futureMoves.length,
+        lesson_ids: futureMoves.map((m) => m.lesson.id),
+        from_dates: futureMoves.map((m) => m.fromDate),
+        to_dates: futureMoves.map((m) => m.toDate),
+        school_days_shifted: shiftDays,
+        succeeded: futureSucceeded.length,
+        failed: futureMoves.length - futureSucceeded.length,
+      });
+    }
+    if (missedMoves.length > 0) {
+      recordEvent("lesson.bulk_action", {
+        action: "push_back_missed_fit",
+        count: missedMoves.length,
+        lesson_ids: missedMoves.map((m) => m.lesson.id),
+        from_dates: missedMoves.map((m) => m.fromDate),
+        to_dates: missedMoves.map((m) => m.toDate),
+        succeeded: missedSucceeded.length,
+        failed: missedMoves.length - missedSucceeded.length,
+      });
+    }
+
+    const totalSucceeded = succeededIds.size;
+    if (totalSucceeded > 0) {
+      const allSucceeded = allMoves.filter((m) => succeededIds.has(m.lesson.id));
+      setUndoAction({
+        message: `Pushed schedule back by ${shiftDays} school day${shiftDays === 1 ? "" : "s"}`,
+        key: `push-back:${Date.now()}`,
+        onUndo: async () => {
+          setLessons((prev) =>
+            prev.map((l) => {
+              const m = movesById.get(l.id);
+              if (!m || !succeededIds.has(l.id)) return l;
+              return { ...l, scheduled_date: m.fromDate, date: m.fromDate };
+            }),
+          );
+          hapticTap(20);
+          allSucceeded.forEach((m) => flagLanded(m.lesson.id));
+          await batchUpdateScheduledDates(
+            allSucceeded.map((m) => ({ id: m.lesson.id, date: m.fromDate })),
+          );
+          reload();
+        },
+      });
+    } else {
+      flashNotice("Couldn't push the schedule back — check your connection.");
+    }
+
+    reload();
+    setBulkBusy(false);
+  }, [setLessons, flagLanded, batchUpdateScheduledDates, recordEvent, reload]);
+
+  // ── Vacation block modal handlers ────────────────────────────────────────
+
+  const openVacationModalCreate = useCallback((initialDate?: string) => {
+    setVacationModalInitialDate(initialDate ?? null);
+    setVacationModalExisting(null);
+    setVacationModalOpen(true);
+  }, []);
+
+  const openVacationModalEdit = useCallback((block: VacationBlockExisting) => {
+    setVacationModalInitialDate(null);
+    setVacationModalExisting(block);
+    setVacationModalOpen(true);
+  }, []);
+
+  const handleVacationSave = useCallback(async (values: VacationBlockSave) => {
+    if (!effectiveUserId) throw new Error("Not signed in");
+
+    if (vacationModalExisting) {
+      // Edit: simple UPDATE. No shift on edit (see VacationBlockModal docs).
+      const { error } = await supabase
+        .from("vacation_blocks")
+        .update({
+          name: values.name,
+          start_date: values.start_date,
+          end_date: values.end_date,
+        })
+        .eq("id", vacationModalExisting.id);
+      if (error) throw new Error(error.message);
+      reload();
+      return;
+    }
+
+    // Create path
+    const { data: inserted, error } = await supabase
+      .from("vacation_blocks")
+      .insert({
+        user_id: effectiveUserId,
+        name: values.name,
+        start_date: values.start_date,
+        end_date: values.end_date,
+      })
+      .select("id, name, start_date, end_date")
+      .single();
+    if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
+    const newId = (inserted as { id: string }).id;
+
+    let shiftApplied = false;
+    const shiftPairs: { id: string; date: string; fromDate: string }[] = [];
+    if (values.apply_shift) {
+      // How many teaching days does the break span? That's the forward shift.
+      const shiftDays = countSchoolDaysInRange(
+        values.start_date,
+        values.end_date,
+        schoolDays,
+        vacationBlocks.filter((b) => b.id !== newId), // exclude the just-inserted block
+      );
+      if (shiftDays > 0) {
+        const { data: affected } = await supabase
+          .from("lessons")
+          .select("id, scheduled_date, date")
+          .eq("user_id", effectiveUserId)
+          .eq("completed", false)
+          .gte("scheduled_date", values.start_date);
+        const rows = (affected ?? []) as { id: string; scheduled_date: string | null; date: string | null }[];
+        const blocksIncludingNew = [
+          ...vacationBlocks,
+          { id: newId, name: values.name, start_date: values.start_date, end_date: values.end_date },
+        ];
+        for (const l of rows) {
+          const orig = l.scheduled_date ?? l.date ?? values.start_date;
+          const next = nthSchoolDay(orig, schoolDays, shiftDays, blocksIncludingNew);
+          shiftPairs.push({ id: l.id, date: next, fromDate: orig });
+        }
+        if (shiftPairs.length > 0) {
+          await batchUpdateScheduledDates(
+            shiftPairs.map((p) => ({ id: p.id, date: p.date })),
+          );
+          shiftApplied = true;
+        }
+      }
+    }
+
+    recordEvent("vacation_block.created", {
+      vacation_block_id: newId,
+      name: values.name,
+      start_date: values.start_date,
+      end_date: values.end_date,
+      shift_applied: shiftApplied,
+    });
+
+    const rangeLabel =
+      values.start_date === values.end_date
+        ? new Date(`${values.start_date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+        : `${new Date(`${values.start_date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${new Date(`${values.end_date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+    setUndoAction({
+      message: shiftApplied
+        ? `Added break: ${values.name} (${rangeLabel}) · lessons shifted`
+        : `Added break: ${values.name} (${rangeLabel})`,
+      key: `vac-create:${newId}`,
+      onUndo: async () => {
+        try {
+          await supabase.from("vacation_blocks").delete().eq("id", newId);
+        } catch { /* best-effort */ }
+        if (shiftPairs.length > 0) {
+          await batchUpdateScheduledDates(
+            shiftPairs.map((p) => ({ id: p.id, date: p.fromDate })),
+          );
+        }
+        recordEvent("vacation_block.deleted", {
+          vacation_block_id: newId,
+          name: values.name,
+          start_date: values.start_date,
+          end_date: values.end_date,
+          shift_applied: shiftApplied,
+        });
+        reload();
+      },
+    });
+
+    reload();
+  }, [effectiveUserId, schoolDays, vacationBlocks, vacationModalExisting, batchUpdateScheduledDates, recordEvent, reload]);
+
+  const handleVacationDelete = useCallback(async (shiftBack: boolean) => {
+    if (!vacationModalExisting) return;
+    const { id, name, start_date, end_date, shift_applied } = vacationModalExisting;
+
+    // Capture any shift-back pairs first (while the block still exists
+    // in memory, so nthSchoolDay doesn't un-skip days it was skipping).
+    const shiftBackPairs: { id: string; date: string; fromDate: string }[] = [];
+    if (shiftBack && shift_applied && effectiveUserId) {
+      const shiftDays = countSchoolDaysInRange(
+        start_date,
+        end_date,
+        schoolDays,
+        vacationBlocks.filter((b) => b.id !== id),
+      );
+      if (shiftDays > 0) {
+        const { data: affected } = await supabase
+          .from("lessons")
+          .select("id, scheduled_date, date")
+          .eq("user_id", effectiveUserId)
+          .eq("completed", false)
+          .gte("scheduled_date", start_date);
+        const rows = (affected ?? []) as { id: string; scheduled_date: string | null; date: string | null }[];
+        const blocksWithout = vacationBlocks.filter((b) => b.id !== id);
+        // Shift back = the inverse: find each lesson's scheduled_date,
+        // walk BACKWARD by shiftDays teaching days. We don't have a
+        // previousSchoolDay helper here — easy to derive by scanning
+        // one day at a time.
+        for (const l of rows) {
+          const orig = l.scheduled_date ?? l.date;
+          if (!orig) continue;
+          const cursor = new Date(`${orig}T12:00:00`);
+          let found = 0;
+          let iters = 0;
+          while (found < shiftDays && iters < 365) {
+            cursor.setDate(cursor.getDate() - 1);
+            const s = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+            const dayIdx = cursor.getDay();
+            const dayName = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dayIdx];
+            const isSchool = schoolDays.includes(dayName);
+            const inVac = blocksWithout.some((b) => s >= b.start_date && s <= b.end_date);
+            if (isSchool && !inVac) found++;
+            iters++;
+            if (found === shiftDays) {
+              shiftBackPairs.push({ id: l.id, date: s, fromDate: orig });
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    const { error } = await supabase.from("vacation_blocks").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+
+    if (shiftBackPairs.length > 0) {
+      await batchUpdateScheduledDates(
+        shiftBackPairs.map((p) => ({ id: p.id, date: p.date })),
+      );
+    }
+
+    recordEvent("vacation_block.deleted", {
+      vacation_block_id: id,
+      name,
+      start_date,
+      end_date,
+      shift_applied: !!shift_applied,
+    });
+
+    setUndoAction({
+      message: `Deleted break: ${name}`,
+      key: `vac-delete:${id}`,
+      onUndo: async () => {
+        // Re-insert the block + re-apply forward shift pairs (reverses
+        // the shift-back, if any). We insert without the original id
+        // since Postgres won't accept it back — a fresh id is fine
+        // because audit rows are pinned to the original id.
+        try {
+          await supabase.from("vacation_blocks").insert({
+            user_id: effectiveUserId,
+            name,
+            start_date,
+            end_date,
+          });
+        } catch { /* best-effort */ }
+        if (shiftBackPairs.length > 0) {
+          await batchUpdateScheduledDates(
+            shiftBackPairs.map((p) => ({ id: p.id, date: p.fromDate })),
+          );
+        }
+        reload();
+      },
+    });
+
+    reload();
+  }, [effectiveUserId, schoolDays, vacationBlocks, vacationModalExisting, batchUpdateScheduledDates, recordEvent, reload]);
+
   // ── Day-cell context menu actions ─────────────────────────────────────────
   // Helpers scoped to the day the menu is open for. All actions close the
   // menu first, then run their handler.
@@ -1249,11 +1763,31 @@ export default function PlanV2() {
     setApptWizardDate(dateStr);
   }, []);
 
-  // "Mark as break day" — INSERTs a single-day vacation_block. No automatic
-  // lesson shift (that's legacy saveVacationBlock behavior tightly coupled to
-  // plan/page.tsx's state); any lessons on that day stay in the DB but the
-  // cell hides them while the block exists. Undo removes the block.
-  const handleMenuMarkBreak = useCallback(async (dateStr: string) => {
+  // "Mark as break day" — opens the full vacation block modal. If the
+  // clicked date is already inside an existing block we enter edit mode
+  // on that block; otherwise we enter create mode pre-seeded to the date.
+  const handleMenuMarkBreak = useCallback((dateStr: string) => {
+    setContextMenu(null);
+    const existing = vacationBlocks.find(
+      (b) => dateStr >= b.start_date && dateStr <= b.end_date,
+    );
+    if (existing) {
+      openVacationModalEdit({
+        id: existing.id,
+        name: existing.name,
+        start_date: existing.start_date,
+        end_date: existing.end_date,
+      });
+    } else {
+      openVacationModalCreate(dateStr);
+    }
+  }, [vacationBlocks, openVacationModalCreate, openVacationModalEdit]);
+
+  // Legacy single-day insert path — retained under a new name in case we
+  // want to bring it back from the keyboard shortcut later. Currently
+  // unreachable; the context menu uses the modal-driven flow above.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleMenuMarkBreakLegacy = useCallback(async (dateStr: string) => {
     setContextMenu(null);
     if (!effectiveUserId) return;
     // Optimistic: show the block immediately by writing to local state via reload after insert.
@@ -1313,6 +1847,9 @@ export default function PlanV2() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (vacationModalOpen) { setVacationModalOpen(false); return; }
+      if (pushBackOpen) { setPushBackOpen(false); return; }
+      if (shiftForwardOpen) { setShiftForwardOpen(false); return; }
       if (addLessonOpen) { setAddLessonOpen(false); return; }
       if (editLessonTarget) { setEditLessonTarget(null); return; }
       if (rescheduleTarget) { setRescheduleTarget(null); return; }
@@ -1324,7 +1861,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -1375,6 +1912,19 @@ export default function PlanV2() {
             Month
           </button>
         </div>
+
+        {/* Catch-up banner — above MissedLessonsBanner when the user has a
+            meaningful backlog (5+ across 2+ days) and hasn't dismissed it
+            within the last 7 days. Handles bulk "shift everything" flows;
+            MissedLessonsBanner handles per-row and select-all flows. */}
+        {!loading && showCatchUpBanner ? (
+          <CatchUpBanner
+            count={missedLessonsInView.length}
+            onShiftForward={() => setShiftForwardOpen(true)}
+            onPushBack={() => setPushBackOpen(true)}
+            onDismiss={dismissCatchUp}
+          />
+        ) : null}
 
         {/* Missed-lessons banner — above the calendar card so partners who
             grade after the fact can bulk-close the backlog in two clicks.
@@ -1469,6 +2019,13 @@ export default function PlanV2() {
                   className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#7a60a8] hover:bg-[#f5f0ff] transition-colors"
                 >
                   <Plus size={13} /> Appt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openVacationModalCreate()}
+                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#a07000] hover:bg-[#fef9e8] transition-colors"
+                >
+                  <Plus size={13} /> Break
                 </button>
                 <button
                   type="button"
@@ -1878,6 +2435,38 @@ export default function PlanV2() {
           goals={curriculumGoals}
           onClose={() => setEditLessonTarget(null)}
           onSubmit={handleSubmitEditLesson}
+        />
+
+        {/* Catch-up modals + vacation modal */}
+        <ShiftForwardModal
+          isOpen={shiftForwardOpen}
+          missed={missedLessonsInView}
+          schoolDays={schoolDays}
+          vacationBlocks={vacationBlocks}
+          onClose={() => setShiftForwardOpen(false)}
+          onConfirm={handleCatchUpShiftConfirm}
+        />
+        <PushBackModal
+          isOpen={pushBackOpen}
+          missed={missedLessonsInView}
+          futureLessons={futureLessonsInView}
+          schoolDays={schoolDays}
+          vacationBlocks={vacationBlocks}
+          onClose={() => setPushBackOpen(false)}
+          onConfirm={handlePushBackConfirm}
+        />
+        <VacationBlockModal
+          isOpen={vacationModalOpen}
+          mode={vacationModalExisting ? "edit" : "create"}
+          initialStartDate={vacationModalInitialDate ?? undefined}
+          existing={vacationModalExisting}
+          onClose={() => {
+            setVacationModalOpen(false);
+            setVacationModalExisting(null);
+            setVacationModalInitialDate(null);
+          }}
+          onSave={handleVacationSave}
+          onDelete={vacationModalExisting ? handleVacationDelete : undefined}
         />
 
         {/* Global undo bar */}
