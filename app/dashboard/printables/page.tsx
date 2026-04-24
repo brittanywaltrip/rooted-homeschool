@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Download } from "lucide-react";
+import Link from "next/link";
+import { Calendar, Download } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
@@ -792,6 +793,31 @@ export default function PrintablesPage() {
               )}
             </button>
           ))}
+        </div>
+      </section>
+
+      {/* ── Wall Calendars ──────────────────────────────────────── */}
+      <section>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Wall Calendars</p>
+        <h2 className="text-[13px] font-medium text-[#5C5346] mb-0.5">📅 One-page planners</h2>
+        <p className="text-xs text-[#b5aca4] mb-4">Print a wall calendar your kids can reference daily.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Link
+            href="/dashboard/printables/year-planner"
+            className="flex items-start gap-3 bg-white border border-[#e8e5e0] rounded-2xl p-4 hover:border-[#2D5A3D] hover:shadow-sm transition-all group"
+          >
+            <span className="shrink-0 w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center text-[#2D5A3D]">
+              <Calendar size={20} />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#2d2926] group-hover:text-[#2D5A3D] transition-colors">
+                Year Planner
+              </p>
+              <p className="text-[11px] text-[#b5aca4] mt-0.5 leading-relaxed">
+                Horizontal 12-month grid with breaks, birthdays &amp; appointments — landscape wall calendar.
+              </p>
+            </div>
+          </Link>
         </div>
       </section>
 
