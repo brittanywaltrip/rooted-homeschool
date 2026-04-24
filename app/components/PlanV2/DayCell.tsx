@@ -61,6 +61,17 @@ interface Props {
   /** Set by MonthGrid's keyboard nav. Renders a visible focus ring so
    * keyboard users can see which cell is currently "hot". */
   isKeyboardFocused?: boolean;
+  /** Optional holiday label (e.g. "🦃 Thanksgiving"). Shown as a small
+   *  italic subtitle under the date number. Informational — does NOT
+   *  block scheduling. */
+  holidayName?: string;
+  /** Optional school-year milestone label ("🎒 First day" / "🎓 Last day").
+   *  Takes priority over holidayName when both happen to land on the same
+   *  date — milestones are closer to "action this day" than holidays. */
+  milestoneLabel?: string;
+  /** Layout preset. "month" = compact (default); "week" = taller with
+   *  larger pill slots for the Week view. */
+  sizeVariant?: "month" | "week";
 }
 
 export const CELL_ID_PREFIX = "planv2-cell-";
@@ -83,7 +94,11 @@ export default function DayCell(props: Props) {
     onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
     onLessonLongPress, onLessonSelectToggle, onMoveTargetPick,
     onCellContextMenu, isKeyboardFocused,
+    holidayName, milestoneLabel, sizeVariant = "month",
   } = props;
+  const isWeekVariant = sizeVariant === "week";
+  // Week view shows more pills before the "+N more" overflow.
+  const visibleCap = isWeekVariant ? 8 : MAX_VISIBLE_PILLS;
 
   // Track the last pointerdown position so the cell-level long-press can
   // spawn the context menu at the correct coordinates without needing another
@@ -102,8 +117,8 @@ export default function DayCell(props: Props) {
 
   const sortedAppts = useMemo(() => sortAppointments(appointments), [appointments]);
   const totalItems = sortedAppts.length + lessons.length;
-  const visibleAppts = sortedAppts.slice(0, MAX_VISIBLE_PILLS);
-  const remainingLessonCap = Math.max(0, MAX_VISIBLE_PILLS - visibleAppts.length);
+  const visibleAppts = sortedAppts.slice(0, visibleCap);
+  const remainingLessonCap = Math.max(0, visibleCap - visibleAppts.length);
   const visibleLessons = lessons.slice(0, remainingLessonCap);
   const overflowCount = totalItems - visibleAppts.length - visibleLessons.length;
 
@@ -200,7 +215,9 @@ export default function DayCell(props: Props) {
       onPointerMove={cellLongPress.onPointerMove}
       onPointerCancel={cellLongPress.onPointerCancel}
       onPointerLeave={cellLongPress.onPointerLeave}
-      className="relative min-h-[82px] flex flex-col gap-[3px] p-1.5 transition-colors hover:bg-[#faf8f4]"
+      className={`relative flex flex-col gap-[3px] p-1.5 transition-colors hover:bg-[#faf8f4] ${
+        isWeekVariant ? "min-h-[160px]" : "min-h-[82px]"
+      }`}
       style={{
         backgroundColor: cellBg,
         backgroundImage,
@@ -236,6 +253,30 @@ export default function DayCell(props: Props) {
           </span>
         ) : null}
       </div>
+
+      {/* Milestone marker — school year start/end. Highest priority since
+          these are once-per-year and worth surfacing prominently. */}
+      {milestoneLabel ? (
+        <p
+          className="text-[9px] font-semibold truncate"
+          style={{ color: "#C4962A" }}
+          title={milestoneLabel}
+        >
+          {milestoneLabel}
+        </p>
+      ) : null}
+
+      {/* Holiday subtitle — informational only. Hidden behind milestone +
+          vacation since those are more actionable. */}
+      {!milestoneLabel && !vacation && holidayName ? (
+        <p
+          className="text-[9px] italic truncate"
+          style={{ color: "#9a8e84" }}
+          title={holidayName}
+        >
+          {holidayName}
+        </p>
+      ) : null}
 
       {/* Vacation label */}
       {vacation ? (

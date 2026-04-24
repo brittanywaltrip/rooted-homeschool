@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import DayCell, { CELL_ID_PREFIX } from "./DayCell";
-import { computeGridRange } from "./usePlanV2Data";
 import type {
   PlanV2Appointment,
   PlanV2Child,
@@ -10,8 +9,20 @@ import type {
   PlanV2Vacation,
 } from "./types";
 
-/* 42-cell month grid. Owns layout, per-cell bucket precomputation, and
- * keyboard navigation. DayCell stays pure. */
+/* ============================================================================
+ * WeekStrip — 7-day horizontal strip for the Week view of PlanV2.
+ *
+ * Same DayCell sub-renderer as MonthGrid uses; we just lay out 7 cells in a
+ * row with a taller `sizeVariant="week"` so more lesson pills fit before
+ * the "+N more" overflow trigger. All Month-view interactions (drag-drop,
+ * select mode, context menu, keyboard nav) work in Week view because they
+ * all live on DayCell — this component is only a layout swap.
+ *
+ * The week starts Sunday to match MonthGrid's weekday header order so the
+ * two views feel like the same data viewed at different zoom levels.
+ * ==========================================================================*/
+
+const HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -26,10 +37,8 @@ function vacationFor(dateStr: string, blocks: PlanV2Vacation[]): PlanV2Vacation 
   return blocks.find((b) => dateStr >= b.start_date && dateStr <= b.end_date) ?? null;
 }
 
-const HEADERS = ["S", "M", "T", "W", "T", "F", "S"] as const;
-
 interface Props {
-  monthStart: Date;
+  weekStart: Date; // Sunday on or before the focused date
   todayStr: string;
   kids: PlanV2Child[];
   lessons: PlanV2Lesson[];
@@ -42,7 +51,6 @@ interface Props {
   selectMode?: boolean;
   selectedIds?: Set<string>;
   moveTargetMode?: boolean;
-  /** Currently focused cell for keyboard nav ("YYYY-MM-DD"). */
   focusedDateStr?: string | null;
   onFocusedDateChange?: (dateStr: string) => void;
   onCellClick?: (dateStr: string) => void;
@@ -53,24 +61,22 @@ interface Props {
   onLessonSelectToggle?: (lesson: PlanV2Lesson) => void;
   onMoveTargetPick?: (dateStr: string) => void;
   onCellContextMenu?: (dateStr: string, x: number, y: number) => void;
-  /** YYYY-MM-DD → US holiday display label. Optional. */
   holidays?: Map<string, string>;
-  /** YYYY-MM-DD → school-year milestone label. Optional. */
   milestones?: Map<string, string>;
 }
 
 function SkeletonCell() {
   return (
     <div
-      className="min-h-[82px] rounded-lg animate-pulse"
+      className="min-h-[160px] rounded-lg animate-pulse"
       style={{ backgroundColor: "#f4f0e8", border: "0.5px solid #ece8e0" }}
     />
   );
 }
 
-export default function MonthGrid(props: Props) {
+export default function WeekStrip(props: Props) {
   const {
-    monthStart, todayStr, kids, lessons, appointments, vacationBlocks,
+    weekStart, todayStr, kids, lessons, appointments, vacationBlocks,
     loading, dndEnabled, isDragActive, recentlyLandedIds,
     selectMode, selectedIds, moveTargetMode,
     focusedDateStr, onFocusedDateChange,
@@ -79,13 +85,18 @@ export default function MonthGrid(props: Props) {
     onCellContextMenu, holidays, milestones,
   } = props;
 
-  const { cells } = useMemo(() => computeGridRange(monthStart), [monthStart]);
-  const monthIndex = monthStart.getMonth();
+  const cells = useMemo(() => {
+    const out: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      out.push(new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i));
+    }
+    return out;
+  }, [weekStart]);
 
   const childrenById = useMemo(() => {
-    const map = new Map<string, { child: PlanV2Child; index: number }>();
-    kids.forEach((c, i) => map.set(c.id, { child: c, index: i }));
-    return map;
+    const m = new Map<string, { child: PlanV2Child; index: number }>();
+    kids.forEach((c, i) => m.set(c.id, { child: c, index: i }));
+    return m;
   }, [kids]);
 
   const { lessonsByDate, apptsByDate } = useMemo(() => {
@@ -106,63 +117,35 @@ export default function MonthGrid(props: Props) {
     return { lessonsByDate: lMap, apptsByDate: aMap };
   }, [lessons, appointments]);
 
-  // Clamp the focused cell to the 42-cell window. The orchestrator may set
-  // a focusedDateStr that falls outside (e.g. in the previous month) after
-  // month nav — we fall back to the first same-month cell in that case.
   const visibleDateStrs = useMemo(() => cells.map(toDateStr), [cells]);
   const effectiveFocusedDateStr = useMemo(() => {
     if (focusedDateStr && visibleDateStrs.includes(focusedDateStr)) return focusedDateStr;
-    // Fallback: today if visible, else first day of the current month.
     if (visibleDateStrs.includes(todayStr)) return todayStr;
-    const firstCurrent = visibleDateStrs.find((s) => {
-      const d = parseDateStr(s);
-      return d.getMonth() === monthIndex;
-    });
-    return firstCurrent ?? visibleDateStrs[0] ?? null;
-  }, [focusedDateStr, visibleDateStrs, todayStr, monthIndex]);
+    return visibleDateStrs[0] ?? null;
+  }, [focusedDateStr, visibleDateStrs, todayStr]);
 
   function moveFocus(deltaDays: number) {
     if (!effectiveFocusedDateStr) return;
     const base = parseDateStr(effectiveFocusedDateStr);
     base.setDate(base.getDate() + deltaDays);
     const next = toDateStr(base);
-    // Only move within the visible window. Beyond-edge = no-op (prev/next
-    // month are reachable via the toolbar arrows; avoids surprise jumps).
     if (visibleDateStrs.includes(next)) onFocusedDateChange?.(next);
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
-    // Allow unmodified arrow/Enter/Space/Home/End only — don't intercept
-    // browser shortcuts or screen reader pass-throughs.
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     switch (e.key) {
-      case "ArrowLeft":
-        e.preventDefault(); moveFocus(-1); break;
-      case "ArrowRight":
-        e.preventDefault(); moveFocus(1); break;
-      case "ArrowUp":
-        e.preventDefault(); moveFocus(-7); break;
-      case "ArrowDown":
-        e.preventDefault(); moveFocus(7); break;
+      case "ArrowLeft": e.preventDefault(); moveFocus(-1); break;
+      case "ArrowRight": e.preventDefault(); moveFocus(1); break;
+      // Up/Down on a 1-row strip have no semantic target — let the browser
+      // scroll instead of trapping the keystroke.
       case "Home":
         e.preventDefault();
-        if (effectiveFocusedDateStr) {
-          const base = parseDateStr(effectiveFocusedDateStr);
-          const idx = base.getDay();
-          base.setDate(base.getDate() - idx);
-          const next = toDateStr(base);
-          if (visibleDateStrs.includes(next)) onFocusedDateChange?.(next);
-        }
+        if (visibleDateStrs[0]) onFocusedDateChange?.(visibleDateStrs[0]);
         break;
       case "End":
         e.preventDefault();
-        if (effectiveFocusedDateStr) {
-          const base = parseDateStr(effectiveFocusedDateStr);
-          const idx = base.getDay();
-          base.setDate(base.getDate() + (6 - idx));
-          const next = toDateStr(base);
-          if (visibleDateStrs.includes(next)) onFocusedDateChange?.(next);
-        }
+        if (visibleDateStrs[6]) onFocusedDateChange?.(visibleDateStrs[6]);
         break;
       case "Enter":
       case " ":
@@ -175,7 +158,7 @@ export default function MonthGrid(props: Props) {
   return (
     <div
       role="grid"
-      aria-label="Month calendar"
+      aria-label="Week calendar"
       tabIndex={0}
       onKeyDown={onKeyDown}
       aria-activedescendant={
@@ -183,26 +166,34 @@ export default function MonthGrid(props: Props) {
       }
       className="w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2D5A3D] focus-visible:ring-offset-2 rounded-lg"
     >
-      {/* Day-of-week headers */}
+      {/* Day-of-week + date headers */}
       <div className="grid grid-cols-7 gap-1 pb-1.5">
-        {HEADERS.map((h, i) => (
-          <div
-            key={i}
-            className="text-center text-[10px] font-semibold uppercase tracking-wider"
-            style={{ color: "#8B7E74" }}
-          >
-            {h}
-          </div>
-        ))}
+        {cells.map((d, i) => {
+          const isToday = toDateStr(d) === todayStr;
+          return (
+            <div
+              key={i}
+              className="text-center"
+              style={{ color: isToday ? "#2D5A3D" : "#8B7E74" }}
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-wider">{HEADERS[i]}</p>
+              <p
+                className="text-[14px] font-bold tabular-nums leading-tight"
+                style={{ color: isToday ? "#2D5A3D" : "#2d2926" }}
+              >
+                {d.getDate()}
+              </p>
+            </div>
+          );
+        })}
       </div>
 
       {/* Cells */}
       <div className="grid grid-cols-7 gap-1">
         {loading
-          ? Array.from({ length: 42 }).map((_, i) => <SkeletonCell key={i} />)
+          ? Array.from({ length: 7 }).map((_, i) => <SkeletonCell key={i} />)
           : cells.map((d) => {
               const dateStr = toDateStr(d);
-              const isCurrentMonth = d.getMonth() === monthIndex;
               const isToday = dateStr === todayStr;
               const nativeDow = d.getDay();
               const isWeekend = nativeDow === 0 || nativeDow === 6;
@@ -212,7 +203,7 @@ export default function MonthGrid(props: Props) {
                   key={dateStr}
                   date={d}
                   dateStr={dateStr}
-                  isCurrentMonth={isCurrentMonth}
+                  isCurrentMonth={true}
                   isToday={isToday}
                   isWeekend={isWeekend}
                   vacation={vac}
@@ -240,6 +231,7 @@ export default function MonthGrid(props: Props) {
                   onCellContextMenu={onCellContextMenu}
                   holidayName={holidays?.get(dateStr)}
                   milestoneLabel={milestones?.get(dateStr)}
+                  sizeVariant="week"
                 />
               );
             })}
