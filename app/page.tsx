@@ -27,6 +27,44 @@ function ReferralBanner() {
     setCode(upper);
     setVisible(true);
     try { localStorage.setItem("rooted_referral_code", upper); } catch {}
+
+    // Fire-and-forget click tracking. 24h cookie dedup so a refresh
+    // storm from one visitor doesn't inflate the counter. The endpoint
+    // also handles self-referral suppression (Kendra clicking her own
+    // link) when an auth token is forwarded.
+    const cookieName = `ref_clicked_${upper}`;
+    const alreadyTracked =
+      typeof document !== "undefined" &&
+      document.cookie.split("; ").some((c) => c.startsWith(`${cookieName}=`));
+    if (!alreadyTracked) {
+      (async () => {
+        let authHeader: Record<string, string> = {};
+        try {
+          const { data } = await supabase.auth.getSession();
+          const token = data.session?.access_token;
+          if (token) authHeader = { Authorization: `Bearer ${token}` };
+        } catch {
+          // Anonymous visitor — no auth header, endpoint just treats
+          // this as a normal click.
+        }
+        try {
+          await fetch("/api/affiliate/track-click", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeader },
+            body: JSON.stringify({ code: upper }),
+            keepalive: true,
+          });
+        } catch {
+          // Swallow — tracking failures must never block page render.
+        }
+      })();
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        document.cookie = `${cookieName}=${today}; max-age=86400; path=/; samesite=lax`;
+      } catch {
+        // Cookie set can fail in strict privacy modes — safe to ignore.
+      }
+    }
   }, [searchParams]);
 
   if (!visible) return null;
