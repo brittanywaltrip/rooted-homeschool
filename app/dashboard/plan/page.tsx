@@ -421,6 +421,15 @@ export default function PlanPage() {
   const [editingAppt, setEditingAppt] = useState<EditableAppointment | null>(null);
   const [showApptCreate, setShowApptCreate] = useState(false);
   const [showAddLessonPicker, setShowAddLessonPicker] = useState(false);
+  // When true, the Add Lesson dialog swaps from the curriculum picker view
+  // to the one-off custom-lesson form. Frame, title, and date stay the same.
+  const [customLessonView, setCustomLessonView] = useState(false);
+  const [customChildId, setCustomChildId] = useState<string>("");
+  const [customSubject, setCustomSubject] = useState("");
+  const [customTitle, setCustomTitle] = useState("");
+  const [customNotes, setCustomNotes] = useState("");
+  const [customSubmitting, setCustomSubmitting] = useState(false);
+  const [customError, setCustomError] = useState<string | null>(null);
 
   // ── Add-lesson picker (empty day) — sourced from curricGroups ───────────
   const [lessonAddUndo, setLessonAddUndo] = useState<{ message: string; insertedLessonId: string } | null>(null);
@@ -978,6 +987,71 @@ export default function PlanPage() {
     setLessonAddUndo(null);
     if (lessonAddUndoTimer.current) clearTimeout(lessonAddUndoTimer.current);
     loadData(); loadAllLessons();
+  }
+
+  // ── One-off custom lesson submit ─────────────────────────────────────────
+  // Mirrors the PlanV2 AddLessonModal pattern from feat/plan-redesign:
+  // direct supabase insert with curriculum_goal_id NULL, lesson_number NULL,
+  // subject_id NULL. Subject is a free-text field; when supplied, it's
+  // prepended to the title with " · " so the existing render paths show it
+  // inline ("Reading · Reading Lesson 1"). subject_id stays null because
+  // looking up / creating subject rows on the fly is the legacy curriculum
+  // flow's responsibility — one-off lessons don't need a goal/subject FK.
+  function resetCustomLessonForm() {
+    setCustomLessonView(false);
+    setCustomSubject("");
+    setCustomTitle("");
+    setCustomNotes("");
+    setCustomError(null);
+    setCustomSubmitting(false);
+  }
+  function openCustomLessonForm() {
+    // Default child to the per-child filter if one is active, else the
+    // first child. The user can change it in the dropdown.
+    const defaultChild = selectedChild ?? children[0]?.id ?? "";
+    setCustomChildId(defaultChild);
+    setCustomSubject("");
+    setCustomTitle("");
+    setCustomNotes("");
+    setCustomError(null);
+    setCustomSubmitting(false);
+    setCustomLessonView(true);
+  }
+  async function submitCustomLesson() {
+    if (!effectiveUserId) return;
+    const subj = customSubject.trim();
+    const ttl = customTitle.trim();
+    if (!subj || !ttl) return;
+    if (!customChildId) {
+      setCustomError("Pick a child for this lesson.");
+      return;
+    }
+    setCustomSubmitting(true);
+    setCustomError(null);
+    const finalTitle = `${subj} · ${ttl}`;
+    const { error } = await supabase.from("lessons").insert({
+      user_id: effectiveUserId,
+      child_id: customChildId,
+      subject_id: null,
+      curriculum_goal_id: null,
+      title: finalTitle,
+      lesson_number: null,
+      scheduled_date: selectedDay,
+      date: selectedDay,
+      completed: false,
+      hours: 0,
+      notes: customNotes.trim().length > 0 ? customNotes.trim() : null,
+    });
+    if (error) {
+      setCustomError(error.message ?? "Couldn't add lesson");
+      setCustomSubmitting(false);
+      return;
+    }
+    setCustomSubmitting(false);
+    setShowAddLessonPicker(false);
+    resetCustomLessonForm();
+    loadData();
+    loadAllLessons();
   }
 
   // Tap a curriculum group → reschedule its next incomplete lesson to
@@ -3252,26 +3326,127 @@ export default function PlanPage() {
           sectionMap.get(key)!.groups.push(g);
         }
         const childSections = Array.from(sectionMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+        // Closes the dialog AND tears down the custom form state so the
+        // next open starts fresh on the curriculum list.
+        const closeDialog = () => {
+          setShowAddLessonPicker(false);
+          resetCustomLessonForm();
+        };
+        const customCanSubmit =
+          customSubject.trim().length > 0 &&
+          customTitle.trim().length > 0 &&
+          customChildId.length > 0 &&
+          !customSubmitting;
         return (
           <>
-            <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => setShowAddLessonPicker(false)} />
+            <div className="fixed inset-0 bg-black/30 z-[80]" onClick={closeDialog} />
             <div className="fixed bottom-0 left-0 right-0 z-[81] bg-[#faf8f4] rounded-t-2xl shadow-xl max-w-lg mx-auto">
               <div className="p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-base font-medium text-[var(--g-deep)]" style={{ fontFamily: "var(--font-display)" }}>
-                    Add a lesson to {pickerLabel}
-                  </h3>
-                  <button onClick={() => setShowAddLessonPicker(false)} aria-label="Close" className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {customLessonView ? (
+                      <button
+                        onClick={() => { setCustomLessonView(false); setCustomError(null); }}
+                        aria-label="Back to curriculum list"
+                        className="text-[#7a6f65] hover:text-[#2d2926] text-sm leading-none p-1"
+                      >
+                        ‹ Back
+                      </button>
+                    ) : null}
+                    <h3 className="text-base font-medium text-[var(--g-deep)] truncate" style={{ fontFamily: "var(--font-display)" }}>
+                      Add a lesson to {pickerLabel}
+                    </h3>
+                  </div>
+                  <button onClick={closeDialog} aria-label="Close" className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
                 </div>
-                {childSections.length === 0 ? (
-                  <div className="py-8 text-center">
+
+                {customLessonView ? (
+                  /* ── Custom one-off lesson form ──────────────────────────
+                     Form inherits `selectedDay` from the parent dialog
+                     context — no date picker. */
+                  <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+                    <label className="block">
+                      <span className="block text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-1">Child</span>
+                      <select
+                        value={customChildId}
+                        onChange={(e) => setCustomChildId(e.target.value)}
+                        className="w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
+                      >
+                        {children.length === 0 ? <option value="">(no children)</option> : null}
+                        {children.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="block text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-1">Subject</span>
+                      <input
+                        type="text"
+                        value={customSubject}
+                        onChange={(e) => setCustomSubject(e.target.value)}
+                        placeholder="e.g. Reading"
+                        className="w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] placeholder:text-[#c4bfb8] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="block text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-1">Title</span>
+                      <input
+                        type="text"
+                        value={customTitle}
+                        onChange={(e) => setCustomTitle(e.target.value)}
+                        placeholder="e.g. Reading Lesson 1"
+                        className="w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] placeholder:text-[#c4bfb8] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="block text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-1">Notes <span className="text-[#c4bfb8] normal-case tracking-normal">(optional)</span></span>
+                      <textarea
+                        value={customNotes}
+                        onChange={(e) => setCustomNotes(e.target.value)}
+                        placeholder="Prep items, extras, reminders…"
+                        rows={2}
+                        className="w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] placeholder:text-[#c4bfb8] resize-none focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
+                      />
+                    </label>
+                    {customError ? (
+                      <p className="text-[11px] text-[#b91c1c]">{customError}</p>
+                    ) : null}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={closeDialog}
+                        disabled={customSubmitting}
+                        className="flex-1 min-h-[44px] text-sm font-medium text-[#7a6f65] bg-[#f4f0e8] rounded-xl hover:bg-[#e8e2d9] transition-colors disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={submitCustomLesson}
+                        disabled={!customCanSubmit}
+                        className="flex-1 min-h-[44px] text-sm font-bold text-white bg-[#5c7f63] hover:bg-[var(--g-deep)] rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {customSubmitting ? "Adding…" : "Add lesson"}
+                      </button>
+                    </div>
+                  </div>
+                ) : childSections.length === 0 ? (
+                  <div className="py-8 text-center space-y-3">
                     <p className="text-sm text-[#2d2926]">No curriculum set up yet</p>
-                    <button
-                      onClick={() => { setShowAddLessonPicker(false); setShowCreateWizard(true); }}
-                      className="mt-4 px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
-                    >
-                      + Add curriculum
-                    </button>
+                    <div className="flex flex-col items-center gap-2">
+                      <button
+                        onClick={() => { setShowAddLessonPicker(false); setShowCreateWizard(true); }}
+                        className="px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
+                      >
+                        + Add curriculum
+                      </button>
+                      {/* Even with no curriculum the user can drop in a one-off
+                          lesson — same Custom card the populated state shows. */}
+                      <button
+                        onClick={openCustomLessonForm}
+                        className="px-4 py-2 rounded-xl bg-white border border-[#e8e2d9] hover:bg-[#f4faf0] text-[#2d2926] text-sm font-medium transition-colors"
+                      >
+                        ✏️ Custom lesson — no curriculum
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-4 max-h-[60vh] overflow-y-auto">
@@ -3312,6 +3487,31 @@ export default function PlanPage() {
                         </div>
                       </div>
                     ))}
+
+                    {/* ── CUSTOM section: one-off lesson without a curriculum.
+                        Same card chrome (white bg, rounded-xl, border, hover
+                        green) as the curriculum cards above so the picker
+                        reads as a single uninterrupted list. */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5 pl-1">
+                        <span style={{
+                          width: 18, height: 18, borderRadius: "50%",
+                          background: "#c8bfb5", display: "inline-block", flexShrink: 0,
+                        }} />
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74]">Custom</p>
+                      </div>
+                      <button
+                        onClick={openCustomLessonForm}
+                        className="w-full flex items-center gap-3 p-3 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left"
+                      >
+                        <span className="text-lg shrink-0">✏️</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#2d2926] truncate">Custom lesson — no curriculum needed</p>
+                          <p className="text-xs text-[#9a8e84] truncate">A one-off lesson for this day</p>
+                        </div>
+                        <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
