@@ -5,6 +5,7 @@ import { useDroppable } from "@dnd-kit/core";
 import LessonPill from "./LessonPill";
 import AppointmentPill from "./AppointmentPill";
 import { useLongPress } from "./useLongPress";
+import { DateCircle, InlineLeaf } from "./print-decorations";
 import type {
   PlanV2Appointment,
   PlanV2Child,
@@ -135,7 +136,10 @@ export default function DayCell(props: Props) {
     !isCurrentMonth ? "#fbfaf7"
     : isWeekend ? "#faf8f4"
     : "#ffffff";
-  const borderColor = isToday ? "#5c7f63" : "#ece8e0";
+  // Notebook-edge tone — replaces the previous neutral gray so cells read
+  // as paper rather than glass. Today still gets the existing brand stroke
+  // because its DateCircle is the primary "today" affordance now.
+  const borderColor = isToday ? "#5c7f63" : "var(--paper-edge, #ece8e0)";
 
   // Visual states during a drag.
   const dragValidHint = !!isDragActive && !vacation && dndEnabled && !selectMode && !moveTargetMode;
@@ -229,21 +233,25 @@ export default function DayCell(props: Props) {
         outlineOffset: keyboardFocusOutline ? 2 : undefined,
       }}
     >
-      {/* Header row: day number + count */}
+      {/* Header row: date number (Caveat hand-drawn feel; DateCircle SVG
+          ring on today) + item count. */}
       <div className="flex items-center justify-between shrink-0">
-        <span
-          className="inline-flex items-center justify-center text-[11px] font-semibold leading-none"
-          style={{
-            color: isToday ? "#ffffff" : isCurrentMonth ? "#2d2926" : "#b5aca4",
-            backgroundColor: isToday ? "#5c7f63" : "transparent",
-            borderRadius: 999,
-            width: isToday ? 18 : undefined,
-            height: isToday ? 18 : undefined,
-            padding: isToday ? 0 : "0 2px",
-          }}
-        >
-          {date.getDate()}
-        </span>
+        {isToday ? (
+          // DateCircle is its own hand-drawn ring, stroked + sized to fit
+          // inside the cell header without pushing pills down.
+          <DateCircle dateNumber={date.getDate()} size={isWeekVariant ? 32 : 26} color="#5c7f63" />
+        ) : (
+          <span
+            className="font-handwritten inline-flex items-center justify-center leading-none"
+            style={{
+              fontSize: isWeekVariant ? 22 : 20,
+              color: isCurrentMonth ? "var(--ink-primary, #2d2926)" : "#b5aca4",
+              padding: "0 2px",
+            }}
+          >
+            {date.getDate()}
+          </span>
+        )}
         {totalItems > 0 && !vacation ? (
           <span
             className="text-[9px] font-semibold text-[#7a6f65] leading-none"
@@ -278,11 +286,26 @@ export default function DayCell(props: Props) {
         </p>
       ) : null}
 
-      {/* Vacation label */}
+      {/* Vacation label + faint leaf watermark — the watermark hints "off
+          day" without competing with the vacation name itself. */}
       {vacation ? (
-        <p className="text-[9px] font-semibold truncate" style={{ color: "#a07000" }}>
-          🌴 {vacation.name}
-        </p>
+        <>
+          <p className="text-[9px] font-semibold truncate" style={{ color: "#a07000" }}>
+            🌴 {vacation.name}
+          </p>
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              right: 4,
+              bottom: 4,
+              opacity: 0.15,
+              pointerEvents: "none",
+            }}
+          >
+            <InlineLeaf size={isWeekVariant ? 32 : 22} color="#a07000" />
+          </span>
+        </>
       ) : null}
 
       {/* "Drop here" preview — only when this specific cell is hovered during a drag */}

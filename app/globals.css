@@ -34,12 +34,83 @@
   --font-mono: var(--font-geist-mono);
   --font-serif: var(--font-display);
   --font-handwritten: var(--font-caveat);
+
+  /* ── Paper-planner palette (light only) ──
+   * Used by Plan view + Today's daily list to evoke a hand-drawn,
+   * cream-paper feel on screen. Print sheets keep their own #FAF7F0
+   * variable inline so this set can move independently. */
+  --paper-bg: #FBF7EE;       /* warm cream backdrop */
+  --paper-line: #E8DFC8;     /* faint ruled line */
+  --paper-edge: #D9CFB3;     /* notebook edge / cell border */
+  --ink-primary: #2E3A2A;    /* dark sage ink */
+  --ink-soft: #6B7363;       /* secondary ink */
+  --leaf-sage: #7C9070;      /* botanical accent (default leaf) */
+  --leaf-soft: #B8C7A6;      /* lighter accent */
+  --pencil-gray: #8B8579;    /* checkbox stroke / pencil-outline */
 }
 
 /* Tailwind utility for the Caveat handwritten script — used by Plan print
  * sheets (Daily/Week/Month) to give the planner-page feel. */
 .font-handwritten {
   font-family: var(--font-caveat), "Caveat", cursive;
+}
+
+/* ─── Paper-planner utilities (on-screen Plan + Today refresh) ────────────────
+ * Apply behind notes/list panels — NOT behind grids, where the rule lines
+ * would create visual noise against pill rows. */
+.paper-bg {
+  background-color: var(--paper-bg);
+}
+.paper-lined {
+  background-color: var(--paper-bg);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 27px,
+    var(--paper-line) 27px,
+    var(--paper-line) 28px
+  );
+}
+
+/* "Pencil-outline" button — used by the Plan toolbar + the Today card's
+ * Print button so the action chrome reads as drawn, not stamped. Color
+ * tokens lean on the paper palette so the chrome stays warm. */
+.pencil-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1.5px solid var(--ink-primary);
+  background: transparent;
+  color: var(--ink-primary);
+  font-family: var(--font-caveat), "Caveat", cursive;
+  font-size: 16px;
+  line-height: 1;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+  cursor: pointer;
+}
+.pencil-btn:hover {
+  background-color: var(--paper-bg);
+}
+.pencil-btn:active,
+.pencil-btn[aria-pressed="true"] {
+  /* "Graphite pressure" — a faint inner shadow as if the pencil pressed
+   * harder. Subtle enough that it doesn't override the rest state. */
+  box-shadow: inset 0 1px 0 rgba(46, 58, 42, 0.18);
+  background-color: var(--paper-bg);
+}
+.pencil-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pencil-btn--gold {
+  border-color: #a07000;
+  color: #7a4a1a;
+  background-color: #fef9e8;
+}
+.pencil-btn--gold:hover {
+  background-color: #fef0d6;
 }
 
 body {

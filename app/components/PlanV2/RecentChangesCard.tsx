@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { InlineLeaf } from "./print-decorations";
 import {
   countEventsInLastDays,
   dateGroupKey,
@@ -121,11 +122,12 @@ export default function RecentChangesCard(props: RecentChangesCardProps) {
         aria-controls="recent-changes-body"
         className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-[#faf8f4] transition-colors"
       >
-        <span aria-hidden className="text-base leading-none">
-          📋
-        </span>
+        <InlineLeaf size={18} color="var(--leaf-sage, #7C9070)" />
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-[#2d2926] leading-tight">
+          <p
+            className="font-handwritten leading-tight"
+            style={{ fontSize: 22, color: "var(--ink-primary, #2d2926)" }}
+          >
             Recent changes
           </p>
           <p className="text-[11px] text-[#7a6f65] mt-0.5">
@@ -150,9 +152,23 @@ export default function RecentChangesCard(props: RecentChangesCardProps) {
             </p>
           ) : (
             <>
-              {grouped.map((g) => (
+              {grouped.map((g, idx) => (
                 <div key={g.key} className="mb-3 last:mb-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-1.5">
+                  {/* Tiny inline divider between date groups — gives the
+                      list a "page break in a journal" rhythm. */}
+                  {idx > 0 ? (
+                    <div
+                      aria-hidden
+                      className="flex items-center justify-center mb-2"
+                      style={{ opacity: 0.5 }}
+                    >
+                      <InlineLeaf size={12} color="var(--leaf-soft, #B8C7A6)" />
+                    </div>
+                  ) : null}
+                  <p
+                    className="font-handwritten mb-1.5"
+                    style={{ fontSize: 18, lineHeight: 1, color: "var(--ink-soft, #6B7363)" }}
+                  >
                     {g.label}
                   </p>
                   <ul className="space-y-1.5">

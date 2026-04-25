@@ -183,13 +183,15 @@ export default function MonthGrid(props: Props) {
       }
       className="w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2D5A3D] focus-visible:ring-offset-2 rounded-lg"
     >
-      {/* Day-of-week headers */}
+      {/* Day-of-week headers — Caveat for the "hand-lettered planner" feel.
+          Slightly larger than the previous tracked-uppercase letters so the
+          script reads at a glance without overwhelming the grid. */}
       <div className="grid grid-cols-7 gap-1 pb-1.5">
         {HEADERS.map((h, i) => (
           <div
             key={i}
-            className="text-center text-[10px] font-semibold uppercase tracking-wider"
-            style={{ color: "#8B7E74" }}
+            className="font-handwritten text-center"
+            style={{ fontSize: 18, color: "var(--ink-soft, #6B7363)", lineHeight: 1 }}
           >
             {h}
           </div>

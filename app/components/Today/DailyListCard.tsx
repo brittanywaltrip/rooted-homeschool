@@ -279,9 +279,9 @@ export default function DailyListCard(props: DailyListCardProps) {
   return (
     <section
       aria-label="Today's list"
+      className="paper-bg"
       style={{
-        background: "#fffaf0",
-        border: "1px solid #f0dda8",
+        border: "1px solid var(--paper-edge, #f0dda8)",
         borderRadius: 14,
         overflow: "hidden",
       }}
@@ -293,12 +293,12 @@ export default function DailyListCard(props: DailyListCardProps) {
         aria-controls="daily-list-body"
         className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-[#fff4d8] transition-colors"
       >
-        <InlineLeaf size={16} />
+        <InlineLeaf size={20} color="var(--leaf-sage, #7C9070)" />
         <span
           className="font-handwritten flex-1"
-          style={{ fontSize: 24, lineHeight: 1, color: "#3d5c42" }}
+          style={{ fontSize: 28, lineHeight: 1, color: "var(--ink-primary, #2E3A2A)" }}
         >
-          🌿 Today&apos;s List
+          Today
         </span>
         {saveStateLabel ? (
           <span
@@ -321,7 +321,7 @@ export default function DailyListCard(props: DailyListCardProps) {
       </button>
 
       {!collapsed ? (
-        <div id="daily-list-body" className="px-4 pb-4 pt-0 border-t border-[#f0dda8]">
+        <div id="daily-list-body" className="paper-lined px-4 pb-4 pt-0 border-t border-[var(--paper-edge,#f0dda8)]">
           {!loaded ? (
             <p className="text-[12px] text-[#a07000] italic py-3">Loading…</p>
           ) : items.length === 0 ? (
@@ -333,7 +333,14 @@ export default function DailyListCard(props: DailyListCardProps) {
               {items.map((item, idx) => {
                 const isLast = idx === items.length - 1;
                 return (
-                  <li key={item.id} className="flex items-center gap-2 group">
+                  <li
+                    key={item.id}
+                    className="flex items-center gap-2 group"
+                    style={{
+                      borderBottom: isLast ? "none" : "1px dotted var(--paper-line, #E8DFC8)",
+                      paddingBottom: isLast ? 0 : 2,
+                    }}
+                  >
                     <button
                       type="button"
                       onClick={() => void toggleDone(item)}
@@ -381,8 +388,8 @@ export default function DailyListCard(props: DailyListCardProps) {
               <button
                 type="button"
                 onClick={onPrint}
-                className="flex items-center gap-1 text-[11px] font-semibold rounded-lg px-2.5 py-1.5 transition-colors"
-                style={{ color: "#a07000", backgroundColor: "#fef9e8", border: "1px solid #f0dda8" }}
+                className="pencil-btn pencil-btn--gold"
+                style={{ fontSize: 14 }}
               >
                 <Printer size={12} /> Print today&apos;s list
               </button>
