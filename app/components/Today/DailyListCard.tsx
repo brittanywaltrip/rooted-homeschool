@@ -9,20 +9,31 @@ import { CheckCircle, InlineLeaf } from "@/app/components/PlanV2/print-decoratio
  *
  * Distinct from <ListsSection> (which manages many user-created lists) — this
  * is one persistent list scoped per user, identified by name="Today" +
- * sort_order=-1. The sort_order sentinel keeps it out of the way of the
- * normal sort-order lane that ListsSection uses (>= 0) and pins it to the
- * top whenever lists are sorted ascending.
+ * sort_order=-1.
  *
- * Editing pattern:
- *   - Hollow circle on the left = uncompleted item; tap to fill + strike.
- *   - Text input is debounced — 500ms after the last keystroke we PATCH.
- *   - Enter on the last input = blank new item; Backspace on an empty
- *     input = delete that item.
- *   - "Saving…" / "Saved ✓" / "Couldn't save" indicator next to the
- *     header, mirroring the day-panel notes editor pattern.
+ * Add / save semantics (must match `/api/list-items` validation, which
+ * rejects empty `text` on POST):
+ *   - "+ Add item" creates a row LOCAL-ONLY with a temp id and isPending=true.
+ *     No network call. The input is focused so the user can start typing.
+ *   - Typing into a row debounces 500ms. When the timer fires:
+ *       · pending + non-empty text → POST; on success, swap temp id with the
+ *         server id and clear isPending. If the user typed more text (or
+ *         toggled done) while the POST was in flight, follow up with a PATCH
+ *         using the freshest state.
+ *       · pending + empty text → no-op (we never POST blanks).
+ *       · real + empty text → DELETE the row (text cleared = remove).
+ *       · real + non-empty text → PATCH text + done.
+ *   - Toggling the checkbox on a pending row only flips local state — the
+ *     follow-up POST + PATCH cycle persists `done`.
+ *   - Backspace on an empty row removes it (DELETE if it had a server id);
+ *     focus moves to the previous row's input at end-of-text.
+ *   - Enter on a row with text appends a new pending row right after.
+ *   - Enter on an empty row is a no-op (no chains of empties).
  *
- * Print: parent owns the trigger. We just expose `items` upward via the
- * `onItemsLoaded` callback so the parent can pass them into DailyPrintSheet.
+ * Status indicator: "Saving" while any debounce is queued OR a fetch is in
+ * flight. "Saved ✓" briefly after all settled (1.5s fade). "Couldn't save"
+ * sticks until the next save attempt; the row text is preserved so the
+ * user doesn't lose work.
  * ==========================================================================*/
 
 type ListRow = {
@@ -33,6 +44,9 @@ type ListRow = {
   archived: boolean;
 };
 
+/** Public shape exported to the Today page (and into DailyPrintSheet via the
+ *  parent). isPending + rowKey are intentionally omitted — consumers only
+ *  need id/text/done. */
 export type DailyListItem = {
   id: string;
   list_id: string;
@@ -41,37 +55,71 @@ export type DailyListItem = {
   sort_order: number | null;
 };
 
+/** Internal row shape — adds a stable rowKey (so React reuses the input
+ *  element across the temp→real id swap, preserving focus + cursor) and an
+ *  isPending flag (true until we've POSTed it). */
+type LocalItem = DailyListItem & {
+  rowKey: string;
+  isPending: boolean;
+};
+
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 const COLLAPSE_KEY = "rooted_today_daily_list_collapsed_v1";
 const DEBOUNCE_MS = 500;
 const SAVED_INDICATOR_MS = 1500;
 
+function makeTempId(): string {
+  return `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export interface DailyListCardProps {
   /** Returns a fresh Supabase access token. Mirrors the ListsSection pattern. */
   getToken: () => Promise<string | null>;
-  /** Fired whenever the loaded items array changes — Today page passes them
-   *  to DailyPrintSheet so the print sheet stays in sync. */
+  /** Fired whenever items change — Today page passes them to DailyPrintSheet
+   *  so the print sheet stays in sync. Pending (unsaved) rows are excluded. */
   onItemsChange?: (items: DailyListItem[]) => void;
-  /** Today page invokes its own window.print() flow. We just notify via a
-   *  callback so the parent can set up the body class + print sheet. */
+  /** Today page invokes its own window.print() flow. */
   onPrint?: () => void;
 }
 
 export default function DailyListCard(props: DailyListCardProps) {
   const { getToken, onItemsChange, onPrint } = props;
   const [list, setList] = useState<ListRow | null>(null);
-  const [items, setItems] = useState<DailyListItem[]>([]);
+  const [items, setItems] = useState<LocalItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [collapsed, setCollapsed] = useState(false);
   const [collapsedLoaded, setCollapsedLoaded] = useState(false);
 
-  // Per-item debounce timers, keyed by item id.
+  // Refs that mirror items + list so async save callbacks always read the
+  // freshest values without a stale closure.
+  const itemsRef = useRef<LocalItem[]>([]);
+  const listRef = useRef<ListRow | null>(null);
+  // Per-row debounce timers, keyed by rowKey. Pending until they fire OR
+  // they're cleared because something happened that supersedes the save.
   const debounceTimersRef = useRef<Map<string, number>>(new Map());
+  // Set of rowKeys with an in-flight network call. Used to skip overlapping
+  // saves (a second debounce that fires while the first is still posting).
+  const inflightRef = useRef<Set<string>>(new Set());
+  // Sticky error flag for the current "burst" — cleared when a new save
+  // starts, so a single failure doesn't block subsequent successful saves
+  // from clearing the error state.
+  const burstErrorRef = useRef<boolean>(false);
   const savedTimerRef = useRef<number | null>(null);
 
-  // Read the persisted collapse state once on mount (post-hydration).
+  /** Update items state AND mirror it to the ref synchronously inside the
+   *  setState callback. Async handlers can read itemsRef.current without
+   *  worrying about React batching. */
+  const updateItems = useCallback((updater: (prev: LocalItem[]) => LocalItem[]) => {
+    setItems((prev) => {
+      const next = updater(prev);
+      itemsRef.current = next;
+      return next;
+    });
+  }, []);
+
+  // ── Collapse state persistence ──────────────────────────────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -88,7 +136,32 @@ export default function DailyListCard(props: DailyListCardProps) {
     } catch { /* ignore */ }
   }, [collapsed, collapsedLoaded]);
 
-  // ── Load (or create) the daily list + its items ─────────────────────────
+  // ── Save-state transitions ──────────────────────────────────────────────
+  const flashSaved = useCallback(() => {
+    setSaveState("saved");
+    if (savedTimerRef.current !== null) window.clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = window.setTimeout(() => {
+      setSaveState("idle");
+      savedTimerRef.current = null;
+    }, SAVED_INDICATOR_MS);
+  }, []);
+
+  /** Called after every save attempt. If anything is still pending or in
+   *  flight we stay in "saving"; otherwise transition to saved or error
+   *  based on whether anything failed during the burst. */
+  const settleAfterSave = useCallback(() => {
+    const stillBusy =
+      inflightRef.current.size > 0 || debounceTimersRef.current.size > 0;
+    if (stillBusy) return;
+    if (burstErrorRef.current) {
+      setSaveState("error");
+      // Don't clear burstErrorRef here — let the next save start clear it.
+    } else {
+      flashSaved();
+    }
+  }, [flashSaved]);
+
+  // ── Load (or auto-create) the daily list + its items ───────────────────
   const load = useCallback(async () => {
     const token = await getToken();
     if (!token) return;
@@ -98,7 +171,6 @@ export default function DailyListCard(props: DailyListCardProps) {
       });
       if (!res.ok) return;
       const allLists = (await res.json()) as ListRow[];
-      // Sentinel: name="Today" + sort_order=-1.
       let daily = allLists.find((l) => l.name === "Today" && l.sort_order === -1);
       if (!daily) {
         const insertRes = await fetch("/api/lists", {
@@ -110,18 +182,26 @@ export default function DailyListCard(props: DailyListCardProps) {
         daily = (await insertRes.json()) as ListRow;
       }
       setList(daily);
+      listRef.current = daily;
 
       const itemsRes = await fetch(`/api/list-items?list_id=${daily.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (itemsRes.ok) {
         const data = (await itemsRes.json()) as DailyListItem[];
-        const sorted = data.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-        setItems(sorted);
+        const sorted = data
+          .slice()
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+          .map<LocalItem>((row) => ({
+            ...row,
+            rowKey: row.id,
+            isPending: false,
+          }));
+        updateItems(() => sorted);
       }
     } catch { /* silent — empty list is fine */ }
     setLoaded(true);
-  }, [getToken]);
+  }, [getToken, updateItems]);
 
   useEffect(() => {
     void load();
@@ -134,141 +214,261 @@ export default function DailyListCard(props: DailyListCardProps) {
     };
   }, [load]);
 
-  // Notify parent when items change.
+  // Notify parent when items change. Pending rows are filtered out so the
+  // print sheet only ever shows server-acknowledged items.
   useEffect(() => {
     if (!loaded) return;
-    onItemsChange?.(items);
+    const exposed: DailyListItem[] = items
+      .filter((i) => !i.isPending)
+      .map(({ id, list_id, text, done, sort_order }) => ({ id, list_id, text, done, sort_order }));
+    onItemsChange?.(exposed);
     // onItemsChange identity may change per render — depend on items only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, loaded]);
 
-  // ── Save helpers ────────────────────────────────────────────────────────
-  function flashSaved() {
-    setSaveState("saved");
-    if (savedTimerRef.current !== null) window.clearTimeout(savedTimerRef.current);
-    savedTimerRef.current = window.setTimeout(() => {
-      setSaveState("idle");
-      savedTimerRef.current = null;
-    }, SAVED_INDICATOR_MS);
-  }
+  // ── The single save engine ──────────────────────────────────────────────
+  /** Reads the freshest row from itemsRef and decides between POST / PATCH /
+   *  DELETE / no-op based on isPending + text. Skips if a save for this
+   *  rowKey is already in flight (prevents duplicate POSTs when typing fast
+   *  on a slow network). */
+  const persistSave = useCallback(async (rowKey: string) => {
+    if (inflightRef.current.has(rowKey)) return;
+    const item = itemsRef.current.find((i) => i.rowKey === rowKey);
+    if (!item) return;
+    const text = item.text.trim();
+    const listId = listRef.current?.id;
 
-  const persistTextChange = useCallback(async (item: DailyListItem) => {
-    const token = await getToken();
-    if (!token) return;
+    // No-op: empty pending row. Do NOT POST blank text — the API rejects
+    // it, and there's nothing to persist anyway.
+    if (item.isPending && text.length === 0) return;
+
+    burstErrorRef.current = false;
+    inflightRef.current.add(rowKey);
     setSaveState("saving");
+
     try {
-      const res = await fetch("/api/list-items", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ id: item.id, text: item.text }),
-      });
-      if (!res.ok) throw new Error("patch failed");
-      flashSaved();
-    } catch {
-      setSaveState("error");
-    }
-  }, [getToken]);
+      const token = await getToken();
+      if (!token) throw new Error("no session");
 
-  function scheduleTextSave(item: DailyListItem) {
-    const existing = debounceTimersRef.current.get(item.id);
-    if (existing !== undefined) window.clearTimeout(existing);
-    const t = window.setTimeout(() => {
-      debounceTimersRef.current.delete(item.id);
-      void persistTextChange(item);
-    }, DEBOUNCE_MS);
-    debounceTimersRef.current.set(item.id, t);
-  }
+      if (item.isPending) {
+        // POST — first time persisting this row.
+        if (!listId) throw new Error("no list");
+        const res = await fetch("/api/list-items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ list_id: listId, text }),
+        });
+        if (!res.ok) throw new Error(`post failed (${res.status})`);
+        const created = (await res.json()) as DailyListItem;
 
-  function updateItemText(id: string, text: string) {
-    setItems((prev) => {
-      const next = prev.map((i) => (i.id === id ? { ...i, text } : i));
-      const updated = next.find((i) => i.id === id);
-      if (updated) scheduleTextSave(updated);
-      return next;
-    });
-  }
-
-  async function toggleDone(item: DailyListItem) {
-    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)));
-    const token = await getToken();
-    if (!token) return;
-    setSaveState("saving");
-    try {
-      const res = await fetch("/api/list-items", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ id: item.id, done: !item.done }),
-      });
-      if (!res.ok) throw new Error("patch failed");
-      flashSaved();
-    } catch {
-      setSaveState("error");
-      // Roll back the optimistic flip.
-      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, done: item.done } : i)));
-    }
-  }
-
-  async function addItem(initialText = "") {
-    if (!list) return;
-    const token = await getToken();
-    if (!token) return;
-    setSaveState("saving");
-    try {
-      const nextOrder = items.length > 0 ? (items[items.length - 1].sort_order ?? 0) + 1 : 0;
-      const res = await fetch("/api/list-items", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ list_id: list.id, text: initialText, sort_order: nextOrder }),
-      });
-      if (!res.ok) throw new Error("post failed");
-      const created = (await res.json()) as DailyListItem;
-      setItems((prev) => [...prev, created]);
-      flashSaved();
-      // Focus the new input on next paint.
-      window.requestAnimationFrame(() => {
-        const el = document.querySelector<HTMLInputElement>(
-          `[data-daily-list-input="${created.id}"]`,
+        // Swap temp id → real id, clear isPending. rowKey stays the same so
+        // React reuses the <input> DOM node and focus + cursor are preserved.
+        updateItems((prev) =>
+          prev.map((i) =>
+            i.rowKey === rowKey
+              ? { ...i, id: created.id, sort_order: created.sort_order, isPending: false }
+              : i,
+          ),
         );
-        el?.focus();
-      });
-    } catch {
-      setSaveState("error");
-    }
-  }
 
-  async function deleteItem(item: DailyListItem) {
-    setItems((prev) => prev.filter((i) => i.id !== item.id));
-    const token = await getToken();
-    if (!token) return;
-    try {
-      await fetch("/api/list-items", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ id: item.id }),
-      });
-      flashSaved();
+        // Did the user keep typing during the POST? Or toggle done? Read
+        // the freshest snapshot and follow up with a PATCH if anything
+        // has drifted from what we just sent.
+        const fresh = itemsRef.current.find((i) => i.rowKey === rowKey);
+        if (fresh) {
+          const freshText = fresh.text.trim();
+          const driftText = freshText !== text;
+          // Server defaults done to false, so any local true needs syncing.
+          const driftDone = fresh.done !== false;
+          if (driftText || driftDone) {
+            // If the follow-up text is empty, DELETE the row instead of
+            // PATCH-ing it to "" (which would fail the same validator).
+            if (driftText && freshText.length === 0) {
+              await fetch("/api/list-items", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ id: created.id }),
+              });
+              updateItems((prev) => prev.filter((i) => i.rowKey !== rowKey));
+            } else {
+              const patchBody: Record<string, unknown> = { id: created.id };
+              if (driftText) patchBody.text = freshText;
+              if (driftDone) patchBody.done = fresh.done;
+              const patchRes = await fetch("/api/list-items", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify(patchBody),
+              });
+              if (!patchRes.ok) throw new Error(`followup patch failed (${patchRes.status})`);
+            }
+          }
+        }
+      } else if (text.length === 0) {
+        // DELETE — user emptied a saved row.
+        const res = await fetch("/api/list-items", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: item.id }),
+        });
+        if (!res.ok) throw new Error(`delete failed (${res.status})`);
+        updateItems((prev) => prev.filter((i) => i.rowKey !== rowKey));
+      } else {
+        // PATCH — text + done sync for an existing saved row.
+        const res = await fetch("/api/list-items", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: item.id, text, done: item.done }),
+        });
+        if (!res.ok) throw new Error(`patch failed (${res.status})`);
+      }
     } catch {
-      setSaveState("error");
+      burstErrorRef.current = true;
+    } finally {
+      inflightRef.current.delete(rowKey);
+      settleAfterSave();
     }
-    // Cancel any pending text-save for the deleted item.
-    const t = debounceTimersRef.current.get(item.id);
+  }, [getToken, updateItems, settleAfterSave]);
+
+  /** Schedule a debounced save for the given rowKey. Restarts the timer if
+   *  one was already queued. */
+  const scheduleSave = useCallback((rowKey: string) => {
+    const existing = debounceTimersRef.current.get(rowKey);
+    if (existing !== undefined) window.clearTimeout(existing);
+    setSaveState("saving");
+    const t = window.setTimeout(() => {
+      debounceTimersRef.current.delete(rowKey);
+      void persistSave(rowKey);
+    }, DEBOUNCE_MS);
+    debounceTimersRef.current.set(rowKey, t);
+  }, [persistSave]);
+
+  /** Cancel any debounce queued for the given rowKey (used when the row is
+   *  immediately removed via Backspace). */
+  const cancelDebounce = useCallback((rowKey: string) => {
+    const t = debounceTimersRef.current.get(rowKey);
     if (t !== undefined) {
       window.clearTimeout(t);
-      debounceTimersRef.current.delete(item.id);
+      debounceTimersRef.current.delete(rowKey);
     }
+  }, []);
+
+  // ── User actions ────────────────────────────────────────────────────────
+
+  /** Append a brand-new row LOCAL ONLY and focus its input. No network call
+   *  happens here — the row is persisted only after the user types text and
+   *  the debounce fires. */
+  const appendPendingRow = useCallback((afterRowKey: string | null) => {
+    const tempId = makeTempId();
+    if (!list) {
+      // List hasn't loaded yet; bail rather than create an orphan row.
+      return;
+    }
+    const newRow: LocalItem = {
+      rowKey: tempId,
+      id: tempId,
+      list_id: list.id,
+      text: "",
+      done: false,
+      sort_order:
+        items.length > 0 ? (items[items.length - 1].sort_order ?? 0) + 1 : 0,
+      isPending: true,
+    };
+    updateItems((prev) => {
+      if (afterRowKey === null) return [...prev, newRow];
+      const idx = prev.findIndex((i) => i.rowKey === afterRowKey);
+      if (idx === -1) return [...prev, newRow];
+      const next = prev.slice();
+      next.splice(idx + 1, 0, newRow);
+      return next;
+    });
+    // Focus the new input on next paint.
+    window.requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLInputElement>(
+        `[data-daily-list-input="${tempId}"]`,
+      );
+      el?.focus();
+    });
+  }, [list, items, updateItems]);
+
+  function updateItemText(rowKey: string, text: string) {
+    updateItems((prev) => prev.map((i) => (i.rowKey === rowKey ? { ...i, text } : i)));
+    scheduleSave(rowKey);
   }
 
-  function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>, item: DailyListItem, isLast: boolean) {
+  function toggleDone(item: LocalItem) {
+    // Optimistic flip locally regardless of pending state.
+    updateItems((prev) =>
+      prev.map((i) => (i.rowKey === item.rowKey ? { ...i, done: !i.done } : i)),
+    );
+    if (item.isPending) {
+      // Pending row — don't try to PATCH a temp id. The flip is captured in
+      // local state; once the row is POSTed, the post-success handler
+      // detects the done drift and PATCHes it then.
+      return;
+    }
+    // Real row — schedule a save. Debounced rather than immediate so a
+    // second click doesn't double-fire if the user double-toggles fast.
+    scheduleSave(item.rowKey);
+  }
+
+  /** Remove a row entirely. Cancels any pending debounce, removes from
+   *  state, and DELETE-s if the row had a server id. */
+  function removeRow(item: LocalItem, refocusPrevRowKey: string | null) {
+    cancelDebounce(item.rowKey);
+    updateItems((prev) => prev.filter((i) => i.rowKey !== item.rowKey));
+    if (refocusPrevRowKey !== null) {
+      window.requestAnimationFrame(() => {
+        const el = document.querySelector<HTMLInputElement>(
+          `[data-daily-list-input="${refocusPrevRowKey}"]`,
+        );
+        if (el) {
+          el.focus();
+          const len = el.value.length;
+          el.setSelectionRange(len, len);
+        }
+      });
+    }
+    if (item.isPending) return; // never persisted — nothing to delete
+    burstErrorRef.current = false;
+    inflightRef.current.add(item.rowKey);
+    setSaveState("saving");
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("no session");
+        const res = await fetch("/api/list-items", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: item.id }),
+        });
+        if (!res.ok) throw new Error(`delete failed (${res.status})`);
+      } catch {
+        burstErrorRef.current = true;
+      } finally {
+        inflightRef.current.delete(item.rowKey);
+        settleAfterSave();
+      }
+    })();
+  }
+
+  function handleInputKeyDown(
+    e: React.KeyboardEvent<HTMLInputElement>,
+    item: LocalItem,
+  ) {
     if (e.key === "Enter") {
       e.preventDefault();
-      // Only enter-to-add when on the last row (matches the spec).
-      if (isLast) void addItem();
+      // No chains of empty rows — Enter on an empty input is a no-op.
+      if (item.text.trim().length === 0) return;
+      appendPendingRow(item.rowKey);
     } else if (e.key === "Backspace" && item.text === "") {
       e.preventDefault();
-      void deleteItem(item);
+      const idx = itemsRef.current.findIndex((i) => i.rowKey === item.rowKey);
+      const prevRowKey = idx > 0 ? itemsRef.current[idx - 1].rowKey : null;
+      removeRow(item, prevRowKey);
     }
   }
 
+  // ── Render ──────────────────────────────────────────────────────────────
   const saveStateLabel = useMemo(() => {
     if (saveState === "saving") return "Saving…";
     if (saveState === "saved") return "Saved ✓";
@@ -334,7 +534,7 @@ export default function DailyListCard(props: DailyListCardProps) {
                 const isLast = idx === items.length - 1;
                 return (
                   <li
-                    key={item.id}
+                    key={item.rowKey}
                     className="flex items-center gap-2 group"
                     style={{
                       borderBottom: isLast ? "none" : "1px dotted var(--paper-line, #E8DFC8)",
@@ -343,18 +543,18 @@ export default function DailyListCard(props: DailyListCardProps) {
                   >
                     <button
                       type="button"
-                      onClick={() => void toggleDone(item)}
+                      onClick={() => toggleDone(item)}
                       aria-label={item.done ? "Mark incomplete" : "Mark complete"}
                       className="shrink-0 inline-flex items-center justify-center"
                     >
                       <CheckCircle filled={item.done} size={20} />
                     </button>
                     <input
-                      data-daily-list-input={item.id}
+                      data-daily-list-input={item.rowKey}
                       type="text"
                       value={item.text}
-                      onChange={(e) => updateItemText(item.id, e.target.value)}
-                      onKeyDown={(e) => handleInputKeyDown(e, item, isLast)}
+                      onChange={(e) => updateItemText(item.rowKey, e.target.value)}
+                      onKeyDown={(e) => handleInputKeyDown(e, item)}
                       placeholder="Write a reminder…"
                       className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[14px] py-1.5 placeholder:text-[#c8b598]"
                       style={{
@@ -364,7 +564,11 @@ export default function DailyListCard(props: DailyListCardProps) {
                     />
                     <button
                       type="button"
-                      onClick={() => void deleteItem(item)}
+                      onClick={() => {
+                        const i = itemsRef.current.findIndex((x) => x.rowKey === item.rowKey);
+                        const prevRowKey = i > 0 ? itemsRef.current[i - 1].rowKey : null;
+                        removeRow(item, prevRowKey);
+                      }}
                       aria-label="Delete item"
                       className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-[#c8b598] hover:text-[#b91c1c] hover:bg-[#fef2f2] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                     >
@@ -379,7 +583,7 @@ export default function DailyListCard(props: DailyListCardProps) {
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#f0dda8]">
             <button
               type="button"
-              onClick={() => void addItem()}
+              onClick={() => appendPendingRow(null)}
               className="flex items-center gap-1 text-[12px] font-semibold text-[#7a4a1a] hover:text-[#5a3a12]"
             >
               <Plus size={13} /> Add item
