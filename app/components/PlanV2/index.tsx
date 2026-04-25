@@ -37,6 +37,7 @@ import PlanPrintDialog, { type PlanPrintMode } from "./PlanPrintDialog";
 import DailyPrintSheet from "./DailyPrintSheet";
 import WeeklyPrintSheet from "./WeeklyPrintSheet";
 import MonthlyPrintSheet from "./MonthlyPrintSheet";
+import { CornerLeaves } from "./print-decorations";
 import { canExport } from "@/lib/user-access";
 import ShiftForwardModal, { type ShiftMove } from "./ShiftForwardModal";
 import PushBackModal, { type PushBackMove } from "./PushBackModal";
@@ -2347,7 +2348,48 @@ export default function PlanV2() {
     <>
       <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
 
-      <div className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto" style={{ background: "#F8F7F4" }}>
+      <div
+        className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto"
+        style={{ background: "var(--paper-bg, #F8F7F4)" }}
+      >
+        {/* Paper-planner flourish — Caveat headline + hand-drawn squiggle
+            underline + corner leaves. Sits below the formal PageHero title;
+            communicates the warmer aesthetic without duplicating the H1. */}
+        <div className="relative pt-2 pb-3">
+          <p
+            className="font-handwritten"
+            style={{ fontSize: 36, lineHeight: 1, color: "var(--ink-primary, #2E3A2A)" }}
+          >
+            {headerSeasonalEmoji} your plan
+          </p>
+          <svg
+            aria-hidden
+            viewBox="0 0 240 8"
+            preserveAspectRatio="none"
+            style={{ width: 240, height: 8, marginTop: 4, color: "var(--leaf-sage, #7C9070)" }}
+          >
+            <path
+              d="M 2 5 C 30 1, 60 7, 95 4 S 165 1, 200 5 S 232 6, 238 4"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              fill="none"
+              strokeLinecap="round"
+            />
+          </svg>
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: -6,
+              right: -6,
+              opacity: 0.4,
+              pointerEvents: "none",
+            }}
+          >
+            <CornerLeaves position="top-right" color="var(--leaf-sage, #7C9070)" />
+          </div>
+        </div>
+
         {/* PlanV2 preview badge — removed when the flag rolls out broadly. */}
         <div
           className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5 rounded-full w-fit"
@@ -2452,7 +2494,10 @@ export default function PlanV2() {
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <span className="text-[13px] font-semibold text-[#2D2A26] min-w-[140px] text-center">
+                <span
+                  className="font-handwritten min-w-[140px] text-center"
+                  style={{ fontSize: 22, lineHeight: 1, color: "var(--ink-primary, #2D2A26)" }}
+                >
                   {monthLabelWithEmoji}
                 </span>
                 <button
@@ -2488,49 +2533,49 @@ export default function PlanV2() {
               <div className="flex-1" />
 
               <div className="flex items-center gap-1.5">
+                {/* Pencil-outline toolbar buttons — sans icons + Caveat
+                    labels. The aria-pressed state styles Select-mode active
+                    via the .pencil-btn[aria-pressed="true"] rule. */}
                 <button
                   type="button"
                   onClick={() => { setAddLessonInitialDate(todayStr); setAddLessonOpen(true); }}
-                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#2D5A3D] hover:bg-[#e8f0e9] transition-colors"
+                  className="pencil-btn"
                 >
                   <Plus size={13} /> Lesson
                 </button>
                 <button
                   type="button"
                   onClick={() => flashNotice("Adding an appointment from Plan lands in a later phase. Use the old Plan page to add one for now.")}
-                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#7a60a8] hover:bg-[#f5f0ff] transition-colors"
+                  className="pencil-btn"
                 >
                   <Plus size={13} /> Appt
                 </button>
                 <button
                   type="button"
                   onClick={() => openVacationModalCreate()}
-                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#a07000] hover:bg-[#fef9e8] transition-colors"
+                  className="pencil-btn pencil-btn--gold"
                 >
                   <Plus size={13} /> Break
                 </button>
                 <button
                   type="button"
                   onClick={() => (selectMode ? exitSelectMode() : enterSelectMode())}
-                  className={`flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors ${
-                    selectMode
-                      ? "bg-[#2D5A3D] text-white hover:bg-[var(--g-deep)]"
-                      : "text-[#5C5346] hover:bg-[#f0ede8]"
-                  }`}
+                  aria-pressed={selectMode}
+                  className="pencil-btn"
                 >
                   <MousePointerSquareDashed size={13} /> {selectMode ? "Cancel" : "Select"}
                 </button>
                 <button
                   type="button"
                   onClick={() => setReportDialogOpen(true)}
-                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#5C5346] hover:bg-[#f0ede8] transition-colors"
+                  className="pencil-btn"
                 >
                   📄 Report
                 </button>
                 <button
                   type="button"
                   onClick={() => setPrintDialogOpen(true)}
-                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg text-[#5C5346] hover:bg-[#f0ede8] transition-colors"
+                  className="pencil-btn"
                 >
                   🖨️ Print
                 </button>

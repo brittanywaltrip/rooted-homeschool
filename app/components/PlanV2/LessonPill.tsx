@@ -2,6 +2,7 @@
 
 import { useDraggable } from "@dnd-kit/core";
 import { useLongPress } from "./useLongPress";
+import { CheckCircle } from "./print-decorations";
 import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 
@@ -274,13 +275,18 @@ export function PillShell({
     .filter(Boolean)
     .join(" ");
 
+  // Paper-grain inset shadow on the rest state — almost imperceptible
+  // unless you look for it, but reads as "drawn on paper" rather than a
+  // flat HTML element. The drag-overlay shadow stays as the dominant
+  // depth cue when lifting; we don't double-stack with grain.
+  const grainShadow = "inset 0 0 0 1px rgba(0,0,0,0.03)";
   const style: React.CSSProperties = {
-    borderColor: "#e8e2d9",
+    borderColor: "var(--paper-edge, #e8e2d9)",
     borderLeftWidth: 3,
     borderLeftColor: color,
     opacity: dragging ? 0.35 : done ? 0.55 : 1,
     transition: "opacity 120ms, box-shadow 200ms",
-    boxShadow: overlay ? "0 10px 24px rgba(45, 41, 38, 0.25)" : undefined,
+    boxShadow: overlay ? "0 10px 24px rgba(45, 41, 38, 0.25)" : grainShadow,
     transform: overlay ? "rotate(-1.5deg)" : undefined,
   };
 
@@ -315,6 +321,14 @@ export function PillShell({
               <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           ) : null}
+        </span>
+      ) : done ? (
+        // Hand-drawn "done" mark — the same CheckCircle the print sheets
+        // and the daily list use, scaled tiny to sit in the pill's right
+        // edge. aria-hidden because the line-through above already
+        // communicates completion to screen readers.
+        <span aria-hidden className="shrink-0 inline-flex">
+          <CheckCircle filled size={11} color="#5c7f63" />
         </span>
       ) : missed ? (
         <span
