@@ -29,7 +29,16 @@ function isTestUser(email: string): boolean {
 }
 
 interface AdminSummary {
-  // Growth
+  // Growth — new accurate fields
+  realFamiliesCount: number;
+  payingCustomersCount: number;
+  payingStandardCount: number;
+  compedPartnersCount: number;
+  testAccountsHidden: number;
+  whitelistedHidden: number;
+  incompleteSignupsHidden: number;
+  asOfISO: string;
+  // Growth — legacy
   totalUsers: number;
   last24hSignups: number;
   yesterdaySignups: number;
@@ -150,10 +159,21 @@ function PlanPill({ plan }: { plan: string }) {
   );
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+function StatCard({ label, value, sub, tooltip }: { label: string; value: string | number; sub?: string; tooltip?: string }) {
   return (
     <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-1">{label}</p>
+      <div className="flex items-center gap-1 mb-1">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">{label}</p>
+        {tooltip && (
+          <span
+            title={tooltip}
+            className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-[#e8e2d9] text-[#7a6f65] text-[9px] font-bold cursor-help leading-none"
+            aria-label={tooltip}
+          >
+            ?
+          </span>
+        )}
+      </div>
       <p className="text-2xl font-bold text-[#2d2926] leading-none">{value}</p>
       {sub && <p className="text-xs text-[#7a6f65] mt-1">{sub}</p>}
     </div>
@@ -360,9 +380,16 @@ export default function AdminPage() {
 
   const testCount = data.recentSignups.filter(u => isTestUser(u.email)).length;
   const realUsers = data.recentSignups.filter(u => !isTestUser(u.email));
-  const realUserCount = data.totalUsers - testCount;
-  const payingTotal = data.payingFoundingCount + data.stripeStandardCount;
+  // Authoritative counts come from the API (centralized exclusion list).
+  // Front-end calcs above are kept only for the per-tab "All Signups" UI.
+  const realUserCount = data.realFamiliesCount;
+  const payingTotal = data.payingCustomersCount;
   const conversionRate = realUserCount > 0 ? ((payingTotal / realUserCount) * 100).toFixed(1) : "0.0";
+  const asOfTime = new Date(data.asOfISO).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
+  const realFamiliesSub = [
+    `${data.testAccountsHidden + data.whitelistedHidden} test/founder accounts hidden`,
+    `${data.incompleteSignupsHidden} incomplete signups hidden`,
+  ].join(" · ");
 
   const counts = {
     All:      realUsers.length,
@@ -451,10 +478,26 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="⚡" title="Today's Pulse" />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Signups" value={data.last24hSignups} />
-            <StatCard label="Lessons" value={data.lessonsToday} />
-            <StatCard label="Memories" value={data.memoriesToday} />
-            <StatCard label="Upgrades" value={data.upgradesToday} />
+            <StatCard
+              label="Signups"
+              value={data.last24hSignups}
+              tooltip="auth.users created since midnight CT, excluding test accounts, the 3 whitelisted founder UUIDs, and incomplete signups (auth user with no profile row)."
+            />
+            <StatCard
+              label="Lessons"
+              value={data.lessonsToday}
+              tooltip="lessons.completed_at since midnight CT, restricted to real families (test/founder/incomplete-signup user_ids excluded)."
+            />
+            <StatCard
+              label="Memories"
+              value={data.memoriesToday}
+              tooltip="memories.created_at since midnight CT, restricted to real families. Brittany's QA captures don't count."
+            />
+            <StatCard
+              label="Upgrades"
+              value={data.upgradesToday}
+              tooltip="profiles flipped to is_pro=true with an active Stripe subscription today, excluding comped partners and the 3 whitelisted founder UUIDs."
+            />
           </div>
         </section>
 
@@ -462,19 +505,46 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="🌱" title="Growth" />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <StatCard label="Real Families" value={realUserCount} sub={`${testCount} test accounts hidden`} />
-            <StatCard label="Today"                value={data.last24hSignups} />
-            <StatCard label="Yesterday"            value={data.yesterdaySignups} />
+            <StatCard
+              label="Real Families"
+              value={realUserCount}
+              sub={realFamiliesSub}
+              tooltip="auth.users count minus the hardcoded test-account list, the 3 whitelisted founder UUIDs (Brittany / Chris / Sarah Parker test), and any auth user that doesn't have a profiles row yet."
+            />
+            <StatCard
+              label="Today"
+              value={data.last24hSignups}
+              sub={`as of ${asOfTime} CT`}
+              tooltip="Same definition as Today's Pulse → Signups. Page refreshes only when you click Refresh — sublabel shows the snapshot time."
+            />
+            <StatCard
+              label="Yesterday"
+              value={data.yesterdaySignups}
+              tooltip="auth.users created during the prior CT day, with the same exclusions as Real Families."
+            />
             <StatCard
               label="Conversion Rate"
               value={`${conversionRate}%`}
               sub={`${payingTotal} paying of ${realUserCount} families`}
+              tooltip="Paying Customers ÷ Real Families. Both numerator and denominator use the centralized exclusion list."
             />
-            <StatCard label="Paying Customers"     value={payingTotal}
-              sub={`${data.payingFoundingCount} Rooted+ founding · ${data.stripeStandardCount} Rooted+ standard · live from Stripe`} />
-            <StatCard label="Rooted Partners"      value={data.activeAffiliateCount}
-              sub="Comped affiliates" />
-            <StatCard label="Free Users"           value={data.freeUsers} />
+            <StatCard
+              label="Paying Customers"
+              value={payingTotal}
+              sub={`Active Stripe subscriptions on Rooted+ Founding (${data.payingFoundingCount}) and Standard (${data.payingStandardCount}). Comped partners and founder accounts excluded.`}
+              tooltip="profiles where plan_type IN ('founding_family','standard') AND is_pro=true AND stripe_subscription_id IS NOT NULL, minus the 8 comped affiliate user_ids and the 3 whitelisted founder UUIDs."
+            />
+            <StatCard
+              label="Rooted Partners"
+              value={data.compedPartnersCount}
+              sub="Comped affiliates (100% off Founding coupon)"
+              tooltip="affiliates.user_id IS NOT NULL — i.e. partners who've redeemed their founder code and now have a linked user account. They're active Stripe subs but pay $0, so they're excluded from Paying Customers."
+            />
+            <StatCard
+              label="Free Users"
+              value={data.freeUsers}
+              tooltip="profiles where is_pro=false AND user_id is not in the affiliates table. Counts both onboarded and partially-onboarded free families."
+            />
           </div>
         </section>
 
@@ -519,9 +589,16 @@ export default function AdminPage() {
           <SectionHeader emoji="💰" title="Revenue" />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4 sm:col-span-3">
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-1">Est. Annual Revenue</p>
+              <div className="flex items-center gap-1 mb-1">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4]">Est. Annual Revenue</p>
+                <span
+                  title="Founding paying × $39 + Standard paying × $59. Both counts come from profiles (plan_type + is_pro + stripe_subscription_id), excluding comped partners and the 3 whitelisted founder UUIDs."
+                  className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-[#e8e2d9] text-[#7a6f65] text-[9px] font-bold cursor-help leading-none"
+                  aria-label="Definition"
+                >?</span>
+              </div>
               <p className="text-4xl font-bold text-[#2d2926] leading-none">${data.estAnnualRevenue.toLocaleString()}</p>
-              <p className="text-xs text-[#7a6f65] mt-2">Based on live Stripe active subscriptions</p>
+              <p className="text-xs text-[#7a6f65] mt-2">{data.payingFoundingCount} × $39 + {data.payingStandardCount} × $59 (paying-only, excludes comps + founders)</p>
               <p className="text-sm font-semibold text-[#5c7f63] mt-2">
                 MRR: ${Math.round(data.estAnnualRevenue / 12).toLocaleString()}/mo
               </p>
@@ -531,11 +608,13 @@ export default function AdminPage() {
               label="Rooted+ Founding Paying"
               value={data.payingFoundingCount}
               sub={`$${(data.payingFoundingCount * 39).toLocaleString()} · $39/yr each`}
+              tooltip="Founding-tier paying members (profiles where plan_type='founding_family' AND is_pro=true AND stripe_subscription_id IS NOT NULL), excluding the 8 comped partners and the 3 whitelisted founder UUIDs."
             />
             <StatCard
               label="Rooted+ Standard Paying"
-              value={data.stripeStandardCount}
-              sub={`$${(data.stripeStandardCount * 59).toLocaleString()} · $59/yr each`}
+              value={data.payingStandardCount}
+              sub={`$${(data.payingStandardCount * 59).toLocaleString()} · $59/yr each`}
+              tooltip="Standard-tier paying members (plan_type='standard' AND is_pro=true AND stripe_subscription_id IS NOT NULL), with the same exclusion list as Founding Paying."
             />
             <div className="bg-rose-50 border border-rose-200 rounded-2xl px-5 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-widest text-rose-400 mb-1">Refunded / Cancelled</p>

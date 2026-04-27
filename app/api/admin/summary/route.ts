@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { buildExclusions, isTestEmail } from "@/lib/admin/excluded-user-ids";
 
 // Manual SQL fix 2026-03-21: amannda86@yahoo.com + dward67@yahoo.com
 // updated to founding_family via Supabase SQL.
@@ -9,21 +10,6 @@ import Stripe from "stripe";
 // Webhook handles all future paying members automatically.
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
-
-const TEST_EMAIL_PATTERNS = ["rooted.", "test", "finalpass", "mobiletest", "finaltest"];
-const TEST_EMAILS_EXACT = [
-  "garfieldbrittany@gmail.com",
-  "zoereywaltrip@gmail.com",
-  "brittanywaltrip20@gmail.com",
-  "het787@gmail.com",
-  "wovapi4416@lxbeta.com",
-];
-
-function isTestEmail(email: string): boolean {
-  const lower = email.toLowerCase();
-  if (TEST_EMAILS_EXACT.includes(lower)) return true;
-  return TEST_EMAIL_PATTERNS.some(p => lower.includes(p));
-}
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -59,7 +45,7 @@ export async function GET(req: Request) {
   const todayStart = todayMidnight;
 
   type AuthUser = Awaited<ReturnType<typeof supabaseAdmin.auth.admin.listUsers>>['data']['users'][number];
-  type Profile = { id: string; display_name: string | null; first_name: string | null; last_name: string | null; plan_type: string | null; subscription_status: string | null; is_pro: boolean; partner_email: string | null; created_at: string };
+  type Profile = { id: string; display_name: string | null; first_name: string | null; last_name: string | null; plan_type: string | null; subscription_status: string | null; is_pro: boolean; partner_email: string | null; stripe_subscription_id: string | null; created_at: string };
 
   const PAGE_SIZE = 1000;
 
@@ -99,7 +85,7 @@ export async function GET(req: Request) {
       while (true) {
         const { data } = await supabaseAdmin
           .from("profiles")
-          .select("id, display_name, first_name, last_name, plan_type, subscription_status, is_pro, partner_email, created_at")
+          .select("id, display_name, first_name, last_name, plan_type, subscription_status, is_pro, partner_email, stripe_subscription_id, created_at")
           .range(from, from + PAGE_SIZE - 1);
         const batch = (data ?? []) as Profile[];
         rows.push(...batch);
@@ -196,26 +182,71 @@ export async function GET(req: Request) {
     supabaseAdmin.from("vacation_blocks").select("*", { count: "exact", head: true }),
     supabaseAdmin.from("memories").select("*", { count: "exact", head: true }).eq("type", "book"),
     supabaseAdmin.from("memories").select("*", { count: "exact", head: true }),
-    supabaseAdmin.from("memories").select("*", { count: "exact", head: true }).gte("created_at", todayStart.toISOString()),
+    // Placeholder — memoriesTodayCount is derived in-memory below so we can
+    // apply test/whitelist/incomplete-signup exclusions consistently.
+    Promise.resolve({ count: 0 } as { count: number | null }),
   ]);
 
   const affiliateRows = affiliateResult.data;
   const vacationBlocks = vacationBlocksResult.count;
   const booksLogged = booksLoggedResult.count;
   const memoriesCreated = memoriesCreatedResult.count;
-  const memoriesTodayCount = memoriesTodayResult.count;
+  // memoriesTodayResult is unused; see derivation below after exclusions are built.
+  void memoriesTodayResult;
+
+  // ── Centralized exclusions ────────────────────────────────────────────
+  // Every "real families" / signup / activity tile must filter through
+  // these sets. See lib/admin/excluded-user-ids.ts for what each
+  // exclusion class represents and why.
+  const affiliateUserIdsRaw = (affiliateRows ?? [])
+    .map(a => a.user_id)
+    .filter((id): id is string => Boolean(id));
+
+  const exclusions = buildExclusions({
+    authUsers: allUsers.map(u => ({ id: u.id, email: u.email ?? null })),
+    profileIds: profiles.map(p => p.id),
+    affiliateUserIds: affiliateUserIdsRaw,
+  });
+
+  // "Comped Partners" tile = affiliates with a linked user_id (i.e.
+  // partners actively redeeming their 100% off founding coupon). We
+  // still expose `activeAffiliateCount` for backward compat — kept
+  // equal to is_active count which historically matched user_id rows.
+  const compedPartnersCount = exclusions.affiliateIds.size;
+  const activeAffiliateCount = affiliateRows?.filter(a => a.is_active).length ?? 0;
 
   // Derived counts from allUsers
   const totalUsers = allUsers.length;
-  const last24hSignups  = allUsers.filter(u => new Date(u.created_at) >= todayMidnight).length;
+  const realFamiliesCount = allUsers.filter(u => !exclusions.excludedFromRealFamilies.has(u.id)).length;
+
+  const last24hSignups = allUsers.filter(u =>
+    new Date(u.created_at) >= todayMidnight &&
+    !exclusions.excludedFromRealFamilies.has(u.id)
+  ).length;
   const yesterdaySignups = allUsers.filter(u => {
     const d = new Date(u.created_at);
-    return d >= yesterdayMidnight && d < todayMidnight;
+    return d >= yesterdayMidnight && d < todayMidnight && !exclusions.excludedFromRealFamilies.has(u.id);
   }).length;
 
-  // Affiliates
-  const affiliateUserIds = new Set(affiliateRows?.map(a => a.user_id) ?? []);
-  const activeAffiliateCount = affiliateRows?.filter(a => a.is_active).length ?? 0;
+  // Backward-compat alias used by some downstream code.
+  const affiliateUserIds = exclusions.affiliateIds;
+
+  // Memories today — count only from real families. Excludes test
+  // accounts, whitelisted founders, and incomplete signups, so this
+  // tile reflects actual customer activity rather than Brittany's
+  // QA-day captures.
+  const todayStartIso = todayStart.toISOString();
+  const memoriesTodayCount = memoryUserRows.filter(m =>
+    m.created_at >= todayStartIso &&
+    !exclusions.excludedFromRealFamilies.has(m.user_id)
+  ).length;
+
+  // Lessons today — same exclusions.
+  const lessonsTodayCount = lessonsByUserRows.filter(l => {
+    const d = (l.completed_at ?? l.date ?? "").split("T")[0];
+    if (d < todayStart.toISOString().split("T")[0]) return false;
+    return !exclusions.excludedFromRealFamilies.has(l.user_id);
+  }).length;
 
   // Profile-derived counts
   const proUsers         = profiles.filter(p => p.is_pro).length;
@@ -238,10 +269,7 @@ export async function GET(req: Request) {
     }
   }
   const totalLessons  = lessonsByUserRows.length;
-  const lessonsToday  = lessonsByUserRows.filter(l => {
-    const d = l.completed_at ?? l.date ?? "";
-    return d >= todayStart.toISOString().split("T")[0];
-  }).length;
+  const lessonsToday  = lessonsTodayCount;
 
   // Children
   const totalChildren = childrenRows.length;
@@ -369,14 +397,6 @@ export async function GET(req: Request) {
     funnel = null;
   }
 
-  // Build set of affiliate emails for cross-referencing with Stripe
-  const affiliateEmails = new Set(
-    allUsers
-      .filter(u => affiliateUserIds.has(u.id))
-      .map(u => u.email?.toLowerCase())
-      .filter(Boolean) as string[]
-  );
-
   // Revenue — live from Stripe; also sets plan on signups
   let stripeFoundingCount    = 0;
   let stripeStandardCount    = 0;
@@ -390,12 +410,10 @@ export async function GET(req: Request) {
       stripe.subscriptions.list({ status: "canceled", limit: 100 }),
     ]);
 
-    const todayStartSec = Math.floor(todayStart.getTime() / 1000);
     for (const sub of activeSubs.data) {
       const priceId = sub.items.data[0]?.price.id;
       if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID)  stripeFoundingCount++;
       else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID)    stripeStandardCount++;
-      if (sub.created >= todayStartSec) upgradesToday++;
     }
     for (const sub of cancelledSubs.data) {
       const priceId = sub.items.data[0]?.price.id;
@@ -437,13 +455,22 @@ export async function GET(req: Request) {
     });
     stripeFoundingCount = foundingFamilies;
     stripeStandardCount = standardSubs;
-    // Fallback: approximate upgradesToday from profile creation date
-    upgradesToday = profiles.filter(p =>
-      (p.plan_type === "founding_family" || p.plan_type === "standard") &&
-      p.subscription_status === "active" &&
-      new Date(p.created_at) >= todayStart
-    ).length;
   }
+
+  // Upgrades today = profiles that became paid today, minus exclusions.
+  // We define "upgrade" as: profile is currently is_pro=true with an active
+  // sub, and its subscription_end_date / created_at falls within today's
+  // window. We approximate by created_at since DB lacks a true "upgraded_at".
+  // Exclusions remove comped partners + whitelist + tests so the tile
+  // reflects genuine new revenue, not Brittany re-creating a test profile.
+  upgradesToday = profiles.filter(p =>
+    p.is_pro === true &&
+    !!p.stripe_subscription_id &&
+    (p.plan_type === "founding_family" || p.plan_type === "standard") &&
+    p.subscription_status === "active" &&
+    new Date(p.created_at) >= todayStart &&
+    !exclusions.excludedFromPaying.has(p.id)
+  ).length;
 
   // Override plan → "Refunded" for users with canceled/refunded status in DB
   // (applies in both Stripe-live and fallback paths)
@@ -460,13 +487,29 @@ export async function GET(req: Request) {
     return signup;
   });
 
-  // Split paying vs comped: exclude affiliate emails from paying counts
-  const payingFoundingCount = stripeFoundingCount - [...affiliateEmails].filter(e => {
-    const plan = recentSignups.find(s => s.email.toLowerCase() === e)?.plan;
-    return plan === "Founding";
-  }).length;
+  // ── Paying customers (the source-of-truth tile) ──────────────────────
+  // Count from profiles (NOT Stripe), filtered to:
+  //   plan_type='founding_family' AND is_pro=true
+  //   AND stripe_subscription_id IS NOT NULL
+  //   AND user_id NOT IN (comped affiliates)
+  //   AND id NOT IN (whitelisted founder/test UUIDs)
+  // This is what "real $39 paying Founding members" actually means.
+  const payingFoundingCount = profiles.filter(p =>
+    p.plan_type === "founding_family" &&
+    p.is_pro === true &&
+    !!p.stripe_subscription_id &&
+    !exclusions.excludedFromPaying.has(p.id)
+  ).length;
+
+  const payingStandardCount = profiles.filter(p =>
+    p.plan_type === "standard" &&
+    p.is_pro === true &&
+    !!p.stripe_subscription_id &&
+    !exclusions.excludedFromPaying.has(p.id)
+  ).length;
+
   const stripeActiveTotal = stripeFoundingCount + stripeStandardCount;
-  const estAnnualRevenue  = Math.max(0, payingFoundingCount) * 39 + stripeStandardCount * 59;
+  const estAnnualRevenue  = Math.max(0, payingFoundingCount) * 39 + payingStandardCount * 59;
 
   // Tag affiliate users as "Partner" plan
   recentSignups = recentSignups.map(signup => {
@@ -490,8 +533,8 @@ export async function GET(req: Request) {
     usedVacation:   totalProfiles > 0 ? Math.round((vacationByUser.size  / totalProfiles) * 100) : 0,
   };
 
-  // 30-day signup trend — bucket real users (no test accounts) by day
-  const realUsers = allUsers.filter(u => !isTestEmail(u.email ?? ""));
+  // 30-day signup trend — bucket real users (no test/whitelist/incomplete) by day
+  const realUsers = allUsers.filter(u => !exclusions.excludedFromRealFamilies.has(u.id));
   const signupTrend: { date: string; count: number }[] = [];
   for (let i = 29; i >= 0; i--) {
     const d = new Date();
@@ -507,7 +550,7 @@ export async function GET(req: Request) {
   const sevenDaysAgoStr = sevenDaysAgo.toISOString();
 
   const churnRisk = profiles
-    .filter(p => p.is_pro)
+    .filter(p => p.is_pro && !exclusions.excludedFromPaying.has(p.id))
     .map(p => {
       const lastActive = getLastActive(p.id);
       const email = allUsers.find(u => u.id === p.id)?.email ?? "";
@@ -555,13 +598,24 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     totalUsers,
+    // New, accurate field set — every count below has the centralized
+    // exclusion list applied. See lib/admin/excluded-user-ids.ts.
+    realFamiliesCount,
+    payingCustomersCount: payingFoundingCount + payingStandardCount,
+    payingFoundingCount: Math.max(0, payingFoundingCount),
+    payingStandardCount: Math.max(0, payingStandardCount),
+    compedPartnersCount,
+    testAccountsHidden:       exclusions.testAccountsHidden,
+    whitelistedHidden:        exclusions.whitelistedHidden,
+    incompleteSignupsHidden:  exclusions.incompleteSignupsHidden,
+    asOfISO: new Date().toISOString(),
+    // Existing fields (now filtered through exclusions where relevant).
     last24hSignups,
     yesterdaySignups,
     proUsers,
     foundingFamilies: stripeFoundingCount,
     standardSubs:     stripeStandardCount,
     freeUsers,
-    payingFoundingCount: Math.max(0, payingFoundingCount),
     activeAffiliateCount,
     affiliateUserIds: [...affiliateUserIds],
     totalChildren,
@@ -581,7 +635,6 @@ export async function GET(req: Request) {
     cancelledStandardCount,
     funnel,
     recentSignups,
-    // New analytics fields
     memoriesToday: memoriesTodayCount ?? 0,
     upgradesToday,
     featureAdoption,
