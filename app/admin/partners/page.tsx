@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import QRCode from "qrcode";
 import { supabase } from "@/lib/supabase";
+import { formatCurrency } from "@/lib/commission";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
@@ -342,7 +343,7 @@ export default function AdminPartnersPage() {
           <StatCard label="Clicks" value={affiliates.reduce((s, a) => s + (a.clicks ?? 0), 0)} />
           <StatCard label="Pending" value={pendingApps.length} highlight={pendingApps.length > 0} />
           <StatCard label="Conversions" value={referrals.filter((r) => r.converted).length} />
-          <StatCard label="Owed" value={`$${netOwed.toFixed(2)}`} />
+          <StatCard label="Owed" value={formatCurrency(netOwed)} />
         </div>
 
         {/* ── Pending Applications ──────────────────────────────────────── */}
@@ -447,7 +448,7 @@ export default function AdminPartnersPage() {
                       <MiniStat label="Clicks" value={a.clicks} />
                       <MiniStat label="Signups" value={a.signups_referred} />
                       <MiniStat label="Paying" value={a.paying_customers} accent />
-                      <MiniStat label="Owed" value={`$${owed.toFixed(0)}`} accent={owed > 0} />
+                      <MiniStat label="Owed" value={formatCurrency(owed)} accent={owed > 0} />
                     </div>
                   </button>
 
@@ -466,7 +467,7 @@ export default function AdminPartnersPage() {
 
                       {/* Paid so far */}
                       <div className="flex items-center gap-3 text-xs text-[#7a6f65]">
-                        <span>Total paid: <b className="text-[#2d2926]">${a.total_paid.toFixed(2)}</b></span>
+                        <span>Total paid: <b className="text-[#2d2926]">{formatCurrency(a.total_paid)}</b></span>
                         <span>Commission rate: <b className="text-[#2d2926]">{a.commission_rate ?? 20}%</b></span>
                       </div>
 
@@ -505,7 +506,7 @@ export default function AdminPartnersPage() {
                         {owed > 0 && (
                           <button onClick={() => setPayModal(a)}
                             className="px-4 py-2 text-xs font-semibold bg-[#6366f1] hover:bg-[#4338ca] text-white rounded-lg transition-colors">
-                            Pay ${owed.toFixed(2)}</button>
+                            Pay {formatCurrency(owed)}</button>
                         )}
                         {a.contact_email && (
                           <a href={`mailto:${a.contact_email}`}
@@ -531,7 +532,7 @@ export default function AdminPartnersPage() {
             <div className="space-y-2">
               {referrals.map((r) => {
                 const planLabel = r.user_plan === "founding_family" ? "Founding ($39/yr)" : r.user_plan === "standard" ? "Standard ($59/yr)" : r.user_plan === "monthly" ? "Monthly ($6.99/mo)" : r.user_plan;
-                const commission = r.converted ? `$${r.commission_amount.toFixed(2)}` : "$0";
+                const commission = formatCurrency(r.converted ? r.commission_amount : 0);
                 const status = r.commission_note
                   ? r.commission_note
                   : r.converted
@@ -588,7 +589,7 @@ export default function AdminPartnersPage() {
                       {p.notes && <span className="text-[11px] text-[#b5aca4] italic">{p.notes}</span>}
                     </div>
                   </div>
-                  <p className="text-sm font-bold text-[#2d2926] shrink-0">${Number(p.amount).toFixed(2)}</p>
+                  <p className="text-sm font-bold text-[#2d2926] shrink-0">{formatCurrency(Number(p.amount))}</p>
                 </div>
               ))}
             </div>
@@ -603,7 +604,7 @@ export default function AdminPartnersPage() {
         return (
           <Modal onClose={() => !paying && setPayModal(null)} title="Confirm payment">
             <p className="text-sm text-[#7a6f65] mb-4">
-              Pay <b className="text-[#2d2926]">${ow.toFixed(2)}</b> to <b className="text-[#2d2926]">{payModal.paypal_email ?? "no PayPal"}</b> for {payModal.name} ({payModal.code}) {"\u2014"} {mo}?
+              Pay <b className="text-[#2d2926]">{formatCurrency(ow)}</b> to <b className="text-[#2d2926]">{payModal.paypal_email ?? "no PayPal"}</b> for {payModal.name} ({payModal.code}) {"\u2014"} {mo}?
             </p>
             <div className="flex gap-2">
               <button onClick={confirmPay} disabled={paying} className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-xl">{paying ? "Processing..." : "Confirm payment"}</button>

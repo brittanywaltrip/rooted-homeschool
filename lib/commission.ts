@@ -21,6 +21,20 @@ export function commissionFromCents(cents: number | null | undefined): number | 
   return Math.round(cents * COMMISSION_RATE) / 100
 }
 
+// Single shared currency formatter for every partner-commission display
+// on /admin/partners. Always renders two decimals so that roster-card
+// "Owed" tiles, the OWED summary, the Referral Activity feed, and the
+// payment history all line up to the cent.
+//
+// Examples:
+//   formatCurrency(7.8)   → "$7.80"
+//   formatCurrency(36.66) → "$36.66"
+//   formatCurrency(0)     → "$0.00"
+export function formatCurrency(amount: number | null | undefined): string {
+  const n = typeof amount === 'number' && Number.isFinite(amount) ? amount : 0
+  return `$${n.toFixed(2)}`
+}
+
 // Returns the dollars-commission that should be displayed for a referral
 // row. Prefers the stored per-row value (set by the webhook on conversion
 // or by the backfill script); falls back to the flat $6.63 when the row
