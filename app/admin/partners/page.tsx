@@ -87,8 +87,6 @@ export default function AdminPartnersPage() {
   const [setupLookup, setSetupLookup] = useState<ProfileMatch | null>(null);
   const [setupLookupRan, setSetupLookupRan] = useState(false);
   const [setupLookingUp, setSetupLookingUp] = useState(false);
-  const [setupCompDone, setSetupCompDone] = useState(false);
-  const [setupComping, setSetupComping] = useState(false);
   const [setupStripeCoupon, setSetupStripeCoupon] = useState("");
   const [setupStripeApi, setSetupStripeApi] = useState("");
   const [setupCommissionRate, setSetupCommissionRate] = useState(20);
@@ -97,12 +95,12 @@ export default function AdminPartnersPage() {
   const [setupDone, setSetupDone] = useState(false);
   const [setupFinalRefLink, setSetupFinalRefLink] = useState("");
   const [setupLinkCopied, setSetupLinkCopied] = useState(false);
-  // Manual checkboxes per step
+  // Manual checkboxes per step (4 steps after the May 2026 affiliate
+  // relaunch — the "Comp Account" step was removed).
   const [check1, setCheck1] = useState(false);
   const [check2, setCheck2] = useState(false);
   const [check3, setCheck3] = useState(false);
   const [check4, setCheck4] = useState(false);
-  const [check5, setCheck5] = useState(false);
 
   // Reject modal
   const [rejectApp, setRejectApp] = useState<Application | null>(null);
@@ -190,7 +188,7 @@ export default function AdminPartnersPage() {
   // Derived referral code — first name uppercased, stripped of non-letters
   const setupCode = approveApp ? (approveApp.first_name || "").toUpperCase().replace(/[^A-Z]/g, "") : "";
   const setupRefLink = setupCode ? `https://rootedhomeschoolapp.com/?ref=${setupCode}` : "";
-  const allStepsChecked = check1 && check2 && check3 && check4 && check5;
+  const allStepsChecked = check1 && check2 && check3 && check4;
 
   // When admin opens the approve modal, reset checklist and run lookup + QR
   useEffect(() => {
@@ -198,7 +196,6 @@ export default function AdminPartnersPage() {
     setSetupLookup(null);
     setSetupLookupRan(false);
     setSetupLookingUp(true);
-    setSetupCompDone(false);
     setSetupStripeCoupon("");
     setSetupStripeApi("");
     setSetupCommissionRate(20);
@@ -206,7 +203,7 @@ export default function AdminPartnersPage() {
     setSetupDone(false);
     setSetupFinalRefLink("");
     setSetupLinkCopied(false);
-    setCheck1(false); setCheck2(false); setCheck3(false); setCheck4(false); setCheck5(false);
+    setCheck1(false); setCheck2(false); setCheck3(false); setCheck4(false);
 
     // Run lookup
     (async () => {
@@ -224,8 +221,6 @@ export default function AdminPartnersPage() {
         const json = await res.json();
         if (json.found && json.profile) {
           setSetupLookup(json.profile);
-          // If already comped, mark step 2 as done
-          if (json.profile.plan_type === "partner_comp") setSetupCompDone(true);
         } else {
           setSetupLookup(null);
         }
@@ -245,21 +240,6 @@ export default function AdminPartnersPage() {
       }).then(setSetupQrDataUrl).catch(() => setSetupQrDataUrl(null));
     }
   }, [approveApp, token]);
-
-  async function compAccount() {
-    if (!setupLookup?.id) return;
-    setSetupComping(true);
-    const res = await fetch("/api/admin/partner-action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ action: "comp_account", profileId: setupLookup.id }),
-    });
-    setSetupComping(false);
-    if (res.ok) {
-      setSetupCompDone(true);
-      setSetupLookup((p) => p ? { ...p, is_pro: true, subscription_status: "active", plan_type: "partner_comp" } : p);
-    }
-  }
 
   async function completeSetup() {
     if (!approveApp) return;
@@ -620,7 +600,7 @@ export default function AdminPartnersPage() {
           {setupDone ? (
             <div className="space-y-4">
               <p className="text-sm text-[#5c5248]">
-                <b>{approveApp.first_name}</b> is now a Rooted Partner. Welcome email sent to {approveApp.email}.
+                <b>{approveApp.first_name}</b> activated as a Rooted Partner. Welcome email sent to {approveApp.email}.
               </p>
               <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Referral link</label>
@@ -664,30 +644,13 @@ export default function AdminPartnersPage() {
                 )}
               </SetupStep>
 
-              {/* Step 2 — Comp Account */}
+              {/* Step 2 — Stripe Coupon */}
               <SetupStep
                 n={2}
-                title="Comp Account"
-                checked={check2}
-                onToggle={() => setCheck2(v => !v)}
-              >
-                {setupCompDone ? (
-                  <p className="text-xs text-[var(--g-deep)]">✓ Account comped (is_pro, subscription_status=active, plan_type=partner_comp)</p>
-                ) : (
-                  <button onClick={compAccount} disabled={!setupLookup || setupComping}
-                    className="px-3 py-1.5 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white rounded-lg">
-                    {setupComping ? "Comping…" : "Comp This Account"}
-                  </button>
-                )}
-              </SetupStep>
-
-              {/* Step 3 — Stripe Coupon */}
-              <SetupStep
-                n={3}
                 title="Create Stripe Coupon"
-                checked={check3}
+                checked={check2}
                 canCheck={!!setupStripeCoupon && !!setupStripeApi}
-                onToggle={() => setCheck3(v => !v)}
+                onToggle={() => setCheck2(v => !v)}
               >
                 <p className="text-xs text-[#5c5248] mb-2">
                   Create coupon in Stripe Dashboard with code: <b className="font-mono text-[var(--g-deep)]">{setupCode || "(need first name)"}</b>
@@ -704,12 +667,12 @@ export default function AdminPartnersPage() {
                 </div>
               </SetupStep>
 
-              {/* Step 4 — Link & QR */}
+              {/* Step 3 — Link & QR */}
               <SetupStep
-                n={4}
+                n={3}
                 title="Affiliate Link & QR Code"
-                checked={check4}
-                onToggle={() => setCheck4(v => !v)}
+                checked={check3}
+                onToggle={() => setCheck3(v => !v)}
               >
                 <div className="flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-lg px-3 py-2 mb-2">
                   <span className="text-xs text-[#5c7f63] font-mono truncate flex-1">{setupRefLink}</span>
@@ -725,12 +688,12 @@ export default function AdminPartnersPage() {
                 )}
               </SetupStep>
 
-              {/* Step 5 — Commission Rate */}
+              {/* Step 4 — Commission Rate */}
               <SetupStep
-                n={5}
+                n={4}
                 title="Set Commission Rate"
-                checked={check5}
-                onToggle={() => setCheck5(v => !v)}
+                checked={check4}
+                onToggle={() => setCheck4(v => !v)}
               >
                 <div className="flex items-center gap-2">
                   <input type="number" min={0} max={100} value={setupCommissionRate}
