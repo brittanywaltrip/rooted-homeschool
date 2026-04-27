@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Camera, Check, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { compressImage } from "@/lib/compress-image";
+import { signedPhotoUrl } from "@/lib/photo-url";
 import { capitalizeName } from "@/lib/utils";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -360,12 +361,13 @@ export default function OnboardingPage() {
       setSaving(false);
       return;
     }
-    const { data: urlData } = supabase.storage.from("family-photos").getPublicUrl(path);
+    const signed = await signedPhotoUrl(supabase, "family-photos", path);
+    const familyPhotoUrl = signed ?? path;
     const token = (await supabase.auth.getSession()).data.session?.access_token ?? "";
     await fetch("/api/profile/update", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ family_photo_url: urlData.publicUrl }),
+      body: JSON.stringify({ family_photo_url: familyPhotoUrl }),
     });
     setPhotoUploaded(true);
     setSaving(false);

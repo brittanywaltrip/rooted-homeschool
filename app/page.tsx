@@ -1122,7 +1122,7 @@ function HomeInner() {
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-3xl p-8 sm:p-12 flex flex-col sm:flex-row gap-8 items-center">
           <div className="shrink-0">
             <img
-              src="https://gvkbegvvmhcrmxdorctk.supabase.co/storage/v1/object/public/family-photos/f30ede7e-ad40-42a9-a134-8fd70932ba0f/family.jpg"
+              src="/founder-photo.jpg"
               alt="Brittany and her family"
               className="w-28 h-28 rounded-full object-cover shadow-lg border-4 border-white"
               style={{ boxShadow: "0 4px 24px rgba(92, 127, 99, 0.25)" }}

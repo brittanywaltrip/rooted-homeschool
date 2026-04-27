@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
+import { signedPhotoUrl } from "@/lib/photo-url";
 import { onLogAction } from "@/app/lib/onLogAction";
 import { getPhotoCount } from "@/app/lib/integrity-checks";
 
@@ -170,8 +171,8 @@ export default function LogTodayModal({
           setSaving(false);
           return;
         }
-        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-        photoUrl = urlData.publicUrl;
+        const signed = await signedPhotoUrl(supabase, "memory-photos", path);
+        photoUrl = signed ?? path;
       }
 
       // Determine event type

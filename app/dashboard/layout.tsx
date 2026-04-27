@@ -12,6 +12,8 @@ import { BadgeNotificationListener } from "@/components/BadgeNotification";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
 import { compressImage } from "@/lib/compress-image";
+import { signedPhotoUrl } from "@/lib/photo-url";
+import SignedImage from "@/components/SignedImage";
 import { DashboardLayoutProvider, useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { LeafAnimationProvider, useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
@@ -256,14 +258,15 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       const path = `${user.id}/${Date.now()}-${fileToUpload.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
       const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, fileToUpload, { contentType: "image/jpeg", upsert: false });
       if (upErr) { setFabSaving(false); setFabToast("Upload failed — check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
-      const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+      const signed = await signedPhotoUrl(supabase, "memory-photos", path);
+      const photoUrl = signed ?? path;
       const now = new Date();
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       const { error: insErr } = await supabase.from("memories").insert({
         user_id: user.id,
         type: "photo",
         title: fabCaption.trim() || null,
-        photo_url: urlData.publicUrl,
+        photo_url: photoUrl,
         child_id: fabChildId || null,
         date: today,
         include_in_book: false,
@@ -379,7 +382,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[var(--g-deep)] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
         >
           {avatarPhotoUrl ? (
-            <img src={avatarPhotoUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
+            <SignedImage src={avatarPhotoUrl} bucket="family-photos" alt="" className="w-10 h-10 rounded-full object-cover" />
           ) : profileData.first_name ? (
             nameInitial(profileData.first_name)
           ) : displayName ? (
@@ -464,7 +467,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               className="w-10 h-10 rounded-full bg-[#e8f0e9] flex items-center justify-center text-sm font-bold text-[var(--g-deep)] hover:bg-[#d4e8d4] transition-colors shrink-0 overflow-hidden"
             >
               {avatarPhotoUrl ? (
-                <img src={avatarPhotoUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
+                <SignedImage src={avatarPhotoUrl} bucket="family-photos" alt="" className="w-10 h-10 rounded-full object-cover" />
               ) : profileData.first_name ? (
                 nameInitial(profileData.first_name)
               ) : displayName ? (

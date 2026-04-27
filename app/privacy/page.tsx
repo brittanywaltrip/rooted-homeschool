@@ -26,7 +26,8 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">3. Children&apos;s Privacy (COPPA)</h2>
             <p className="leading-relaxed">Rooted is designed for use by parents and guardians to track their children&apos;s education. We are committed to complying with the Children&apos;s Online Privacy Protection Act (COPPA).</p>
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
-              <li>We collect only children&apos;s first names, entered by a parent or guardian. We do not collect last names, birthdates, photos of children, or any other identifying information about minors.</li>
+              <li>We collect only children&apos;s first names and avatar colors, entered by a parent or guardian. We do not collect children&apos;s last names, birthdates, contact information, or any other identifying information about minors.</li>
+              <li>Photos uploaded by parents may contain children. These photos are uploaded entirely at the parent&apos;s discretion, stored privately within the parent&apos;s account, never used for advertising, and never shared with any third party. Parents may delete any photo at any time from within the app.</li>
               <li>We do not knowingly collect personal information directly from children under 13. All data about children is entered and controlled exclusively by the parent or guardian account holder.</li>
               <li>Parents and guardians may review, update, or permanently delete all information about their children at any time through the Settings page or by contacting us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</li>
             </ul>
@@ -39,13 +40,14 @@ export default function PrivacyPage() {
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">5. Data Storage and Security</h2>
-            <p className="leading-relaxed">Your data is stored securely using Supabase, a trusted database platform with industry-standard encryption at rest and in transit. We use row-level security policies to ensure your family&apos;s data is accessible only to you. Photos are stored in secure cloud storage. While we take all reasonable measures to protect your information, no method of internet transmission is 100% secure.</p>
+            <p className="leading-relaxed">Your data is stored securely using Supabase, a trusted database platform with industry-standard encryption at rest and in transit. We use row-level security policies on our database so your family&apos;s lessons, memories, and account data are accessible only to you.</p>
+            <p className="leading-relaxed mt-2">Photos and media you upload are stored in cloud storage where each file is assigned a unique, non-guessable random identifier in its URL. These URLs are not publicly listed, indexed, or searchable, and the app requires you to be logged in to your account to view them within Rooted. We are actively working to add an additional authentication layer to direct photo URLs as a further security measure.</p>
             <p className="leading-relaxed mt-2">In the event of a data breach that affects your personal information, we will notify affected users within 72 hours of discovering the breach via the email address associated with your account.</p>
           </section>
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">6. Data Retention and Deletion</h2>
-            <p className="leading-relaxed">You may delete your account and all associated data at any time by contacting us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>. We will process deletion requests within 30 days. Some information may be retained in encrypted backups for up to 90 days after deletion, after which it is permanently purged.</p>
+            <p className="leading-relaxed">You may export all your data or permanently delete your account and all associated data at any time directly from the Settings page within the app. Account deletion takes effect immediately when you confirm in Settings. Some information may be retained in encrypted backups for up to 90 days after deletion, after which it is permanently purged. If you have questions or run into any issues, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</p>
           </section>
 
           <section>
@@ -53,9 +55,13 @@ export default function PrivacyPage() {
             <p className="leading-relaxed">We use the following third-party services to operate Rooted. Each has its own privacy policy, and we share only the minimum data necessary for each service to function:</p>
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
               <li><strong>Supabase</strong> — database, authentication, and file storage</li>
-              <li><strong>Vercel</strong> — application hosting and deployment</li>
+              <li><strong>Vercel</strong> — application hosting, deployment, and basic performance analytics (page load times)</li>
               <li><strong>Stripe</strong> — payment processing for Pro subscriptions. Stripe handles all payment data directly; we never store your full card number or payment credentials.</li>
+              <li><strong>Resend</strong> — sending transactional emails (welcome, receipts, account notifications)</li>
+              <li><strong>PostHog</strong> — product analytics (anonymous usage data such as page views and clicks) so we can understand how families use Rooted and improve the experience. PostHog does not access your photos, memory content, or children&apos;s information.</li>
+              <li><strong>Google Analytics</strong> — aggregate usage statistics. Google Analytics does not access your photos, memory content, or children&apos;s information.</li>
             </ul>
+            <p className="leading-relaxed mt-3"><strong>None of our analytics or third-party services are used for advertising. We do not sell, share, or rent your personal information to anyone, ever.</strong></p>
           </section>
 
           <section>

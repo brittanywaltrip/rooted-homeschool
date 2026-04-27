@@ -10,6 +10,8 @@ import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
 import MilestonePrompt from "@/components/MilestonePrompt";
 import { compressImage } from "@/lib/compress-image";
+import { extractPath, signedPhotoUrl } from "@/lib/photo-url";
+import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 
@@ -530,8 +532,8 @@ export default function MemoriesPage() {
       const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
       const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
       if (!upErr) {
-        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-        photoUrl = urlData.publicUrl;
+        const signed = await signedPhotoUrl(supabase, "memory-photos", path);
+        photoUrl = signed ?? path;
       }
     } else if (editPhotoRemoved) {
       photoUrl = null;
@@ -579,12 +581,9 @@ export default function MemoriesPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const url = deleteTarget.photo_url;
-        const buckets = ["memories", "memory-photos"];
-        for (const bucket of buckets) {
-          const marker = `/storage/v1/object/public/${bucket}/`;
-          const idx = url.indexOf(marker);
-          if (idx !== -1) {
-            const path = url.slice(idx + marker.length);
+        for (const bucket of ["memories", "memory-photos"] as const) {
+          const path = extractPath(url, bucket);
+          if (path && url.includes(`/${bucket}/`)) {
             await supabase.storage.from(bucket).remove([path]);
             break;
           }
@@ -607,12 +606,9 @@ export default function MemoriesPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const url = selectedMemory.photo_url;
-        const buckets = ["memories", "memory-photos"];
-        for (const bucket of buckets) {
-          const marker = `/storage/v1/object/public/${bucket}/`;
-          const idx = url.indexOf(marker);
-          if (idx !== -1) {
-            const path = url.slice(idx + marker.length);
+        for (const bucket of ["memories", "memory-photos"] as const) {
+          const path = extractPath(url, bucket);
+          if (path && url.includes(`/${bucket}/`)) {
             await supabase.storage.from(bucket).remove([path]);
             break;
           }
@@ -1002,7 +998,7 @@ export default function MemoriesPage() {
                 >
                   {/* Photo or type tile */}
                   {m.photo_url ? (
-                    <img src={m.photo_url} alt={m.title ?? "Memory"} loading={photoIdx++ < 6 ? "eager" : "lazy"} className="w-full h-full object-cover" />
+                    <SignedImage src={m.photo_url} bucket="memory-photos" alt={m.title ?? "Memory"} loading={photoIdx++ < 6 ? "eager" : "lazy"} className="w-full h-full object-cover" />
                   ) : (
                     (() => {
                       const tileGradientClass: Record<string, string> = {
@@ -1090,8 +1086,9 @@ export default function MemoriesPage() {
           >
             {/* Hero: photo or styled tile */}
             {selectedMemory.photo_url ? (
-              <img
+              <SignedImage
                 src={selectedMemory.photo_url}
+                bucket="memory-photos"
                 alt={selectedMemory.title ?? "Memory"}
                 loading="eager"
                 className="w-full rounded-t-3xl object-cover max-h-[50vh]"

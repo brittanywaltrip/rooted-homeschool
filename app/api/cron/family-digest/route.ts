@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { signedPhotoUrlsAdmin } from "@/lib/photo-url";
 import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
 
 export const dynamic = "force-dynamic";
@@ -74,10 +75,20 @@ export async function GET(req: NextRequest) {
         return childName ? `${childName} — ${m.title ?? m.type}` : (m.title ?? m.type);
       });
 
-    // Get up to 4 photo thumbnails
+    // Get up to 4 photo thumbnails. Sign each URL with a 7-day expiry so
+    // recipients can still see images when they open the email days later;
+    // any photo we fail to sign is dropped from the grid rather than
+    // rendered as a broken image.
     const photoMems = newMems
-      .filter((m: { photo_url: string | null }) => m.photo_url)
+      .filter((m: { photo_url: string | null }): m is typeof m & { photo_url: string } => !!m.photo_url)
       .slice(0, 4);
+    const sevenDaysSeconds = 7 * 24 * 3600;
+    const signedPhotos = await signedPhotoUrlsAdmin(
+      "memory-photos",
+      photoMems.map((m) => m.photo_url),
+      sevenDaysSeconds,
+    );
+    const renderablePhotos = signedPhotos.filter((u): u is string => !!u);
 
     for (const inv of ownerInvites) {
       // Check trial: must be active OR mom paid
@@ -89,9 +100,9 @@ export async function GET(req: NextRequest) {
       const unsubscribeUrl = `https://www.rootedhomeschoolapp.com/family/${inv.token}/unsubscribe`;
 
       // Build photo grid HTML for template variable
-      const photoGridHtml = photoMems.length > 0
-        ? photoMems.slice(0, 4).map((p: { photo_url: string | null }) =>
-          `<img src="${p.photo_url}" alt="" style="width:48%;height:140px;object-fit:cover;border-radius:8px;display:inline-block;margin:2px;" />`
+      const photoGridHtml = renderablePhotos.length > 0
+        ? renderablePhotos.map((url) =>
+          `<img src="${url}" alt="" style="width:48%;height:140px;object-fit:cover;border-radius:8px;display:inline-block;margin:2px;" />`
         ).join("")
         : "";
 

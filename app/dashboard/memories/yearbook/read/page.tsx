@@ -16,6 +16,7 @@ import {
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
+import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
 
 function safeParseDateStr(d: string | null | undefined): Date | null {
@@ -102,8 +103,7 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
   if (photos.length === 1) {
     return (
       <div className="w-full rounded-md overflow-hidden bg-[#f5f0e8]" style={{ aspectRatio: "4/3" }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={photos[0].photo_url!} alt="" className="w-full h-full object-contain" />
+        <SignedImage src={photos[0].photo_url!} bucket="memory-photos" className="w-full h-full object-contain" />
       </div>
     );
   }
@@ -113,8 +113,7 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
       <div className="grid grid-cols-2 gap-1.5">
         {photos.map((p) => (
           <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={p.photo_url!} alt="" className="w-full h-full object-contain" />
+            <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-contain" />
           </div>
         ))}
       </div>
@@ -125,14 +124,12 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
     return (
       <div className="space-y-1.5">
         <div className="w-full rounded-md overflow-hidden bg-[#f5f0e8]" style={{ aspectRatio: "16/9" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photos[0].photo_url!} alt="" className="w-full h-full object-contain" />
+          <SignedImage src={photos[0].photo_url!} bucket="memory-photos" className="w-full h-full object-contain" />
         </div>
         <div className="grid grid-cols-2 gap-1.5">
           {photos.slice(1).map((p) => (
             <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={p.photo_url!} alt="" className="w-full h-full object-contain" />
+              <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-contain" />
             </div>
           ))}
         </div>
@@ -144,8 +141,7 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
     <div className="grid grid-cols-2 gap-1.5">
       {photos.slice(0, 4).map((p) => (
         <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={p.photo_url!} alt="" className="w-full h-full object-contain" />
+          <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-contain" />
         </div>
       ))}
     </div>
@@ -380,8 +376,11 @@ export default function YearbookReadPage() {
             className="rounded-sm overflow-hidden shrink-0"
             style={{ border: "4px solid rgba(255,255,255,0.85)", boxShadow: "0 4px 20px rgba(0,0,0,0.25)", width: "65%", aspectRatio: "3/4" }}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={coverPhotoUrl} alt="" className="w-full h-full object-cover" />
+            <SignedImage
+              src={coverPhotoUrl}
+              bucket={coverPhotoUrl.includes("/yearbook-covers/") ? "yearbook-covers" : "family-photos"}
+              className="w-full h-full object-cover"
+            />
           </div>
 
           {/* Year label */}
@@ -511,8 +510,7 @@ export default function YearbookReadPage() {
           {favMemory ? (
             <div>
               {favMemory.photo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={favMemory.photo_url} alt="" className="w-full rounded-md object-cover" style={{ aspectRatio: "4/3" }} />
+                <SignedImage src={favMemory.photo_url} bucket="memory-photos" className="w-full rounded-md object-cover" style={{ aspectRatio: "4/3" }} />
               ) : (
                 <div className="w-full rounded-md bg-[#eaf3de] flex items-center justify-center p-4" style={{ aspectRatio: "4/3" }}>
                   <p className="text-sm font-medium text-[var(--g-deep)] text-center line-clamp-2">{favMemory.title}</p>
