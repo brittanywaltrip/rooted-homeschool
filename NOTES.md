@@ -99,10 +99,8 @@ Rooted replaces three things homeschool moms currently need separately:
 - NOTE: Currently skews young/female. Future: alternate themes for older kids/boys (adventure map, space, etc.)
 
 ### Memories (/dashboard/memories)
-- **This is the killer feature.** Daily logging → monthly AI update → share with grandparents = the moment that makes moms cry and share the app.
-- AI Family Update card at TOP
-- Chronological timeline below
-- Once/month: surface the update on Today's hero ("Your March update is ready ✨") — don't bury it here
+- **This is the killer feature.** Daily logging → photo grid + yearbook → share with grandparents = the moment that makes moms cry and share the app.
+- Chronological timeline
 
 ### Resources (/dashboard/resources)
 - Replaces Facebook groups. Primary feature.
@@ -257,9 +255,7 @@ Goal: 10/10 core experience before growth features.
 
 ### PHASE 3 — Connect Today → Memories (next up)
 1. After all-done state: show "Capture a memory from today?" prompt — one tap, date pre-filled
-2. Surface AI family update on Today hero once/month ("Your March update is ready ✨")
-3. Memories logging streak ("You've captured something 4 days this week")
-4. Monthly update as a beautiful shareable card image
+2. Memories logging streak ("You've captured something 4 days this week")
 
 ### PHASE 4 — Garden emotional payoff
 5. Faster early growth — meaningful visual change within first 3-5 lessons (currently looks like sticks too long)

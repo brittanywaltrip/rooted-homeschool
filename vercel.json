@@ -13,10 +13,6 @@
       "schedule": "0 15 * * 1"
     },
     {
-      "path": "/api/cron/year-in-review",
-      "schedule": "0 14 1 5 *"
-    },
-    {
       "path": "/api/cron/onboarding-reminder",
       "schedule": "0 14 * * *"
     }

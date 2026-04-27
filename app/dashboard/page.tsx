@@ -656,7 +656,6 @@ export default function TodayPage() {
   const [lightboxMemory, setLightboxMemory] = useState<{ id: string; title: string; photo_url: string | null; date: string; type: string } | null>(null);
   const [streak,                 setStreak]                 = useState(0);
   const [weekDots,               setWeekDots]               = useState<("done" | "partial" | "off" | "future")[]>([]);
-  const [showFamilyUpdate,       setShowFamilyUpdate]       = useState(false);
   const [daysLearning,           setDaysLearning]           = useState<number | null>(null);
   const [familyPhotoUrl,         setFamilyPhotoUrl]         = useState<string | null>(null);
   const [allVacationBlocks,      setAllVacationBlocks]      = useState<{ name: string; start_date: string; end_date: string }[]>([]);
@@ -866,11 +865,6 @@ export default function TodayPage() {
     const lastYear = otdNow.getFullYear() - 1;
     const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
     const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
-    const prevMonth = nowForSY.getMonth() === 0 ? 11 : nowForSY.getMonth() - 1;
-    const prevMonthYear = nowForSY.getMonth() === 0 ? nowForSY.getFullYear() - 1 : nowForSY.getFullYear();
-    const prevStart = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-01`;
-    const prevEnd = `${prevMonthYear}-${String(prevMonth + 1).padStart(2, "0")}-31`;
-
     const [
       profileResult,
       authResult,
@@ -894,7 +888,6 @@ export default function TodayPage() {
       lastMemResult,
       tier1Result,
       todayStoryResult,
-      prevMonthResult,
       goalEmojiResult,
     ] = await Promise.all([
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at").eq("id", effectiveUserId).maybeSingle(),
@@ -919,9 +912,6 @@ export default function TodayPage() {
       supabase.from("memories").select("id, type, title, date, child_id, photo_url").eq("user_id", effectiveUserId).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("memories").select("id, title, date, child_id, photo_url").eq("user_id", effectiveUserId).gte("date", localDateStr(otdStart)).lte("date", localDateStr(otdEnd)).order("date", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("memories").select("id, type, title, caption, child_id, photo_url, include_in_book, created_at").eq("user_id", effectiveUserId).eq("date", today).order("created_at", { ascending: false }),
-      nowForSY.getDate() <= 15
-        ? supabase.from("lessons").select("id").eq("user_id", effectiveUserId).eq("completed", true).gte("date", prevStart).lte("date", prevEnd)
-        : Promise.resolve({ data: null }),
       supabase.from("curriculum_goals").select("id, icon_emoji").eq("user_id", effectiveUserId),
     ]);
 
@@ -1024,16 +1014,6 @@ export default function TodayPage() {
       }
     }
     setWeekDots(dots);
-
-    // Family update prompt
-    const now = new Date();
-    if (now.getDate() <= 15) {
-      const monthKey = `family_update_seen_${prevMonthYear}_${prevMonth}`;
-      const alreadySeen = localStorage.getItem(monthKey) === "1";
-      if (!alreadySeen && (prevMonthResult.data?.length ?? 0) > 0) {
-        setShowFamilyUpdate(true);
-      }
-    }
 
     // Children
     const childrenData = childrenResult.data;

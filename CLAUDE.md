@@ -1,5 +1,8 @@
 # Rooted Homeschool — Claude Code Context
 
+## Important Rules
+Rooted does NOT use AI. Do not add AI features, do not install AI SDKs, do not call external AI APIs. If a user requests an AI feature, decline and tell them this is not part of the product.
+
 ## What is Rooted?
 A living memory book that also plans your homeschool.
 Tagline: "Stay Rooted. Teach with Intention."
@@ -76,7 +79,7 @@ NEVER show hello.rootedapp@gmail.com to users.
 - Sentence case always. Never ALL CAPS.
 
 ## Pricing plans
-- Rooted (free): lessons, garden, resources, memories 30 days, 1 AI Family Update/month
+- Rooted (free): lessons, garden, resources, memories 30 days
 - Rooted+ Founding Family $39/yr (ends April 30 2026): everything unlimited + yearbook PDF
 - Rooted+ Standard $59/yr: same as Founding Family
 - Rooted+ Monthly $6.99/mo: same features (hidden during Founding Family window)
@@ -91,14 +94,12 @@ NEVER show hello.rootedapp@gmail.com to users.
 - Yearbook setup (/dashboard/yearbook) — preview only, no print yet
 - Resources (Free Picks, Easy Wins, state info)
 - Progress reports PDF
-- AI Family Update (1/month free, unlimited paid)
 - Floating camera FAB (everywhere in dashboard)
 - Getting started checklist (new users)
 - Affiliate/partner system
 
 ## Features NOT built (never mention to users)
 - High school transcripts
-- AI Graduation Letter
 - Kid Mode (hidden)
 - Co-teacher full login (view-only only)
 - Print yearbook service (preview only)
@@ -129,7 +130,7 @@ Step 5: Done + Brittany founder closing moment
 - No emoji overuse — meaningful only
 
 ## Database key tables
-- profiles: user settings, plan_type, school_days, family_photo_url, ai_update_last_generated
+- profiles: user settings, plan_type, school_days, family_photo_url
 - children: name, color, sort_order
 - lessons: scheduled_date, completed, curriculum_goal_id
 - curriculum_goals: curriculum_name, total_lessons, current_lesson
