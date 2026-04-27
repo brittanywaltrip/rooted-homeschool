@@ -608,6 +608,7 @@ export async function GET(req: Request) {
     testAccountsHidden:       exclusions.testAccountsHidden,
     whitelistedHidden:        exclusions.whitelistedHidden,
     incompleteSignupsHidden:  exclusions.incompleteSignupsHidden,
+    realFamiliesHiddenCount:  exclusions.realFamiliesHiddenCount,
     asOfISO: new Date().toISOString(),
     // Existing fields (now filtered through exclusions where relevant).
     last24hSignups,

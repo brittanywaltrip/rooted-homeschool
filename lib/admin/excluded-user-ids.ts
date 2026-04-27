@@ -67,10 +67,17 @@ export interface Exclusions {
   // Incomplete signups are NOT in this set because they wouldn't have a
   // paid plan anyway, but it's harmless either way.
   excludedFromPaying: Set<string>;
-  // Counts for sublabels.
+  // Per-bucket counts. These overlap (a user can be both a test
+  // account and an incomplete signup), so DO NOT sum them — use
+  // realFamiliesHiddenCount for any "X accounts hidden" sublabel.
   testAccountsHidden: number;
   whitelistedHidden: number;
   incompleteSignupsHidden: number;
+  // Single source of truth for "how many auth users are hidden from
+  // Real Families" — equals excludedFromRealFamilies.size, so the
+  // dashboard math reconciles: totalUsers − realFamiliesHiddenCount
+  // = realFamiliesCount.
+  realFamiliesHiddenCount: number;
 }
 
 export function buildExclusions({ authUsers, profileIds, affiliateUserIds }: ExclusionInput): Exclusions {
@@ -99,5 +106,6 @@ export function buildExclusions({ authUsers, profileIds, affiliateUserIds }: Exc
     testAccountsHidden: testIds.size,
     whitelistedHidden: whitelistIds.size,
     incompleteSignupsHidden: incompleteSignupIds.size,
+    realFamiliesHiddenCount: excludedFromRealFamilies.size,
   };
 }

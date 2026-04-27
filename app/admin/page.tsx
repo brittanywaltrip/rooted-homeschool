@@ -37,6 +37,7 @@ interface AdminSummary {
   testAccountsHidden: number;
   whitelistedHidden: number;
   incompleteSignupsHidden: number;
+  realFamiliesHiddenCount: number;
   asOfISO: string;
   // Growth — legacy
   totalUsers: number;
@@ -386,10 +387,10 @@ export default function AdminPage() {
   const payingTotal = data.payingCustomersCount;
   const conversionRate = realUserCount > 0 ? ((payingTotal / realUserCount) * 100).toFixed(1) : "0.0";
   const asOfTime = new Date(data.asOfISO).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
-  const realFamiliesSub = [
-    `${data.testAccountsHidden + data.whitelistedHidden} test/founder accounts hidden`,
-    `${data.incompleteSignupsHidden} incomplete signups hidden`,
-  ].join(" · ");
+  // Single number, sourced from the union of all hidden buckets in
+  // the API. Avoid summing per-bucket counts here — they overlap
+  // (test accounts can also be incomplete signups).
+  const realFamiliesSub = `${data.realFamiliesHiddenCount} accounts hidden (test, founder, and incomplete signups)`;
 
   const counts = {
     All:      realUsers.length,
@@ -509,7 +510,7 @@ export default function AdminPage() {
               label="Real Families"
               value={realUserCount}
               sub={realFamiliesSub}
-              tooltip="auth.users count minus the hardcoded test-account list, the 3 whitelisted founder UUIDs (Brittany / Chris / Sarah Parker test), and any auth user that doesn't have a profiles row yet."
+              tooltip="auth.users count minus the union of: emails matching internal test patterns, the 3 whitelisted founder accounts (Brittany / Chris / Sarah Parker test), and auth users who never completed a profile. Some users fall into multiple categories — counted once. So totalUsers − accounts hidden = Real Families exactly."
             />
             <StatCard
               label="Today"
