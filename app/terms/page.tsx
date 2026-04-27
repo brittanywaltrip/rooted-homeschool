@@ -9,7 +9,7 @@ export default function TermsPage() {
           <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">Terms of Service</h1>
-        <p className="text-sm text-[#b5aca4] mb-10">Last updated: March 2026</p>
+        <p className="text-sm text-[#b5aca4] mb-10">Last updated: April 2026</p>
 
         <div className="prose prose-sm max-w-none space-y-8 text-[#5c5248]">
           <section>
@@ -35,7 +35,7 @@ export default function TermsPage() {
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
               <li><strong>Billing:</strong> You will be charged the annual subscription fee at the time of purchase. All payments are processed securely by Stripe.</li>
               <li><strong>Auto-Renewal:</strong> Your subscription renews automatically each year on your billing anniversary date. We will send you a reminder email 7 days before your renewal date. You may cancel at any time in your account Settings before the renewal date to avoid being charged.</li>
-              <li><strong>Refunds:</strong> Annual subscriptions are refundable within 14 days of the original purchase date. After 14 days, no refunds will be issued for the current subscription period. To request a refund within the 14-day window, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</li>
+              <li><strong>Refunds:</strong> Annual subscriptions are non-refundable. To avoid being charged for the next year, cancel your subscription before your renewal date through your account Settings. If you have questions, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</li>
               <li><strong>Cancellation:</strong> Canceling your subscription stops future renewals. You retain access to Pro features through the end of your current paid period.</li>
             </ul>
           </section>
