@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Pencil, Trash2, Check, X, Plus, GripVertical, Camera, Sprout } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { signedPhotoUrl } from "@/lib/photo-url";
+import SignedImage from "@/components/SignedImage";
 import { useProfile } from "@/lib/profile-context";
 import { canShareFamily, getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { posthog } from "@/lib/posthog";
@@ -733,9 +735,10 @@ export default function SettingsPage() {
       return;
     }
 
-    const { data: urlData } = supabase.storage.from("family-photos").getPublicUrl(path);
-    // Cache-bust so re-uploads to the same storage path always show the new image
-    const url = `${urlData.publicUrl}?t=${Date.now()}`;
+    const signed = await signedPhotoUrl(supabase, "family-photos", path);
+    // Signed URLs include a token query string, so re-uploads always render the
+    // fresh image without needing an explicit cache-bust suffix.
+    const url = signed ?? path;
 
     const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch("/api/profile/update", {
@@ -1056,8 +1059,9 @@ export default function SettingsPage() {
             aria-label="Change family photo"
           >
             {familyPhotoUrl ? (
-              <img
+              <SignedImage
                 src={familyPhotoUrl}
+                bucket="family-photos"
                 alt="Family photo"
                 className="w-[120px] h-[120px] rounded-full object-cover border-3 border-[#e8e2d9] group-hover:border-[#5c7f63] transition-colors"
               />

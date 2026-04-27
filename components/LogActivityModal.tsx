@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { signedPhotoUrl } from "@/lib/photo-url";
 import { onLogAction } from "@/app/lib/onLogAction";
 
 type Child = { id: string; name: string; color: string | null };
@@ -138,8 +139,8 @@ export default function LogActivityModal({
             .from("memories")
             .upload(path, file, { contentType: file.type, upsert: false });
           if (uploadErr) throw uploadErr;
-          const { data: urlData } = supabase.storage.from("memories").getPublicUrl(path);
-          photoUrl = urlData.publicUrl;
+          const signed = await signedPhotoUrl(supabase, "memories", path);
+          photoUrl = signed ?? path;
         }
         const { error: err } = await supabase.from("app_events").insert({
           user_id: user.id,

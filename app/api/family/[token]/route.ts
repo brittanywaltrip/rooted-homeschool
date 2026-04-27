@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { signedPhotoUrlsAdmin } from "@/lib/photo-url";
 
 export async function GET(
   _req: NextRequest,
@@ -77,8 +78,11 @@ export async function GET(
       .order("date", { ascending: false })
       .limit(3);
 
-    const memories = (mems ?? []).map((m: { id: string; type: string; title: string | null; caption: string | null; photo_url: string | null; date: string; child_id: string | null }) => ({
+    const rawMemories = (mems ?? []) as { id: string; type: string; title: string | null; caption: string | null; photo_url: string | null; date: string; child_id: string | null }[];
+    const signedTrial = await signedPhotoUrlsAdmin("memory-photos", rawMemories.map((m) => m.photo_url ?? ""), 3600);
+    const memories = rawMemories.map((m, i) => ({
       ...m,
+      photo_url: m.photo_url ? signedTrial[i] : null,
       child_name: m.child_id ? childMap[m.child_id]?.name ?? null : null,
       child_color: m.child_id ? childMap[m.child_id]?.color ?? null : null,
     }));
@@ -104,8 +108,11 @@ export async function GET(
     .eq("family_visible", true)
     .order("created_at", { ascending: false });
 
-  const memories = (mems ?? []).map((m: { id: string; type: string; title: string | null; caption: string | null; photo_url: string | null; date: string; child_id: string | null; created_at: string }) => ({
+  const rawMems = (mems ?? []) as { id: string; type: string; title: string | null; caption: string | null; photo_url: string | null; date: string; child_id: string | null; created_at: string }[];
+  const signedMain = await signedPhotoUrlsAdmin("memory-photos", rawMems.map((m) => m.photo_url ?? ""), 3600);
+  const memories = rawMems.map((m, i) => ({
     ...m,
+    photo_url: m.photo_url ? signedMain[i] : null,
     child_name: m.child_id ? childMap[m.child_id]?.name ?? null : null,
     child_color: m.child_id ? childMap[m.child_id]?.color ?? null : null,
   }));

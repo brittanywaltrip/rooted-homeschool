@@ -5,6 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { compressImage } from "@/lib/compress-image";
+import { signedPhotoUrl } from "@/lib/photo-url";
+import SignedImage from "@/components/SignedImage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import PageHero from "@/app/components/PageHero";
@@ -402,8 +404,12 @@ export default function YearbookEditPage() {
           </p>
           {coverPhotoUrl ? (
             <div className="flex items-center gap-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={coverPhotoUrl} alt="Cover" className="h-[100px] w-auto rounded-lg object-cover border border-[#e8e3dc]" />
+              <SignedImage
+                src={coverPhotoUrl}
+                bucket={coverPhotoUrl.includes("/family-photos/") ? "family-photos" : "yearbook-covers"}
+                alt="Cover"
+                className="h-[100px] w-auto rounded-lg object-cover border border-[#e8e3dc]"
+              />
               {!isReadOnly && (
                 <label className="text-[11px] text-[#5c7f63] font-medium cursor-pointer">
                   Change
@@ -421,10 +427,10 @@ export default function YearbookEditPage() {
                         const path = `${effectiveUserId}/cover.jpg`;
                         const { error: upErr } = await supabase.storage.from("yearbook-covers").upload(path, compressed, { contentType: "image/jpeg", upsert: true });
                         if (upErr) throw upErr;
-                        const { data: urlData } = supabase.storage.from("yearbook-covers").getPublicUrl(path);
-                        const url = urlData.publicUrl + "?t=" + Date.now();
-                        setCoverPhotoUrl(url);
-                        await saveContent("cover_photo", url);
+                        const signed = await signedPhotoUrl(supabase, "yearbook-covers", path);
+                        const stored = signed ?? path;
+                        setCoverPhotoUrl(stored);
+                        await saveContent("cover_photo", stored);
                         setCoverSaved(true);
                         setTimeout(() => setCoverSaved(false), 3000);
                       } catch (err) {
@@ -456,10 +462,10 @@ export default function YearbookEditPage() {
                       const path = `${effectiveUserId}/cover.jpg`;
                       const { error: upErr } = await supabase.storage.from("yearbook-covers").upload(path, compressed, { contentType: "image/jpeg", upsert: true });
                       if (upErr) throw upErr;
-                      const { data: urlData } = supabase.storage.from("yearbook-covers").getPublicUrl(path);
-                      const url = urlData.publicUrl + "?t=" + Date.now();
-                      setCoverPhotoUrl(url);
-                      await saveContent("cover_photo", url);
+                      const signed = await signedPhotoUrl(supabase, "yearbook-covers", path);
+                      const stored = signed ?? path;
+                      setCoverPhotoUrl(stored);
+                      await saveContent("cover_photo", stored);
                       setCoverSaved(true);
                       setTimeout(() => setCoverSaved(false), 3000);
                     } catch (err) {
@@ -537,8 +543,7 @@ export default function YearbookEditPage() {
           {favMemory ? (
             <div className="flex items-center gap-3 bg-[#fefcf9] rounded-lg p-3 border border-[#e8e3dc]">
               {favMemory.photo_url && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={favMemory.photo_url} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />
+                <SignedImage src={favMemory.photo_url} bucket="memory-photos" alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />
               )}
               <div className="flex-1 min-w-0">
                 <p className="text-[12px] font-medium text-[#2d2926] truncate">{favMemory.title ?? "Memory"}</p>
@@ -600,8 +605,7 @@ export default function YearbookEditPage() {
                     }`}
                   >
                     {m.photo_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={m.photo_url} alt="" className="w-full h-full object-cover" />
+                      <SignedImage src={m.photo_url} bucket="memory-photos" alt="" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full bg-[#eaf3de] flex flex-col items-center justify-center p-1">
                         <span className="text-2xl">{m.type === "win" ? "🏆" : m.type === "book" ? "📖" : "🗒️"}</span>

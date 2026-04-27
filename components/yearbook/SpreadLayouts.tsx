@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import type { YearbookSpread } from "@/lib/yearbook-layout-engine";
+import SignedImage from "@/components/SignedImage";
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -19,9 +20,8 @@ function shortDate(d: string | null | undefined): string {
   return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function Photo({ src, className = "", style }: { src: string; className?: string; style?: React.CSSProperties }) {
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt="" className={`object-cover ${className}`} style={style} />;
+function Photo({ src, className = "", style, bucket = "memory-photos" }: { src: string; className?: string; style?: React.CSSProperties; bucket?: string }) {
+  return <SignedImage src={src} bucket={bucket} className={`object-cover ${className}`} style={style} />;
 }
 
 // ─── Shell (matches yearbook page dimensions) ────────────────────────────────

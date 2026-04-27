@@ -13,6 +13,8 @@ import { onLogAction } from "@/app/lib/onLogAction";
 import { recomputeCurrentLesson } from "@/app/lib/scheduler";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
 import { compressImage } from "@/lib/compress-image";
+import { signedPhotoUrl } from "@/lib/photo-url";
+import SignedImage from "@/components/SignedImage";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -2141,8 +2143,8 @@ export default function TodayPage() {
       const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
       const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
       if (!upErr) {
-        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-        photoUrl = urlData.publicUrl;
+        const signed = await signedPhotoUrl(supabase, "memory-photos", path);
+        photoUrl = signed ?? path;
       }
     }
 
@@ -2184,8 +2186,8 @@ export default function TodayPage() {
       const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
       const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
       if (!upErr) {
-        const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
-        photoUrl = urlData.publicUrl;
+        const signed = await signedPhotoUrl(supabase, "memory-photos", path);
+        photoUrl = signed ?? path;
       }
     }
     const nowD = new Date().toISOString();
@@ -3076,8 +3078,7 @@ export default function TodayPage() {
                 >
                   {/* Thumbnail */}
                   {m.photo_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.photo_url} alt="" className="w-[42px] h-[42px] rounded-lg object-cover shrink-0" />
+                    <SignedImage src={m.photo_url} bucket="memory-photos" alt="" className="w-[42px] h-[42px] rounded-lg object-cover shrink-0" />
                   ) : (
                     <div
                       className="w-[42px] h-[42px] rounded-lg flex items-center justify-center shrink-0 text-lg"
@@ -3202,12 +3203,13 @@ export default function TodayPage() {
                 const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
                 const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
                 if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); showCaptureToast("Upload failed — try again", null); return; }
-                const { data: urlData } = supabase.storage.from("memory-photos").getPublicUrl(path);
+                const signed = await signedPhotoUrl(supabase, "memory-photos", path);
+                const photoUrl = signed ?? path;
                 const memType = captureTypeRef.current;
                 const now = new Date().toISOString();
                 const { data: ins, error: insErr } = await supabase.from("memories").insert({
                   user_id: user.id, type: memType, title: '',
-                  photo_url: urlData.publicUrl, child_id: null,
+                  photo_url: photoUrl, child_id: null,
                   date: today, include_in_book: false,
                   created_at: now, updated_at: now,
                 }).select("id").single();
