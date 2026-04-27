@@ -257,9 +257,9 @@ export default function PartnersPage() {
               letterSpacing: "0.01em",
             }}
           >
-            Share something you actually believe in. Get a free subscription, a
-            personal discount code, and earn commission on every family you
-            refer.
+            Share something you actually believe in. Get a personal 15%-off
+            code for your followers and earn 20% commission on every family
+            who joins through you.
           </p>
           <a
             href="#apply"
@@ -290,14 +290,14 @@ export default function PartnersPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             {[
               {
-                emoji: "⭐",
-                title: "Free Rooted+ Membership",
-                body: "Your Rooted+ subscription is on us — forever. You get full access to every feature so your content is always real and firsthand. No expiry, no strings.",
+                emoji: "🛡",
+                title: "Personal Discount Code",
+                body: "A unique 15%-off code your followers use at checkout. Easy for them to remember, easy for you to share. The discount applies automatically when they sign up.",
               },
               {
                 emoji: "🔗",
-                title: "Your Personal Code & Link",
-                body: "You'll get a discount code your followers use at checkout (15% off) and a referral link that applies the discount automatically. The easier it is for them, the more who convert.",
+                title: "Personal Referral Link",
+                body: "A unique signup link that tracks every family who joins through you, even if they don't use your code. See your real-time stats in your Rooted ambassador dashboard.",
               },
               {
                 emoji: "💰",
@@ -909,6 +909,9 @@ export default function PartnersPage() {
           <p className="text-xs text-[#7a6f65] mt-2">
             Questions? Email{' '}
             <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>
+          </p>
+          <p className="text-[11px] text-[#b5aca4] mt-6 leading-relaxed">
+            Founding Partners (closed at 9) had a different deal during our launch period. The affiliate program is now open with the terms above.
           </p>
         </div>
       </section>
