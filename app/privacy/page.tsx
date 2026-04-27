@@ -41,7 +41,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">5. Data Storage and Security</h2>
             <p className="leading-relaxed">Your data is stored securely using Supabase, a trusted database platform with industry-standard encryption at rest and in transit. We use row-level security policies on our database so your family&apos;s lessons, memories, and account data are accessible only to you.</p>
-            <p className="leading-relaxed mt-2">Photos and media you upload are stored in cloud storage where each file is assigned a unique, non-guessable random identifier in its URL. These URLs are not publicly listed, indexed, or searchable, and the app requires you to be logged in to your account to view them within Rooted. We are actively working to add an additional authentication layer to direct photo URLs as a further security measure.</p>
+            <p className="leading-relaxed mt-2">Photos and media you upload are stored in private cloud storage. Photo URLs require authentication and expire on a rolling basis — they cannot be viewed by anyone outside the app without a fresh, time-limited token issued for that specific request.</p>
             <p className="leading-relaxed mt-2">In the event of a data breach that affects your personal information, we will notify affected users within 72 hours of discovering the breach via the email address associated with your account.</p>
           </section>
 
