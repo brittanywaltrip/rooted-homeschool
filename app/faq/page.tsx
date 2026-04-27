@@ -149,6 +149,44 @@ const sections = [
     ],
   },
   {
+    title: "Refunds, Discounts & Renewals",
+    emoji: "💸",
+    items: [
+      {
+        q: "Do you offer refunds?",
+        a: "Rooted+ is non-refundable. If Rooted isn't a fit, you can cancel before your renewal and you won't be charged for the next year.",
+      },
+      {
+        q: "Can I apply a discount code retroactively?",
+        a: "Codes apply at checkout. We can't apply them to past purchases, but they will work on your next renewal.",
+      },
+      {
+        q: "What if I missed the Founding Family deadline?",
+        a: "Standard pricing is $59/year. Founding Family was a launch-period offer that closed April 30, 2026.",
+      },
+      {
+        q: "What happens at renewal?",
+        a: "Founding Family members renew at $39/year, locked forever. Standard members renew at the price they signed up at. You'll get an email before the charge — cancel anytime if you don't want to renew.",
+      },
+      {
+        q: "Can I become an affiliate?",
+        a: (
+          <span>
+            Yes! Anyone can apply at{" "}
+            <Link href="/partners" className="text-[#5c7f63] hover:underline">
+              rootedhomeschoolapp.com/partners
+            </Link>
+            . You&apos;ll get a personal 15%-off code for your followers, a unique referral link, and earn 20% commission on every paid referral, paid monthly.
+          </span>
+        ),
+      },
+      {
+        q: "Can I use someone else's discount code?",
+        a: "Yes. Both Founding Partner codes (from our launch period) and new affiliate codes give 15% off at checkout. Whoever's code you use, they get credit for the referral.",
+      },
+    ],
+  },
+  {
     title: "About Rooted",
     emoji: "🌿",
     items: [
