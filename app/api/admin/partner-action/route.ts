@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
-import { compPartnerProfile } from '@/lib/comp-partner'
+
+// As of the May 1 2026 affiliate-program relaunch, partner approval no
+// longer comps the partner's Rooted+ subscription. New affiliates pay
+// for Rooted+ like any other customer; only the existing 9 founding
+// partners are grandfathered with a comped membership (untouched).
+// `compPartnerProfile` from lib/comp-partner.ts is intentionally left in
+// place for any future one-off manual comping but is no longer called
+// from the approval flow.
 
 const ADMIN_EMAILS = ['garfieldbrittany@gmail.com', 'christopherwaltrip@gmail.com', 'hello@rootedhomeschoolapp.com']
 
@@ -74,11 +81,10 @@ async function handleApprove(body: Record<string, unknown>) {
   })
   if (affErr) return NextResponse.json({ error: affErr.message }, { status: 500 })
 
-  // Comp the user's account if found. compPartnerProfile writes every
-  // webhook-owned field so approved partners never keep stale Stripe linkage.
-  if (matchedUserId) {
-    await compPartnerProfile(matchedUserId, { supabase: supabaseAdmin })
-  }
+  // We intentionally do NOT modify the partner's profiles row. New
+  // affiliates pay for Rooted+ like any other customer; their plan_type,
+  // is_pro, subscription_status, and stripe_* fields are owned by the
+  // Stripe webhook and must not be touched here.
 
   // Update application status
   await supabaseAdmin.from('partner_apps').update({
@@ -113,9 +119,6 @@ async function handleApprove(body: Record<string, unknown>) {
     You earn <strong>20% commission</strong> on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.
   </p>
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    Your Rooted subscription is now <strong>complimentary</strong> \u2014 our gift to you for being part of this.
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
     You can track your clicks, signups, and earnings anytime in your Rooted app under <strong>Settings \u2192 Partner Dashboard</strong>.
   </p>
   <div style="background: #fefcf9; border: 1px solid #e8e2d9; border-radius: 12px; padding: 16px; margin: 24px 0;">
@@ -144,7 +147,7 @@ async function handleApprove(body: Record<string, unknown>) {
   await sendEmail(
     contactEmail,
     'Welcome to the Rooted Partner Program \uD83C\uDF3F',
-    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets ${rate}% off their first year.\n\nYou earn 20% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nYour Rooted subscription is now complimentary \u2014 our gift to you.\n\nTrack your stats in Settings \u2192 Partner Dashboard.\n\nFTC DISCLOSURE\n\nBecause you\u2019ll be earning commission through your referrals, the FTC requires a clear disclosure anytime you share your link or code. This applies across all platforms \u2014 Instagram, TikTok, YouTube, blogs, Facebook groups, and more.\n\nYou can use simple language like:\n- \u201cAd: I partner with Rooted and earn a commission if you sign up using my link.\u201d\n- \u201cPaid partnership with Rooted.\u201d\n- \u201cThis is an affiliate link \u2014 I earn a small commission at no extra cost to you.\u201d\n\nThe key is that it\u2019s clear, upfront, and easy to see \u2014 this protects both of us.\n\nReply anytime!\n\nSincerely,\nBrittany`,
+    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets ${rate}% off their first year.\n\nYou earn 20% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nTrack your stats in Settings \u2192 Partner Dashboard.\n\nFTC DISCLOSURE\n\nBecause you\u2019ll be earning commission through your referrals, the FTC requires a clear disclosure anytime you share your link or code. This applies across all platforms \u2014 Instagram, TikTok, YouTube, blogs, Facebook groups, and more.\n\nYou can use simple language like:\n- \u201cAd: I partner with Rooted and earn a commission if you sign up using my link.\u201d\n- \u201cPaid partnership with Rooted.\u201d\n- \u201cThis is an affiliate link \u2014 I earn a small commission at no extra cost to you.\u201d\n\nThe key is that it\u2019s clear, upfront, and easy to see \u2014 this protects both of us.\n\nReply anytime!\n\nSincerely,\nBrittany`,
     welcomeHtml,
   )
 
@@ -218,21 +221,6 @@ async function handleLookupProfile(body: Record<string, unknown>) {
   })
 }
 
-// ── COMP ACCOUNT ─────────────────────────────────────────────────────────────
-
-async function handleCompAccount(body: Record<string, unknown>) {
-  const { profileId } = body as { profileId: string }
-  if (!profileId) return NextResponse.json({ error: 'Missing profileId' }, { status: 400 })
-
-  try {
-    await compPartnerProfile(profileId, { supabase: supabaseAdmin })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'comp failed'
-    return NextResponse.json({ error: message }, { status: 500 })
-  }
-  return NextResponse.json({ ok: true })
-}
-
 // ── COMPLETE SETUP ───────────────────────────────────────────────────────────
 
 async function handleCompleteSetup(body: Record<string, unknown>) {
@@ -272,17 +260,9 @@ async function handleCompleteSetup(body: Record<string, unknown>) {
   })
   if (affErr) return NextResponse.json({ error: affErr.message }, { status: 500 })
 
-  // Comp the partner's profile if we matched a user — without this the
-  // partner stays on the free plan and sees the upgrade banner despite
-  // being an approved partner.
-  if (profileId) {
-    try {
-      await compPartnerProfile(profileId, { supabase: supabaseAdmin })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'comp failed'
-      return NextResponse.json({ error: message }, { status: 500 })
-    }
-  }
+  // We intentionally do NOT modify the partner's profiles row. New
+  // affiliates pay for Rooted+ like any other customer; their plan_type
+  // and Stripe linkage are owned by the webhook and must not be touched.
 
   await supabaseAdmin.from('partner_apps').update({
     status: 'approved',
@@ -312,9 +292,6 @@ async function handleCompleteSetup(body: Record<string, unknown>) {
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
     You earn <strong>${rate}% commission</strong> on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.
   </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    Your Rooted subscription is now <strong>complimentary</strong> \u2014 our gift to you for being part of this.
-  </p>
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
     Sincerely,<br/>Brittany
   </p>
@@ -323,7 +300,7 @@ async function handleCompleteSetup(body: Record<string, unknown>) {
   await sendEmail(
     contactEmail,
     'Welcome to the Rooted Partner Program \uD83C\uDF3F',
-    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets 15% off Rooted+.\n\nYou earn ${rate}% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nYour Rooted subscription is now complimentary \u2014 our gift to you.\n\nSincerely,\nBrittany`,
+    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets 15% off Rooted+.\n\nYou earn ${rate}% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nSincerely,\nBrittany`,
     welcomeHtml,
   )
 
@@ -454,7 +431,6 @@ export async function POST(req: NextRequest) {
   if (action === 'reject') return handleReject(body)
   if (action === 'payment_email') return handlePaymentEmail(body)
   if (action === 'lookup_profile') return handleLookupProfile(body)
-  if (action === 'comp_account') return handleCompAccount(body)
   if (action === 'complete_setup') return handleCompleteSetup(body)
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
