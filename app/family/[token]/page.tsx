@@ -129,12 +129,15 @@ export default function FamilyViewPage() {
 
   /* ─── Init ──────────────────────────────────────────────────────────── */
 
+  // Hydrate guestName/guestKey from localStorage on mount. We don't decide
+  // whether to show the name prompt here — that's deferred until fetchData
+  // returns so we can pre-seed the name from the invite's viewer_name when
+  // mom already set it, sparing first-time visitors the "Who are you?" popup.
   useEffect(() => {
     const name = getLocalName();
     const key = getLocalKey();
     setGuestName(name);
     setGuestKey(key);
-    if (!name) setShowNamePrompt(true);
     if (searchParams.get("gift") === "success") setGiftSuccess(true);
   }, [searchParams]);
 
@@ -158,6 +161,21 @@ export default function FamilyViewPage() {
       setMomPaid(data.momPaid);
       setTrialEndsAt(data.trialEndsAt);
       setViewerNameFromServer(data.viewerName);
+
+      // Decide on the name prompt now that we know the invite's viewer_name.
+      // localStorage wins; otherwise pre-seed from viewer_name if mom set it;
+      // only fall back to the popup when neither is available.
+      const existingName = getLocalName();
+      if (!existingName) {
+        if (data.viewerName && data.viewerName.trim()) {
+          const seeded = data.viewerName.trim();
+          localStorage.setItem("rooted_family_name", seeded);
+          setGuestName(seeded);
+        } else {
+          setShowNamePrompt(true);
+        }
+      }
+
       setLoading(false);
 
       // Auto-react from URL params (once)
@@ -198,6 +216,11 @@ export default function FamilyViewPage() {
     localStorage.setItem("rooted_family_name", trimmed);
     setGuestName(trimmed);
     setShowNamePrompt(false);
+  }
+
+  function openNamePromptForChange() {
+    setNameInput(guestName);
+    setShowNamePrompt(true);
   }
 
   /* ─── React ─────────────────────────────────────────────────────────── */
@@ -430,8 +453,20 @@ export default function FamilyViewPage() {
         </div>
       </header>
 
-      {/* ─���─ Memory Feed ───────────────────────────────────────────────── */}
+      {/* ─── Memory Feed ───────────────────────────────────────────────── */}
       <div className="max-w-[480px] mx-auto px-4 pt-5 space-y-4">
+        {guestName && (
+          <p className="text-xs text-[#7a6f65]">
+            Hi, <span className="font-medium text-[#2d2926]">{guestName}</span> 👋{" "}
+            <button
+              type="button"
+              onClick={openNamePromptForChange}
+              className="text-[#b5aca4] hover:text-[#7a6f65] underline underline-offset-2"
+            >
+              (not you?)
+            </button>
+          </p>
+        )}
         {memories.length === 0 ? (
           <div className="py-16 text-center">
             <div className="text-4xl mb-3">📸</div>
