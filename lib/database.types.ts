@@ -761,50 +761,6 @@ export type Database = {
           },
         ]
       }
-      family_updates: {
-        Row: {
-          created_at: string | null
-          date_from: string | null
-          date_to: string | null
-          family_name: string | null
-          id: string
-          narrative: string | null
-          stats: Json | null
-          token: string
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          date_from?: string | null
-          date_to?: string | null
-          family_name?: string | null
-          id?: string
-          narrative?: string | null
-          stats?: Json | null
-          token: string
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          date_from?: string | null
-          date_to?: string | null
-          family_name?: string | null
-          id?: string
-          narrative?: string | null
-          stats?: Json | null
-          token?: string
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "family_updates_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       lesson_overrides: {
         Row: {
           created_at: string | null
@@ -1291,7 +1247,6 @@ export type Database = {
       }
       profiles: {
         Row: {
-          ai_update_last_generated: string | null
           created_at: string
           current_period_end: string | null
           current_streak_days: number | null
@@ -1330,7 +1285,6 @@ export type Database = {
           yearly_review_reset_year: number | null
         }
         Insert: {
-          ai_update_last_generated?: string | null
           created_at?: string
           current_period_end?: string | null
           current_streak_days?: number | null
@@ -1369,7 +1323,6 @@ export type Database = {
           yearly_review_reset_year?: number | null
         }
         Update: {
-          ai_update_last_generated?: string | null
           created_at?: string
           current_period_end?: string | null
           current_streak_days?: number | null

@@ -46,27 +46,22 @@ export default function TermsPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">5. AI-Generated Content</h2>
-            <p className="leading-relaxed">Some features of Rooted — including Family Update narratives and Graduation letters — are generated with artificial intelligence. AI-generated content is provided for personal, reflective use only. It may contain inaccuracies, errors, or content that does not accurately reflect your family&apos;s experience. You should review all AI-generated content before sharing it with others. Rooted is not responsible for the accuracy or completeness of AI-generated text.</p>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">6. Resources and Brand Disclaimer</h2>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">5. Resources and Brand Disclaimer</h2>
             <p className="leading-relaxed">The Resources section of Rooted includes links to discounts, field trips, and educational materials from third-party brands and retailers. Rooted has no affiliation with, endorsement from, or partnership with any brands or retailers mentioned in the Resources section. Discounts, offers, and links are curated for informational purposes only and are subject to change without notice. Always verify current terms and availability directly with the retailer or provider.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">7. Limitation of Liability</h2>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">6. Limitation of Liability</h2>
             <p className="leading-relaxed">Rooted is provided &quot;as is&quot; without warranty of any kind. We are not liable for any loss of data, interruption of service, or other damages arising from your use of the Service. We strongly recommend keeping backup records of important educational documentation outside of Rooted.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">8. Dispute Resolution</h2>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">7. Dispute Resolution</h2>
             <p className="leading-relaxed">Any dispute arising from or relating to these Terms or your use of the Service will be resolved by binding individual arbitration in the state of Nevada, in accordance with the rules of the American Arbitration Association. <strong>You waive any right to participate in a class action lawsuit or class-wide arbitration.</strong> Nothing in this section prevents either party from seeking injunctive or other equitable relief for violations of intellectual property rights.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">9. Contact</h2>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">8. Contact</h2>
             <p className="leading-relaxed">For questions about these Terms, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</p>
           </section>
         </div>
