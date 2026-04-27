@@ -2844,132 +2844,6 @@ export default function TodayPage() {
       })()}
 
       {/* ═══════════════════════════════════════════════════════════
-          LESSON SWIPE — horizontal child cards + expandable panel (kept for multi-child detail)
-         ═══════════════════════════════════════════════════════════ */}
-      {hasAnyLessons && lessons.length > 0 && (() => {
-        const childIds = new Set(children.map(c => c.id));
-        const cardsToRender: { id: string; name: string; color: string | null; lessons: Lesson[] }[] = [];
-        children.forEach(child => {
-          const cl = lessons.filter(l => l.child_id === child.id);
-          if (cl.length > 0) cardsToRender.push({ id: child.id, name: child.name, color: child.color, lessons: cl });
-        });
-        const unassigned = lessons.filter(l => !l.child_id || !childIds.has(l.child_id));
-        if (unassigned.length > 0) cardsToRender.push({ id: "__unassigned", name: "Unassigned", color: "#9a8f85", lessons: unassigned });
-
-        // Only show swipe cards for multi-child families
-        if (cardsToRender.length <= 1) return null;
-
-        return (
-          <div>
-            {/* Horizontal scrollable child cards */}
-            <div className="flex gap-2.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}>
-              <style>{`.flex::-webkit-scrollbar { display: none; }`}</style>
-              {cardsToRender.map(card => {
-                const done = card.lessons.filter(l => l.completed).length;
-                const total = card.lessons.length;
-                const cardAllDone = done === total;
-                const noneStarted = done === 0;
-                const isExpanded = expandedChild === card.id;
-
-                const borderColor = cardAllDone ? "#b8d89a" : noneStarted ? "#e8d58a" : "#e8e2d9";
-                const bgColor = cardAllDone ? "#f4faf0" : noneStarted ? "#fffcf5" : "#fff";
-
-                return (
-                  <button
-                    key={card.id}
-                    type="button"
-                    onClick={() => setExpandedChild(isExpanded ? null : card.id)}
-                    className="shrink-0 text-left transition-all"
-                    style={{
-                      minWidth: 108, background: bgColor, borderRadius: 14,
-                      border: `1px solid ${borderColor}`, padding: "10px 12px",
-                      outline: isExpanded ? `2px solid var(--g-brand)` : "none",
-                      outlineOffset: -1,
-                    }}
-                  >
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <div
-                        className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                        style={{ backgroundColor: card.color ?? "#5c7f63" }}
-                      >
-                        {card.name.charAt(0).toUpperCase()}
-                      </div>
-                      <span className="text-xs font-bold text-[#2d2926] truncate">{toTitleCase(card.name)}</span>
-                    </div>
-                    {/* Progress bar */}
-                    <div className="w-full h-[3px] rounded-full mb-1.5" style={{ backgroundColor: "#ece8e0" }}>
-                      <div className="h-full rounded-full transition-all" style={{ width: `${total > 0 ? (done / total) * 100 : 0}%`, backgroundColor: "var(--g-brand)" }} />
-                    </div>
-                    <p className={`text-[10px] font-semibold ${cardAllDone ? "text-[var(--g-deep)]" : "text-[#9a8f85]"}`}>
-                      {cardAllDone ? "✓ All done" : `${done} of ${total} done`}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[9px] text-[#c8bfb5] text-center mt-1.5">tap a card to see lessons · swipe for more kids</p>
-
-            {/* Expanded inline lesson panel */}
-            {expandedChild && (() => {
-              const childObj = children.find(c => c.id === expandedChild);
-              const cl = expandedChild === "__unassigned"
-                ? lessons.filter(l => !l.child_id || !childIds.has(l.child_id))
-                : lessons.filter(l => l.child_id === expandedChild);
-              if (cl.length === 0) return null;
-              const allChildDone = cl.length > 0 && cl.every(l => l.completed);
-              const childName = childObj?.name ?? "your child";
-              return (
-                <div className="mt-2 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-2 space-y-1">
-                  {cl.map(lesson => (
-                    <TodayLessonCard
-                      key={lesson.id} lesson={lesson}
-                      childObj={expandedChild === "__unassigned" ? undefined : childObj}
-                      onToggle={toggleLesson} onEdit={openEdit} onDelete={deleteLesson} onReschedule={openReschedule}
-                      onSkip={skipLesson} onStartEditingNote={startEditingNote}
-                      onMinutesUpdate={(id, mins) => setLessons(prev => prev.map(l => l.id === id ? { ...l, minutes_spent: mins } : l))} isPartner={isPartner}
-                      editingNoteId={editingNoteId} editingNoteText={editingNoteText} noteSaveState={noteSaveState}
-                      noteTextareaRef={noteTextareaRef}
-                      onNoteTextChange={setEditingNoteText} onSaveNote={saveNote} onCancelEditingNote={cancelEditingNote}
-                    />
-                  ))}
-                  {/* Extra lesson button — only when all scheduled lessons done */}
-                  {!isPartner && expandedChild !== "__unassigned" && allChildDone && (
-                    <div style={{ position: "relative", zIndex: 10 }}>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); logExtraLesson(expandedChild); }}
-                        disabled={extraLessonLoading === expandedChild}
-                        style={{ minHeight: 44 }}
-                        className="w-full text-center text-[12px] font-medium text-[#b5aca4] hover:text-[#7a6f65] py-2 transition-colors disabled:opacity-50"
-                      >
-                        {extraLessonLoading === expandedChild ? "Logging..." : `+ ${childName} did an extra lesson today`}
-                      </button>
-                    </div>
-                  )}
-                  {/* Ahead-of-schedule pill */}
-                  {aheadPromptChildren.has(expandedChild) && !dismissedAheadPrompts.has(expandedChild) && (
-                    <div className="flex items-center justify-between gap-2 bg-[#f4faf0] border border-[#d4e8c8] rounded-full px-3 py-1.5 mt-1">
-                      <span className="text-[11px] text-[var(--g-deep)]">You&apos;re ahead of schedule — update your finish date?</span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() => rescheduleAfterExtra(expandedChild)}
-                          className="text-[11px] font-semibold text-[var(--g-brand)] hover:underline"
-                        >Update</button>
-                        <button
-                          onClick={() => setDismissedAheadPrompts(prev => new Set(prev).add(expandedChild))}
-                          className="text-[#b5aca4] hover:text-[#7a6f65] text-xs leading-none"
-                        >✕</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-        );
-      })()}
-
-      {/* ═══════════════════════════════════════════════════════════
           CAPTURE BUTTON — compact for returning users, big for new
          ═══════════════════════════════════════════════════════════ */}
       {!loading && !isPartner && (
@@ -3186,12 +3060,12 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          TODAY'S STORY — all memories logged today
+          TODAY'S STORY — all memories logged today (only when non-empty)
          ═══════════════════════════════════════════════════════════ */}
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Today&apos;s Story</p>
+      {todayStory.length > 0 && (
+        <div className="today-story-section">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Today&apos;s Story</p>
 
-        {todayStory.length > 0 ? (
           <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
             {todayStory.map((m) => {
               const typeIcons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🏆", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
@@ -3245,25 +3119,11 @@ export default function TodayPage() {
               );
             })}
           </div>
-        ) : (
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl py-8 text-center">
-            <span className="text-3xl">{totalMemories === 0 ? "📷" : "🌿"}</span>
-            <p className="text-[13px] font-medium text-[#2d2926] mt-2">
-              {totalMemories === 0 ? "Today\u2019s Story" : "Nothing captured yet today"}
-            </p>
-            <p className="text-[11px] text-[#9a8f85] mt-0.5 max-w-[260px] mx-auto">
-              {totalMemories === 0
-                ? "Capture a memory and it\u2019ll show up here \u2014 a photo, a win, a moment from your day."
-                : "When you capture a memory, it shows up here as part of your day\u2019s story."}
-            </p>
-          </div>
-        )}
-        {todayStory.length > 0 && (
           <Link href="/dashboard/memories" className="block text-center text-xs text-[#5c7f63] font-medium mt-2 hover:underline">
             See all memories →
           </Link>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           YEARBOOK NUDGE — slim card, once per week
