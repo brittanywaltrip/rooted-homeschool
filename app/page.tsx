@@ -6,6 +6,25 @@ import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
+// ─── Founding Family deadline countdown ────────────────────────────────────
+//
+// The deadline is start-of-day April 30, 2026. We anchor "today" to local
+// midnight so the diff is always a whole number of days, eliminating the
+// time-of-day jitter that turned "3 days left" into "2 days left" once the
+// SSR clock crossed UTC midnight on April 27/28.
+//
+// Returns:
+//   3, 2, 1   → days strictly remaining BEFORE the deadline day (banner shown)
+//   0          → today IS April 30 (banner shown with "Last day" copy)
+//   -1 or less → April 30 has passed (banners + countdown hidden)
+function getFoundingFamilyDaysLeft(): number {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const deadline = new Date(2026, 3, 30); // months are 0-indexed → April
+  const msPerDay = 1000 * 60 * 60 * 24;
+  return Math.round((deadline.getTime() - today.getTime()) / msPerDay);
+}
+
 // ─── Affiliate referral name map ────────────────────────────────────────────
 
 const AFFILIATE_NAMES: Record<string, string> = {
@@ -109,7 +128,7 @@ function TodayMockup() {
   return (
     <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none">
       <div className="bg-[#2d5a3d] px-4 py-3 text-center">
-        <p className="text-[8px] text-white/60 uppercase tracking-widest">The Meadows Family</p>
+        <p className="text-[8px] text-white/60 uppercase tracking-widest">The Waltrip Family</p>
         <p className="text-sm font-semibold text-white">Good morning! 🌿</p>
         <p className="text-[10px] text-white/70 mt-0.5">Wednesday, April 2</p>
         <p className="text-[9px] text-white/50 mt-1">12 memories · 31 days active</p>
@@ -139,11 +158,6 @@ function TodayMockup() {
 }
 
 function YearbookMockup() {
-  // TODO(brittany): the cover text in /images/yearbook-screenshot.png reads
-  // "The Waltrip Family Yearbook" but the rest of the landing page uses
-  // "The Meadows Family". Source a replacement screenshot with the Meadows
-  // family name to match — text is baked into the image so we can't swap
-  // it from JSX.
   return (
     <div className="flex justify-center select-none">
       <img
@@ -167,7 +181,7 @@ function PrintablesMockup() {
       <div className="w-full max-w-[240px] aspect-[8.5/11] rounded-lg overflow-hidden" style={{ background: "#F7F3E9", border: "2px solid #2D5016", position: "relative" }}>
         <div style={{ position: "absolute", inset: 6, border: "0.5px solid #C4962A" }} />
         <div className="flex flex-col items-center justify-center h-full px-4 text-center" style={{ position: "relative", zIndex: 1 }}>
-          <p className="text-[7px] text-[#C4962A] uppercase tracking-widest mb-1">The Meadows Family Academy</p>
+          <p className="text-[7px] text-[#C4962A] uppercase tracking-widest mb-1">The Waltrip Family Academy</p>
           {/* divider */}
           <div className="flex items-center gap-1 mb-2 w-20">
             <div className="flex-1 h-px bg-[#C4962A]" />
@@ -451,7 +465,7 @@ function HomeInner() {
           </div>
 
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
-            <span>🌿</span> Trusted by 1,200+ homeschool families
+            <span>🌿</span> Trusted by 1,500+ homeschool families
           </p>
         </div>
 
@@ -468,7 +482,7 @@ function HomeInner() {
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
-              { number: "1,200+",       label: "Families Growing with Rooted", icon: "🌱" },
+              { number: "1,500+",       label: "Families Growing with Rooted", icon: "🌱" },
               { number: "Built by a Mom", label: "Not a Tech Company",         icon: "👩‍👧" },
               { number: "Free",         label: "To Start, No Card",            icon: "🎁" },
               { number: "One Click",    label: "Beautiful Printables",         icon: "🖨️" },
@@ -786,7 +800,7 @@ function HomeInner() {
                 </div>
                 <div className="p-5 space-y-4">
                   <div>
-                    <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Zoe Parker · 2025–2026</p>
+                    <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Zoe Waltrip · 2025–2026</p>
                     <p className="text-sm font-bold text-[#2d2926] mt-0.5">Annual Progress Report</p>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
@@ -923,18 +937,20 @@ function HomeInner() {
           </p>
         </div>
 
-        {/* Founding Family deadline banner — hardcoded for the April 30 window. After 4/30 this can be hidden by a date check or removed. */}
-        <div
-          className="max-w-2xl mx-auto mt-8 mb-6 px-5 py-3 rounded-xl text-center text-sm"
-          style={{
-            background: "#fdf6e6",
-            border: "1px solid var(--g-gold)",
-            color: "#7a5a18",
-            boxShadow: "inset 0 0 0 2px rgba(196,150,42,0.08)",
-          }}
-        >
-          🌱 <strong style={{ color: "#5a4612" }}>Founding Family pricing locks in forever — ends April 30.</strong>
-        </div>
+        {/* Founding Family deadline banner — auto-hides on May 1 via getFoundingFamilyDaysLeft(). */}
+        {getFoundingFamilyDaysLeft() >= 0 && (
+          <div
+            className="max-w-2xl mx-auto mt-8 mb-6 px-5 py-3 rounded-xl text-center text-sm"
+            style={{
+              background: "#fdf6e6",
+              border: "1px solid var(--g-gold)",
+              color: "#7a5a18",
+              boxShadow: "inset 0 0 0 2px rgba(196,150,42,0.08)",
+            }}
+          >
+            🌱 <strong style={{ color: "#5a4612" }}>Founding Family pricing locks in forever — ends April 30.</strong>
+          </div>
+        )}
 
         {/* Plan cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-12 mt-4 items-start">
@@ -1021,12 +1037,18 @@ function HomeInner() {
             >
               Get Rooted+ →
             </Link>
-            <p className="text-[11px] text-[#8b6f47] font-semibold mt-3">
-              🌱 Rooted+ Founding Family pricing ends April 30 — {(() => {
-                const diff = Math.max(0, Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000));
-                return `${diff} day${diff !== 1 ? "s" : ""} left`;
-              })()}
-            </p>
+            {(() => {
+              const diff = getFoundingFamilyDaysLeft();
+              if (diff < 0) return null; // post-deadline: hide entirely
+              const tail = diff === 0
+                ? "Last day — ends today!"
+                : `${diff} day${diff === 1 ? "" : "s"} left`;
+              return (
+                <p className="text-[11px] text-[#8b6f47] font-semibold mt-3">
+                  🌱 Rooted+ Founding Family pricing ends April 30 — {tail}
+                </p>
+              );
+            })()}
           </div>
 
           {/* Standard */}
