@@ -97,9 +97,9 @@ NEVER show hello.rootedapp@gmail.com to users.
 - Floating camera FAB (everywhere in dashboard)
 - Getting started checklist (new users)
 - Affiliate/partner system
+- Transcripts (high school transcript generation per state requirements)
 
 ## Features NOT built (never mention to users)
-- High school transcripts
 - Kid Mode (hidden)
 - Co-teacher full login (view-only only)
 - Print yearbook service (preview only)
@@ -300,7 +300,6 @@ unlimited photos, full yearbook, Finish Line pacing,
 Progress Report download, unlimited family sharing.
 
 ### COPY RULES — NEVER GET THESE WRONG
-- NEVER say "transcripts" — not built yet
 - NEVER say "unlock your yearbook" — say "View full yearbook"
 - NEVER show upgrade/lock messaging to 0-memory users
 - NEVER say "near you" for resources — not all location-based

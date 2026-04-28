@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, healGoalIntegrity } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, healGoalIntegrity, forwardScheduleStart } from "@/app/lib/scheduler";
 
 function titleCase(str: string): string {
   return str.trim().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -473,10 +473,12 @@ export default function CurriculumWizard({
       .eq("user_id", user.id);
     const vacBlockList = (vacBlocks ?? []) as { start_date: string; end_date: string }[];
 
-    // Build schedule from user-selected start date
+    // Build schedule starting on the next school day strictly after today
+    // (or the user's startDate if it's later). See forwardScheduleStart for
+    // why we never let new forward lessons land on today.
     const rows: { date: string; n: number }[] = [];
     let lessonNum = startNum;
-    const cursor = new Date(startDateObj);
+    const cursor = forwardScheduleStart(startDateObj, todayMidnight);
     let safety = 0;
     while (lessonNum <= totalNum && safety < 3650) {
       const dayIdx = (cursor.getDay() + 6) % 7;
@@ -878,8 +880,10 @@ export default function CurriculumWizard({
         .eq("user_id", user.id);
       const vacBlockList = (vacBlocks ?? []) as { start_date: string; end_date: string }[];
 
-      // Regenerate starting from today (or user-selected start date if later)
-      const regenStart = startDateObj > todayMidnight ? new Date(startDateObj) : new Date(todayMidnight);
+      // Regenerate starting strictly after today (or user-selected start
+      // date if later). Forward lessons must never land on today — see
+      // forwardScheduleStart in scheduler.ts.
+      const regenStart = forwardScheduleStart(startDateObj, todayMidnight);
       const regenRows: { date: string; n: number }[] = [];
       let ln = nextLessonNum;
       const rcursor = new Date(regenStart);
@@ -971,7 +975,7 @@ export default function CurriculumWizard({
         const vacList = (vacBlocksForReschedule ?? []) as { start_date: string; end_date: string }[];
 
         const updates: { id: string; date: string }[] = [];
-        const cursor = new Date(startDateObj);
+        const cursor = forwardScheduleStart(startDateObj, todayMidnight);
         let placedToday = 0;
         let safety = 0;
         for (const lesson of futureLessons) {
@@ -1159,9 +1163,10 @@ export default function CurriculumWizard({
         }
 
         if (futureMissing.length > 0) {
-          // Place future-missing rows on upcoming school days from today,
-          // packed perDayNum/day and skipping vacations.
-          const startCursor = startDateObj > todayMidnight ? new Date(startDateObj) : new Date(todayMidnight);
+          // Place future-missing rows on upcoming school days strictly
+          // after today, packed perDayNum/day and skipping vacations. Same
+          // "no first-day bloat" rule as the create + regenerate paths.
+          const startCursor = forwardScheduleStart(startDateObj, todayMidnight);
           const futureSorted = [...futureMissing].sort((a, b) => a - b);
           let placed = 0;
           const cursor = new Date(startCursor);
