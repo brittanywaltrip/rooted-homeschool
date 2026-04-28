@@ -166,8 +166,8 @@ export default function WeekStrip(props: Props) {
       }
       className="w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2D5A3D] focus-visible:ring-offset-2 rounded-lg"
     >
-      {/* Day-of-week + date headers — Caveat day name; date number is also
-          rendered larger inside each DayCell, so we keep this header slim. */}
+      {/* Day-of-week + date headers — date number is also rendered larger
+          inside each DayCell, so we keep this header slim. */}
       <div className="grid grid-cols-7 gap-1 pb-1.5">
         {cells.map((d, i) => {
           const isToday = toDateStr(d) === todayStr;
@@ -175,10 +175,9 @@ export default function WeekStrip(props: Props) {
             <div
               key={i}
               className="text-center"
-              style={{ color: isToday ? "#2D5A3D" : "var(--ink-soft, #6B7363)" }}
+              style={{ color: isToday ? "#2D5A3D" : "#6B7363" }}
             >
               <p
-                className="font-handwritten"
                 style={{ fontSize: 18, lineHeight: 1, margin: 0 }}
               >
                 {HEADERS[i]}

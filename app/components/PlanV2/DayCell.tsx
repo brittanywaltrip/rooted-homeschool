@@ -136,10 +136,7 @@ export default function DayCell(props: Props) {
     !isCurrentMonth ? "#fbfaf7"
     : isWeekend ? "#faf8f4"
     : "#ffffff";
-  // Notebook-edge tone — replaces the previous neutral gray so cells read
-  // as paper rather than glass. Today still gets the existing brand stroke
-  // because its DateCircle is the primary "today" affordance now.
-  const borderColor = isToday ? "#5c7f63" : "var(--paper-edge, #ece8e0)";
+  const borderColor = isToday ? "#5c7f63" : "#ece8e0";
 
   // Visual states during a drag.
   const dragValidHint = !!isDragActive && !vacation && dndEnabled && !selectMode && !moveTargetMode;
@@ -242,10 +239,10 @@ export default function DayCell(props: Props) {
           <DateCircle dateNumber={date.getDate()} size={isWeekVariant ? 32 : 26} color="#5c7f63" />
         ) : (
           <span
-            className="font-handwritten inline-flex items-center justify-center leading-none"
+            className="inline-flex items-center justify-center leading-none"
             style={{
               fontSize: isWeekVariant ? 22 : 20,
-              color: isCurrentMonth ? "var(--ink-primary, #2d2926)" : "#b5aca4",
+              color: isCurrentMonth ? "#2d2926" : "#b5aca4",
               padding: "0 2px",
             }}
           >

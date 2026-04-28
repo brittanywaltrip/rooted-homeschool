@@ -84,21 +84,18 @@
   border: 1.5px solid var(--ink-primary);
   background: transparent;
   color: var(--ink-primary);
-  font-family: var(--font-caveat), "Caveat", cursive;
-  font-size: 16px;
+  font-size: 13px;
   line-height: 1;
   transition: background-color 120ms ease, box-shadow 120ms ease;
   cursor: pointer;
 }
 .pencil-btn:hover {
-  background-color: var(--paper-bg);
+  background-color: #f0ede8;
 }
 .pencil-btn:active,
 .pencil-btn[aria-pressed="true"] {
-  /* "Graphite pressure" — a faint inner shadow as if the pencil pressed
-   * harder. Subtle enough that it doesn't override the rest state. */
   box-shadow: inset 0 1px 0 rgba(46, 58, 42, 0.18);
-  background-color: var(--paper-bg);
+  background-color: #f0ede8;
 }
 .pencil-btn:disabled {
   opacity: 0.5;

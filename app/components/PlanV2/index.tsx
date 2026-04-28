@@ -2575,15 +2575,14 @@ export default function PlanV2() {
 
       <div
         className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto"
-        style={{ background: "var(--paper-bg, #F8F7F4)" }}
+        style={{ background: "#F8F7F4" }}
       >
         {/* Paper-planner flourish — Caveat headline + hand-drawn squiggle
             underline + corner leaves. Sits below the formal PageHero title;
             communicates the warmer aesthetic without duplicating the H1. */}
         <div className="relative pt-2 pb-3">
           <p
-            className="font-handwritten"
-            style={{ fontSize: 36, lineHeight: 1, color: "var(--ink-primary, #2E3A2A)" }}
+            style={{ fontSize: 36, lineHeight: 1, color: "#2E3A2A" }}
           >
             {headerSeasonalEmoji} your plan
           </p>
@@ -2720,8 +2719,8 @@ export default function PlanV2() {
                   <ChevronLeft size={16} />
                 </button>
                 <span
-                  className="font-handwritten min-w-[140px] text-center"
-                  style={{ fontSize: 22, lineHeight: 1, color: "var(--ink-primary, #2D2A26)" }}
+                  className="min-w-[140px] text-center"
+                  style={{ fontSize: 22, lineHeight: 1, color: "#2D2A26" }}
                 >
                   {monthLabelWithEmoji}
                 </span>

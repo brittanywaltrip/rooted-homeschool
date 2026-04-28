@@ -275,18 +275,11 @@ export function PillShell({
     .filter(Boolean)
     .join(" ");
 
-  // Paper-grain inset shadow on the rest state — almost imperceptible
-  // unless you look for it, but reads as "drawn on paper" rather than a
-  // flat HTML element. The drag-overlay shadow stays as the dominant
-  // depth cue when lifting; we don't double-stack with grain.
-  const grainShadow = "inset 0 0 0 1px rgba(0,0,0,0.03)";
   const style: React.CSSProperties = {
-    borderColor: "var(--paper-edge, #e8e2d9)",
-    borderLeftWidth: 3,
-    borderLeftColor: color,
+    borderColor: "#e8e2d9",
     opacity: dragging ? 0.35 : done ? 0.55 : 1,
     transition: "opacity 120ms, box-shadow 200ms",
-    boxShadow: overlay ? "0 10px 24px rgba(45, 41, 38, 0.25)" : grainShadow,
+    boxShadow: overlay ? "0 10px 24px rgba(45, 41, 38, 0.25)" : undefined,
     transform: overlay ? "rotate(-1.5deg)" : undefined,
   };
 
