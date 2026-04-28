@@ -269,40 +269,7 @@ async function handleCompleteSetup(body: Record<string, unknown>) {
     reviewed_at: new Date().toISOString(),
   }).eq('id', applicationId)
 
-  // Send welcome email (same template as the legacy approve action)
-  const firstName = name.split(' ')[0]
   const refLink = `rootedhomeschoolapp.com/?ref=${code.toUpperCase()}`
-  const welcomeHtml = `
-<div style="font-family: -apple-system, sans-serif; max-width: 540px; margin: 0 auto; color: #2d2926;">
-  <div style="text-align: center; padding: 24px 0 16px;">
-    <img src="https://www.rootedhomeschoolapp.com/logo-white-bg.png" alt="Rooted" width="120" />
-  </div>
-  <h2 style="font-size: 22px; margin-bottom: 8px;">Welcome to the Rooted Partner Program!</h2>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">Hi ${firstName},</p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    I'm so excited to welcome you as a Rooted Partner! Here's everything you need to get started:
-  </p>
-  <div style="background: #f0f7f1; border: 1px solid #d4ead6; border-radius: 12px; padding: 16px; margin: 20px 0;">
-    <p style="font-size: 13px; color: #3d5c42; margin: 0 0 8px;"><strong>Your referral code:</strong> <span style="font-family: monospace; font-size: 16px; font-weight: bold; color: #2d5a3d;">${code.toUpperCase()}</span></p>
-    <p style="font-size: 13px; color: #3d5c42; margin: 0;"><strong>Your referral link:</strong> <a href="https://${refLink}" style="color: #5c7f63;">${refLink}</a></p>
-  </div>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    Anyone who signs up using your link gets <strong>15% off</strong> Rooted+.
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    You earn <strong>${rate}% commission</strong> on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
-    Sincerely,<br/>Brittany
-  </p>
-</div>`
-
-  await sendEmail(
-    contactEmail,
-    'Welcome to the Rooted Partner Program \uD83C\uDF3F',
-    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets 15% off Rooted+.\n\nYou earn ${rate}% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nSincerely,\nBrittany`,
-    welcomeHtml,
-  )
 
   return NextResponse.json({ ok: true, refLink: `https://${refLink}` })
 }
