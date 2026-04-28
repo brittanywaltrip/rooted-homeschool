@@ -139,6 +139,11 @@ function TodayMockup() {
 }
 
 function YearbookMockup() {
+  // TODO(brittany): the cover text in /images/yearbook-screenshot.png reads
+  // "The Waltrip Family Yearbook" but the rest of the landing page uses
+  // "The Meadows Family". Source a replacement screenshot with the Meadows
+  // family name to match — text is baked into the image so we can't swap
+  // it from JSX.
   return (
     <div className="flex justify-center select-none">
       <img
@@ -463,10 +468,10 @@ function HomeInner() {
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
-              { number: "1,200+",  label: "Families Growing with Rooted", icon: "🌱" },
-              { number: "11",      label: "Tools for Your Homeschool", icon: "🎨" },
-              { number: "Free",    label: "To Start, No Card",   icon: "🎁" },
-              { number: "No Canva", label: "Beautiful Printables",  icon: "🖨️" },
+              { number: "1,200+",       label: "Families Growing with Rooted", icon: "🌱" },
+              { number: "Built by a Mom", label: "Not a Tech Company",         icon: "👩‍👧" },
+              { number: "Free",         label: "To Start, No Card",            icon: "🎁" },
+              { number: "One Click",    label: "Beautiful Printables",         icon: "🖨️" },
             ].map(({ number, label, icon }) => (
               <div key={label} className="py-9 px-4 text-center">
                 <div className="text-xl mb-2">{icon}</div>
@@ -546,13 +551,19 @@ function HomeInner() {
             },
             {
               mockup: <PrintablesMockup />,
-              title: "No Canva Needed",
+              title: "Made for you, not by you",
               desc: "Beautiful certificates, ID cards, and awards \u2014 made automatically from your family\u2019s real data. Print in one click.",
             },
           ].map(({ mockup, title, desc }) => (
-            <div key={title} className="mockup-card flex flex-col gap-5 cursor-default bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow">
-              <div className="mockup-inner rounded-t-xl overflow-hidden">{mockup}</div>
-              <div className="text-center px-4 pb-5">
+            <div key={title} className="mockup-card flex flex-col cursor-default bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+              {/* Uniform mockup frame \u2014 all 4 cards share equal height + horizontal centering so the visual rhythm holds across mockups of different aspect ratios. */}
+              <div
+                className="mockup-inner flex items-center justify-center px-6 pt-6 pb-2"
+                style={{ minHeight: 380 }}
+              >
+                <div className="w-full max-w-[280px]">{mockup}</div>
+              </div>
+              <div className="text-center px-4 pb-5 pt-4">
                 <h3
                   className="text-sm font-bold text-[#2d2926] mb-1.5"
                   style={{ fontFamily: "var(--font-display)" }}
@@ -617,6 +628,20 @@ function HomeInner() {
                 color: "#f5f0fa",
                 border: "#d9bee8",
                 desc: "Wins, quotes, and books fill it automatically all year. Add photos you love. At year-end: a beautiful book with your letter, each child\u2019s chapter, and messages from family.",
+              },
+              {
+                emoji: "📜",
+                title: "High School Transcripts",
+                color: "#f5e8df",
+                border: "#d6b399",
+                desc: "When the day comes, you’ll be ready. Build official, exportable transcripts for college, dual enrollment, or your records. Auto-built from the work you’ve already done.",
+              },
+              {
+                emoji: "⏱",
+                title: "Hours & Attendance",
+                color: "#eef0e6",
+                border: "#bdc6a6",
+                desc: "Track learning hours and attendance automatically as you check off lessons. Export PDF reports for state requirements — or your own peace of mind.",
               },
               {
                 emoji: "📚",
@@ -815,9 +840,7 @@ function HomeInner() {
               </p>
               <ul className="space-y-4 mb-8">
                 {[
-                  { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook — a living record of their whole learning life." },
-                  { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles — anyone you choose. They can view memories and leave messages for the kids. No app download needed." },
-                  { emoji: "📋", title: "View anytime, print coming soon", desc: "Clean, professional layout — view your yearbook on screen anytime. Print option coming soon!" },
+                  { emoji: "📋", title: "Yours to print, share, or save forever", desc: "One clean, professional report you can email, print at home, or keep for your records." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-xl bg-[#f5ede0] flex items-center justify-center text-lg shrink-0 mt-0.5">
@@ -900,8 +923,21 @@ function HomeInner() {
           </p>
         </div>
 
+        {/* Founding Family deadline banner — hardcoded for the April 30 window. After 4/30 this can be hidden by a date check or removed. */}
+        <div
+          className="max-w-2xl mx-auto mt-8 mb-6 px-5 py-3 rounded-xl text-center text-sm"
+          style={{
+            background: "#fdf6e6",
+            border: "1px solid var(--g-gold)",
+            color: "#7a5a18",
+            boxShadow: "inset 0 0 0 2px rgba(196,150,42,0.08)",
+          }}
+        >
+          🌱 <strong style={{ color: "#5a4612" }}>Founding Family pricing locks in forever — ends April 30.</strong>
+        </div>
+
         {/* Plan cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-12 mt-8 items-start">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-12 mt-4 items-start">
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
@@ -964,7 +1000,7 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Full yearbook — no watermark (print coming soon!)",
+                "Full yearbook — no watermark, download anytime",
                 "Transcripts & PDF reports — export anytime",
                 "Badges & certificates",
                 "Hours & Attendance Log — track and export your learning hours",
@@ -1011,7 +1047,7 @@ function HomeInner() {
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline — every moment, forever",
-                "Full yearbook — no watermark (print coming soon!)",
+                "Full yearbook — no watermark, download anytime",
                 "Transcripts & PDF reports — export anytime",
                 "Badges & certificates",
                 "Hours & Attendance Log — track and export your learning hours",
@@ -1052,7 +1088,7 @@ function HomeInner() {
                 "Complete memory timeline — every moment, forever",
                 "Hours & Attendance Log — track and export your learning hours",
                 "Curriculum progress tracking — stay on track all year without the stress",
-                "Full yearbook — no watermark (print coming soon!)",
+                "Full yearbook — no watermark, download anytime",
                 "Share with family — send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
@@ -1069,6 +1105,11 @@ function HomeInner() {
             </Link>
           </div>}
         </div>
+
+        {/* Bridge between the 3-card pricing display and the 2-column comparison table — clarifies that both Founding Family and Standard tiers map to "Rooted+". */}
+        <p className="text-xs sm:text-sm text-[#7a6f65] text-center max-w-2xl mx-auto px-4 pt-6 pb-8 leading-relaxed">
+          <strong className="text-[#2d2926]">Rooted+ includes both Founding Family ($39/yr) and Standard ($59/yr) tiers — same features, different pricing.</strong>
+        </p>
 
         {/* Feature comparison table */}
         <div className="overflow-x-auto rounded-2xl border border-[#e8e2d9]">
@@ -1088,7 +1129,7 @@ function HomeInner() {
                 { feature: "Curriculum planning",       free: "✓",            founding: "✓"               },
                 { feature: "Scheduling",                free: "✓",            founding: "✓"               },
                 { feature: "Photos",                    free: "50 (unlimited during trial)", founding: "✓ Unlimited" },
-                { feature: "Yearbook",                  free: "Full during trial · Preview after", founding: "✓ Full — no watermark" },
+                { feature: "Yearbook",                  free: "Full during trial · Preview after", founding: "✓ Full — no watermark + PDF download" },
                 { feature: "Transcript builder",        free: "Full during trial · Preview after", founding: "✓ Full + export" },
                 { feature: "PDF exports (transcripts, hours, reports)", free: "During trial only", founding: "✓" },
                 { feature: "Family sharing",            free: "During trial only", founding: "✓"          },
@@ -1124,7 +1165,7 @@ function HomeInner() {
             <img
               src="/founder-photo.jpg"
               alt="Brittany and her family"
-              className="w-28 h-28 rounded-full object-cover shadow-lg border-4 border-white"
+              className="w-40 h-40 sm:w-56 sm:h-56 rounded-full object-cover shadow-lg border-4 border-white"
               style={{ boxShadow: "0 4px 24px rgba(92, 127, 99, 0.25)" }}
             />
           </div>
@@ -1134,7 +1175,7 @@ function HomeInner() {
               Built by a homeschool mom, for homeschool families.
             </h2>
             <p className="text-[#7a6f65] leading-relaxed text-sm mb-4">
-              Hi, I&apos;m Brittany — homeschool mom and creator of the Rooted App. I built Rooted because I always felt unorganized and was constantly wondering if we were falling behind. Rooted helps you plan your days, track learning, capture memories, and see your child&apos;s growth — and honestly, it does so much more than that. I didn&apos;t want something complicated. I just wanted to feel organized and on track. So I made it. From our family to yours — we hope you join our Rooted family.
+              Hi, I&apos;m Brittany — a homeschool mom who got tired of feeling unorganized and wondering if we were falling behind. So I built Rooted. Plan your days, track learning, capture memories, see your child&apos;s growth — without the complicated apps and spreadsheets. From our family to yours, we&apos;d love to have you.
             </p>
             <p className="text-sm font-semibold text-[#5c7f63]">— Brittany, founder &amp; homeschool mom 🌱</p>
           </div>
