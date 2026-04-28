@@ -24,6 +24,31 @@ export function toDateStr(d: Date): string {
 }
 
 /**
+ * Pick the date to start a forward lesson schedule from. Forward lessons
+ * begin on the next calendar day STRICTLY AFTER today, unless the user
+ * picked a startDate later than that — in which case we honor it.
+ *
+ * The day-by-day walk in the caller will skip non-school days and vacation
+ * blocks from this start, so the first lesson lands on the first school
+ * day strictly after today (or after the user's pick).
+ *
+ * Why "strictly after today" and not "today onwards": if the user already
+ * has lessons going (or just backfilled history through yesterday), placing
+ * the next batch on today suddenly bloats today's count. If they paused and
+ * are restarting, today belongs to the prior pattern and the new schedule
+ * should kick in tomorrow.
+ */
+export function forwardScheduleStart(userPickedStart: Date, today: Date): Date {
+  const todayMid = new Date(today);
+  todayMid.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(todayMid);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const pick = new Date(userPickedStart);
+  pick.setHours(0, 0, 0, 0);
+  return pick > tomorrow ? pick : tomorrow;
+}
+
+/**
  * Recompute `current_lesson` from actual lesson rows and write it back to the
  * goal. Canonical formula:
  *   current_lesson = max(start_at_lesson - 1, max(lesson_number) of completed rows, 0)
