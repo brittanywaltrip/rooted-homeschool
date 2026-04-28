@@ -219,7 +219,7 @@ export default function WhatsNewPage() {
         ))}
       </div>
 
-      <p className="text-center text-xs text-[#c8bfb5] pb-4">More updates coming soon 🌿</p>
+      <p className="text-center text-xs text-[#c8bfb5] pb-4">More updates soon 🌿</p>
     </div>
   );
 }

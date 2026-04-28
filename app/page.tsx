@@ -570,21 +570,20 @@ function HomeInner() {
             },
           ].map(({ mockup, title, desc }) => (
             <div key={title} className="mockup-card flex flex-col cursor-default bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden">
-              {/* Uniform mockup frame \u2014 all 4 cards share equal height + horizontal centering so the visual rhythm holds across mockups of different aspect ratios. */}
-              <div
-                className="mockup-inner flex items-center justify-center px-6 pt-6 pb-2"
-                style={{ minHeight: 380 }}
-              >
-                <div className="w-full max-w-[280px]">{mockup}</div>
-              </div>
-              <div className="text-center px-4 pb-5 pt-4">
-                <h3
-                  className="text-sm font-bold text-[#2d2926] mb-1.5"
-                  style={{ fontFamily: "var(--font-display)" }}
-                >
-                  {title}
-                </h3>
-                <p className="text-xs text-[#7a6f65] leading-relaxed">{desc}</p>
+              {/* Vertically center mockup + text within the card so shorter mockups (Plan Your Days) split their slack space evenly above and below instead of leaving a gap at the bottom. Tall mockups (Capture) still drive the row height. */}
+              <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 py-6">
+                <div className="mockup-inner w-full max-w-[280px] flex items-center justify-center">
+                  {mockup}
+                </div>
+                <div className="text-center">
+                  <h3
+                    className="text-sm font-bold text-[#2d2926] mb-1.5"
+                    style={{ fontFamily: "var(--font-display)" }}
+                  >
+                    {title}
+                  </h3>
+                  <p className="text-xs text-[#7a6f65] leading-relaxed">{desc}</p>
+                </div>
               </div>
             </div>
           ))}
@@ -952,8 +951,8 @@ function HomeInner() {
           </div>
         )}
 
-        {/* Plan cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-12 mt-4 items-start">
+        {/* Plan cards — 3 cols on desktop because only 3 cards render (Monthly is gated off during the Founding Family window). When Monthly is re-enabled, bump back to lg:grid-cols-4. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-12 mt-4 items-start">
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">

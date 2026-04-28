@@ -762,7 +762,7 @@ export default function PrintablesPage() {
 
   return (
     <>
-    <PageHero overline="Your Family's" title="Printables" subtitle="No Canva needed. Your certificates and ID cards — made beautiful automatically." />
+    <PageHero overline="Your Family's" title="Printables" subtitle="Made for you, not by you. Your certificates and ID cards — made beautiful automatically." />
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-10">
 
       {/* ── Style Picker ──────────────────────────────────────────── */}
