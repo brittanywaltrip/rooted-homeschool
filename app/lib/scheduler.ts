@@ -84,13 +84,14 @@ export async function recomputeCurrentLesson(
 ): Promise<number | null> {
   const { data: goal } = await supabase
     .from("curriculum_goals")
-    .select("total_lessons, start_at_lesson")
+    .select("total_lessons, start_at_lesson, completed_at")
     .eq("id", goalId)
     .maybeSingle();
   if (!goal) return null;
 
   const total = (goal as { total_lessons: number | null }).total_lessons ?? 0;
   const startAt = (goal as { start_at_lesson: number | null }).start_at_lesson ?? 1;
+  const completedAt = (goal as { completed_at: string | null }).completed_at;
 
   const { data: completedRows } = await supabase
     .from("lessons")
@@ -106,9 +107,17 @@ export async function recomputeCurrentLesson(
   let value = Math.max(floor, maxCompleted);
   if (total > 0) value = Math.min(value, total);
 
+  // First-time completion: stamp completed_at when value reaches total.
+  // Never cleared if the user later edits backwards — completed_at is a
+  // historical record of the first completion.
+  const updates: { current_lesson: number; completed_at?: string } = { current_lesson: value };
+  if (total > 0 && value >= total && !completedAt) {
+    updates.completed_at = new Date().toISOString();
+  }
+
   await supabase
     .from("curriculum_goals")
-    .update({ current_lesson: value })
+    .update(updates)
     .eq("id", goalId);
 
   return value;

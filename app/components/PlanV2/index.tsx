@@ -55,6 +55,7 @@ import {
 import { useLiveAnnouncer, SR_ONLY_STYLE } from "./useLiveAnnouncer";
 import { usePlanV2Data } from "./usePlanV2Data";
 import { usePlanLessonActions } from "./usePlanLessonActions";
+import { recomputeCurrentLesson } from "@/app/lib/scheduler";
 import {
   buildOptimisticEventRow,
   filterEventsForDay,
@@ -256,6 +257,7 @@ export default function PlanV2() {
     target_date: string | null;
     school_days: string[] | null;
     default_minutes: number;
+    completed_at: string | null;
   };
   const [curriculumGoals, setCurriculumGoals] = useState<GoalFull[]>([]);
   const [goalsReloadNonce, setGoalsReloadNonce] = useState(0);
@@ -268,7 +270,7 @@ export default function PlanV2() {
     (async () => {
       const { data } = await supabase
         .from("curriculum_goals")
-        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, default_minutes")
+        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, default_minutes, completed_at")
         .eq("user_id", effectiveUserId)
         .order("created_at");
       if (cancelled) return;
@@ -1524,6 +1526,19 @@ export default function PlanV2() {
       setLessons((prev) => prev.map((l) => (failedSet.has(l.id) ? { ...l, completed: false } : l)));
     }
 
+    // Recompute current_lesson per affected goal so the canonical helper can
+    // also stamp completed_at when this bulk action crosses the threshold.
+    const affectedGoalIds = new Set<string>();
+    for (const id of succeededIds) {
+      const l = lessons.find((x) => x.id === id);
+      if (l?.curriculum_goal_id) affectedGoalIds.add(l.curriculum_goal_id);
+    }
+    if (affectedGoalIds.size > 0) {
+      await Promise.allSettled(
+        Array.from(affectedGoalIds).map((gid) => recomputeCurrentLesson(supabase, gid)),
+      );
+    }
+
     if (succeededIds.length > 0) {
       setUndoAction({
         message:
@@ -1545,6 +1560,14 @@ export default function PlanV2() {
                 .eq("id", id),
             ),
           );
+          // Recompute after undo so current_lesson reflects the rolled-back
+          // state. completed_at on the goal is intentionally never cleared
+          // (historical record of first completion).
+          if (affectedGoalIds.size > 0) {
+            await Promise.allSettled(
+              Array.from(affectedGoalIds).map((gid) => recomputeCurrentLesson(supabase, gid)),
+            );
+          }
           reload();
         },
       });
