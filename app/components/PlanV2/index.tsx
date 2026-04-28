@@ -24,6 +24,8 @@ import MissedLessonsBanner from "./MissedLessonsBanner";
 import CatchUpBanner from "./CatchUpBanner";
 import StatsBar, { type StatsMemory } from "./StatsBar";
 import CurriculumGroupsPanel, { type CurriculumGoal as PanelGoal } from "./CurriculumGroupsPanel";
+import CompletionConfetti from "./CompletionConfetti";
+import CompletionCelebrationCard from "./CompletionCelebrationCard";
 import BackfillPanel, { type BackfillEntry } from "./BackfillPanel";
 import ActivitiesPanel, { type ActivityRow } from "./ActivitiesPanel";
 import ProgressReportDialog from "./ProgressReportDialog";
@@ -89,6 +91,37 @@ function firstOfMonth(d: Date): Date {
   x.setDate(1);
   x.setHours(0, 0, 0, 0);
   return x;
+}
+
+type CelebrationState = "active" | "celebrating" | "completed";
+
+// 14-day post-completion window during which the celebration card replaces
+// the normal row. localStorage flag (`rooted_celebrated_<id>`) lets the user
+// dismiss earlier by acting on the card.
+function getCelebrationState(
+  goal: { completed_at: string | null },
+  goalId: string,
+): CelebrationState {
+  if (!goal.completed_at) return "active";
+  if (typeof window !== "undefined") {
+    if (localStorage.getItem(`rooted_celebrated_${goalId}`) === "true") {
+      return "completed";
+    }
+  }
+  const completedDate = new Date(goal.completed_at);
+  const daysSince = (Date.now() - completedDate.getTime()) / (1000 * 60 * 60 * 24);
+  if (daysSince <= 14) return "celebrating";
+  return "completed";
+}
+
+function computeWeeksSpan(startISO: string, endISO: string): number {
+  const ms = new Date(endISO).getTime() - new Date(startISO).getTime();
+  return Math.max(1, Math.round(ms / (1000 * 60 * 60 * 24 * 7)));
+}
+
+function formatShortDate(iso: string | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 /** Narrow PlanV2Lesson → TodayLessonCardLesson. Drops null-child_id rows
@@ -258,11 +291,23 @@ export default function PlanV2() {
     school_days: string[] | null;
     default_minutes: number;
     completed_at: string | null;
+    created_at: string | null;
+    start_date: string | null;
   };
   const [curriculumGoals, setCurriculumGoals] = useState<GoalFull[]>([]);
   const [goalsReloadNonce, setGoalsReloadNonce] = useState(0);
 
   const reloadGoals = useCallback(() => setGoalsReloadNonce((n) => n + 1), []);
+
+  // Confetti banner shown the moment a curriculum goal newly transitions to
+  // completed_at != null. Auto-dismisses via the component's own timer.
+  const [confettiGoal, setConfettiGoal] = useState<{
+    childName: string;
+    curriculumName: string;
+  } | null>(null);
+  // Bumps when localStorage celebration flags change — forces re-render so
+  // a goal moves from "celebrating" to "completed" without a full reload.
+  const [celebrationDismissNonce, setCelebrationDismissNonce] = useState(0);
 
   useEffect(() => {
     if (!effectiveUserId) return;
@@ -270,7 +315,7 @@ export default function PlanV2() {
     (async () => {
       const { data } = await supabase
         .from("curriculum_goals")
-        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, default_minutes, completed_at")
+        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, default_minutes, completed_at, created_at, start_date")
         .eq("user_id", effectiveUserId)
         .order("created_at");
       if (cancelled) return;
@@ -452,6 +497,30 @@ export default function PlanV2() {
     },
   });
 
+  // After lesson toggle / bulk completion, recomputeCurrentLesson may have
+  // stamped completed_at on a goal for the first time. This detects that
+  // null → non-null transition and fires the confetti banner exactly once.
+  const fireConfettiIfNewlyCompleted = useCallback(
+    async (goalId: string) => {
+      const prev = curriculumGoals.find((g) => g.id === goalId);
+      if (!prev || prev.completed_at) return;
+      const { data } = await supabase
+        .from("curriculum_goals")
+        .select("id, child_id, curriculum_name, completed_at")
+        .eq("id", goalId)
+        .maybeSingle();
+      const fresh = data as { child_id: string | null; curriculum_name: string; completed_at: string | null } | null;
+      if (!fresh?.completed_at) return;
+      const child = kids.find((k) => k.id === fresh.child_id);
+      setConfettiGoal({
+        childName: child?.name ?? "your kid",
+        curriculumName: fresh.curriculum_name,
+      });
+      reloadGoals();
+    },
+    [curriculumGoals, kids, reloadGoals],
+  );
+
   // ── Single-lesson wrappers that fire audit events ───────────────────────
   // Read lesson metadata BEFORE delegating so optimistic deletions don't
   // erase the title/date we need to log. The base hook's async promise is
@@ -473,8 +542,12 @@ export default function PlanV2() {
           actor: "user",
         });
       }
+      // Newly completing a lesson can be the final one for a goal.
+      if (!current && snap?.curriculum_goal_id) {
+        await fireConfettiIfNewlyCompleted(snap.curriculum_goal_id);
+      }
     },
-    [lessons, toggleLesson, recordEvent],
+    [lessons, toggleLesson, recordEvent, fireConfettiIfNewlyCompleted],
   );
 
   const deleteLessonWithLog = useCallback(
@@ -791,6 +864,91 @@ export default function PlanV2() {
     reloadGoals();
     reload();
   }, [deleteGoalConfirm, recordEvent, reloadGoals, reload]);
+
+  // ── Curriculum completion actions (celebration card buttons) ─────────────
+  // Each action localStorage-flags the goal as celebrated so the card moves
+  // out of the "celebrating" subsection on the next render.
+  const dismissCelebration = useCallback((goalId: string) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`rooted_celebrated_${goalId}`, "true");
+    }
+    setCelebrationDismissNonce((n) => n + 1);
+  }, []);
+
+  const handleSaveCurriculumToMemories = useCallback(
+    async (goal: GoalFull) => {
+      if (!effectiveUserId || !goal.completed_at) return;
+      const child = kids.find((k) => k.id === goal.child_id);
+      const dateOnly = goal.completed_at.slice(0, 10);
+      const { error } = await supabase.from("memories").insert({
+        user_id: effectiveUserId,
+        type: "milestone",
+        title: `${child?.name ?? "Your kid"} completed ${goal.curriculum_name}`,
+        caption: `${goal.total_lessons ?? 0} lessons · curriculum complete`,
+        child_id: goal.child_id,
+        date: dateOnly,
+        include_in_book: false,
+      });
+      if (error) {
+        flashNotice("Couldn't save to Memories — try again.");
+        return;
+      }
+      flashNotice("Saved to Memories 🌿");
+      dismissCelebration(goal.id);
+    },
+    [effectiveUserId, kids, dismissCelebration],
+  );
+
+  // TODO: write a yearbook_content row keyed by yearbook_key (computed from
+  // profile.yearbook_opened_at) so this curriculum completion appears as a
+  // distinct yearbook spread item rather than a generic memory bookmark.
+  // For tonight: insert as a memory with include_in_book + yearbook_bookmark
+  // set, which routes it into the yearbook reader's Memories section.
+  const handleAddCurriculumToYearbook = useCallback(
+    async (goal: GoalFull) => {
+      if (!effectiveUserId || !goal.completed_at) return;
+      const child = kids.find((k) => k.id === goal.child_id);
+      const dateOnly = goal.completed_at.slice(0, 10);
+      const { error } = await supabase.from("memories").insert({
+        user_id: effectiveUserId,
+        type: "milestone",
+        title: `${child?.name ?? "Your kid"} completed ${goal.curriculum_name}`,
+        caption: `${goal.total_lessons ?? 0} lessons · curriculum complete`,
+        child_id: goal.child_id,
+        date: dateOnly,
+        include_in_book: true,
+        yearbook_bookmark: true,
+      });
+      if (error) {
+        flashNotice("Couldn't add to Yearbook — try again.");
+        return;
+      }
+      flashNotice("Added to Yearbook 📖");
+      dismissCelebration(goal.id);
+    },
+    [effectiveUserId, kids, dismissCelebration],
+  );
+
+  const handlePrintCertificate = useCallback(
+    async (goal: GoalFull) => {
+      if (!goal.completed_at) return;
+      const child = kids.find((k) => k.id === goal.child_id);
+      const startedDate = goal.start_date ?? goal.created_at ?? goal.completed_at;
+      try {
+        const { downloadCertificate } = await import("@/lib/certificate-pdf");
+        await downloadCertificate({
+          childName: child?.name ?? "your kid",
+          curriculumName: goal.curriculum_name,
+          completedDate: goal.completed_at,
+          lessonsCount: goal.total_lessons ?? 0,
+          weeksSpan: computeWeeksSpan(startedDate, goal.completed_at),
+        });
+      } catch {
+        flashNotice("Couldn't generate certificate — try again.");
+      }
+    },
+    [kids],
+  );
 
   const handleActivityOpenCreate = useCallback(() => {
     setActivityEditing(null);
@@ -1537,6 +1695,12 @@ export default function PlanV2() {
       await Promise.allSettled(
         Array.from(affectedGoalIds).map((gid) => recomputeCurrentLesson(supabase, gid)),
       );
+      // Bulk completion can finish multiple goals; only fire confetti once
+      // (last newly-completed wins). User can still see all newly-completed
+      // goals via celebration cards in the curriculum section.
+      for (const gid of affectedGoalIds) {
+        await fireConfettiIfNewlyCompleted(gid);
+      }
     }
 
     if (succeededIds.length > 0) {
@@ -1593,7 +1757,7 @@ export default function PlanV2() {
     reload();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode, recordEvent]);
+  }, [lessons, setLessons, reload, exitSelectMode, recordEvent, fireConfettiIfNewlyCompleted]);
 
   // ── Bulk: skip (clear scheduled_date) ─────────────────────────────────────
 
@@ -2367,8 +2531,46 @@ export default function PlanV2() {
   })();
   const monthLabelWithEmoji = `${headerSeasonalEmoji} ${monthLabel}`;
 
+  // Split curriculum goals into 3 buckets for the curriculum section render.
+  // celebrationDismissNonce is included so localStorage flag changes (Save to
+  // Memories / Add to Yearbook clicks) push a goal from "celebrating" to
+  // "completed" without a full reload.
+  const { activeGoals, celebratingGoals, completedGoals } = useMemo(() => {
+    const active: GoalFull[] = [];
+    const celebrating: GoalFull[] = [];
+    const completed: GoalFull[] = [];
+    for (const g of curriculumGoals) {
+      const state = getCelebrationState({ completed_at: g.completed_at }, g.id);
+      if (state === "active") active.push(g);
+      else if (state === "celebrating") celebrating.push(g);
+      else completed.push(g);
+    }
+    return { activeGoals: active, celebratingGoals: celebrating, completedGoals: completed };
+  // celebrationDismissNonce intentionally listed so localStorage mutations
+  // re-bucket goals.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curriculumGoals, celebrationDismissNonce]);
+
+  // Lessons count per goal (for celebration card stats and completed-list footer).
+  const minutesByGoal = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of lessons) {
+      if (!l.curriculum_goal_id || !l.completed) continue;
+      const mins = l.minutes_spent ?? 0;
+      m.set(l.curriculum_goal_id, (m.get(l.curriculum_goal_id) ?? 0) + mins);
+    }
+    return m;
+  }, [lessons]);
+
   return (
     <>
+      {confettiGoal ? (
+        <CompletionConfetti
+          childName={confettiGoal.childName}
+          curriculumName={confettiGoal.curriculumName}
+          onDismiss={() => setConfettiGoal(null)}
+        />
+      ) : null}
       <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
 
       <div
@@ -2890,9 +3092,11 @@ export default function PlanV2() {
         {/* Recent changes audit card — lives under the calendar; the day
             detail panel is a fixed-position sheet so placement order here
             doesn't disturb it. */}
-        {/* Curriculum panel — pace + progress + per-goal actions + backfill */}
+        {/* Curriculum panel — pace + progress + per-goal actions + backfill.
+            Only ACTIVE goals (completed_at == null) render here. Celebrating
+            and completed goals get their own subsections below. */}
         <CurriculumGroupsPanel
-          goals={curriculumGoals}
+          goals={activeGoals}
           lessons={lessons}
           kids={kids}
           vacationBlocks={vacationBlocks}
@@ -2925,6 +3129,77 @@ export default function PlanV2() {
             />
           )}
         />
+
+        {/* Celebrating subsection — recently completed goals (within 14 days
+            and not yet acknowledged). Each card shows stats + actions. */}
+        {celebratingGoals.length > 0 ? (
+          <div className="space-y-3">
+            {celebratingGoals.map((goal) => {
+              const child = kids.find((k) => k.id === goal.child_id);
+              const startedDate = goal.start_date ?? goal.created_at ?? goal.completed_at!;
+              return (
+                <CompletionCelebrationCard
+                  key={goal.id}
+                  childName={child?.name ?? "your kid"}
+                  curriculumName={goal.curriculum_name}
+                  startedDate={startedDate}
+                  completedDate={goal.completed_at!}
+                  lessonsCount={goal.total_lessons ?? 0}
+                  minutesLogged={minutesByGoal.get(goal.id) ?? 0}
+                  weeksSpan={computeWeeksSpan(startedDate, goal.completed_at!)}
+                  onSaveToMemories={() => { void handleSaveCurriculumToMemories(goal); }}
+                  onAddToYearbook={() => { void handleAddCurriculumToYearbook(goal); }}
+                  onPrintCertificate={() => { void handlePrintCertificate(goal); }}
+                />
+              );
+            })}
+          </div>
+        ) : null}
+
+        {/* Completed-this-year compact list. Goals show up here once the user
+            has acted on a celebration card or 14 days have passed. */}
+        {completedGoals.length > 0 ? (
+          <section className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
+            <header className="flex items-center gap-2 px-4 py-3 border-b border-[#f0ede8]">
+              <span
+                className="text-[10px] font-semibold tracking-[0.1em] uppercase"
+                style={{ color: "#5c7f63" }}
+              >
+                Completed this school year
+              </span>
+              <span className="ml-auto text-[11px] text-[#7a6f65]">
+                {completedGoals.length} finished · {completedGoals.reduce((sum, g) => sum + (g.total_lessons ?? 0), 0)} lessons
+              </span>
+            </header>
+            <ul className="divide-y divide-[#f0ede8]">
+              {completedGoals.map((goal) => {
+                const child = kids.find((k) => k.id === goal.child_id);
+                const startedDate = goal.start_date ?? goal.created_at;
+                return (
+                  <li key={goal.id} className="px-4 py-3 flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-semibold text-[#2d2926] truncate">
+                        {goal.curriculum_name}
+                        {child ? <span className="text-[#7a6f65] font-normal"> · {child.name}</span> : null}
+                      </p>
+                      <p className="text-[11px] text-[#9a8e84] mt-0.5">
+                        {formatShortDate(startedDate)} – {formatShortDate(goal.completed_at)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { void handlePrintCertificate(goal); }}
+                      aria-label={`Print certificate for ${goal.curriculum_name}`}
+                      className="shrink-0 text-[12px] font-semibold text-[#3d5c48] hover:text-[var(--g-deep)] px-2.5 py-1.5 rounded-lg hover:bg-[#e8f0e9] transition-colors"
+                    >
+                      📜 Certificate
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
 
         {/* Activities panel — anything outside the curriculum (co-op, music…) */}
         <ActivitiesPanel
