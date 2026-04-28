@@ -234,7 +234,7 @@ const sections = [
       },
       {
         q: "Do free users get a yearbook?",
-        a: "During your 30-day free trial, you have full access to the yearbook. After the trial, free users see a watermarked preview. Upgrade to Rooted+ for the full yearbook without watermarks. A print option is coming soon — stay Rooted!",
+        a: "During your 30-day free trial, you have full access to the yearbook. After the trial, free users see a watermarked preview. Upgrade to Rooted+ for the full yearbook without watermarks — download it as a PDF anytime to print at home or send to a print shop.",
       },
       {
         q: "Are my archived yearbooks saved if I cancel my subscription?",
