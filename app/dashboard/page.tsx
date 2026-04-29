@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, buildLessonDateSnapshot, type LessonDateSnapshot } from "@/app/lib/scheduler";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
@@ -638,7 +638,14 @@ export default function TodayPage() {
   const [rescheduleLesson,       setRescheduleLesson]       = useState<Lesson | null>(null);
   const [reschedulePicker,       setReschedulePicker]       = useState(false); // show date picker
   const [reschedulePickerDate,   setReschedulePickerDate]   = useState("");
-  const [rescheduleUndoToast,    setRescheduleUndoToast]    = useState<{ message: string; undoData: { lessonId: string; date: string }[] } | null>(null);
+  // Toast for any reschedule action. Snapshot contains the full prior state
+  // of every row touched by the action (id + both date columns) — undo
+  // performs a literal restore, never a recomputation. The same snapshot is
+  // mirrored to a ref so the click handler reads a stable value even if a
+  // re-render races with the tap.
+  type RescheduleUndoToast = { message: string; snapshot: LessonDateSnapshot[] };
+  const [rescheduleUndoToast,    setRescheduleUndoToast]    = useState<RescheduleUndoToast | null>(null);
+  const rescheduleUndoSnapshotRef = useRef<RescheduleUndoToast | null>(null);
   const rescheduleUndoTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingDelete,          setPendingDelete]          = useState<{ lesson: Lesson } | null>(null);
   const pendingDeleteTimer       = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1383,7 +1390,15 @@ export default function TodayPage() {
     }
     const defaultDays = new Set([0, 1, 2, 3, 4]);
 
-    const undoData: { lessonId: string; date: string }[] = [];
+    // Snapshot the rows BEFORE writing so undo restores precise prior state.
+    // Today's lessons in the local `lessons` state don't carry the date
+    // columns, so fetch them.
+    const { data: priorRows } = await supabase
+      .from("lessons")
+      .select("id, date, scheduled_date")
+      .in("id", uncompleted.map(l => l.id));
+    const snapshot = buildLessonDateSnapshot((priorRows ?? []) as { id: string; date: string | null; scheduled_date: string | null }[]);
+
     for (const lesson of uncompleted) {
       const activeDays = (lesson.curriculum_goal_id && goalSchoolDays.has(lesson.curriculum_goal_id))
         ? goalSchoolDays.get(lesson.curriculum_goal_id)!
@@ -1396,14 +1411,13 @@ export default function TodayPage() {
         if (activeDays.has(dayIdx)) {
           const newDate = localDateStr(cur);
           await supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", lesson.id);
-          undoData.push({ lessonId: lesson.id, date: today });
           break;
         }
         safety++;
       }
     }
     setLessons(prev => prev.filter(l => l.completed));
-    showRescheduleUndo(`${uncompleted.length} lesson${uncompleted.length !== 1 ? "s" : ""} moved to next school day! Undo?`, undoData);
+    showRescheduleUndo(`${uncompleted.length} lesson${uncompleted.length !== 1 ? "s" : ""} moved to next school day! Undo?`, snapshot);
   }
 
   // ── Lesson actions ────────────────────────────────────────────────────────
@@ -1548,9 +1562,18 @@ export default function TodayPage() {
 
   // ── Skip lesson (parity with Plan page: clear scheduled date, undo restores)
   async function skipLesson(lesson: Lesson) {
+    // Capture both date columns before clearing — undo can't recompute them.
+    const { data: priorRow } = await supabase
+      .from("lessons")
+      .select("id, date, scheduled_date")
+      .eq("id", lesson.id)
+      .maybeSingle();
+    const snapshot = priorRow
+      ? buildLessonDateSnapshot([priorRow as { id: string; date: string | null; scheduled_date: string | null }])
+      : buildLessonDateSnapshot([{ id: lesson.id, date: today, scheduled_date: today }]);
     setLessons(prev => prev.filter(l => l.id !== lesson.id));
     await supabase.from("lessons").update({ scheduled_date: null, date: null }).eq("id", lesson.id);
-    showRescheduleUndo("Lesson skipped", [{ lessonId: lesson.id, date: today }]);
+    showRescheduleUndo("Lesson skipped", snapshot);
   }
 
   async function toggleLesson(id: string, current: boolean) {
@@ -1932,15 +1955,20 @@ export default function TodayPage() {
   async function skipMissedLesson(lesson: MissedLesson) {
     const originalDate = lesson.scheduled_date ?? lesson.date;
     if (!originalDate) return;
+    const snapshot = buildLessonDateSnapshot([{ id: lesson.id, date: lesson.date, scheduled_date: lesson.scheduled_date }]);
     setMissedLessons(prev => prev.filter(l => l.id !== lesson.id));
     await supabase.from("lessons").update({ scheduled_date: null, date: null }).eq("id", lesson.id);
-    showRescheduleUndo("Lesson skipped", [{ lessonId: lesson.id, date: originalDate }]);
+    showRescheduleUndo("Lesson skipped", snapshot);
   }
 
   async function runMissedAddToNextDays() {
     if (missedSheetSubmitting || missedLessons.length === 0) return;
     setMissedSheetSubmitting(true);
-    const { updates, undoData } = libPlanAddToNextSchoolDays(missedLessons, getSchoolDaysForLesson, today);
+    // Snapshot uses missedLessons directly — those rows already carry both
+    // date columns (loadData fetches them). Undo will restore each missed
+    // lesson to its actual prior date, not "today".
+    const snapshot = buildLessonDateSnapshot(missedLessons);
+    const { updates } = libPlanAddToNextSchoolDays(missedLessons, getSchoolDaysForLesson, today);
     for (let i = 0; i < updates.length; i += 20) {
       await Promise.all(
         updates.slice(i, i + 20).map(({ id, newDate }) =>
@@ -1952,7 +1980,7 @@ export default function TodayPage() {
     setShowMissedSheet(false);
     setMissedSheetSubmitting(false);
     const n = updates.length;
-    showRescheduleUndo(`${n} lesson${n !== 1 ? "s" : ""} added to upcoming school days! Undo?`, undoData);
+    showRescheduleUndo(`${n} lesson${n !== 1 ? "s" : ""} added to upcoming school days! Undo?`, snapshot);
     await loadData();
   }
 
@@ -1967,7 +1995,10 @@ export default function TodayPage() {
       .gte("scheduled_date", today)
       .order("scheduled_date", { ascending: true });
     const futureLessons = (futureRows ?? []) as { id: string; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null }[];
-    const { updates, undoData } = libPlanPushBackNDays(missedLessons, futureLessons, getSchoolDaysForLesson, today);
+    // Snapshot covers BOTH the missed rows being filled in AND the future
+    // rows being pushed back — undo restores the entire state.
+    const snapshot = buildLessonDateSnapshot([...missedLessons, ...futureLessons]);
+    const { updates } = libPlanPushBackNDays(missedLessons, futureLessons, getSchoolDaysForLesson, today);
     for (let i = 0; i < updates.length; i += 20) {
       await Promise.all(
         updates.slice(i, i + 20).map(({ id, newDate }) =>
@@ -1979,58 +2010,69 @@ export default function TodayPage() {
     setShowMissedSheet(false);
     setMissedSheetSubmitting(false);
     const n = missedLessons.length;
-    showRescheduleUndo(`Schedule pushed back ${n} day${n !== 1 ? "s" : ""}! Undo?`, undoData);
+    showRescheduleUndo(`Schedule pushed back ${n} day${n !== 1 ? "s" : ""}! Undo?`, snapshot);
     await loadData();
   }
 
-  function showRescheduleUndo(message: string, undoData: { lessonId: string; date: string }[]) {
+  function showRescheduleUndo(message: string, snapshot: LessonDateSnapshot[]) {
     if (rescheduleUndoTimer.current) clearTimeout(rescheduleUndoTimer.current);
-    setRescheduleUndoToast({ message, undoData });
-    rescheduleUndoTimer.current = setTimeout(() => setRescheduleUndoToast(null), 8000);
+    const next = { message, snapshot };
+    rescheduleUndoSnapshotRef.current = next;
+    setRescheduleUndoToast(next);
+    rescheduleUndoTimer.current = setTimeout(() => {
+      rescheduleUndoSnapshotRef.current = null;
+      setRescheduleUndoToast(null);
+    }, 8000);
   }
 
   async function undoReschedule() {
-    if (!rescheduleUndoToast) return;
-    const { undoData } = rescheduleUndoToast;
-    for (let i = 0; i < undoData.length; i += 20) {
+    // Read from the ref — the ref is the single source of truth at click
+    // time and never goes stale on re-render. Bail out if there's nothing
+    // captured (button got tapped after auto-dismiss) or if the snapshot is
+    // empty (defensive).
+    const live = rescheduleUndoSnapshotRef.current;
+    if (!live || live.snapshot.length === 0) return;
+    const { snapshot } = live;
+    // Literal restore — write both columns back to their captured values.
+    // Failures bubble out; we don't swallow.
+    for (let i = 0; i < snapshot.length; i += 20) {
       await Promise.all(
-        undoData.slice(i, i + 20).map(({ lessonId, date }) =>
-          supabase.from("lessons").update({ scheduled_date: date, date }).eq("id", lessonId)
+        snapshot.slice(i, i + 20).map((s) =>
+          supabase.from("lessons").update({ date: s.date, scheduled_date: s.scheduled_date }).eq("id", s.id)
         )
       );
     }
-    // Restore lesson in Today view if it was moved away
-    if (undoData.length === 1 && undoData[0].date === today) {
-      const { data: restored } = await supabase.from("lessons")
-        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id")
-        .eq("id", undoData[0].lessonId).single();
-      if (restored) setLessons(prev => prev.some(l => l.id === restored.id) ? prev : [...prev, restored as unknown as Lesson]);
-    }
-    // Refetch missed lessons in case undo restored a past-dated incomplete row.
-    await loadData();
+    rescheduleUndoSnapshotRef.current = null;
     setRescheduleUndoToast(null);
     if (rescheduleUndoTimer.current) clearTimeout(rescheduleUndoTimer.current);
+    // Refetch so Today's lessons + missed-lesson section reflect the undo.
+    // Order matters for the regression guard: loadData first, then the story
+    // refresh, so the user sees both lists update without a page reload.
+    await loadData();
+    await refreshTodayStory();
     showCaptureToast("Undo complete", null);
   }
 
   async function rescheduleMoveTo(targetDate: string) {
     if (!rescheduleLesson) return;
-    // Capture the actual original date — may be a past date when the action
-    // was started from a "From earlier" row, not just today.
-    const isMissed = missedLessons.some(l => l.id === rescheduleLesson.id);
-    const fromMissed = missedLessons.find(l => l.id === rescheduleLesson.id);
-    const originalDate = isMissed
-      ? (fromMissed?.scheduled_date ?? fromMissed?.date ?? today)
-      : today;
-    // Move in DB
+    // Snapshot before write — capture both date columns so undo restores
+    // exactly. Cover the case where the action started from a "From earlier"
+    // row whose date is in the past.
+    const { data: priorRow } = await supabase
+      .from("lessons")
+      .select("id, date, scheduled_date")
+      .eq("id", rescheduleLesson.id)
+      .maybeSingle();
+    const snapshot = priorRow
+      ? buildLessonDateSnapshot([priorRow as { id: string; date: string | null; scheduled_date: string | null }])
+      : buildLessonDateSnapshot([{ id: rescheduleLesson.id, date: today, scheduled_date: today }]);
     await supabase.from("lessons").update({ scheduled_date: targetDate, date: targetDate }).eq("id", rescheduleLesson.id);
-    // Remove from Today view + missed view
     setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
     setMissedLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
     setRescheduleLesson(null);
     posthog.capture('lesson_rescheduled', { user_plan: isPro ? 'paid' : 'free' });
     const label = targetDate === localDateStr(new Date(new Date().setDate(new Date().getDate() + 1))) ? "Moved to tomorrow" : "Lesson rescheduled";
-    showRescheduleUndo(`${label}! Undo?`, [{ lessonId: rescheduleLesson.id, date: originalDate }]);
+    showRescheduleUndo(`${label}! Undo?`, snapshot);
   }
 
   async function reschedulePushAll() {
@@ -2044,28 +2086,30 @@ export default function TodayPage() {
     const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
     const activeDays = schoolDays.length > 0 ? new Set(schoolDays.map(d => dayMap[d] ?? -1)) : null;
 
-    // Fetch all uncompleted future lessons for this goal
+    // Fetch all uncompleted future lessons for this goal — pull both date
+    // columns so the snapshot can restore the exact prior state.
     const { data: futureLessons } = await supabase.from("lessons")
-      .select("id, scheduled_date")
+      .select("id, date, scheduled_date")
       .eq("curriculum_goal_id", goalId)
       .eq("completed", false)
       .gte("scheduled_date", today)
       .order("scheduled_date", { ascending: true });
     if (!futureLessons || futureLessons.length === 0) { setRescheduleLesson(null); return; }
+    const futureRows = futureLessons as { id: string; date: string | null; scheduled_date: string | null }[];
 
-    // Store undo data
-    const undoData = futureLessons.map((l: { id: string; scheduled_date: string }) => ({ lessonId: l.id, date: l.scheduled_date }));
+    const snapshot = buildLessonDateSnapshot(futureRows);
 
     // Push each lesson to the next school day after its current date
     const updates: { id: string; newDate: string }[] = [];
-    for (const lesson of futureLessons) {
-      const cur = new Date((lesson as { scheduled_date: string }).scheduled_date + "T12:00:00");
+    for (const lesson of futureRows) {
+      if (!lesson.scheduled_date) continue;
+      const cur = new Date(lesson.scheduled_date + "T12:00:00");
       let safety = 0;
       while (safety < 365) {
         cur.setDate(cur.getDate() + 1);
         const dayIdx = (cur.getDay() + 6) % 7;
         if (!activeDays || activeDays.has(dayIdx)) {
-          updates.push({ id: (lesson as { id: string }).id, newDate: localDateStr(cur) });
+          updates.push({ id: lesson.id, newDate: localDateStr(cur) });
           break;
         }
         safety++;
@@ -2083,23 +2127,28 @@ export default function TodayPage() {
     // Remove the current lesson from Today view if it was pushed
     setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
     setRescheduleLesson(null);
-    showRescheduleUndo(`${undoData.length} lessons pushed back! Undo?`, undoData);
+    showRescheduleUndo(`${snapshot.length} lessons pushed back! Undo?`, snapshot);
   }
 
   async function rescheduleDoubleUp() {
     if (!rescheduleLesson?.curriculum_goal_id) return;
-    const fromMissed = missedLessons.find(l => l.id === rescheduleLesson.id);
-    const originalDate = fromMissed?.scheduled_date ?? fromMissed?.date ?? today;
+    const { data: priorRow } = await supabase
+      .from("lessons")
+      .select("id, date, scheduled_date")
+      .eq("id", rescheduleLesson.id)
+      .maybeSingle();
+    const snapshot = priorRow
+      ? buildLessonDateSnapshot([priorRow as { id: string; date: string | null; scheduled_date: string | null }])
+      : buildLessonDateSnapshot([{ id: rescheduleLesson.id, date: today, scheduled_date: today }]);
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowStr = localDateStr(tomorrow);
 
-    // Move today's lesson to tomorrow (it will share the day with tomorrow's scheduled lesson)
     await supabase.from("lessons").update({ scheduled_date: tomorrowStr, date: tomorrowStr }).eq("id", rescheduleLesson.id);
     setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
     setMissedLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
     setRescheduleLesson(null);
-    showRescheduleUndo("Doubled up tomorrow! Undo?", [{ lessonId: rescheduleLesson.id, date: originalDate }]);
+    showRescheduleUndo("Doubled up tomorrow! Undo?", snapshot);
   }
 
   async function rescheduleMissedDay() {
@@ -2110,8 +2159,12 @@ export default function TodayPage() {
     const todaysLessons = [...lessons];
     if (todaysLessons.length === 0) { setRescheduleLesson(null); return; }
 
-    // Store undo data
-    const undoData = todaysLessons.map(l => ({ lessonId: l.id, date: today }));
+    // Snapshot the full prior state of every targeted row.
+    const { data: priorRows } = await supabase
+      .from("lessons")
+      .select("id, date, scheduled_date")
+      .in("id", todaysLessons.map(l => l.id));
+    const snapshot = buildLessonDateSnapshot((priorRows ?? []) as { id: string; date: string | null; scheduled_date: string | null }[]);
 
     // Group by curriculum_goal_id to respect each curriculum's school_days
     const goalIds = [...new Set(todaysLessons.map(l => l.curriculum_goal_id).filter(Boolean))] as string[];
@@ -2162,7 +2215,7 @@ export default function TodayPage() {
 
     setLessons([]);
     setRescheduleLesson(null);
-    showRescheduleUndo("All of today's lessons rescheduled! Undo?", undoData);
+    showRescheduleUndo("All of today's lessons rescheduled! Undo?", snapshot);
   }
 
   async function saveBook() {
@@ -4351,18 +4404,24 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* ── Reschedule undo toast ──────────────────────────── */}
+      {/* ── Reschedule undo toast ────────────────────────────
+           The whole pill is the tap target — the bare "Undo" word was a
+           ~30px hit area on a phone, easy to miss. Now any tap on the
+           toast triggers the restore.
+        ──────────────────────────────────────────────────── */}
       {rescheduleUndoToast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
-          <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => undoReschedule()}
+            aria-label={`${rescheduleUndoToast.message} Tap to undo.`}
+            className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-lg flex items-center gap-3 min-h-[44px] active:opacity-90 transition-opacity"
+          >
             <span>{rescheduleUndoToast.message}</span>
-            <button
-              onClick={() => undoReschedule()}
-              className="text-white font-semibold underline text-sm"
-            >
+            <span className="text-white font-semibold underline text-sm">
               Undo
-            </button>
-          </div>
+            </span>
+          </button>
         </div>
       )}
 

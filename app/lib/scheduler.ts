@@ -351,6 +351,53 @@ export function planCompressAfterExtra(
 }
 
 /**
+ * Snapshot of a lesson row's date columns BEFORE a reschedule write. The
+ * Today-page undo restores from this exact shape so we never recompute
+ * "what the original date was" — the captured value IS the source of truth.
+ *
+ * Both columns are captured because some legacy code paths (e.g. the older
+ * "Log an extra lesson" flow before CC1) wrote `date` without touching
+ * `scheduled_date`. A single-column snapshot would silently lose that
+ * difference on undo.
+ */
+export type LessonDateSnapshot = {
+  id: string;
+  date: string | null;
+  scheduled_date: string | null;
+};
+
+/**
+ * Capture the full date-column state of the given rows. Pure — caller is
+ * responsible for storing the snapshot durably (state + ref) before issuing
+ * the reschedule UPDATE.
+ */
+export function buildLessonDateSnapshot(
+  rows: { id: string; date?: string | null; scheduled_date?: string | null }[],
+): LessonDateSnapshot[] {
+  return rows.map((r) => ({
+    id: r.id,
+    date: r.date ?? null,
+    scheduled_date: r.scheduled_date ?? null,
+  }));
+}
+
+/**
+ * Apply a captured snapshot to a current state map (id → row). Returns the
+ * resulting state map. Pure — useful for unit-testing the undo round-trip
+ * without a DB. Real callers issue UPDATE per snapshot row instead.
+ */
+export function applyUndoSnapshot(
+  current: Map<string, { date: string | null; scheduled_date: string | null }>,
+  snapshot: LessonDateSnapshot[],
+): Map<string, { date: string | null; scheduled_date: string | null }> {
+  const next = new Map(current);
+  for (const entry of snapshot) {
+    next.set(entry.id, { date: entry.date, scheduled_date: entry.scheduled_date });
+  }
+  return next;
+}
+
+/**
  * Whitelist gate for the saveEdit reshuffle. Returns true ONLY when one of
  * the schedule-relevant goal fields actually changed: lessons_per_day,
  * school_days, start_date, target_date, total_lessons.
