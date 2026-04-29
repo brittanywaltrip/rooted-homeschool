@@ -212,7 +212,7 @@ export default function AdminPage() {
   const [reengageSent, setReengageSent] = useState(false);
 
   // Affiliate payouts
-  const [affiliatePayouts, setAffiliatePayouts] = useState<{ name: string; code: string; redemptions_this_month: number; gross_this_month_cents: number; commission_cents: number; paypal_email: string | null; month_label: string }[]>([]);
+  const [affiliatePayouts, setAffiliatePayouts] = useState<{ name: string; code: string; redemptions_this_month: number; gross_this_month_cents: number; commission_cents: number; paypal_email: string | null; lifetime_paid: number; last_paid_month: string | null; month_label: string }[]>([]);
   const [payoutsLoading, setPayoutsLoading] = useState(false);
   const [payoutsError, setPayoutsError] = useState(false);
 
@@ -940,6 +940,26 @@ export default function AdminPage() {
                     {/* Month label */}
                     <p className="text-xs text-[#b5aca4]">
                       {aff.month_label} · Payout due {payoutDue}
+                    </p>
+
+                    {/* Historical payout summary — read from commission_payments
+                        so newly-marked payments show up here immediately. */}
+                    <p className="text-xs text-[#7a6f65] mt-1">
+                      Lifetime paid: <span className="text-[#2d2926] font-medium">${aff.lifetime_paid.toFixed(2)}</span>
+                      {aff.last_paid_month ? (
+                        <>
+                          {" · Last paid: "}
+                          <span className="text-[#2d2926] font-medium">
+                            {(() => {
+                              const [yy, mm] = aff.last_paid_month.split("-").map(Number);
+                              if (!yy || !mm) return aff.last_paid_month;
+                              return new Date(yy, mm - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+                            })()}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-[#b5aca4]"> · Never paid</span>
+                      )}
                     </p>
 
                     {/* Zero sales note */}

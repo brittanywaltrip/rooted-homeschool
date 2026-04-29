@@ -19,6 +19,16 @@ interface Affiliate {
   notes: string | null; created_at: string; account_email: string | null;
   signups_referred: number; paying_customers: number;
   commission_owed: number; total_paid: number;
+  // Channel + cycle fields. payment_method/payment_notes are admin-only
+  // partner-payment routing; the rest are cycle aggregates from
+  // commission_payments computed in /api/admin/partners.
+  payment_method: string | null;
+  payment_notes: string | null;
+  last_paid_month: string | null;
+  paid_this_cycle: boolean;
+  real_paying_refs_this_cycle: number;
+  owed_this_cycle: number;
+  cycle_referrals: string[];
 }
 
 interface Referral {
@@ -78,9 +88,16 @@ export default function AdminPartnersPage() {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Pay modal
+  // Pay modal — comprehensive Mark as Paid flow. Branches on
+  // affiliate.payment_method (NULL/PayPal vs Mercury/etc.) and supports
+  // a "goodwill" mode for paying $0-owed partners (one-off bonuses).
   const [payModal, setPayModal] = useState<Affiliate | null>(null);
   const [paying, setPaying] = useState(false);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMonth, setPayMonth] = useState("");
+  const [payNotes, setPayNotes] = useState("");
+  const [payIsGoodwill, setPayIsGoodwill] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
 
   // Approve/setup checklist modal
   const [approveApp, setApproveApp] = useState<Application | null>(null);
@@ -150,18 +167,61 @@ export default function AdminPartnersPage() {
     await loadData(token);
   }
 
+  function openPayModal(a: Affiliate, isGoodwill = false) {
+    const method = (a.payment_method ?? "").trim();
+    const isPayPal = !method || /paypal/i.test(method);
+    const now = new Date();
+    const monthYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    const refs = a.cycle_referrals.join(", ");
+    const baseSuggestion = isGoodwill
+      ? `${monthLabel} — goodwill bonus`
+      : refs
+        ? `${monthLabel} — referrals: ${refs}`
+        : monthLabel;
+    const suggestedNotes = isPayPal ? baseSuggestion : `[${method}] ${baseSuggestion}`;
+
+    setPayIsGoodwill(isGoodwill);
+    setPayAmount(isGoodwill ? "" : a.owed_this_cycle.toFixed(2));
+    setPayMonth(monthYM);
+    setPayNotes(suggestedNotes);
+    setPayError(null);
+    setPayModal(a);
+  }
+
   async function confirmPay() {
     if (!payModal) return;
+    setPayError(null);
+    const amountNum = Number(payAmount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      setPayError("Enter a valid amount greater than $0.");
+      return;
+    }
+    if (!/^\d{4}-\d{2}$/.test(payMonth)) {
+      setPayError("Month must be in YYYY-MM format.");
+      return;
+    }
     setPaying(true);
-    const month = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    const owed = Math.max(0, payModal.commission_owed - payModal.total_paid);
-    await fetch("/api/admin/pay-affiliate", {
+    const res = await fetch("/api/admin/affiliate-payouts", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ affiliate_code: payModal.code, amount: owed, month, paypal_email: payModal.paypal_email }),
+      body: JSON.stringify({
+        affiliate_code: payModal.code,
+        amount: amountNum,
+        month: payMonth,
+        notes: payNotes,
+      }),
     });
-    // Send payment confirmation email
-    await fetch("/api/admin/partner-action", {
+    if (!res.ok) {
+      setPaying(false);
+      const json = await res.json().catch(() => ({}));
+      setPayError(json.error || "Payment failed.");
+      return;
+    }
+    // Send payment confirmation email (non-blocking — don't fail the
+    // whole flow if the email errors out, the payout row is recorded).
+    const monthLabel = new Date(`${payMonth}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    fetch("/api/admin/partner-action", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({
@@ -169,14 +229,15 @@ export default function AdminPartnersPage() {
         contactEmail: payModal.contact_email,
         name: payModal.name,
         affiliateCode: payModal.code,
-        amount: owed,
-        month,
+        amount: amountNum,
+        month: monthLabel,
         paypalEmail: payModal.paypal_email,
         payingCount: payModal.paying_customers,
-        lifetimeTotal: payModal.total_paid + owed,
+        lifetimeTotal: payModal.total_paid + amountNum,
       }),
-    });
-    setPaying(false); setPayModal(null);
+    }).catch(() => {});
+    setPaying(false);
+    setPayModal(null);
     await loadData(token);
   }
 
@@ -300,7 +361,10 @@ export default function AdminPartnersPage() {
     );
   }
 
-  const netOwed = affiliates.reduce((s, a) => s + Math.max(0, a.commission_owed - a.total_paid), 0);
+  // "Owed" in the summary card is the sum of owed_this_cycle across
+  // partners not yet paid this cycle — the live total Brittany still
+  // needs to send out this month.
+  const netOwed = affiliates.reduce((s, a) => s + (a.paid_this_cycle ? 0 : a.owed_this_cycle), 0);
   const pendingApps = applications.filter((a) => a.status === "pending");
   const IC = "w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]";
 
@@ -419,8 +483,16 @@ export default function AdminPartnersPage() {
           <div className="space-y-3">
             {affiliates.map((a) => {
               const isExpanded = expandedCode === a.code;
-              const owed = Math.max(0, a.commission_owed - a.total_paid);
               const refLink = `rootedhomeschoolapp.com/?ref=${a.code}`;
+              const method = (a.payment_method ?? "").trim();
+              const isPayPalChannel = !method || /paypal/i.test(method);
+              const channelLabel = isPayPalChannel ? "PayPal" : method;
+              const channelEmail = isPayPalChannel ? a.paypal_email : a.contact_email;
+              const missingPaymentInfo = !channelEmail;
+              const lastPaidLabel = a.last_paid_month
+                ? formatMonthYM(a.last_paid_month)
+                : null;
+              const cycleMonthLabel = formatCurrentMonthLabel();
               return (
                 <div key={a.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
                   <button
@@ -430,11 +502,14 @@ export default function AdminPartnersPage() {
                     {/* Name + status row */}
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-semibold text-[#2d2926]">{a.name}</p>
                           <span className="font-mono text-xs text-[#5c7f63] bg-[#e8f0e9] px-2 py-0.5 rounded-full">{a.code}</span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#f8f7f4] text-[#7a6f65]">
+                            via {channelLabel}
+                          </span>
                         </div>
-                        <p className="text-xs text-[#7a6f65] mt-0.5">{a.account_email ?? a.contact_email ?? "—"}</p>
+                        <p className="text-xs text-[#7a6f65] mt-0.5 truncate">{a.account_email ?? a.contact_email ?? "—"}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full ${a.is_active ? "bg-[#e8f0e9] text-[var(--g-brand)]" : "bg-[#f5e6e6] text-[#8b3a3a]"}`}>
@@ -443,14 +518,89 @@ export default function AdminPartnersPage() {
                       </div>
                     </div>
 
-                    {/* Stats row */}
+                    {/* Stats row — cycle-aware */}
                     <div className="grid grid-cols-4 gap-2 mt-3 bg-[#f8f7f4] rounded-xl px-3 py-2.5">
                       <MiniStat label="Clicks" value={a.clicks} />
                       <MiniStat label="Signups" value={a.signups_referred} />
-                      <MiniStat label="Paying" value={a.paying_customers} accent />
-                      <MiniStat label="Owed" value={formatCurrency(owed)} accent={owed > 0} />
+                      <MiniStat label="Refs / cycle" value={a.real_paying_refs_this_cycle} accent />
+                      <MiniStat
+                        label="Owed / cycle"
+                        value={formatCurrency(a.owed_this_cycle)}
+                        accent={a.owed_this_cycle > 0 && !a.paid_this_cycle}
+                      />
                     </div>
+
+                    {/* History sub-line */}
+                    <p className="text-[11px] text-[#7a6f65] mt-2">
+                      Lifetime: <b className="text-[#2d2926]">{formatCurrency(a.total_paid)}</b>
+                      {lastPaidLabel ? (
+                        <> · Last paid: <b className="text-[#2d2926]">{lastPaidLabel}</b></>
+                      ) : (
+                        <span className="text-[#b5aca4]"> · Never paid</span>
+                      )}
+                    </p>
                   </button>
+
+                  {/* Action row — Mark as Paid + cycle-state cues */}
+                  <div className="border-t border-[#e8e2d9] px-4 py-3 bg-[#fdfcfa] flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs text-[#7a6f65] min-w-0">
+                      {missingPaymentInfo ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-amber-700"
+                          title={isPayPalChannel
+                            ? "No PayPal email on file — add one in the Edit panel before paying."
+                            : `No contact email on file — required for ${channelLabel} payouts.`}
+                        >
+                          ⚠ Missing payment info
+                        </span>
+                      ) : (
+                        <>
+                          Pay to <span className="text-[#2d2926] font-medium truncate">{channelEmail}</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {a.paid_this_cycle ? (
+                        <button
+                          disabled
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#e8e2d9] text-[#7a6f65] cursor-not-allowed"
+                        >
+                          Paid {cycleMonthLabel}
+                        </button>
+                      ) : a.owed_this_cycle <= 0 ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            disabled
+                            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f0ede8] text-[#b5aca4] cursor-not-allowed"
+                          >
+                            Nothing owed
+                          </button>
+                          {!missingPaymentInfo && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openPayModal(a, true); }}
+                              className="text-[11px] text-[#7a6f65] hover:text-[#5c7f63] underline-offset-2 hover:underline"
+                            >
+                              + goodwill payment
+                            </button>
+                          )}
+                        </div>
+                      ) : missingPaymentInfo ? (
+                        <button
+                          disabled
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f0ede8] text-[#b5aca4] cursor-not-allowed"
+                        >
+                          Mark as Paid
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openPayModal(a, false); }}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white transition-colors"
+                        >
+                          Mark as Paid · {formatCurrency(a.owed_this_cycle)}
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
                   {/* Expanded details */}
                   {isExpanded && (
@@ -465,11 +615,31 @@ export default function AdminPartnersPage() {
                         </div>
                       </div>
 
-                      {/* Paid so far */}
-                      <div className="flex items-center gap-3 text-xs text-[#7a6f65]">
-                        <span>Total paid: <b className="text-[#2d2926]">{formatCurrency(a.total_paid)}</b></span>
-                        <span>Commission rate: <b className="text-[#2d2926]">{a.commission_rate ?? 20}%</b></span>
+                      {/* Channel + cycle info */}
+                      <div className="grid grid-cols-2 gap-3 text-xs text-[#7a6f65]">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Pay via</p>
+                          <p className="text-[#2d2926] font-medium">{channelLabel}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Commission rate</p>
+                          <p className="text-[#2d2926] font-medium">{a.commission_rate ?? 20}%</p>
+                        </div>
                       </div>
+
+                      {a.payment_notes && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-800 mb-0.5">Payment notes</p>
+                          <p className="text-xs text-amber-900">{a.payment_notes}</p>
+                        </div>
+                      )}
+
+                      {a.cycle_referrals.length > 0 && !a.paid_this_cycle && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Cycle referrals ({a.cycle_referrals.length})</p>
+                          <p className="text-xs text-[#2d2926]">{a.cycle_referrals.join(", ")}</p>
+                        </div>
+                      )}
 
                       {/* Edit fields */}
                       <div>
@@ -503,11 +673,6 @@ export default function AdminPartnersPage() {
                         <button onClick={() => toggleActive(a.id, a.is_active)}
                           className={`px-4 py-2 text-xs font-semibold border rounded-lg transition-colors ${a.is_active ? "text-[#8b3a3a] border-[#f5e6e6] hover:bg-[#fef2f2]" : "text-[#5c7f63] border-[#d4ead6] hover:bg-[#f0f7f1]"}`}>
                           {a.is_active ? "Deactivate" : "Reactivate"}</button>
-                        {owed > 0 && (
-                          <button onClick={() => setPayModal(a)}
-                            className="px-4 py-2 text-xs font-semibold bg-[#6366f1] hover:bg-[#4338ca] text-white rounded-lg transition-colors">
-                            Pay {formatCurrency(owed)}</button>
-                        )}
                         {a.contact_email && (
                           <a href={`mailto:${a.contact_email}`}
                             className="px-4 py-2 text-xs font-semibold text-[#5c7f63] border border-[#e8e2d9] rounded-lg">Email</a>
@@ -597,18 +762,100 @@ export default function AdminPartnersPage() {
         </section>
       </div>
 
-      {/* ── Pay Modal ─────────────────────────────────────────────────────── */}
+      {/* ── Mark as Paid Modal ───────────────────────────────────────────── */}
       {payModal && (() => {
-        const ow = Math.max(0, payModal.commission_owed - payModal.total_paid);
-        const mo = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        const method = (payModal.payment_method ?? "").trim();
+        const isPayPal = !method || /paypal/i.test(method);
+        const channelLabel = isPayPal ? "PayPal" : method;
+        const channelEmail = isPayPal ? payModal.paypal_email : payModal.contact_email;
         return (
-          <Modal onClose={() => !paying && setPayModal(null)} title="Confirm payment">
-            <p className="text-sm text-[#7a6f65] mb-4">
-              Pay <b className="text-[#2d2926]">{formatCurrency(ow)}</b> to <b className="text-[#2d2926]">{payModal.paypal_email ?? "no PayPal"}</b> for {payModal.name} ({payModal.code}) {"\u2014"} {mo}?
-            </p>
-            <div className="flex gap-2">
-              <button onClick={confirmPay} disabled={paying} className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-xl">{paying ? "Processing..." : "Confirm payment"}</button>
-              <button onClick={() => setPayModal(null)} disabled={paying} className="px-4 py-2.5 text-sm font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-xl">Cancel</button>
+          <Modal onClose={() => !paying && setPayModal(null)} title={`Mark Payment \u2014 ${payModal.name}`}>
+            <div className="space-y-4">
+              {!isPayPal && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                  <p className="text-xs font-semibold text-amber-900">Send via {channelLabel} (not PayPal)</p>
+                  {payModal.payment_notes && (
+                    <p className="text-[11px] text-amber-800 mt-1">{payModal.payment_notes}</p>
+                  )}
+                  <p className="text-[11px] text-amber-800 mt-1">
+                    Notes will be auto-prefixed with <span className="font-mono">[{channelLabel}]</span> so the channel is logged on the row.
+                  </p>
+                </div>
+              )}
+
+              {payIsGoodwill && (
+                <div className="bg-[#f0f7f1] border border-[#d4ead6] rounded-lg px-3 py-2.5">
+                  <p className="text-xs font-semibold text-[var(--g-deep)]">Goodwill / one-off payment</p>
+                  <p className="text-[11px] text-[#5c5248] mt-1">
+                    No commission is currently owed for this cycle. Use this for thank-you bonuses or back-pay.
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Affiliate code" value={payModal.code} readOnly />
+                <Field label={isPayPal ? "PayPal email" : `${channelLabel} contact`} value={channelEmail ?? ""} readOnly />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Amount (USD)</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                  className={IC}
+                />
+                {!payIsGoodwill && payModal.cycle_referrals.length > 0 && (
+                  <p className="text-[11px] text-[#7a6f65] mt-1">
+                    Suggested: {formatCurrency(payModal.owed_this_cycle)} for {payModal.real_paying_refs_this_cycle} referral{payModal.real_paying_refs_this_cycle === 1 ? "" : "s"} this cycle.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Month (YYYY-MM)</label>
+                <input
+                  type="text"
+                  value={payMonth}
+                  onChange={(e) => setPayMonth(e.target.value)}
+                  placeholder="2026-04"
+                  className={IC}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Notes</label>
+                <textarea
+                  rows={2}
+                  value={payNotes}
+                  onChange={(e) => setPayNotes(e.target.value)}
+                  className={IC + " resize-none"}
+                />
+              </div>
+
+              {payError && (
+                <p className="text-xs text-[#8b3a3a]">{payError}</p>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={confirmPay}
+                  disabled={paying}
+                  className="flex-1 px-4 py-2.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white rounded-xl"
+                >
+                  {paying ? "Recording..." : `Record payment${payAmount ? ` \u00b7 ${formatCurrency(Number(payAmount) || 0)}` : ""}`}
+                </button>
+                <button
+                  onClick={() => setPayModal(null)}
+                  disabled={paying}
+                  className="px-4 py-2.5 text-sm font-semibold text-[#7a6f65] border border-[#e8e2d9] rounded-xl"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </Modal>
         );
@@ -814,6 +1061,20 @@ function Field({ label, value, readOnly }: { label: string; value: string; readO
       <input value={value} readOnly={readOnly} className={`w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] ${readOnly ? "bg-[#f8f7f4] text-[#7a6f65]" : "bg-white text-[#2d2926]"} focus:outline-none`} />
     </div>
   );
+}
+
+// Format a YYYY-MM string as "Month YYYY". Used for the disabled
+// "Paid {Month YYYY}" button label and the lifetime sub-line.
+function formatMonthYM(ym: string): string {
+  const [yStr, mStr] = ym.split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  if (!y || !m) return ym;
+  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function formatCurrentMonthLabel(): string {
+  return new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
 function SetupStep({ n, title, checked, canCheck = true, onToggle, children }: {
