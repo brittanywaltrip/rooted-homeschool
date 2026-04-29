@@ -95,7 +95,7 @@ export async function GET(req: Request) {
       return rows;
     })(),
     // Affiliates
-    supabaseAdmin.from("affiliates").select("user_id, is_active"),
+    supabaseAdmin.from("affiliates").select("user_id, is_active, was_comped"),
     // Completed lessons
     (async (): Promise<{ user_id: string; completed_at: string | null; date: string | null }[]> => {
       const rows: { user_id: string; completed_at: string | null; date: string | null }[] = [];
@@ -198,21 +198,29 @@ export async function GET(req: Request) {
   // Every "real families" / signup / activity tile must filter through
   // these sets. See lib/admin/excluded-user-ids.ts for what each
   // exclusion class represents and why.
-  const affiliateUserIdsRaw = (affiliateRows ?? [])
+  //
+  // Affiliates: ONLY comped partners (was_comped=true AND is_active=true)
+  // are excluded from Paying Customers — they redeem the legacy 100% off
+  // founding coupon, so Stripe shows them as active subs but they pay $0.
+  // Non-comped partners (post-April-2026 signups like Blair) pay for
+  // Rooted+ like any other customer and MUST count toward Paying
+  // Customers. Membership in the affiliates table alone does not exclude.
+  const compedAffiliateUserIds = (affiliateRows ?? [])
+    .filter(a => a.was_comped === true && a.is_active === true)
     .map(a => a.user_id)
     .filter((id): id is string => Boolean(id));
 
   const exclusions = buildExclusions({
     authUsers: allUsers.map(u => ({ id: u.id, email: u.email ?? null })),
     profileIds: profiles.map(p => p.id),
-    affiliateUserIds: affiliateUserIdsRaw,
+    affiliateUserIds: compedAffiliateUserIds,
   });
 
-  // "Comped Partners" tile = affiliates with a linked user_id (i.e.
-  // partners actively redeeming their 100% off founding coupon). We
-  // still expose `activeAffiliateCount` for backward compat — kept
-  // equal to is_active count which historically matched user_id rows.
-  const compedPartnersCount = exclusions.affiliateIds.size;
+  // "Comped Partners" tile counts only was_comped+active rows so the
+  // legacy 9 founding partners are surfaced separately from new paying
+  // partners. activeAffiliateCount remains the full count of active
+  // partners (comped + paying).
+  const compedPartnersCount = compedAffiliateUserIds.length;
   const activeAffiliateCount = affiliateRows?.filter(a => a.is_active).length ?? 0;
 
   // Derived counts from allUsers
