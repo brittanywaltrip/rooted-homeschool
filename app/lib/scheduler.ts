@@ -350,4 +350,55 @@ export function planCompressAfterExtra(
   return { updates, undoData };
 }
 
+/**
+ * Whitelist gate for the saveEdit reshuffle. Returns true ONLY when one of
+ * the schedule-relevant goal fields actually changed: lessons_per_day,
+ * school_days, start_date, target_date, total_lessons.
+ *
+ * Cosmetic edits — curriculum_name, subject_label, icon_emoji,
+ * default_minutes, scheduled_start_time, course_level, credits_value — must
+ * NOT trigger a reshuffle. Two non-obvious rules guard against a previous
+ * regression where saving a name-only edit pushed today's incomplete
+ * lesson forward:
+ *
+ *   1. start_date and total_lessons checks are skipped when the original
+ *      DB value is null (legacy goals from before those columns were
+ *      persisted). Comparing a hydrated null against a form default would
+ *      otherwise always return "changed" and trip the reshuffle.
+ *
+ *   2. Callers MUST hydrate the form's startDate from the persisted goal
+ *      row before calling this. The wizard hydration in CurriculumWizard
+ *      makes that happen for the edit flow.
+ */
+export function hasScheduleFieldsChanged(
+  original: {
+    lessons_per_day: number | null;
+    school_days: string[] | null;
+    start_date: string | null;
+    target_date: string | null;
+    total_lessons: number | null;
+  },
+  next: {
+    lessons_per_day: number;
+    school_days: string[];
+    start_date: string | null;
+    target_date: string | null;
+    total_lessons: number;
+  },
+): boolean {
+  const arraysEqual = (a: string[] | null, b: string[] | null) => {
+    const aa = (a ?? []).slice().sort();
+    const bb = (b ?? []).slice().sort();
+    if (aa.length !== bb.length) return false;
+    for (let i = 0; i < aa.length; i++) if (aa[i] !== bb[i]) return false;
+    return true;
+  };
+  if (original.lessons_per_day !== null && next.lessons_per_day !== original.lessons_per_day) return true;
+  if (!arraysEqual(original.school_days, next.school_days)) return true;
+  if (original.start_date !== null && next.start_date !== original.start_date) return true;
+  if (next.target_date !== original.target_date) return true;
+  if (original.total_lessons !== null && next.total_lessons !== original.total_lessons) return true;
+  return false;
+}
+
 export { DAY_LABELS, DAY_LABEL_TO_IDX };

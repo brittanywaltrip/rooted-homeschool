@@ -16,6 +16,7 @@ import {
   schoolDaysToBool,
   toDateStr,
   planCompressAfterExtra,
+  hasScheduleFieldsChanged,
   type ReschedulableLesson,
 } from './scheduler.ts'
 
@@ -152,4 +153,115 @@ test('planCompressAfterExtra preserves lesson_number ordering across days', () =
   assert.equal(updates[1].newDate, '2026-04-30')
   assert.equal(updates[2].newDate, '2026-05-01')
   assert.equal(updates[3].newDate, '2026-05-01')
+})
+
+// ── hasScheduleFieldsChanged ────────────────────────────────────────────────
+
+test('hasScheduleFieldsChanged returns false for a name-only edit on a hydrated form', () => {
+  // The bug we just fixed: form's startDate defaulted to today and never got
+  // hydrated from DB, so the gate falsely returned true on every cosmetic
+  // edit and trip-shifted today's incomplete lessons. With hydration, the
+  // form value matches the persisted goal and this returns false.
+  const original = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2025-09-01',
+    target_date: '2026-06-15',
+    total_lessons: 170,
+  }
+  const next = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2025-09-01',
+    target_date: '2026-06-15',
+    total_lessons: 170,
+  }
+  assert.equal(hasScheduleFieldsChanged(original, next), false)
+})
+
+test('hasScheduleFieldsChanged ignores start_date when DB value is null', () => {
+  // Legacy goals predate the start_date column being persisted. We never
+  // want to "discover" a schedule change just because the form now has
+  // today's date in it.
+  const original = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: null,
+    target_date: null,
+    total_lessons: 170,
+  }
+  const next = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2026-04-29',
+    target_date: null,
+    total_lessons: 170,
+  }
+  assert.equal(hasScheduleFieldsChanged(original, next), false)
+})
+
+test('hasScheduleFieldsChanged detects each schedule field individually', () => {
+  const baseOrig = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2025-09-01',
+    target_date: '2026-06-15',
+    total_lessons: 170,
+  }
+  const baseNext = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2025-09-01',
+    target_date: '2026-06-15',
+    total_lessons: 170,
+  }
+  assert.equal(hasScheduleFieldsChanged(baseOrig, { ...baseNext, lessons_per_day: 2 }), true,
+    'lessons_per_day change is detected')
+  assert.equal(hasScheduleFieldsChanged(baseOrig, { ...baseNext, school_days: ['Mon', 'Tue', 'Wed'] }), true,
+    'school_days change is detected')
+  assert.equal(hasScheduleFieldsChanged(baseOrig, { ...baseNext, start_date: '2025-09-15' }), true,
+    'start_date change is detected')
+  assert.equal(hasScheduleFieldsChanged(baseOrig, { ...baseNext, target_date: '2026-07-01' }), true,
+    'target_date change is detected')
+  assert.equal(hasScheduleFieldsChanged(baseOrig, { ...baseNext, target_date: null }), true,
+    'target_date set to null is detected')
+  assert.equal(hasScheduleFieldsChanged(baseOrig, { ...baseNext, total_lessons: 200 }), true,
+    'total_lessons change is detected')
+})
+
+test('hasScheduleFieldsChanged treats school_days as a set (order does not matter)', () => {
+  const original = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2025-09-01',
+    target_date: null,
+    total_lessons: 170,
+  }
+  const next = {
+    lessons_per_day: 1,
+    school_days: ['Fri', 'Thu', 'Wed', 'Tue', 'Mon'],
+    start_date: '2025-09-01',
+    target_date: null,
+    total_lessons: 170,
+  }
+  assert.equal(hasScheduleFieldsChanged(original, next), false)
+})
+
+test('hasScheduleFieldsChanged ignores total_lessons when DB value is null', () => {
+  // Same legacy guard as start_date — older goals didn't persist this.
+  const original = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2025-09-01',
+    target_date: null,
+    total_lessons: null,
+  }
+  const next = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2025-09-01',
+    target_date: null,
+    total_lessons: 170,
+  }
+  assert.equal(hasScheduleFieldsChanged(original, next), false)
 })

@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, healGoalIntegrity, forwardScheduleStart } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, healGoalIntegrity, forwardScheduleStart, hasScheduleFieldsChanged } from "@/app/lib/scheduler";
 
 function titleCase(str: string): string {
   return str.trim().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -285,12 +285,16 @@ export default function CurriculumWizard({
     }
   }, [startLesson]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch is_backfilled for edit mode
+  // Fetch persisted goal fields for edit mode. start_date is hydrated here
+  // so the gate in saveEdit compares like-for-like — without this, the form
+  // default (today) would always differ from the persisted creation-time
+  // start_date and the gate would treat every cosmetic edit as a schedule
+  // change, pushing today's incomplete lessons forward.
   useEffect(() => {
     if (mode !== "edit" || !editData?.goalId) return;
     supabase
       .from("curriculum_goals")
-      .select("is_backfilled, start_at_lesson, scheduled_start_time, course_level, credits_value, lessons_per_day")
+      .select("is_backfilled, start_at_lesson, scheduled_start_time, course_level, credits_value, lessons_per_day, start_date")
       .eq("id", editData.goalId)
       .single()
       .then(({ data }) => {
@@ -313,6 +317,7 @@ export default function CurriculumWizard({
         if (data?.course_level) setCourseLevel(data.course_level);
         if (data?.credits_value != null) setCreditsValue(String(data.credits_value));
         if (data?.lessons_per_day) setLessonsPerDay(String(data.lessons_per_day));
+        if (data?.start_date) setStartDate(data.start_date);
       });
   }, [mode, editData?.goalId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -953,23 +958,24 @@ export default function CurriculumWizard({
     // start time) must not move dates. The lessons_per_day branch above
     // already returns through the regenerate path, so the explicit check here
     // is defensive — when it's true we've already set regeneratedLessons.
-    const newSchoolDays   = booleanToDays(schoolDays);
-    const newStartDate    = startDate || null;
-    const newTargetDate   = targetDate || null;
-    const newLessonsPerDay = parseInt(lessonsPerDay) || 1;
-    const arraysEqual = (a: string[] | null, b: string[] | null) => {
-      const aa = (a ?? []).slice().sort();
-      const bb = (b ?? []).slice().sort();
-      if (aa.length !== bb.length) return false;
-      for (let i = 0; i < aa.length; i++) if (aa[i] !== bb[i]) return false;
-      return true;
-    };
-    const scheduleFieldsChanged =
-      (originalLessonsPerDay !== null && newLessonsPerDay !== originalLessonsPerDay) ||
-      !arraysEqual(originalSchoolDays, newSchoolDays) ||
-      newStartDate !== originalStartDate ||
-      newTargetDate !== originalTargetDate ||
-      (originalTotalLessons !== null && totalNum !== originalTotalLessons);
+    // The whitelist + null-guards live in scheduler.hasScheduleFieldsChanged
+    // so they're testable in isolation; see scheduler.test.ts for coverage.
+    const scheduleFieldsChanged = hasScheduleFieldsChanged(
+      {
+        lessons_per_day: originalLessonsPerDay,
+        school_days: originalSchoolDays,
+        start_date: originalStartDate,
+        target_date: originalTargetDate,
+        total_lessons: originalTotalLessons,
+      },
+      {
+        lessons_per_day: parseInt(lessonsPerDay) || 1,
+        school_days: booleanToDays(schoolDays),
+        start_date: startDate || null,
+        target_date: targetDate || null,
+        total_lessons: totalNum,
+      },
+    );
 
     if (!regeneratedLessons && scheduleFieldsChanged) {
       let futureLessons: { id: string; scheduled_date: string | null; date: string | null }[] = [];
