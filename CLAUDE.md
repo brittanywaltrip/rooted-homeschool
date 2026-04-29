@@ -154,6 +154,22 @@ Three fields control feature gating:
 plan_type is NULL (not 'free') for all free users — this is intentional. Treat NULL as free in all components.
 DB values are NEVER "rooted" or "rooted+" — always use founding_family/standard/monthly/gift.
 
+## Partner / Affiliate Rules — DO NOT VIOLATE
+
+### New partners do NOT get a comp Rooted+ subscription (effective April 2026)
+When approving a new affiliate, the ONLY DB writes are:
+1. INSERT a row into `affiliates` (code, stripe_coupon_id, stripe_api_id, contact_email, paypal_email, commission_rate, is_active, etc.)
+2. UPDATE the matching `partner_apps` row to `status = 'approved'`
+
+Do NOT touch the partner's `profiles` row. `plan_type`, `is_pro`, and `subscription_status` are owned by the Stripe webhook and must never be written by the partner-action flow. New partners pay for Rooted+ like any other customer.
+
+The 9 founding partners with comped memberships are grandfathered — their profile rows stay as they are. `compPartnerProfile` in `lib/comp-partner.ts` is kept for one-off manual comping but is NOT called from the standard approval flow.
+
+### Verify the partner dashboard after each new affiliate
+After creating a new affiliate record, manually verify the **Settings → Partners** tab works for that user. The dashboard shows clicks, signups, commissions, and payout status; if any of those are broken, the partner can't track their work.
+
+Baseline: Blair Torres (`blairkernwi@gmail.com`, code `BLAIR`) — first partner without a comp. Use her account as the reference for "what the partner dashboard should look like for a paid affiliate."
+
 ## Database state (April 11, 2026)
 - 461 free profiles, 22 paid (founding_family), 1 gift edge case
 - ~214 auth.users with no profile row (likely Google auth bug victims)

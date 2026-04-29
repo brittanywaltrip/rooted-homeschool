@@ -37,6 +37,36 @@ async function sendEmail(to: string, subject: string, text: string, html?: strin
   await resend.emails.send(payload)
 }
 
+// Returns a human-readable reason if an affiliate row already exists for the
+// given user, contact email, or code. Used by every approval path so we
+// never silently create a duplicate affiliates record.
+async function findDuplicateAffiliate(opts: {
+  profileId: string | null
+  contactEmail: string | null
+  code: string
+}): Promise<string | null> {
+  const { profileId, contactEmail, code } = opts
+
+  // Code uniqueness is non-negotiable — it's the URL ref handle.
+  const { data: byCode } = await supabaseAdmin
+    .from('affiliates').select('id').eq('code', code.toUpperCase()).maybeSingle()
+  if (byCode) return `Referral code "${code.toUpperCase()}" is already in use.`
+
+  if (profileId) {
+    const { data: byUser } = await supabaseAdmin
+      .from('affiliates').select('id').eq('user_id', profileId).maybeSingle()
+    if (byUser) return 'This Rooted account already has an affiliate row.'
+  }
+
+  if (contactEmail) {
+    const { data: byEmail } = await supabaseAdmin
+      .from('affiliates').select('id').ilike('contact_email', contactEmail).maybeSingle()
+    if (byEmail) return `An affiliate already exists with contact email "${contactEmail}".`
+  }
+
+  return null
+}
+
 // ── APPROVE ──────────────────────────────────────────────────────────────────
 
 async function handleApprove(body: Record<string, unknown>) {
@@ -67,6 +97,15 @@ async function handleApprove(body: Record<string, unknown>) {
     page++
   }
 
+  // Duplicate guard \u2014 never create a second affiliates row for the same
+  // user, contact email, or code.
+  const dupReason = await findDuplicateAffiliate({
+    profileId: matchedUserId,
+    contactEmail,
+    code,
+  })
+  if (dupReason) return NextResponse.json({ error: dupReason }, { status: 409 })
+
   // Create affiliate row
   const { error: affErr } = await supabaseAdmin.from('affiliates').insert({
     user_id: matchedUserId,
@@ -86,72 +125,24 @@ async function handleApprove(body: Record<string, unknown>) {
   // is_pro, subscription_status, and stripe_* fields are owned by the
   // Stripe webhook and must not be touched here.
 
-  // Update application status
-  await supabaseAdmin.from('partner_apps').update({
+  // Update application status \u2014 capture the error so a silent failure
+  // can't leave partner_apps stuck on "pending" after the affiliate row
+  // is already created.
+  const { error: statusErr } = await supabaseAdmin.from('partner_apps').update({
     status: 'approved',
     reviewed_at: new Date().toISOString(),
   }).eq('id', applicationId)
+  if (statusErr) {
+    return NextResponse.json({
+      error: `Affiliate created but partner_apps status update failed: ${statusErr.message}`,
+    }, { status: 500 })
+  }
 
-  // Send welcome email (Part 4)
-  const firstName = name.split(' ')[0]
+  // Approval is intentionally silent \u2014 Brittany emails new partners
+  // personally so the welcome lands in a real conversation, not an
+  // automated send.
   const refLink = `rootedhomeschoolapp.com/?ref=${code.toUpperCase()}`
-
-  const welcomeHtml = `
-<div style="font-family: -apple-system, sans-serif; max-width: 540px; margin: 0 auto; color: #2d2926;">
-  <div style="text-align: center; padding: 24px 0 16px;">
-    <img src="https://www.rootedhomeschoolapp.com/logo-white-bg.png" alt="Rooted" width="120" />
-  </div>
-  <h2 style="font-size: 22px; margin-bottom: 8px;">Welcome to the Rooted Partner Program!</h2>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">Hi ${firstName},</p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    I'm so excited to welcome you as a Rooted Partner! Here's everything you need to get started:
-  </p>
-
-  <div style="background: #f0f7f1; border: 1px solid #d4ead6; border-radius: 12px; padding: 16px; margin: 20px 0;">
-    <p style="font-size: 13px; color: #3d5c42; margin: 0 0 8px;"><strong>Your referral code:</strong> <span style="font-family: monospace; font-size: 16px; font-weight: bold; color: #2d5a3d;">${code.toUpperCase()}</span></p>
-    <p style="font-size: 13px; color: #3d5c42; margin: 0;"><strong>Your referral link:</strong> <a href="https://${refLink}" style="color: #5c7f63;">${refLink}</a></p>
-  </div>
-
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    Anyone who signs up using your link gets <strong>${rate}% off</strong> their first year.
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    You earn <strong>20% commission</strong> on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    You can track your clicks, signups, and earnings anytime in your Rooted app under <strong>Settings \u2192 Partner Dashboard</strong>.
-  </p>
-  <div style="background: #fefcf9; border: 1px solid #e8e2d9; border-radius: 12px; padding: 16px; margin: 24px 0;">
-    <p style="font-size: 13px; font-weight: 600; color: #2d2926; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.05em;">FTC Disclosure</p>
-    <p style="font-size: 13px; color: #5c5248; line-height: 1.7; margin: 0 0 10px;">
-      Because you\u2019ll be earning commission through your referrals, the FTC requires a clear disclosure anytime you share your link or code. This applies across all platforms \u2014 Instagram, TikTok, YouTube, blogs, Facebook groups, and more.
-    </p>
-    <p style="font-size: 13px; color: #5c5248; line-height: 1.7; margin: 0 0 6px;">You can use simple language like:</p>
-    <ul style="font-size: 13px; color: #5c5248; line-height: 1.7; margin: 0 0 10px; padding-left: 20px;">
-      <li>\u201cAd: I partner with Rooted and earn a commission if you sign up using my link.\u201d</li>
-      <li>\u201cPaid partnership with Rooted.\u201d</li>
-      <li>\u201cThis is an affiliate link \u2014 I earn a small commission at no extra cost to you.\u201d</li>
-    </ul>
-    <p style="font-size: 13px; color: #5c5248; line-height: 1.7; margin: 0;">
-      The key is that it\u2019s clear, upfront, and easy to see \u2014 this protects both of us.
-    </p>
-  </div>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    Reply to this email anytime with questions \u2014 I read every one.
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
-    Sincerely,<br/>Brittany
-  </p>
-</div>`
-
-  await sendEmail(
-    contactEmail,
-    'Welcome to the Rooted Partner Program \uD83C\uDF3F',
-    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets ${rate}% off their first year.\n\nYou earn 20% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nTrack your stats in Settings \u2192 Partner Dashboard.\n\nFTC DISCLOSURE\n\nBecause you\u2019ll be earning commission through your referrals, the FTC requires a clear disclosure anytime you share your link or code. This applies across all platforms \u2014 Instagram, TikTok, YouTube, blogs, Facebook groups, and more.\n\nYou can use simple language like:\n- \u201cAd: I partner with Rooted and earn a commission if you sign up using my link.\u201d\n- \u201cPaid partnership with Rooted.\u201d\n- \u201cThis is an affiliate link \u2014 I earn a small commission at no extra cost to you.\u201d\n\nThe key is that it\u2019s clear, upfront, and easy to see \u2014 this protects both of us.\n\nReply anytime!\n\nSincerely,\nBrittany`,
-    welcomeHtml,
-  )
-
-  return NextResponse.json({ ok: true, matchedUserId })
+  return NextResponse.json({ ok: true, matchedUserId, refLink: `https://${refLink}` })
 }
 
 // ── LOOKUP PROFILE ───────────────────────────────────────────────────────────
@@ -245,6 +236,15 @@ async function handleCompleteSetup(body: Record<string, unknown>) {
     appliedDate ? `Applied ${appliedDate}` : null,
   ].filter(Boolean).join('. ')
 
+  // Duplicate guard — never create a second affiliates row for the same
+  // user, contact email, or code.
+  const dupReason = await findDuplicateAffiliate({
+    profileId,
+    contactEmail,
+    code,
+  })
+  if (dupReason) return NextResponse.json({ error: dupReason }, { status: 409 })
+
   const { error: affErr } = await supabaseAdmin.from('affiliates').insert({
     user_id: profileId,
     name,
@@ -264,45 +264,19 @@ async function handleCompleteSetup(body: Record<string, unknown>) {
   // affiliates pay for Rooted+ like any other customer; their plan_type
   // and Stripe linkage are owned by the webhook and must not be touched.
 
-  await supabaseAdmin.from('partner_apps').update({
+  // Capture the status-update error so a silent failure can't leave
+  // partner_apps stuck on "pending" after the affiliate row already exists.
+  const { error: statusErr } = await supabaseAdmin.from('partner_apps').update({
     status: 'approved',
     reviewed_at: new Date().toISOString(),
   }).eq('id', applicationId)
+  if (statusErr) {
+    return NextResponse.json({
+      error: `Affiliate created but partner_apps status update failed: ${statusErr.message}`,
+    }, { status: 500 })
+  }
 
-  // Send welcome email (same template as the legacy approve action)
-  const firstName = name.split(' ')[0]
   const refLink = `rootedhomeschoolapp.com/?ref=${code.toUpperCase()}`
-  const welcomeHtml = `
-<div style="font-family: -apple-system, sans-serif; max-width: 540px; margin: 0 auto; color: #2d2926;">
-  <div style="text-align: center; padding: 24px 0 16px;">
-    <img src="https://www.rootedhomeschoolapp.com/logo-white-bg.png" alt="Rooted" width="120" />
-  </div>
-  <h2 style="font-size: 22px; margin-bottom: 8px;">Welcome to the Rooted Partner Program!</h2>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">Hi ${firstName},</p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    I'm so excited to welcome you as a Rooted Partner! Here's everything you need to get started:
-  </p>
-  <div style="background: #f0f7f1; border: 1px solid #d4ead6; border-radius: 12px; padding: 16px; margin: 20px 0;">
-    <p style="font-size: 13px; color: #3d5c42; margin: 0 0 8px;"><strong>Your referral code:</strong> <span style="font-family: monospace; font-size: 16px; font-weight: bold; color: #2d5a3d;">${code.toUpperCase()}</span></p>
-    <p style="font-size: 13px; color: #3d5c42; margin: 0;"><strong>Your referral link:</strong> <a href="https://${refLink}" style="color: #5c7f63;">${refLink}</a></p>
-  </div>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    Anyone who signs up using your link gets <strong>15% off</strong> Rooted+.
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    You earn <strong>${rate}% commission</strong> on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
-    Sincerely,<br/>Brittany
-  </p>
-</div>`
-
-  await sendEmail(
-    contactEmail,
-    'Welcome to the Rooted Partner Program \uD83C\uDF3F',
-    `Hi ${firstName},\n\nWelcome to the Rooted Partner Program!\n\nYour referral code: ${code.toUpperCase()}\nYour referral link: https://${refLink}\n\nAnyone who signs up using your link gets 15% off Rooted+.\n\nYou earn ${rate}% commission on every family that upgrades \u2014 paid to your PayPal (${paypalEmail || 'on file'}) on the 1st of each month.\n\nSincerely,\nBrittany`,
-    welcomeHtml,
-  )
 
   return NextResponse.json({ ok: true, refLink: `https://${refLink}` })
 }
