@@ -304,6 +304,16 @@ export default function AdminPartnersPage() {
   const pendingApps = applications.filter((a) => a.status === "pending");
   const IC = "w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]";
 
+  // Emails (lowercased) that already have an affiliate row. Used to disable
+  // the Approve button on pending apps that match an existing partner so we
+  // never create a duplicate affiliates record.
+  const partneredEmails = new Set(
+    affiliates
+      .flatMap((a) => [a.contact_email, a.account_email])
+      .filter((e): e is string => !!e)
+      .map((e) => e.toLowerCase()),
+  );
+
   return (
     <div className="min-h-screen bg-[#2d3e30]">
       {/* Header */}
@@ -333,6 +343,10 @@ export default function AdminPartnersPage() {
             <div className="space-y-3">
               {pendingApps.map((app) => {
                 const isExpanded = expandedAppId === app.id;
+                const lookupEmails = [app.email, app.rooted_account_email]
+                  .filter((e): e is string => !!e)
+                  .map((e) => e.toLowerCase());
+                const isAlreadyPartner = lookupEmails.some((e) => partneredEmails.has(e));
                 return (
                   <div key={app.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
                     <button
@@ -372,10 +386,16 @@ export default function AdminPartnersPage() {
                         )}
                         <div className="flex gap-2">
                           <button
-                            onClick={() => setApproveApp(app)}
-                            className="px-4 py-2 text-xs font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white rounded-lg transition-colors"
+                            onClick={() => { if (!isAlreadyPartner) setApproveApp(app); }}
+                            disabled={isAlreadyPartner}
+                            title={isAlreadyPartner ? "An affiliate row already exists for this email — cannot create a duplicate" : undefined}
+                            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${
+                              isAlreadyPartner
+                                ? "bg-[#e8e2d9] text-[#7a6f65] cursor-not-allowed"
+                                : "bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white"
+                            }`}
                           >
-                            Approve
+                            {isAlreadyPartner ? "Already a partner" : "Approve"}
                           </button>
                           <button
                             onClick={() => { setRejectApp(app); setRejectNotes(""); }}
@@ -600,7 +620,7 @@ export default function AdminPartnersPage() {
           {setupDone ? (
             <div className="space-y-4">
               <p className="text-sm text-[#5c5248]">
-                <b>{approveApp.first_name}</b> activated as a Rooted Partner. Welcome email sent to {approveApp.email}.
+                <b>{approveApp.first_name}</b> activated as a Rooted Partner. Approval is silent — remember to send your welcome message to {approveApp.email} manually.
               </p>
               <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Referral link</label>
