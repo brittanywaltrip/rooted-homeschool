@@ -536,10 +536,10 @@ export default function AdminPage() {
               tooltip="profiles where plan_type IN ('founding_family','standard') AND is_pro=true AND stripe_subscription_id IS NOT NULL, minus comped affiliates (was_comped=true AND is_active=true) and the 3 whitelisted founder UUIDs. Non-comped partners pay normally and ARE counted."
             />
             <StatCard
-              label="Rooted Partners"
-              value={data.compedPartnersCount}
-              sub="Comped affiliates (100% off Founding coupon)"
-              tooltip="affiliates where was_comped=true AND is_active=true — partners on the legacy 100% off Founding coupon. Active Stripe subs but pay $0, so they're excluded from Paying Customers. Non-comped partners pay normally and are counted in Paying Customers, not here."
+              label="Active Partners"
+              value={data.activeAffiliateCount}
+              sub={`${data.compedPartnersCount} comped, ${Math.max(0, data.activeAffiliateCount - data.compedPartnersCount)} paying`}
+              tooltip="affiliates where is_active=true — every partner currently sharing a referral link, regardless of comp status. Of these, was_comped=true rows are the legacy 9 founders on the 100% off coupon (excluded from Paying Customers); the rest pay for Rooted+ like any other customer and ARE counted there."
             />
             <StatCard
               label="Free Users"
