@@ -304,4 +304,50 @@ export function planPushBackNDays(
   return { updates: [...futureUpdates, ...missedUpdates], undoData };
 }
 
+/**
+ * After mom logs an "extra" lesson today (i.e., she completed lesson N+1 a
+ * day early), this plans how to re-spread her remaining incomplete future
+ * lessons onto upcoming school days at `perDay` density, packed tightly
+ * starting the first school day strictly AFTER today.
+ *
+ * Inputs:
+ *   - `incomplete` MUST already be sorted by `lesson_number` ASC and MUST
+ *     exclude `is_backfill` rows and rows dated <= today. The caller filters.
+ *   - `schoolDays` uses the Mon=0..Sun=6 label convention.
+ *
+ * Output: `updates` is the planned date assignments; `undoData` captures the
+ * original dates for an undo toast. Pure: caller writes to the DB.
+ *
+ * The result is "compress by exactly one school day" relative to a baseline
+ * that included the now-completed extra: with one fewer slot to fill, the
+ * schedule fits in one less school day.
+ */
+export function planCompressAfterExtra(
+  incomplete: ReschedulableLesson[],
+  schoolDays: string[],
+  perDay: number,
+  todayStr: string,
+): {
+  updates: { id: string; newDate: string }[];
+  undoData: { lessonId: string; date: string }[];
+} {
+  const undoData = incomplete.map((l) => ({
+    lessonId: l.id,
+    date: l.scheduled_date ?? l.date ?? todayStr,
+  }));
+  const updates: { id: string; newDate: string }[] = [];
+  const slotsPerDay = Math.max(1, perDay);
+  let cursor = nthSchoolDay(todayStr, schoolDays, 1); // first school day strictly after today
+  let slotsLeft = slotsPerDay;
+  for (const lesson of incomplete) {
+    updates.push({ id: lesson.id, newDate: cursor });
+    slotsLeft -= 1;
+    if (slotsLeft === 0) {
+      cursor = nthSchoolDay(cursor, schoolDays, 1);
+      slotsLeft = slotsPerDay;
+    }
+  }
+  return { updates, undoData };
+}
+
 export { DAY_LABELS, DAY_LABEL_TO_IDX };
