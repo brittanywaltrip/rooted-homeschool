@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planCompressAfterExtra as libPlanCompressAfterExtra } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
@@ -648,14 +648,6 @@ export default function TodayPage() {
   const [noteSaveState,          setNoteSaveState]          = useState<"idle" | "saving" | "saved" | "error">("idle");
   const noteSaveTimerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noteTextareaRef          = useRef<HTMLTextAreaElement>(null);
-  // After mom logs an "extra" lesson, we surface a soft per-goal prompt
-  // asking if she'd like to finish a school day earlier. Tapping Yes calls
-  // rescheduleAfterExtra(goalId); tapping No (or 30s timeout) just dismisses.
-  // Keyed by curriculum_goal_id so promps stack visually if she logged
-  // extras across multiple curricula.
-  type ExtraReschedulePrompt = { goalId: string; goalName: string; addedAt: number };
-  const [pendingExtraReschedulePrompts, setPendingExtraReschedulePrompts] = useState<ExtraReschedulePrompt[]>([]);
-  const extraPromptTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
   const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
@@ -1685,11 +1677,6 @@ export default function TodayPage() {
     if (extraChecked.size === 0) return;
     setSavingExtra(true);
 
-    // Track which goals had at least one extra logged so we can offer a
-    // single soft "finish a school day earlier?" prompt per goal — instead
-    // of silently shifting future dates ourselves (CC: stop auto-bunching).
-    const touchedGoals = new Set<string>();
-
     for (const lessonId of extraChecked) {
       const lesson = upcomingLessons.find(l => l.id === lessonId);
       if (!lesson) continue;
@@ -1702,13 +1689,13 @@ export default function TodayPage() {
           .eq("id", lesson.curriculum_goal_id)
           .single();
         if (goalRow) mins = (goalRow as { default_minutes?: number }).default_minutes ?? 30;
-        touchedGoals.add(lesson.curriculum_goal_id);
       }
 
       // Mark complete with today's date. Future incomplete lessons are NOT
       // shifted — that bunched the schedule onto fewer days (Kendra had 12
-      // Duolingo lessons stacked from this). Compression is now opt-in via
-      // the soft prompt below.
+      // Duolingo lessons stacked from this). Any compression / "finish
+      // earlier" UI lives on Plan (TBD design); Today just records the
+      // completion and walks away.
       await supabase.from("lessons").update({
         completed: true,
         completed_at: new Date().toISOString(),
@@ -1725,15 +1712,6 @@ export default function TodayPage() {
     }
     await loadData();
     await refreshTodayStory();
-
-    // Queue the soft prompt for each touched goal. We resolve the goal name
-    // from the upcoming-lesson titles since `${name} — Lesson N` is the
-    // canonical format.
-    for (const goalId of touchedGoals) {
-      const sample = upcomingLessons.find(l => l.curriculum_goal_id === goalId);
-      const goalName = sample?.title?.replace(/ — Lesson.*$/, "") ?? "";
-      queueExtraReschedulePrompt(goalId, goalName);
-    }
   }
 
   function openEdit(lesson: Lesson) {
@@ -1893,110 +1871,13 @@ export default function TodayPage() {
     };
     setLessons(prev => [...prev, completedLesson]);
 
-    // Soft prompt — mom can opt into pulling the rest of this curriculum in
-    // by 1 school day. No silent reschedule (CC: stop auto-bunching).
-    const goalName = nextLesson.title?.replace(/ — Lesson.*$/, "") ?? "";
-    queueExtraReschedulePrompt(nextLesson.curriculum_goal_id, goalName);
+    // No silent reschedule (CC: stop auto-bunching). The "finish a school
+    // day earlier?" prompt was deferred to the Plan redesign.
 
     // Toast
     showCaptureToast("Extra lesson logged! 🌱", null);
     setExtraLessonLoading(null);
     onLogAction({ userId: user.id, childId: childId || undefined, actionType: "lesson" });
-  }
-
-  // ── Soft "you're ahead — finish earlier?" prompt helpers ─────────────────
-
-  function queueExtraReschedulePrompt(goalId: string, goalName: string) {
-    setPendingExtraReschedulePrompts(prev => {
-      // Reset the timer if this goal's prompt is already up.
-      if (prev.some(p => p.goalId === goalId)) {
-        const existing = extraPromptTimers.current.get(goalId);
-        if (existing) clearTimeout(existing);
-        return prev.map(p => p.goalId === goalId ? { ...p, addedAt: Date.now() } : p);
-      }
-      return [...prev, { goalId, goalName, addedAt: Date.now() }];
-    });
-    const t = setTimeout(() => dismissExtraReschedulePrompt(goalId), 30_000);
-    extraPromptTimers.current.set(goalId, t);
-  }
-
-  function dismissExtraReschedulePrompt(goalId: string) {
-    const existing = extraPromptTimers.current.get(goalId);
-    if (existing) {
-      clearTimeout(existing);
-      extraPromptTimers.current.delete(goalId);
-    }
-    setPendingExtraReschedulePrompts(prev => prev.filter(p => p.goalId !== goalId));
-  }
-
-  // Clear all timers on unmount so they don't fire after the user navigates
-  // away from Today.
-  useEffect(() => {
-    const timers = extraPromptTimers.current;
-    return () => {
-      for (const t of timers.values()) clearTimeout(t);
-      timers.clear();
-    };
-  }, []);
-
-  /**
-   * Compress the goal's incomplete future schedule by exactly one school day.
-   * Only runs when the user explicitly opts in via the soft prompt — there
-   * is no longer any auto-call from the extra-lesson flows.
-   *
-   * Excludes lessons dated <= today (those are completed or genuinely missed
-   * and live under the missed-lessons UI), and excludes is_backfill rows.
-   * Sorts the remainder by lesson_number ASC and re-spreads them across
-   * upcoming school days at goal.lessons_per_day per day, starting at the
-   * first school day strictly AFTER today.
-   */
-  async function rescheduleAfterExtra(goalId: string) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data: goalRow } = await supabase
-      .from("curriculum_goals")
-      .select("school_days, lessons_per_day, curriculum_name")
-      .eq("id", goalId)
-      .maybeSingle();
-    if (!goalRow) { dismissExtraReschedulePrompt(goalId); return; }
-    const goal = goalRow as { school_days?: string[] | null; lessons_per_day?: number | null; curriculum_name?: string | null };
-    const schoolDays = goal.school_days && goal.school_days.length > 0
-      ? goal.school_days
-      : (schoolDaysArr.length > 0 ? schoolDaysArr : ["Mon", "Tue", "Wed", "Thu", "Fri"]);
-    const perDay = (goal.lessons_per_day && goal.lessons_per_day > 0) ? goal.lessons_per_day : 1;
-
-    const { data: rows } = await supabase
-      .from("lessons")
-      .select("id, scheduled_date, date, lesson_number, is_backfill")
-      .eq("curriculum_goal_id", goalId)
-      .eq("completed", false)
-      .gt("scheduled_date", today);
-    type IncRow = { id: string; scheduled_date: string | null; date: string | null; lesson_number: number | null; is_backfill: boolean | null };
-    const incomplete = ((rows ?? []) as IncRow[])
-      .filter(l => !l.is_backfill && l.lesson_number != null)
-      .sort((a, b) => (a.lesson_number ?? 0) - (b.lesson_number ?? 0));
-
-    if (incomplete.length === 0) {
-      dismissExtraReschedulePrompt(goalId);
-      showCaptureToast("Schedule updated! 🌿", null);
-      return;
-    }
-
-    const { updates, undoData } = libPlanCompressAfterExtra(incomplete, schoolDays, perDay, today);
-
-    for (let i = 0; i < updates.length; i += 20) {
-      await Promise.all(
-        updates.slice(i, i + 20).map(({ id, newDate }) =>
-          supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
-        )
-      );
-    }
-
-    dismissExtraReschedulePrompt(goalId);
-    await loadData();
-    await refreshTodayStory();
-    showRescheduleUndo("Schedule pulled in by 1 school day! Undo?", undoData);
   }
 
   // ── Reschedule lesson functions ──────────────────────────────────────────────
@@ -2660,49 +2541,6 @@ export default function TodayPage() {
           </Link>
         );
       })()}
-
-      {/* ═══════════════════════════════════════════════════════════
-          AHEAD-OF-SCHEDULE PROMPT — opt-in compress, one card per goal
-          where mom just logged an extra lesson. Auto-dismisses after
-          30s. Tapping Yes calls rescheduleAfterExtra(goalId), which
-          spreads the remaining incomplete future lessons starting on
-          the next school day — pulling the end of the curriculum in
-          by exactly one school day.
-         ═══════════════════════════════════════════════════════════ */}
-      {!loading && !isPartner && pendingExtraReschedulePrompts.length > 0 && (
-        <div className="space-y-2">
-          {pendingExtraReschedulePrompts.map(prompt => (
-            <div
-              key={prompt.goalId}
-              className="rounded-2xl px-4 py-3 flex items-center gap-3"
-              style={{ background: "#f0f7f1", border: "1px solid #c8dfc8" }}
-            >
-              <span className="text-xl shrink-0" aria-hidden="true">🌿</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-[14px] font-medium text-[#2d3a2e]">
-                  You&apos;re 1 lesson ahead{prompt.goalName ? ` in ${prompt.goalName}` : ""} — want to finish a school day earlier?
-                </p>
-                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => rescheduleAfterExtra(prompt.goalId)}
-                    className="px-3 py-1.5 rounded-full bg-[#5c7f63] text-white text-[12px] font-medium hover:bg-[var(--g-deep)] transition-colors"
-                  >
-                    Yes, finish earlier
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => dismissExtraReschedulePrompt(prompt.goalId)}
-                    className="px-3 py-1.5 rounded-full text-[12px] font-medium text-[#5c7f63] hover:bg-[#e6f0e6] transition-colors"
-                  >
-                    No thanks
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* ═══════════════════════════════════════════════════════════
           FROM EARLIER — past-dated incomplete lessons. Mom decides what

@@ -211,6 +211,10 @@ Curriculum planning + lesson scheduling. Contains:
   Rooted auto-schedules forward at create time.
   Missed lessons stay where they are until mom
   reschedules them (no silent rescheduling).
+  Logging an extra lesson marks it complete with
+  today's date. It does NOT reshuffle the future
+  schedule. Any compression / shift UI lives on
+  Plan (TBD design).
   Breaks pause and resume lessons.
 - Progress Report (visible to all, DOWNLOAD paid) —
   shows total school hours + individual lesson log.
