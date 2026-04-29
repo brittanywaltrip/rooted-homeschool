@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
 import { capitalizeName } from "@/lib/utils";
+import { normalizeAffiliateCode } from "@/lib/referrals";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -381,8 +382,12 @@ export default function OnboardingPage() {
 
     let referredBy: string | undefined;
     try {
+      // Apply legacy alias (e.g. MILKELYS → MICKEY) when reading the
+      // stored referral so a code that was set before the rename still
+      // attributes to the partner's current account.
       const ref = localStorage.getItem("rooted_referral_code") || localStorage.getItem("rooted_ref");
-      if (ref) referredBy = ref.toUpperCase();
+      const normalized = normalizeAffiliateCode(ref);
+      if (normalized) referredBy = normalized;
     } catch {}
 
     await fetch("/api/profile/update", {

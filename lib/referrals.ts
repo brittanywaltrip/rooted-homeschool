@@ -1,5 +1,28 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// Legacy referral-code aliases — when a partner changes their code, old
+// shareable links should still attribute to the same account. Map keys
+// and values are stored UPPERCASE; normalizeAffiliateCode applies the
+// map after uppercasing the input so links like ?ref=milkelys still
+// resolve to the new code.
+//
+// Add a new entry here when a partner's code changes. Do NOT delete old
+// entries — the whole point is that pre-printed flyers, Instagram bios,
+// QR codes, etc. that still carry the old code keep working.
+export const AFFILIATE_CODE_ALIASES: Record<string, string> = {
+  MILKELYS: 'MICKEY',
+}
+
+// Uppercase + trim a raw referral code, then apply the alias map. Returns
+// '' for null/empty/whitespace input. Call this everywhere a raw value
+// from a URL, cookie, or localStorage is about to be stored, displayed,
+// or written to the DB.
+export function normalizeAffiliateCode(raw: string | null | undefined): string {
+  const upper = (raw ?? '').trim().toUpperCase()
+  if (!upper) return ''
+  return AFFILIATE_CODE_ALIASES[upper] ?? upper
+}
+
 export type AttributionAction =
   | 'inserted'
   | 'inserted_converted'
@@ -37,7 +60,7 @@ export async function attributeReferral({
   converted,
   commissionAmount,
 }: AttributeReferralArgs): Promise<AttributionResult> {
-  const code = (affiliateCode ?? '').trim().toUpperCase()
+  const code = normalizeAffiliateCode(affiliateCode)
   if (!code) return { action: 'skipped', error: 'missing_code' }
   if (!userId) return { action: 'skipped', error: 'missing_user_id' }
 
