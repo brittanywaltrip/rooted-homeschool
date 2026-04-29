@@ -214,4 +214,94 @@ export function collectSchoolDaySlots(
   return result;
 }
 
+/**
+ * Returns the Nth school day strictly after afterDate (1-indexed: N=1 → next
+ * school day). schoolDays uses the Mon=0..Sun=6 label convention.
+ */
+export function nthSchoolDay(afterDate: string, schoolDays: string[], n: number): string {
+  const activeDays = new Set(schoolDays.map((d) => DAY_LABEL_TO_IDX[d] ?? -1));
+  const cursor = new Date(afterDate + "T12:00:00");
+  let found = 0;
+  for (let i = 0; i < 365; i++) {
+    cursor.setDate(cursor.getDate() + 1);
+    if (activeDays.has((cursor.getDay() + 6) % 7)) {
+      found++;
+      if (found === n) return toDateStr(cursor);
+    }
+  }
+  return toDateStr(cursor);
+}
+
+/**
+ * Minimal lesson shape consumed by the missed-lesson reschedule planners.
+ * Pages pass their full Lesson rows in — the planners only read these fields.
+ */
+export type ReschedulableLesson = {
+  id: string;
+  scheduled_date: string | null;
+  date?: string | null;
+  curriculum_goal_id?: string | null;
+};
+
+/**
+ * "Add to my next school day(s)" — places each missed lesson on the next
+ * available school day, sequentially starting from todayStr. Pure: returns
+ * the planned updates and undo data; the caller writes to the DB.
+ */
+export function planAddToNextSchoolDays(
+  missed: ReschedulableLesson[],
+  getSchoolDaysForLesson: (lesson: ReschedulableLesson) => string[],
+  todayStr: string,
+): {
+  updates: { id: string; newDate: string }[];
+  undoData: { lessonId: string; date: string }[];
+} {
+  const undoData = missed.map((l) => ({
+    lessonId: l.id,
+    date: l.scheduled_date ?? l.date ?? todayStr,
+  }));
+  const updates: { id: string; newDate: string }[] = [];
+  for (let i = 0; i < missed.length; i++) {
+    const schoolDays = getSchoolDaysForLesson(missed[i]);
+    const targetDate = nthSchoolDay(todayStr, schoolDays, i + 1);
+    updates.push({ id: missed[i].id, newDate: targetDate });
+  }
+  return { updates, undoData };
+}
+
+/**
+ * "Push schedule back N school days" — shifts each future incomplete lesson
+ * forward by `missed.length` school days, then fills the vacated slots with
+ * the missed lessons. Pure: returns updates + undo data.
+ */
+export function planPushBackNDays(
+  missed: ReschedulableLesson[],
+  futureLessons: ReschedulableLesson[],
+  getSchoolDaysForLesson: (lesson: ReschedulableLesson) => string[],
+  todayStr: string,
+): {
+  updates: { id: string; newDate: string }[];
+  undoData: { lessonId: string; date: string }[];
+} {
+  const n = missed.length;
+  const undoData = [
+    ...missed.map((l) => ({ lessonId: l.id, date: l.scheduled_date ?? l.date ?? todayStr })),
+    ...futureLessons.map((l) => ({ lessonId: l.id, date: l.scheduled_date ?? l.date ?? todayStr })),
+  ];
+  const futureUpdates: { id: string; newDate: string }[] = [];
+  for (const lesson of futureLessons) {
+    const schoolDays = getSchoolDaysForLesson(lesson);
+    const orig = lesson.scheduled_date ?? lesson.date ?? todayStr;
+    const newDate = nthSchoolDay(orig, schoolDays, n);
+    futureUpdates.push({ id: lesson.id, newDate });
+  }
+  const missedUpdates: { id: string; newDate: string }[] = [];
+  for (let i = 0; i < n; i++) {
+    const schoolDays = getSchoolDaysForLesson(missed[i]);
+    const slot = nthSchoolDay(todayStr, schoolDays, i + 1);
+    missedUpdates.push({ id: missed[i].id, newDate: slot });
+  }
+  return { updates: [...futureUpdates, ...missedUpdates], undoData };
+}
+
 export { DAY_LABELS, DAY_LABEL_TO_IDX };

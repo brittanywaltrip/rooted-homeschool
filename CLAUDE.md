@@ -208,8 +208,10 @@ Curriculum planning + lesson scheduling. Contains:
 - Lesson checklist (tap to complete)
 - Course Progress / Finish Line pacing (PAID) —
   set total lessons, school days, target date.
-  Rooted auto-schedules. Missed lessons
-  auto-reschedule. Breaks pause and resume lessons.
+  Rooted auto-schedules forward at create time.
+  Missed lessons stay where they are until mom
+  reschedules them (no silent rescheduling).
+  Breaks pause and resume lessons.
 - Progress Report (visible to all, DOWNLOAD paid) —
   shows total school hours + individual lesson log.
   Filter by child and time period. Only hours report
