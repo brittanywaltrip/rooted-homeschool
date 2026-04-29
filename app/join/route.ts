@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeAffiliateCode } from "@/lib/referrals";
 
 export async function GET(request: NextRequest) {
-  const ref = request.nextUrl.searchParams.get("ref");
+  // Normalize before storing so legacy aliases (e.g. MILKELYS → MICKEY)
+  // are baked into the cookie at the moment of ingestion.
+  const ref = normalizeAffiliateCode(request.nextUrl.searchParams.get("ref"));
 
   const response = NextResponse.redirect("https://www.rootedhomeschoolapp.com");
 

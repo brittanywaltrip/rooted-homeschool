@@ -15,7 +15,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1130,7 +1130,7 @@ export default function PlanPage() {
     loadData(); loadAllLessons();
   }
 
-  function getSchoolDaysForLesson(lesson: Lesson): string[] {
+  function getSchoolDaysForLesson(lesson: { curriculum_goal_id?: string | null }): string[] {
     if (lesson.curriculum_goal_id) {
       const goal = curriculumGoals.find(g => g.id === lesson.curriculum_goal_id);
       if (goal?.school_days && goal.school_days.length > 0) return goal.school_days;
@@ -1138,21 +1138,8 @@ export default function PlanPage() {
     return profileSchoolDays.length > 0 ? profileSchoolDays : ["Mon", "Tue", "Wed", "Thu", "Fri"];
   }
 
-  /** Returns the Nth school day from afterDate (1-indexed: N=1 → next school day). */
-  function nthSchoolDay(afterDate: string, schoolDays: string[], n: number): string {
-    const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-    const activeDays = new Set(schoolDays.map(d => dayMap[d] ?? -1));
-    const cursor = new Date(afterDate + "T12:00:00");
-    let found = 0;
-    for (let i = 0; i < 365; i++) {
-      cursor.setDate(cursor.getDate() + 1);
-      if (activeDays.has((cursor.getDay() + 6) % 7)) {
-        found++;
-        if (found === n) return toDateStr(cursor);
-      }
-    }
-    return toDateStr(cursor);
-  }
+  /** Local alias of the shared lib helper. */
+  const nthSchoolDay = nthSchoolDayLib;
 
   function isSchoolDayDate(dateStr: string, schoolDays: string[]): boolean {
     const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
@@ -1166,17 +1153,7 @@ export default function PlanPage() {
     const target = missedLessons.length > 0 ? missedLessons : (planRescheduleLesson ? [planRescheduleLesson] : []);
     if (target.length === 0) return;
 
-    const undoData = target.map(l => ({
-      lessonId: l.id,
-      date: l.scheduled_date ?? l.date ?? todayStr,
-    }));
-
-    const updates: { id: string; newDate: string }[] = [];
-    for (let i = 0; i < target.length; i++) {
-      const schoolDays = getSchoolDaysForLesson(target[i]);
-      const targetDate = nthSchoolDay(todayStr, schoolDays, i + 1);
-      updates.push({ id: target[i].id, newDate: targetDate });
-    }
+    const { updates, undoData } = libPlanAddToNextSchoolDays(target, getSchoolDaysForLesson, todayStr);
 
     for (let i = 0; i < updates.length; i += 20) {
       await Promise.all(
@@ -1206,38 +1183,16 @@ export default function PlanPage() {
       .order("scheduled_date", { ascending: true });
     const futureLessons = (futureRows ?? []) as { id: string; scheduled_date: string; curriculum_goal_id: string | null }[];
 
-    // Build undo data for everything: missed + future
-    const undoData = [
-      ...missedLessons.map(l => ({ lessonId: l.id, date: l.scheduled_date ?? l.date ?? todayStr })),
-      ...futureLessons.map(l => ({ lessonId: l.id, date: l.scheduled_date })),
-    ];
+    const { updates, undoData } = libPlanPushBackNDays(
+      missedLessons,
+      futureLessons,
+      getSchoolDaysForLesson,
+      todayStr,
+    );
 
-    // Shift each future lesson forward by N school days
-    const futureUpdates: { id: string; newDate: string }[] = [];
-    for (const lesson of futureLessons) {
-      const schoolDays = (() => {
-        if (lesson.curriculum_goal_id) {
-          const goal = curriculumGoals.find(g => g.id === lesson.curriculum_goal_id);
-          if (goal?.school_days?.length) return goal.school_days;
-        }
-        return profileSchoolDays.length > 0 ? profileSchoolDays : ["Mon", "Tue", "Wed", "Thu", "Fri"];
-      })();
-      const newDate = nthSchoolDay(lesson.scheduled_date, schoolDays, n);
-      futureUpdates.push({ id: lesson.id, newDate });
-    }
-
-    // Place each missed lesson into the N vacated slots (sequential school days from today)
-    const missedUpdates: { id: string; newDate: string }[] = [];
-    for (let i = 0; i < n; i++) {
-      const schoolDays = getSchoolDaysForLesson(missedLessons[i]);
-      const slot = nthSchoolDay(todayStr, schoolDays, i + 1);
-      missedUpdates.push({ id: missedLessons[i].id, newDate: slot });
-    }
-
-    const allUpdates = [...futureUpdates, ...missedUpdates];
-    for (let i = 0; i < allUpdates.length; i += 20) {
+    for (let i = 0; i < updates.length; i += 20) {
       await Promise.all(
-        allUpdates.slice(i, i + 20).map(({ id, newDate }) =>
+        updates.slice(i, i + 20).map(({ id, newDate }) =>
           supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
         )
       );

@@ -155,15 +155,83 @@ export async function GET(req: Request) {
     .select("*")
     .order("paid_at", { ascending: false });
 
-  // Calculate total paid per affiliate
+  // Per-affiliate aggregates from commission_payments — this is the
+  // source of truth for "lifetime paid" and "last paid month".
   const paidMap = new Map<string, number>();
+  const lastPaidMonthMap = new Map<string, string>();
+  // Set of affiliate codes that have been paid in the CURRENT cycle
+  // (current calendar month, YYYY-MM format). Once paid this month,
+  // the partner's "owed this cycle" drops to $0 and the Mark-as-Paid
+  // button is disabled with a "Paid {Month YYYY}" label.
+  const paidThisCycleMap = new Map<string, string>();
+  const currentMonth = (() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  })();
   for (const p of payments ?? []) {
-    paidMap.set(p.affiliate_code, (paidMap.get(p.affiliate_code) ?? 0) + Number(p.amount));
+    const code = p.affiliate_code;
+    paidMap.set(code, (paidMap.get(code) ?? 0) + Number(p.amount));
+    const month = p.month;
+    if (month) {
+      const prev = lastPaidMonthMap.get(code);
+      if (!prev || month > prev) lastPaidMonthMap.set(code, month);
+      if (month === currentMonth) paidThisCycleMap.set(code, month);
+    }
   }
 
-  // Attach total_paid to each affiliate
+  // Look up paying status of every referred user — needed for the
+  // "real paying refs THIS CYCLE" count. A "real paying ref" has an
+  // active Stripe sub on profiles. Once the affiliate has been paid
+  // this cycle, real_paying_refs_this_cycle drops to 0 (the just-paid
+  // customers are excluded going forward this month).
+  const refUserIdsForPayingCheck = (refRows ?? [])
+    .map((r) => r.user_id)
+    .filter((id): id is string => Boolean(id));
+  const payingProfileIds = new Set<string>();
+  if (refUserIdsForPayingCheck.length > 0) {
+    const { data: payingRows } = await supabaseAdmin
+      .from("profiles")
+      .select("id, stripe_subscription_id, subscription_status")
+      .in("id", refUserIdsForPayingCheck);
+    for (const p of payingRows ?? []) {
+      if (p.stripe_subscription_id && p.subscription_status === "active") {
+        payingProfileIds.add(p.id);
+      }
+    }
+  }
+
+  // Per-cycle referral name lists — used to pre-fill the Mark as Paid
+  // notes box ("…— referrals: Amber Smith, Kendra Poole").
+  const referralsByCode = new Map<string, { name: string; user_id: string }[]>();
+  for (const r of refRows ?? []) {
+    if (!r.user_id || !r.converted) continue;
+    if (!payingProfileIds.has(r.user_id)) continue;
+    const code = (r.affiliate_code ?? "").toUpperCase();
+    const prof = profileMap.get(r.user_id);
+    const fullName = prof
+      ? (prof.first_name ? `${prof.first_name} ${prof.last_name ?? ""}`.trim() : prof.display_name ?? "Unknown")
+      : "Unknown";
+    const list = referralsByCode.get(code) ?? [];
+    list.push({ name: fullName, user_id: r.user_id });
+    referralsByCode.set(code, list);
+  }
+
+  // Attach computed fields to each affiliate
   for (const a of affiliates) {
-    (a as Record<string, unknown>).total_paid = paidMap.get(a.code) ?? 0;
+    const code = a.code;
+    const codeUpper = (code ?? "").toUpperCase();
+    const paidThisCycle = paidThisCycleMap.has(code);
+    const cycleRefs = paidThisCycle ? [] : (referralsByCode.get(codeUpper) ?? []);
+    const cycleCount = cycleRefs.length;
+    // $7.80 = $39 founding-family annual × 20% commission rate.
+    const owedThisCycle = Math.round(cycleCount * 7.80 * 100) / 100;
+    const ax = a as Record<string, unknown>;
+    ax.total_paid = paidMap.get(code) ?? 0;
+    ax.last_paid_month = lastPaidMonthMap.get(code) ?? null;
+    ax.paid_this_cycle = paidThisCycle;
+    ax.real_paying_refs_this_cycle = cycleCount;
+    ax.owed_this_cycle = owedThisCycle;
+    ax.cycle_referrals = cycleRefs.map((r) => r.name);
   }
 
   // Fetch pending partner applications

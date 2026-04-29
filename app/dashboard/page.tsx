@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
@@ -648,8 +648,6 @@ export default function TodayPage() {
   const [noteSaveState,          setNoteSaveState]          = useState<"idle" | "saving" | "saved" | "error">("idle");
   const noteSaveTimerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noteTextareaRef          = useRef<HTMLTextAreaElement>(null);
-  const [aheadPromptChildren,    setAheadPromptChildren]    = useState<Set<string>>(new Set());
-  const [dismissedAheadPrompts,  setDismissedAheadPrompts]  = useState<Set<string>>(new Set());
   const [activeVacation,         setActiveVacation]         = useState<{ name: string; end_date: string } | null>(null);
   const [isSchoolDay,            setIsSchoolDay]            = useState(true);
   const [schoolDaysArr,          setSchoolDaysArr]          = useState<string[]>([]);
@@ -745,6 +743,18 @@ export default function TodayPage() {
     lessons: { title: string; childId: string | null; subjectName: string | null }[];
   } | null>(null);
   const [upcomingDays,           setUpcomingDays]           = useState<{ date: string; count: number }[]>([]);
+
+  // ── Missed lessons (incomplete, scheduled before today) ──────────────────
+  // Past-dated incomplete rows are shown in a "From earlier" section above
+  // today's schedule so mom can see what got missed. Reschedule actions are
+  // always user-initiated (no silent rescheduling — see CC #1 redesign).
+  type MissedLesson = Lesson & { scheduled_date: string | null; date: string | null };
+  const [missedLessons, setMissedLessons] = useState<MissedLesson[]>([]);
+  // school_days per goal id, used to pick the right calendar for each lesson
+  // when the user opens "Reschedule these → Add to my next school day(s)".
+  const [goalSchoolDaysMap, setGoalSchoolDaysMap] = useState<Map<string, string[]>>(new Map());
+  const [showMissedSheet, setShowMissedSheet] = useState(false);
+  const [missedSheetSubmitting, setMissedSheetSubmitting] = useState(false);
 
   // ── Open capture menu from URL param (used by other pages) ─────────────────
   useEffect(() => {
@@ -914,8 +924,17 @@ export default function TodayPage() {
       supabase.from("memories").select("id, type, title, date, child_id, photo_url").eq("user_id", effectiveUserId).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("memories").select("id, title, date, child_id, photo_url").eq("user_id", effectiveUserId).gte("date", localDateStr(otdStart)).lte("date", localDateStr(otdEnd)).order("date", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("memories").select("id, type, title, caption, child_id, photo_url, include_in_book, created_at").eq("user_id", effectiveUserId).eq("date", today).order("created_at", { ascending: false }),
-      supabase.from("curriculum_goals").select("id, icon_emoji").eq("user_id", effectiveUserId),
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days").eq("user_id", effectiveUserId),
     ]);
+
+    // Missed = incomplete lessons whose scheduled_date is before today. Fetched
+    // separately so it doesn't block the main dashboard render on cold start.
+    const missedResult = await supabase.from("lessons")
+      .select("id, title, completed, child_id, hours, minutes_spent, scheduled_date, date, subjects(name, color), curriculum_goal_id, lesson_number, goal_id, notes")
+      .eq("user_id", effectiveUserId)
+      .eq("completed", false)
+      .lt("scheduled_date", today)
+      .order("scheduled_date", { ascending: true });
 
     // ── Phase 2: Process all results (no awaits) ────────────────────────
 
@@ -1024,15 +1043,26 @@ export default function TodayPage() {
     // Today's lessons — enrich with curriculum emoji
     const lessonsData = todayLessonsResult.data;
     const emojiMap = new Map<string, string>();
-    for (const g of (goalEmojiResult.data ?? []) as { id: string; icon_emoji: string | null }[]) {
+    const schoolDaysMap = new Map<string, string[]>();
+    for (const g of (goalEmojiResult.data ?? []) as { id: string; icon_emoji: string | null; school_days: string[] | null }[]) {
       if (g.icon_emoji) emojiMap.set(g.id, g.icon_emoji);
+      if (g.school_days && g.school_days.length > 0) schoolDaysMap.set(g.id, g.school_days);
     }
     setCurriculumGoalsCount(goalEmojiResult.data?.length ?? 0);
+    setGoalSchoolDaysMap(schoolDaysMap);
     const loadedLessons = ((lessonsData as unknown as Lesson[]) ?? []).map(l => ({
       ...l,
       icon_emoji: l.curriculum_goal_id ? (emojiMap.get(l.curriculum_goal_id) ?? "📚") : null,
     }));
     setLessons(loadedLessons);
+
+    // Missed lessons (past-dated incomplete) for the "From earlier" section.
+    const missedRaw = (missedResult.data ?? []) as unknown as MissedLesson[];
+    const missedEnriched = missedRaw.map(l => ({
+      ...l,
+      icon_emoji: l.curriculum_goal_id ? (emojiMap.get(l.curriculum_goal_id) ?? "📚") : null,
+    }));
+    setMissedLessons(missedEnriched);
     setHasAnyLessons((allLessonsResult.data?.length ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
 
@@ -1651,72 +1681,27 @@ export default function TodayPage() {
       const lesson = upcomingLessons.find(l => l.id === lessonId);
       if (!lesson) continue;
 
-      // Get default minutes from curriculum goal
       let mins = 30;
       if (lesson.curriculum_goal_id) {
         const { data: goalRow } = await supabase
           .from("curriculum_goals")
-          .select("default_minutes, school_days")
+          .select("default_minutes")
           .eq("id", lesson.curriculum_goal_id)
           .single();
         if (goalRow) mins = (goalRow as { default_minutes?: number }).default_minutes ?? 30;
-
-        // Complete the lesson with today's date (Bug 2: set completed_at).
-        await supabase.from("lessons").update({
-          completed: true,
-          completed_at: new Date().toISOString(),
-          date: today,
-          minutes_spent: mins,
-        }).eq("id", lessonId);
-
-        // Shift subsequent incomplete lessons back
-        const schoolDaysArr = (goalRow as { school_days?: string[] })?.school_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
-        const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-        const schoolDayNums = new Set(schoolDaysArr.map(d => dayMap[d]));
-
-        const { data: remaining } = await supabase
-          .from("lessons")
-          .select("id, scheduled_date")
-          .eq("curriculum_goal_id", lesson.curriculum_goal_id)
-          .eq("completed", false)
-          .gt("scheduled_date", today)
-          .order("scheduled_date");
-
-        if (remaining && remaining.length > 0) {
-          // Calculate how many school days early this was done
-          const scheduledDate = new Date(lesson.scheduled_date + "T12:00:00");
-          const todayDate = new Date(today + "T12:00:00");
-          let daysEarly = 0;
-          const countCursor = new Date(todayDate);
-          while (countCursor < scheduledDate) {
-            countCursor.setDate(countCursor.getDate() + 1);
-            if (schoolDayNums.has(countCursor.getDay())) daysEarly++;
-          }
-
-          if (daysEarly > 0) {
-            for (const r of remaining as { id: string; scheduled_date: string }[]) {
-              const orig = new Date(r.scheduled_date + "T12:00:00");
-              let shifted = new Date(orig);
-              let toShift = daysEarly;
-              while (toShift > 0) {
-                shifted.setDate(shifted.getDate() - 1);
-                if (schoolDayNums.has(shifted.getDay())) toShift--;
-              }
-              const newDate = `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, "0")}-${String(shifted.getDate()).padStart(2, "0")}`;
-              await supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", r.id);
-            }
-          }
-        }
-      } else {
-        // No curriculum goal — just mark complete with today's date
-        // (Bug 2: set completed_at).
-        await supabase.from("lessons").update({
-          completed: true,
-          completed_at: new Date().toISOString(),
-          date: today,
-          minutes_spent: mins,
-        }).eq("id", lessonId);
       }
+
+      // Mark complete with today's date. Future incomplete lessons are NOT
+      // shifted — that bunched the schedule onto fewer days (Kendra had 12
+      // Duolingo lessons stacked from this). Any compression / "finish
+      // earlier" UI lives on Plan (TBD design); Today just records the
+      // completion and walks away.
+      await supabase.from("lessons").update({
+        completed: true,
+        completed_at: new Date().toISOString(),
+        date: today,
+        minutes_spent: mins,
+      }).eq("id", lessonId);
     }
 
     setSavingExtra(false);
@@ -1725,7 +1710,8 @@ export default function TodayPage() {
     if (extraChecked.size > 0) {
       onLogAction({ userId: effectiveUserId, actionType: "lesson" });
     }
-    loadData();
+    await loadData();
+    await refreshTodayStory();
   }
 
   function openEdit(lesson: Lesson) {
@@ -1885,70 +1871,13 @@ export default function TodayPage() {
     };
     setLessons(prev => [...prev, completedLesson]);
 
-    // Show ahead-of-schedule prompt
-    setAheadPromptChildren(prev => new Set(prev).add(childId));
+    // No silent reschedule (CC: stop auto-bunching). The "finish a school
+    // day earlier?" prompt was deferred to the Plan redesign.
 
     // Toast
     showCaptureToast("Extra lesson logged! 🌱", null);
     setExtraLessonLoading(null);
     onLogAction({ userId: user.id, childId: childId || undefined, actionType: "lesson" });
-  }
-
-  async function rescheduleAfterExtra(childId: string) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    // Get all curriculum goals for this child
-    const { data: goals } = await supabase
-      .from("curriculum_goals")
-      .select("id, school_days")
-      .eq("user_id", user.id)
-      .eq("child_id", childId);
-
-    for (const goal of (goals ?? [])) {
-      const schoolDays = (goal as { school_days?: string[] }).school_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"];
-      const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-      const activeDays = new Set(schoolDays.map((d: string) => dayMap[d] ?? -1));
-
-      const { data: futureLessons } = await supabase
-        .from("lessons")
-        .select("id, scheduled_date")
-        .eq("curriculum_goal_id", goal.id)
-        .eq("completed", false)
-        .gte("scheduled_date", today)
-        .order("scheduled_date", { ascending: true });
-
-      if (!futureLessons || futureLessons.length === 0) continue;
-
-      const cursor = new Date(today + "T12:00:00");
-      const updates: { id: string; date: string }[] = [];
-      for (const lesson of futureLessons) {
-        let safety = 0;
-        while (safety < 365) {
-          cursor.setDate(cursor.getDate() + 1);
-          const dayIdx = (cursor.getDay() + 6) % 7; // Mon=0 .. Sun=6
-          if (activeDays.has(dayIdx)) {
-            updates.push({ id: (lesson as { id: string }).id, date: localDateStr(cursor) });
-            break;
-          }
-          safety++;
-        }
-      }
-      for (let i = 0; i < updates.length; i += 20) {
-        await Promise.all(
-          updates.slice(i, i + 20).map(({ id, date }) =>
-            supabase.from("lessons").update({ scheduled_date: date, date }).eq("id", id)
-          )
-        );
-      }
-    }
-
-    setAheadPromptChildren(prev => {
-      const next = new Set(prev);
-      next.delete(childId);
-      return next;
-    });
-    showCaptureToast("Schedule updated! 🌿", null);
   }
 
   // ── Reschedule lesson functions ──────────────────────────────────────────────
@@ -1957,6 +1886,101 @@ export default function TodayPage() {
     setRescheduleLesson(lesson);
     setReschedulePicker(false);
     setReschedulePickerDate("");
+  }
+
+  // ── Missed lessons (past-dated incomplete) — actions ─────────────────────
+
+  function getSchoolDaysForLesson(lesson: { curriculum_goal_id?: string | null }): string[] {
+    if (lesson.curriculum_goal_id) {
+      const days = goalSchoolDaysMap.get(lesson.curriculum_goal_id);
+      if (days && days.length > 0) return days;
+    }
+    return schoolDaysArr.length > 0 ? schoolDaysArr : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+  }
+
+  async function markMissedComplete(lesson: MissedLesson) {
+    const completedAt = new Date().toISOString();
+    let mins: number | null = null;
+    if (lesson.curriculum_goal_id) {
+      const { data: goalRow } = await supabase
+        .from("curriculum_goals")
+        .select("default_minutes")
+        .eq("id", lesson.curriculum_goal_id)
+        .single();
+      mins = (goalRow as { default_minutes?: number } | null)?.default_minutes ?? 30;
+    }
+    await supabase.from("lessons").update({
+      completed: true,
+      completed_at: completedAt,
+      minutes_spent: mins,
+      hours: mins != null ? mins / 60.0 : null,
+    }).eq("id", lesson.id);
+    setMissedLessons(prev => prev.filter(l => l.id !== lesson.id));
+    if (lesson.curriculum_goal_id) {
+      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+    }
+    posthog.capture('lesson_completed_missed');
+    triggerGardenAnimation(lesson.child_id ?? undefined);
+    earnLeaf();
+    await refreshLeafCounts();
+    if (effectiveUserId) {
+      checkAndAwardBadges(effectiveUserId);
+      onLogAction({ userId: effectiveUserId, childId: lesson.child_id ?? undefined, actionType: "lesson" });
+    }
+  }
+
+  async function skipMissedLesson(lesson: MissedLesson) {
+    const originalDate = lesson.scheduled_date ?? lesson.date;
+    if (!originalDate) return;
+    setMissedLessons(prev => prev.filter(l => l.id !== lesson.id));
+    await supabase.from("lessons").update({ scheduled_date: null, date: null }).eq("id", lesson.id);
+    showRescheduleUndo("Lesson skipped", [{ lessonId: lesson.id, date: originalDate }]);
+  }
+
+  async function runMissedAddToNextDays() {
+    if (missedSheetSubmitting || missedLessons.length === 0) return;
+    setMissedSheetSubmitting(true);
+    const { updates, undoData } = libPlanAddToNextSchoolDays(missedLessons, getSchoolDaysForLesson, today);
+    for (let i = 0; i < updates.length; i += 20) {
+      await Promise.all(
+        updates.slice(i, i + 20).map(({ id, newDate }) =>
+          supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+        )
+      );
+    }
+    setMissedLessons([]);
+    setShowMissedSheet(false);
+    setMissedSheetSubmitting(false);
+    const n = updates.length;
+    showRescheduleUndo(`${n} lesson${n !== 1 ? "s" : ""} added to upcoming school days! Undo?`, undoData);
+    await loadData();
+  }
+
+  async function runMissedPushBackNDays() {
+    if (missedSheetSubmitting || missedLessons.length === 0) return;
+    setMissedSheetSubmitting(true);
+    const { data: futureRows } = await supabase
+      .from("lessons")
+      .select("id, scheduled_date, date, curriculum_goal_id")
+      .eq("user_id", effectiveUserId!)
+      .eq("completed", false)
+      .gte("scheduled_date", today)
+      .order("scheduled_date", { ascending: true });
+    const futureLessons = (futureRows ?? []) as { id: string; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null }[];
+    const { updates, undoData } = libPlanPushBackNDays(missedLessons, futureLessons, getSchoolDaysForLesson, today);
+    for (let i = 0; i < updates.length; i += 20) {
+      await Promise.all(
+        updates.slice(i, i + 20).map(({ id, newDate }) =>
+          supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+        )
+      );
+    }
+    setMissedLessons([]);
+    setShowMissedSheet(false);
+    setMissedSheetSubmitting(false);
+    const n = missedLessons.length;
+    showRescheduleUndo(`Schedule pushed back ${n} day${n !== 1 ? "s" : ""}! Undo?`, undoData);
+    await loadData();
   }
 
   function showRescheduleUndo(message: string, undoData: { lessonId: string; date: string }[]) {
@@ -1982,6 +2006,8 @@ export default function TodayPage() {
         .eq("id", undoData[0].lessonId).single();
       if (restored) setLessons(prev => prev.some(l => l.id === restored.id) ? prev : [...prev, restored as unknown as Lesson]);
     }
+    // Refetch missed lessons in case undo restored a past-dated incomplete row.
+    await loadData();
     setRescheduleUndoToast(null);
     if (rescheduleUndoTimer.current) clearTimeout(rescheduleUndoTimer.current);
     showCaptureToast("Undo complete", null);
@@ -1989,11 +2015,18 @@ export default function TodayPage() {
 
   async function rescheduleMoveTo(targetDate: string) {
     if (!rescheduleLesson) return;
-    const originalDate = today;
+    // Capture the actual original date — may be a past date when the action
+    // was started from a "From earlier" row, not just today.
+    const isMissed = missedLessons.some(l => l.id === rescheduleLesson.id);
+    const fromMissed = missedLessons.find(l => l.id === rescheduleLesson.id);
+    const originalDate = isMissed
+      ? (fromMissed?.scheduled_date ?? fromMissed?.date ?? today)
+      : today;
     // Move in DB
     await supabase.from("lessons").update({ scheduled_date: targetDate, date: targetDate }).eq("id", rescheduleLesson.id);
-    // Remove from Today view
+    // Remove from Today view + missed view
     setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
+    setMissedLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
     setRescheduleLesson(null);
     posthog.capture('lesson_rescheduled', { user_plan: isPro ? 'paid' : 'free' });
     const label = targetDate === localDateStr(new Date(new Date().setDate(new Date().getDate() + 1))) ? "Moved to tomorrow" : "Lesson rescheduled";
@@ -2055,7 +2088,8 @@ export default function TodayPage() {
 
   async function rescheduleDoubleUp() {
     if (!rescheduleLesson?.curriculum_goal_id) return;
-    const originalDate = today;
+    const fromMissed = missedLessons.find(l => l.id === rescheduleLesson.id);
+    const originalDate = fromMissed?.scheduled_date ?? fromMissed?.date ?? today;
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowStr = localDateStr(tomorrow);
@@ -2063,6 +2097,7 @@ export default function TodayPage() {
     // Move today's lesson to tomorrow (it will share the day with tomorrow's scheduled lesson)
     await supabase.from("lessons").update({ scheduled_date: tomorrowStr, date: tomorrowStr }).eq("id", rescheduleLesson.id);
     setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
+    setMissedLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
     setRescheduleLesson(null);
     showRescheduleUndo("Doubled up tomorrow! Undo?", [{ lessonId: rescheduleLesson.id, date: originalDate }]);
   }
@@ -2506,6 +2541,89 @@ export default function TodayPage() {
           </Link>
         );
       })()}
+
+      {/* ═══════════════════════════════════════════════════════════
+          FROM EARLIER — past-dated incomplete lessons. Mom decides what
+          to do with them: mark complete, skip, reschedule individually,
+          or open the bulk reschedule sheet. Nothing moves silently.
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && missedLessons.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between px-0.5 -mb-1">
+            <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">From earlier</p>
+            <span className="text-[12px] text-[#b5aca4]">
+              {missedLessons.length} lesson{missedLessons.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <div className="bg-white rounded-2xl overflow-hidden mt-2" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div className="px-[14px] py-3">
+              {missedLessons.map((lesson, idx) => {
+                const child = children.find(c => c.id === lesson.child_id);
+                const subj = lesson.subjects?.name ?? null;
+                const dateStr = lesson.scheduled_date ?? lesson.date;
+                const dateLabel = dateStr
+                  ? new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+                  : "";
+                const sub = [subj, child?.name].filter(Boolean).join(" · ");
+                return (
+                  <div
+                    key={lesson.id}
+                    className={`flex items-center gap-3 py-2.5 ${idx < missedLessons.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => { if (!isPartner) markMissedComplete(lesson); }}
+                      aria-label="Mark complete"
+                      className="w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0"
+                      style={{ border: "2px solid #2D5A3D", background: "white" }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] font-medium text-[#2a2520] truncate" style={{ letterSpacing: "-0.2px" }}>
+                        {lesson.title}
+                      </p>
+                      <p className="text-[12px] text-[#8a8580] truncate mt-0.5">
+                        {dateLabel}{sub ? ` · ${sub}` : ""}
+                      </p>
+                    </div>
+                    {!isPartner && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openReschedule(lesson)}
+                          aria-label="Reschedule this lesson"
+                          className="px-2 py-1 text-[12px] font-medium text-[#2D5A3D] hover:text-[var(--g-deep)] transition-colors"
+                        >
+                          Reschedule
+                        </button>
+                        <span aria-hidden="true" className="text-[#cfc9c0]">·</span>
+                        <button
+                          type="button"
+                          onClick={() => skipMissedLesson(lesson)}
+                          aria-label="Skip this lesson"
+                          className="px-2 py-1 text-[12px] font-medium text-[#8a8580] hover:text-[#2d2926] transition-colors"
+                        >
+                          Skip
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {!isPartner && (
+                <div className="pt-2 mt-1 border-t border-[#f0ece6]">
+                  <button
+                    type="button"
+                    onClick={() => setShowMissedSheet(true)}
+                    className="w-full text-left text-[13px] font-medium text-[#2D5A3D] hover:text-[var(--g-deep)] transition-colors py-1.5"
+                  >
+                    Reschedule these →
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           UNIFIED TIMELINE — lessons + activities + appointments
@@ -4167,6 +4285,66 @@ export default function TodayPage() {
                 </div>
               </div>
               {/* Bottom safe area */}
+              <div className="h-6" />
+            </div>
+          </>
+        );
+      })()}
+
+      {/* ── Missed-lesson reschedule sheet ──────────────────── */}
+      {showMissedSheet && missedLessons.length > 0 && (() => {
+        const n = missedLessons.length;
+        return (
+          <>
+            <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => { if (!missedSheetSubmitting) setShowMissedSheet(false); }} />
+            <div className="fixed bottom-0 left-0 right-0 z-[81] bg-[#faf8f4] rounded-t-2xl shadow-xl max-w-lg mx-auto">
+              <div className="p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-medium text-[var(--g-deep)]" style={{ fontFamily: "var(--font-display)" }}>
+                    Reschedule {n} missed lesson{n !== 1 ? "s" : ""}
+                  </h3>
+                  <button
+                    onClick={() => { if (!missedSheetSubmitting) setShowMissedSheet(false); }}
+                    className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1"
+                    aria-label="Close"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    disabled={missedSheetSubmitting}
+                    onClick={() => runMissedAddToNextDays()}
+                    className="w-full flex items-center gap-3 p-4 rounded-xl shadow-sm text-left transition-colors hover:bg-[#f0f7f1] disabled:opacity-50"
+                    style={{ background: "#f8fdf9", border: "1.5px solid #b8d89a" }}
+                  >
+                    <span className="text-lg shrink-0">📅</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#2d3a2e]">Add to my next school day{n === 1 ? "" : "s"}</p>
+                      <p className="text-xs text-[#9a8e84] mt-0.5">
+                        Place {n === 1 ? "this lesson" : `these ${n} lessons`} on the next available school day{n === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    <span className="text-[#b8d89a] text-base shrink-0">›</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={missedSheetSubmitting}
+                    onClick={() => runMissedPushBackNDays()}
+                    className="w-full flex items-center gap-3 p-4 bg-white rounded-xl shadow-sm border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors text-left disabled:opacity-50"
+                  >
+                    <span className="text-lg shrink-0">⏭</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[#2d3a2e]">Push my schedule back {n} school day{n !== 1 ? "s" : ""}</p>
+                      <p className="text-xs text-[#9a8e84] mt-0.5">
+                        Shifts upcoming lessons back {n} school day{n !== 1 ? "s" : ""} and fits {n === 1 ? "the missed lesson" : `the ${n} missed lessons`} in
+                      </p>
+                    </div>
+                    <span className="text-[#c8bfb5] text-base shrink-0">›</span>
+                  </button>
+                </div>
+              </div>
               <div className="h-6" />
             </div>
           </>

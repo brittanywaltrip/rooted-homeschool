@@ -5,6 +5,7 @@ import HashRedirect from "./components/HashRedirect";
 import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { normalizeAffiliateCode } from "@/lib/referrals";
 
 // ─── Founding Family deadline countdown ────────────────────────────────────
 //
@@ -40,9 +41,12 @@ function ReferralBanner() {
   const [code, setCode] = useState("");
 
   useEffect(() => {
-    const ref = searchParams.get("ref");
-    if (!ref) return;
-    const upper = ref.toUpperCase();
+    const rawRef = searchParams.get("ref");
+    if (!rawRef) return;
+    // Apply legacy code alias (e.g. MILKELYS → MICKEY) before storing or
+    // tracking so old shareable links keep attributing to the same partner.
+    const upper = normalizeAffiliateCode(rawRef);
+    if (!upper) return;
     setCode(upper);
     setVisible(true);
     try { localStorage.setItem("rooted_referral_code", upper); } catch {}

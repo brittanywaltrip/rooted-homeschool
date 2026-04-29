@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, healGoalIntegrity, forwardScheduleStart } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, healGoalIntegrity, forwardScheduleStart, hasScheduleFieldsChanged } from "@/app/lib/scheduler";
 
 function titleCase(str: string): string {
   return str.trim().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -285,12 +285,16 @@ export default function CurriculumWizard({
     }
   }, [startLesson]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch is_backfilled for edit mode
+  // Fetch persisted goal fields for edit mode. start_date is hydrated here
+  // so the gate in saveEdit compares like-for-like — without this, the form
+  // default (today) would always differ from the persisted creation-time
+  // start_date and the gate would treat every cosmetic edit as a schedule
+  // change, pushing today's incomplete lessons forward.
   useEffect(() => {
     if (mode !== "edit" || !editData?.goalId) return;
     supabase
       .from("curriculum_goals")
-      .select("is_backfilled, start_at_lesson, scheduled_start_time, course_level, credits_value, lessons_per_day")
+      .select("is_backfilled, start_at_lesson, scheduled_start_time, course_level, credits_value, lessons_per_day, start_date")
       .eq("id", editData.goalId)
       .single()
       .then(({ data }) => {
@@ -313,6 +317,7 @@ export default function CurriculumWizard({
         if (data?.course_level) setCourseLevel(data.course_level);
         if (data?.credits_value != null) setCreditsValue(String(data.credits_value));
         if (data?.lessons_per_day) setLessonsPerDay(String(data.lessons_per_day));
+        if (data?.start_date) setStartDate(data.start_date);
       });
   }, [mode, editData?.goalId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -723,17 +728,35 @@ export default function CurriculumWizard({
     const todayStr = toDateStr(todayMidnight);
     let activeGoalId = editData.goalId;
 
-    // Capture the goal's pre-update lessons_per_day so we can detect a change
-    // after the update and regenerate future lessons at the new cadence.
+    // Snapshot the pre-update goal so we can:
+    //   1. Detect lessons_per_day change → trigger the regenerate path.
+    //   2. Detect any schedule-relevant field change → gate the reshuffle.
+    //      Cosmetic edits (rename, icon, course_level, credits, start time)
+    //      must NOT move lesson dates.
+    //   3. Use the persisted lessons_per_day (not form state) when reshuffling
+    //      existing rows, so the cadence reflects what's actually in the DB.
     let originalLessonsPerDay: number | null = null;
+    let originalSchoolDays: string[] | null = null;
+    let originalStartDate: string | null = null;
+    let originalTargetDate: string | null = null;
+    let originalTotalLessons: number | null = null;
     if (activeGoalId) {
       const { data: origGoal } = await supabase
         .from("curriculum_goals")
-        .select("lessons_per_day")
+        .select("lessons_per_day, school_days, start_date, target_date, total_lessons")
         .eq("id", activeGoalId)
         .maybeSingle();
-      originalLessonsPerDay = origGoal?.lessons_per_day ?? null;
+      originalLessonsPerDay = (origGoal as { lessons_per_day?: number | null } | null)?.lessons_per_day ?? null;
+      originalSchoolDays    = (origGoal as { school_days?: string[] | null } | null)?.school_days ?? null;
+      originalStartDate     = (origGoal as { start_date?: string | null } | null)?.start_date ?? null;
+      originalTargetDate    = (origGoal as { target_date?: string | null } | null)?.target_date ?? null;
+      originalTotalLessons  = (origGoal as { total_lessons?: number | null } | null)?.total_lessons ?? null;
     }
+    // Use the persisted lessons_per_day (when present) for any reshuffle of
+    // existing rows in this saveEdit. Form state describes the user's intent
+    // for the goal record itself; the existing rows were placed under the
+    // persisted cadence and must be reshuffled at that same cadence.
+    const perDayNumFromGoal = (originalLessonsPerDay && originalLessonsPerDay > 0) ? originalLessonsPerDay : (parseInt(lessonsPerDay) || 1);
 
     const saveName = titleCase(curricName);
     // start_at_lesson is derived from the user's "Lessons done" input plus 1.
@@ -930,9 +953,31 @@ export default function CurriculumWizard({
       regeneratedLessons = true;
     }
 
-    // Reschedule incomplete future lessons (skip when we just regenerated —
-    // those rows are already placed at the correct dates/cadence).
-    if (!regeneratedLessons) {
+    // Reshuffle incomplete future lessons ONLY when a schedule-relevant field
+    // actually changed. Cosmetic edits (rename, icon, course_level, credits,
+    // start time) must not move dates. The lessons_per_day branch above
+    // already returns through the regenerate path, so the explicit check here
+    // is defensive — when it's true we've already set regeneratedLessons.
+    // The whitelist + null-guards live in scheduler.hasScheduleFieldsChanged
+    // so they're testable in isolation; see scheduler.test.ts for coverage.
+    const scheduleFieldsChanged = hasScheduleFieldsChanged(
+      {
+        lessons_per_day: originalLessonsPerDay,
+        school_days: originalSchoolDays,
+        start_date: originalStartDate,
+        target_date: originalTargetDate,
+        total_lessons: originalTotalLessons,
+      },
+      {
+        lessons_per_day: parseInt(lessonsPerDay) || 1,
+        school_days: booleanToDays(schoolDays),
+        start_date: startDate || null,
+        target_date: targetDate || null,
+        total_lessons: totalNum,
+      },
+    );
+
+    if (!regeneratedLessons && scheduleFieldsChanged) {
       let futureLessons: { id: string; scheduled_date: string | null; date: string | null }[] = [];
 
       if (activeGoalId) {
@@ -964,10 +1009,10 @@ export default function CurriculumWizard({
       );
 
       if (futureLessons.length > 0) {
-        // Pack `perDayNum` lessons onto each school day. The old version
-        // advanced the cursor after a single lesson regardless of perDayNum,
-        // producing 1-per-day density and triggering Bug 6. Also honor
-        // vacation blocks and the goal's actual school_days (Bug 4).
+        // Pack `perDayNumFromGoal` lessons onto each school day. The old
+        // version advanced the cursor after a single lesson regardless of
+        // perDay, producing 1-per-day density and triggering Bug 6. Also
+        // honor vacation blocks and the goal's actual school_days (Bug 4).
         const { data: vacBlocksForReschedule } = await supabase
           .from("vacation_blocks")
           .select("start_date, end_date")
@@ -983,7 +1028,7 @@ export default function CurriculumWizard({
             const dayIdx = (cursor.getDay() + 6) % 7;
             const dateStr = toDateStr(cursor);
             const inVac = vacList.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
-            if (schoolDays[dayIdx] && !inVac && placedToday < perDayNum) {
+            if (schoolDays[dayIdx] && !inVac && placedToday < perDayNumFromGoal) {
               updates.push({ id: lesson.id, date: dateStr });
               placedToday++;
               break;
@@ -1082,132 +1127,13 @@ export default function CurriculumWizard({
     }
 
     // ── Heal + recompute ──────────────────────────────────────────────────────
-    // Regardless of which branch we took, repair any pre-existing broken state
-    // (ghost completions, incomplete dupes) and then gap-fill missing lesson
-    // numbers before recomputing current_lesson. Regenerate MUST NOT inherit
-    // broken state from before the edit (Bugs 1, 2, 5).
+    // Repair any pre-existing broken state (ghost completions, incomplete dupes)
+    // and recompute current_lesson from actual rows. We no longer auto-create
+    // missing lesson_number rows here — silent rescheduling moved schedules
+    // mom didn't ask to move (see git history). Missing numbers stay missing
+    // until mom acts on them through the missed-lessons UI.
     if (activeGoalId) {
       await healGoalIntegrity(supabase, activeGoalId);
-
-      // Gap-fill: find missing lesson_numbers in [1..totalNum] and schedule
-      // them forward on school days. This catches legacy gaps from older
-      // generate() flows.
-      const { data: existingRows } = await supabase
-        .from("lessons")
-        .select("lesson_number")
-        .eq("curriculum_goal_id", activeGoalId)
-        .not("lesson_number", "is", null);
-      const existingNums = new Set<number>(
-        ((existingRows ?? []) as { lesson_number: number }[]).map((r) => r.lesson_number),
-      );
-      const missing: number[] = [];
-      for (let n = 1; n <= totalNum; n++) {
-        if (!existingNums.has(n)) missing.push(n);
-      }
-      if (missing.length > 0) {
-        // Resolve subject_id for healed rows.
-        let healSubjectId: string | null = null;
-        if (effectiveSub) {
-          const { data: existingSub } = await supabase
-            .from("subjects").select("id").eq("user_id", user.id).ilike("name", effectiveSub).maybeSingle();
-          healSubjectId = existingSub?.id ?? null;
-        }
-        const { data: vacBlocks } = await supabase
-          .from("vacation_blocks")
-          .select("start_date, end_date")
-          .eq("user_id", user.id);
-        const vacList = (vacBlocks ?? []) as { start_date: string; end_date: string }[];
-
-        // Partition: numbers < startAtLesson get is_backfill rows distributed
-        // across the most-recent prior school days (oldest lesson_number → oldest
-        // date). Numbers >= startAtLesson get real schedule dates on future
-        // school days.
-        const pastMissing = missing.filter((n) => n < startAtLesson);
-        const futureMissing = missing.filter((n) => n >= startAtLesson);
-
-        const healInserts: Array<Record<string, unknown>> = [];
-
-        if (pastMissing.length > 0) {
-          // Walk backward from yesterday, collecting pastMissing.length school
-          // days. unshift() keeps the array in oldest-first order so index i
-          // aligns with the i-th smallest missing lesson_number.
-          const priorSchoolDays: string[] = [];
-          const backCursor = new Date(); backCursor.setDate(backCursor.getDate() - 1); backCursor.setHours(0, 0, 0, 0);
-          let backSafety = 0;
-          while (priorSchoolDays.length < pastMissing.length && backSafety < 3650) {
-            const idx = (backCursor.getDay() + 6) % 7;
-            if (schoolDays[idx]) priorSchoolDays.unshift(toDateStr(backCursor));
-            backCursor.setDate(backCursor.getDate() - 1);
-            backSafety++;
-          }
-          const pastSorted = [...pastMissing].sort((a, b) => a - b);
-          for (let i = 0; i < pastSorted.length; i++) {
-            const n = pastSorted[i];
-            const dateStr = priorSchoolDays[i] ?? priorSchoolDays[priorSchoolDays.length - 1];
-            healInserts.push({
-              user_id: user.id,
-              child_id: editData.childId || null,
-              subject_id: healSubjectId,
-              title: `${saveName} — Lesson ${n}`,
-              date: dateStr,
-              scheduled_date: dateStr,
-              completed: true,
-              completed_at: `${dateStr}T12:00:00Z`,
-              is_backfill: true,
-              hours: 0,
-              curriculum_goal_id: activeGoalId,
-              lesson_number: n,
-              school_year_id: schoolYearId || null,
-            });
-          }
-        }
-
-        if (futureMissing.length > 0) {
-          // Place future-missing rows on upcoming school days strictly
-          // after today, packed perDayNum/day and skipping vacations. Same
-          // "no first-day bloat" rule as the create + regenerate paths.
-          const startCursor = forwardScheduleStart(startDateObj, todayMidnight);
-          const futureSorted = [...futureMissing].sort((a, b) => a - b);
-          let placed = 0;
-          const cursor = new Date(startCursor);
-          let placedToday = 0;
-          let safety = 0;
-          while (placed < futureSorted.length && safety < 3650) {
-            const dayIdx = (cursor.getDay() + 6) % 7;
-            const dateStr = toDateStr(cursor);
-            const inVac = vacList.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
-            if (schoolDays[dayIdx] && !inVac) {
-              while (placedToday < perDayNum && placed < futureSorted.length) {
-                healInserts.push({
-                  user_id: user.id,
-                  child_id: editData.childId || null,
-                  subject_id: healSubjectId,
-                  title: `${saveName} — Lesson ${futureSorted[placed]}`,
-                  date: dateStr,
-                  scheduled_date: dateStr,
-                  completed: false,
-                  hours: 0,
-                  curriculum_goal_id: activeGoalId,
-                  lesson_number: futureSorted[placed],
-                  school_year_id: schoolYearId || null,
-                });
-                placed++;
-                placedToday++;
-              }
-            }
-            cursor.setDate(cursor.getDate() + 1);
-            placedToday = 0;
-            safety++;
-          }
-        }
-
-        for (let i = 0; i < healInserts.length; i += 100) {
-          const batch = healInserts.slice(i, i + 100);
-          const { error: healErr } = await supabase.from("lessons").insert(batch);
-          if (healErr) console.error("[CurriculumWizard] heal-gap insert failed:", healErr);
-        }
-      }
-
       await recomputeCurrentLesson(supabase, activeGoalId);
     }
 

@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { posthog } from '@/lib/posthog'
+import { normalizeAffiliateCode } from '@/lib/referrals'
 
 export default function UpgradePage() {
   return (
@@ -21,10 +22,14 @@ function UpgradePageInner() {
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('')
-  const refParam = searchParams.get('ref')
+  // Apply legacy alias (e.g. MILKELYS → MICKEY) at every ingestion source so
+  // old shareable links, prior cookies, and prior localStorage values all
+  // resolve to the partner's current code before display, tracking, or
+  // checkout.
+  const refParam = normalizeAffiliateCode(searchParams.get('ref')) || null
   const refCode = refParam
-    || (typeof window !== 'undefined' ? localStorage.getItem('rooted_ref') : null)
-    || (typeof document !== 'undefined' ? document.cookie.match(/rooted_ref=([^;]+)/)?.[1] : null)
+    || (typeof window !== 'undefined' ? normalizeAffiliateCode(localStorage.getItem('rooted_ref')) || null : null)
+    || (typeof document !== 'undefined' ? normalizeAffiliateCode(document.cookie.match(/rooted_ref=([^;]+)/)?.[1] ?? null) || null : null)
   const [refAffiliateName, setRefAffiliateName] = useState<string | null>(null)
 
   useEffect(() => { posthog.capture('upgrade_page_viewed') }, [])

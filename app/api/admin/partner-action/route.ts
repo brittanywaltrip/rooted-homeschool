@@ -152,19 +152,28 @@ async function handleLookupProfile(body: Record<string, unknown>) {
     firstName?: string; lastName?: string; rootedAccountEmail?: string;
   }
 
-  // Try auth.users by email first (most precise)
+  // Try auth.users by email first (most precise). We page through the
+  // admin listUsers API until we hit a truly empty page; the previous
+  // implementation early-exited when a page returned fewer rows than
+  // perPage, but GoTrue silently caps perPage server-side on some
+  // projects, so a "short" first page made the loop terminate after
+  // checking only the most-recent batch — older partners (e.g. Emily
+  // Mahler / thewellnesscommunitysoco@gmail.com) were silently missed.
+  // perPage:1000 matches the summary route's proven pattern; the page
+  // cap below is a safety net against an infinite loop if GoTrue ever
+  // returns the same page twice.
   let matchedUserId: string | null = null
   let matchedEmail: string | null = null
   if (rootedAccountEmail) {
-    const target = rootedAccountEmail.toLowerCase()
-    let page = 1
-    while (true) {
-      const { data: { users }, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 })
-      if (error || !users?.length) break
-      const match = users.find(u => u.email?.toLowerCase() === target)
+    const target = rootedAccountEmail.trim().toLowerCase()
+    const MAX_PAGES = 100
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 })
+      if (error) break
+      const users = data?.users ?? []
+      if (users.length === 0) break
+      const match = users.find(u => u.email?.trim().toLowerCase() === target)
       if (match) { matchedUserId = match.id; matchedEmail = match.email ?? null; break }
-      if (users.length < 200) break
-      page++
     }
   }
 
