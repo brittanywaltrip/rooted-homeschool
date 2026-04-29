@@ -398,6 +398,50 @@ export function applyUndoSnapshot(
 }
 
 /**
+ * Idempotency gate for one-shot async actions. Used by the Today page's
+ * reschedule handlers to prevent a single user click from triggering the
+ * same "push all 114 lessons +1 day" operation 2–4 times — observed on
+ * production where one tap shifted dates +3-4 school days because the
+ * handler fired multiple times against (now-shifted) state.
+ *
+ * Pure utility: no React. Each handler wraps its body in a `tryEnter()`
+ * guard and clears the gate via `exit()` (typically inside `setTimeout` so
+ * a retry can't sneak in during the post-action settle window).
+ *
+ *   const gate = createInFlightGate();
+ *   async function reschedulePushAll() {
+ *     if (!gate.tryEnter()) return;
+ *     try { ...the actual work... }
+ *     finally { setTimeout(gate.exit, 1500); }
+ *   }
+ */
+export type InFlightGate = {
+  /** Returns true if the gate was free (now entered). False if already busy. */
+  tryEnter: () => boolean;
+  /** Releases the gate. Idempotent — calling twice is safe. */
+  exit: () => void;
+  /** Read-only; useful for `disabled={isBusy}` UI feedback. */
+  readonly isBusy: () => boolean;
+};
+
+export function createInFlightGate(): InFlightGate {
+  let active = false;
+  return {
+    tryEnter() {
+      if (active) return false;
+      active = true;
+      return true;
+    },
+    exit() {
+      active = false;
+    },
+    isBusy() {
+      return active;
+    },
+  };
+}
+
+/**
  * Whitelist gate for the saveEdit reshuffle. Returns true ONLY when one of
  * the schedule-relevant goal fields actually changed: lessons_per_day,
  * school_days, start_date, target_date, total_lessons.

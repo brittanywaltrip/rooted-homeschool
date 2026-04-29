@@ -19,6 +19,7 @@ import {
   hasScheduleFieldsChanged,
   buildLessonDateSnapshot,
   applyUndoSnapshot,
+  createInFlightGate,
   type ReschedulableLesson,
 } from './scheduler.ts'
 
@@ -395,4 +396,66 @@ test('missed-lesson sheet "Push schedule back N days" round-trip covers missed +
   for (const id of before.keys()) {
     assert.deepEqual(restored.get(id), before.get(id), `${id} fully restored`)
   }
+})
+
+// ── createInFlightGate ──────────────────────────────────────────────────────
+//
+// Locks down the regression where one user click on "Push all remaining
+// lessons back one day" caused the handler to fire 2–4 times against
+// already-mutated state, shifting the schedule by +2 to +4 school days.
+
+test('createInFlightGate: tryEnter returns true once, then false until exit', () => {
+  const gate = createInFlightGate()
+  assert.equal(gate.tryEnter(), true,  'first attempt enters')
+  assert.equal(gate.tryEnter(), false, 'second attempt is locked out')
+  assert.equal(gate.tryEnter(), false, 'third attempt is locked out')
+  assert.equal(gate.isBusy(),   true,  'gate reports busy while locked')
+  gate.exit()
+  assert.equal(gate.isBusy(),   false, 'gate reports free after exit')
+  assert.equal(gate.tryEnter(), true,  'next attempt after exit enters')
+})
+
+test('createInFlightGate: exit is idempotent', () => {
+  const gate = createInFlightGate()
+  gate.tryEnter()
+  gate.exit()
+  gate.exit() // calling exit twice should be safe
+  assert.equal(gate.tryEnter(), true)
+})
+
+test('createInFlightGate: rapid 4 attempts produce exactly 1 successful entry (pushAll repro)', async () => {
+  // Mirrors the production failure shape: one user click that re-fired 2-4
+  // times. With the gate in place, only the first invocation runs the
+  // wrapped action; the rest no-op silently.
+  const gate = createInFlightGate()
+  let runs = 0
+  async function guarded() {
+    if (!gate.tryEnter()) return
+    try {
+      runs += 1
+      // Simulate the async work (fetch + writes).
+      await Promise.resolve()
+    } finally {
+      gate.exit()
+    }
+  }
+  // Fire 4 attempts effectively-synchronously — the first wins, the next 3
+  // hit the gate before the prior microtask completes.
+  const p1 = guarded()
+  const p2 = guarded()
+  const p3 = guarded()
+  const p4 = guarded()
+  await Promise.all([p1, p2, p3, p4])
+  assert.equal(runs, 1, 'wrapped action ran exactly once')
+})
+
+test('createInFlightGate: independent gates don\'t cross-block', () => {
+  // The Today page uses ONE gate for all reschedule actions, but other
+  // unrelated gates in the codebase must remain independent.
+  const gateA = createInFlightGate()
+  const gateB = createInFlightGate()
+  assert.equal(gateA.tryEnter(), true)
+  assert.equal(gateB.tryEnter(), true, 'gate B unaffected by gate A')
+  assert.equal(gateA.tryEnter(), false)
+  assert.equal(gateB.tryEnter(), false)
 })
