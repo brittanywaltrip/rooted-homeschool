@@ -27,6 +27,14 @@ function LoginContent() {
   const [loading,  setLoading]  = useState(false);
   const passwordReset = searchParams.get("passwordReset") === "true";
 
+  // OTP fallback for the recovery email — Microsoft Defender Safe Links
+  // and similar scanners pre-click the magic link and consume the token,
+  // so we expose the 6-digit code Supabase emits via {{.Token}} as a
+  // scanner-immune alternative.
+  const [otp, setOtp] = useState("");
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpError, setOtpError] = useState("");
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -53,7 +61,23 @@ function LoginContent() {
     });
     setLoading(false);
     if (error) setError(error.message);
-    else setView("forgot-sent");
+    else { setOtp(""); setOtpError(""); setView("forgot-sent"); }
+  }
+
+  async function handleVerifyOtp(e: React.FormEvent) {
+    e.preventDefault();
+    setOtpError("");
+    setOtpVerifying(true);
+    const { error } = await supabase.auth.verifyOtp({
+      email: resetEmail,
+      token: otp.trim(),
+      type: 'recovery',
+    });
+    setOtpVerifying(false);
+    if (error) { setOtpError(error.message); return; }
+    // Recovery session is now in cookies — /reset-password's existing
+    // "session exists" branch picks it up and shows the set-new-password form.
+    router.push('/reset-password');
   }
 
   const bullets = [
@@ -261,7 +285,7 @@ function LoginContent() {
                 We sent a password reset link to
               </p>
               <p className="text-sm font-semibold text-[#2d2926] mb-6">{resetEmail}</p>
-              <p className="text-xs text-[#b5aca4] mb-6">
+              <p className="text-xs text-[#b5aca4] mb-5">
                 Didn&apos;t get it? Check your spam folder or{" "}
                 <button
                   onClick={() => { setError(""); setView("forgot"); }}
@@ -271,9 +295,45 @@ function LoginContent() {
                 </button>
                 .
               </p>
+
+              {/* OTP fallback — for users whose corporate email scanner */}
+              {/* pre-clicks the magic link and burns the token. */}
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex-1 h-px bg-[#e8e2d9]" />
+                <span className="text-xs text-[#b5aca4]">or</span>
+                <div className="flex-1 h-px bg-[#e8e2d9]" />
+              </div>
+              <p className="text-xs text-[#7a6f65] mb-2">
+                Enter the 6-digit code from the email
+              </p>
+              <form onSubmit={handleVerifyOtp} className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                  placeholder="123456"
+                  autoComplete="one-time-code"
+                  className="flex-1 px-3 py-2.5 text-center font-mono text-base tracking-widest rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
+                />
+                <button
+                  type="submit"
+                  disabled={otpVerifying}
+                  className="px-4 py-2.5 text-sm font-medium border border-[#e8e2d9] hover:bg-[#f0ede8] disabled:opacity-50 text-[#2d2926] rounded-xl transition-colors shrink-0"
+                >
+                  {otpVerifying ? "Verifying…" : "Verify Code"}
+                </button>
+              </form>
+              {otpError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mt-2 text-left">
+                  {otpError}
+                </p>
+              )}
+
               <button
                 onClick={() => { setError(""); setView("login"); }}
-                className="w-full border border-[#e8e2d9] hover:bg-[#f0ede8] text-[#7a6f65] font-medium py-2.5 rounded-xl transition-colors text-sm"
+                className="w-full border border-[#e8e2d9] hover:bg-[#f0ede8] text-[#7a6f65] font-medium py-2.5 rounded-xl transition-colors text-sm mt-5"
               >
                 ← Back to login
               </button>
