@@ -533,18 +533,18 @@ export default function AdminPage() {
               label="Paying Customers"
               value={payingTotal}
               sub={`Active Stripe subscriptions on Rooted+ Founding (${data.payingFoundingCount}) and Standard (${data.payingStandardCount}). Comped partners and founder accounts excluded.`}
-              tooltip="profiles where plan_type IN ('founding_family','standard') AND is_pro=true AND stripe_subscription_id IS NOT NULL, minus the 8 comped affiliate user_ids and the 3 whitelisted founder UUIDs."
+              tooltip="profiles where plan_type IN ('founding_family','standard') AND is_pro=true AND stripe_subscription_id IS NOT NULL, minus comped affiliates (was_comped=true AND is_active=true) and the 3 whitelisted founder UUIDs. Non-comped partners pay normally and ARE counted."
             />
             <StatCard
               label="Rooted Partners"
               value={data.compedPartnersCount}
               sub="Comped affiliates (100% off Founding coupon)"
-              tooltip="affiliates.user_id IS NOT NULL — i.e. partners who've redeemed their founder code and now have a linked user account. They're active Stripe subs but pay $0, so they're excluded from Paying Customers."
+              tooltip="affiliates where was_comped=true AND is_active=true — partners on the legacy 100% off Founding coupon. Active Stripe subs but pay $0, so they're excluded from Paying Customers. Non-comped partners pay normally and are counted in Paying Customers, not here."
             />
             <StatCard
               label="Free Users"
               value={data.freeUsers}
-              tooltip="profiles where is_pro=false AND user_id is not in the affiliates table. Counts both onboarded and partially-onboarded free families."
+              tooltip="profiles where is_pro=false AND user_id is not a comped affiliate (was_comped=true). Non-comped partners who haven't paid count as free. Counts both onboarded and partially-onboarded families."
             />
           </div>
         </section>
@@ -609,7 +609,7 @@ export default function AdminPage() {
               label="Rooted+ Founding Paying"
               value={data.payingFoundingCount}
               sub={`$${(data.payingFoundingCount * 39).toLocaleString()} · $39/yr each`}
-              tooltip="Founding-tier paying members (profiles where plan_type='founding_family' AND is_pro=true AND stripe_subscription_id IS NOT NULL), excluding the 8 comped partners and the 3 whitelisted founder UUIDs."
+              tooltip="Founding-tier paying members (profiles where plan_type='founding_family' AND is_pro=true AND stripe_subscription_id IS NOT NULL), excluding comped partners (was_comped=true) and the 3 whitelisted founder UUIDs. Non-comped partners are counted."
             />
             <StatCard
               label="Rooted+ Standard Paying"

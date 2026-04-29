@@ -242,6 +242,16 @@ export default function SettingsPage() {
   const [resetSent,       setResetSent]       = useState(false);
   const [resetError,      setResetError]      = useState("");
 
+  // Password change (logged-in user updates their own password — used
+  // for support cases where Brittany sets a temp password and the user
+  // then needs to rotate it themselves).
+  const [currentPassword,   setCurrentPassword]   = useState("");
+  const [newPassword,       setNewPassword]       = useState("");
+  const [confirmPassword,   setConfirmPassword]   = useState("");
+  const [updatingPassword,  setUpdatingPassword]  = useState(false);
+  const [passwordError,     setPasswordError]     = useState("");
+  const [passwordSuccess,   setPasswordSuccess]   = useState(false);
+
   // Export data
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
@@ -651,6 +661,62 @@ export default function SettingsPage() {
     } else {
       setResetSent(true);
     }
+  }
+
+  // ── Password change ──────────────────────────────────────────────────────
+
+  async function updatePassword(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (updatingPassword) return;
+    setPasswordError("");
+    setPasswordSuccess(false);
+
+    // Client-side validation
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError("Please fill out all three fields.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New password and confirmation don't match.");
+      return;
+    }
+    if (!userEmail) {
+      setPasswordError("We couldn't find your email — try refreshing the page.");
+      return;
+    }
+
+    setUpdatingPassword(true);
+
+    // Re-authenticate by signing in with the current password. Verifies
+    // the current password is correct AND refreshes the session before
+    // we hand updateUser the new password.
+    const { error: signInErr } = await supabase.auth.signInWithPassword({
+      email: userEmail,
+      password: currentPassword,
+    });
+    if (signInErr) {
+      setPasswordError("Current password is incorrect.");
+      setUpdatingPassword(false);
+      return;
+    }
+
+    const { error: updateErr } = await supabase.auth.updateUser({ password: newPassword });
+    if (updateErr) {
+      setPasswordError(updateErr.message);
+      setUpdatingPassword(false);
+      return;
+    }
+
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordSuccess(true);
+    setUpdatingPassword(false);
+    setTimeout(() => setPasswordSuccess(false), 4000);
   }
 
   // ── Export data ────────────────────────────────────────────────────────────
@@ -1840,6 +1906,68 @@ export default function SettingsPage() {
           </button>
           {exportError && <p className="text-xs text-red-600">{exportError}</p>}
         </div>
+      </section>}
+
+      {/* ── Password ─────────────────────────────────────────── */}
+      {activeTab === "account" && <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-[#2d2926]">Password</h2>
+          <span className="h-px flex-1 bg-[#e8e2d9]" />
+        </div>
+
+        <form
+          onSubmit={updatePassword}
+          className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 space-y-3"
+        >
+          <p className="text-xs text-[#7a6f65] leading-relaxed">
+            Change the password you use to sign in.
+          </p>
+          <div className="space-y-2">
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1">Current password</label>
+              <input
+                type="password"
+                required
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+                className="w-full border border-[#e8e2d9] rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--g-brand)]/30"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1">New password</label>
+              <input
+                type="password"
+                required
+                minLength={8}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                className="w-full border border-[#e8e2d9] rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--g-brand)]/30"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[#7a6f65] block mb-1">Confirm new password</label>
+              <input
+                type="password"
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                className="w-full border border-[#e8e2d9] rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--g-brand)]/30"
+              />
+            </div>
+          </div>
+          {passwordError && <p className="text-xs text-red-600">{passwordError}</p>}
+          <button
+            type="submit"
+            disabled={updatingPassword}
+            className="px-4 py-2 rounded-xl bg-[var(--g-brand)] hover:bg-[var(--g-deep)] text-white text-sm font-medium disabled:opacity-50 transition-colors"
+          >
+            {updatingPassword ? "Updating…" : "Update Password"}
+          </button>
+          {passwordSuccess && <p className="text-sm font-medium text-[var(--g-brand)]">Password updated ✓</p>}
+        </form>
       </section>}
 
       {/* ── Danger zone ──────────────────────────────────────── */}
