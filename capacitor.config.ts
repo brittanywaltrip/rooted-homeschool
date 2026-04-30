@@ -13,7 +13,8 @@ const config: CapacitorConfig = {
     ]
   },
   ios: {
-    contentInset: 'always'
+    contentInset: 'always',
+    allowsLinkPreview: false
   }
 };
 export default config;
