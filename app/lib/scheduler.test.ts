@@ -15,6 +15,7 @@ import {
   collectSchoolDaySlots,
   schoolDaysToBool,
   toDateStr,
+  planAddToNextSchoolDays,
   planCompressAfterExtra,
   hasScheduleFieldsChanged,
   buildLessonDateSnapshot,
@@ -458,4 +459,143 @@ test('createInFlightGate: independent gates don\'t cross-block', () => {
   assert.equal(gateB.tryEnter(), true, 'gate B unaffected by gate A')
   assert.equal(gateA.tryEnter(), false)
   assert.equal(gateB.tryEnter(), false)
+})
+
+// ── planAddToNextSchoolDays density-awareness (HOTFIX 2026-04-30) ────────────
+//
+// Repro of the production audit: TGTB goal (lessons_per_day=1, Mon-Fri) had
+// L8-L14 already forward-scheduled onto Apr 30 - May 8 when mom clicked
+// "Add to my next school day(s)" on the missed banner with L2-L6. The old
+// planner stacked L2 on Apr 30, L3 on May 1, etc., colliding with L8-L12.
+// The fix: walk forward past dates that are already at lessons_per_day
+// capacity for that goal.
+
+test('planAddToNextSchoolDays: missed lessons skip past forward-scheduled dates (TGTB repro)', () => {
+  const today = '2026-04-29' // user-local Apr 29 (the moment of the bug)
+  const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const goalId = 'tgtb'
+  // Pretend L8-L14 already sit on Apr 30 - May 8.
+  const density = new Map<string, number>([
+    [`${goalId}|2026-04-30`, 1],
+    [`${goalId}|2026-05-01`, 1],
+    [`${goalId}|2026-05-04`, 1],
+    [`${goalId}|2026-05-05`, 1],
+    [`${goalId}|2026-05-06`, 1],
+    [`${goalId}|2026-05-07`, 1],
+    [`${goalId}|2026-05-08`, 1],
+  ])
+  const missed: ReschedulableLesson[] = [
+    { id: 'L2', scheduled_date: '2026-04-16', curriculum_goal_id: goalId },
+    { id: 'L3', scheduled_date: '2026-04-17', curriculum_goal_id: goalId },
+    { id: 'L4', scheduled_date: '2026-04-20', curriculum_goal_id: goalId },
+    { id: 'L5', scheduled_date: '2026-04-21', curriculum_goal_id: goalId },
+    { id: 'L6', scheduled_date: '2026-04-22', curriculum_goal_id: goalId },
+  ]
+  const { updates } = planAddToNextSchoolDays(
+    missed,
+    () => schoolDays,
+    today,
+    density,
+    () => 1,
+  )
+  // First open slot is May 11 (Mon), then May 12, May 13, May 14, May 15.
+  assert.deepEqual(updates, [
+    { id: 'L2', newDate: '2026-05-11' },
+    { id: 'L3', newDate: '2026-05-12' },
+    { id: 'L4', newDate: '2026-05-13' },
+    { id: 'L5', newDate: '2026-05-14' },
+    { id: 'L6', newDate: '2026-05-15' },
+  ])
+})
+
+test('planAddToNextSchoolDays: empty density map matches old behavior (no regression)', () => {
+  const today = '2026-04-29'
+  const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const missed: ReschedulableLesson[] = [
+    { id: 'L1', scheduled_date: '2026-04-25', curriculum_goal_id: 'g1' },
+    { id: 'L2', scheduled_date: '2026-04-27', curriculum_goal_id: 'g1' },
+    { id: 'L3', scheduled_date: '2026-04-28', curriculum_goal_id: 'g1' },
+  ]
+  const { updates } = planAddToNextSchoolDays(
+    missed,
+    () => schoolDays,
+    today,
+    new Map(),
+    () => 1,
+  )
+  assert.deepEqual(updates, [
+    { id: 'L1', newDate: '2026-04-30' },
+    { id: 'L2', newDate: '2026-05-01' },
+    { id: 'L3', newDate: '2026-05-04' },
+  ])
+})
+
+test('planAddToNextSchoolDays: per-goal density isolates collisions', () => {
+  // Goal A is full on Apr 30. Goal B has nothing. A missed lesson on goal B
+  // should still land on Apr 30; only goal A is forced past.
+  const today = '2026-04-29'
+  const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const density = new Map<string, number>([['goalA|2026-04-30', 1]])
+  const missed: ReschedulableLesson[] = [
+    { id: 'A1', scheduled_date: '2026-04-22', curriculum_goal_id: 'goalA' },
+    { id: 'B1', scheduled_date: '2026-04-22', curriculum_goal_id: 'goalB' },
+  ]
+  const { updates } = planAddToNextSchoolDays(
+    missed,
+    () => schoolDays,
+    today,
+    density,
+    () => 1,
+  )
+  // A1 must skip past Apr 30 → May 1. B1 lands on Apr 30 (its goal is empty).
+  assert.deepEqual(updates, [
+    { id: 'A1', newDate: '2026-05-01' },
+    { id: 'B1', newDate: '2026-04-30' },
+  ])
+})
+
+test('planAddToNextSchoolDays: lessons_per_day=2 allows two lessons per date', () => {
+  const today = '2026-04-29'
+  const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const density = new Map<string, number>() // empty
+  const missed: ReschedulableLesson[] = [
+    { id: 'L1', scheduled_date: '2026-04-25', curriculum_goal_id: 'g1' },
+    { id: 'L2', scheduled_date: '2026-04-26', curriculum_goal_id: 'g1' },
+    { id: 'L3', scheduled_date: '2026-04-27', curriculum_goal_id: 'g1' },
+  ]
+  const { updates } = planAddToNextSchoolDays(
+    missed,
+    () => schoolDays,
+    today,
+    density,
+    () => 2, // two lessons per day
+  )
+  // L1 + L2 share Apr 30; L3 lands on May 1.
+  assert.deepEqual(updates, [
+    { id: 'L1', newDate: '2026-04-30' },
+    { id: 'L2', newDate: '2026-04-30' },
+    { id: 'L3', newDate: '2026-05-01' },
+  ])
+})
+
+test('planAddToNextSchoolDays: same-call placements increment the running map (no self-collision)', () => {
+  // Two missed lessons on the same goal at lessons_per_day=1. The first
+  // placement must occupy Apr 30 so the second has to walk past it.
+  const today = '2026-04-29'
+  const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const missed: ReschedulableLesson[] = [
+    { id: 'X1', scheduled_date: '2026-04-22', curriculum_goal_id: 'g1' },
+    { id: 'X2', scheduled_date: '2026-04-23', curriculum_goal_id: 'g1' },
+  ]
+  const { updates } = planAddToNextSchoolDays(
+    missed,
+    () => schoolDays,
+    today,
+    new Map(),
+    () => 1,
+  )
+  assert.deepEqual(updates, [
+    { id: 'X1', newDate: '2026-04-30' },
+    { id: 'X2', newDate: '2026-05-01' },
+  ])
 })

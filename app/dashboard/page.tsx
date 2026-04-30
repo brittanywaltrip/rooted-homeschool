@@ -1984,7 +1984,48 @@ export default function TodayPage() {
       // date columns (loadData fetches them). Undo will restore each missed
       // lesson to its actual prior date, not "today".
       const snapshot = buildLessonDateSnapshot(missedLessons);
-      const { updates } = libPlanAddToNextSchoolDays(missedLessons, getSchoolDaysForLesson, today);
+
+      // Density-aware date picking: fetch lessons_per_day per affected goal
+      // and the existing forward-scheduled incomplete rows, so the planner
+      // can skip dates that are already at capacity for the goal. Without
+      // this the planner stacks missed lessons on top of forward-scheduled
+      // ones (audited 2026-04-30 — see scheduler.ts:planAddToNextSchoolDays).
+      const goalIds = [
+        ...new Set(missedLessons.map((l) => l.curriculum_goal_id).filter(Boolean) as string[]),
+      ];
+      const perDayMap = new Map<string, number>();
+      const density = new Map<string, number>();
+      if (goalIds.length > 0) {
+        const [{ data: goalRows }, { data: existingRows }] = await Promise.all([
+          supabase.from("curriculum_goals").select("id, lessons_per_day").in("id", goalIds),
+          supabase
+            .from("lessons")
+            .select("id, scheduled_date, date, curriculum_goal_id")
+            .in("curriculum_goal_id", goalIds)
+            .eq("completed", false),
+        ]);
+        for (const g of (goalRows ?? []) as { id: string; lessons_per_day: number | null }[]) {
+          perDayMap.set(g.id, g.lessons_per_day ?? 1);
+        }
+        const missedIds = new Set(missedLessons.map((l) => l.id));
+        for (const r of (existingRows ?? []) as { id: string; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null }[]) {
+          if (missedIds.has(r.id)) continue;
+          const d = r.scheduled_date ?? r.date;
+          if (!d || !r.curriculum_goal_id) continue;
+          const key = `${r.curriculum_goal_id}|${d}`;
+          density.set(key, (density.get(key) ?? 0) + 1);
+        }
+      }
+      const getLessonsPerDay = (l: { curriculum_goal_id?: string | null }) =>
+        (l.curriculum_goal_id && perDayMap.get(l.curriculum_goal_id)) || 1;
+
+      const { updates } = libPlanAddToNextSchoolDays(
+        missedLessons,
+        getSchoolDaysForLesson,
+        today,
+        density,
+        getLessonsPerDay,
+      );
       for (let i = 0; i < updates.length; i += 20) {
         await Promise.all(
           updates.slice(i, i + 20).map(({ id, newDate }) =>

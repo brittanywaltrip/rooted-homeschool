@@ -34,6 +34,7 @@ type CurriculumGoal = {
   default_minutes?: number | null;
   scheduled_start_time?: string | null;
   icon_emoji?: string | null;
+  lessons_per_day?: number | null;
 };
 type Lesson  = {
   id: string;
@@ -47,6 +48,7 @@ type Lesson  = {
   subjects: { name: string; color: string | null } | null;
   goal_id?: string | null;
   curriculum_goal_id?: string | null;
+  lesson_number?: number | null;
   notes?: string | null;
 };
 type CurriculumGroup = {
@@ -477,7 +479,7 @@ export default function PlanPage() {
       supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji, lessons_per_day").eq("user_id", effectiveUserId).order("created_at"),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
       supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
@@ -499,7 +501,7 @@ export default function PlanPage() {
     if (!effectiveUserId) return;
     const { data } = await supabase
       .from("lessons")
-      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
+      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color)")
       .eq("user_id", effectiveUserId);
     setAllLessons((data as unknown as Lesson[]) ?? []);
   }, [effectiveUserId]);
@@ -1153,7 +1155,34 @@ export default function PlanPage() {
     const target = missedLessons.length > 0 ? missedLessons : (planRescheduleLesson ? [planRescheduleLesson] : []);
     if (target.length === 0) return;
 
-    const { updates, undoData } = libPlanAddToNextSchoolDays(target, getSchoolDaysForLesson, todayStr);
+    // Density-aware date picking: build a per-(goal, date) count of existing
+    // forward-scheduled incomplete lessons so the planner can skip slots
+    // that are already at lessons_per_day capacity. Without this the planner
+    // stacks missed lessons on top of forward-scheduled ones (audited
+    // 2026-04-30 — see scheduler.ts:planAddToNextSchoolDays).
+    const targetIds = new Set(target.map((l) => l.id));
+    const density = new Map<string, number>();
+    for (const l of allLessons) {
+      if (l.completed) continue;
+      if (targetIds.has(l.id)) continue;
+      const d = l.scheduled_date ?? l.date;
+      if (!d || !l.curriculum_goal_id) continue;
+      const key = `${l.curriculum_goal_id}|${d}`;
+      density.set(key, (density.get(key) ?? 0) + 1);
+    }
+    const getLessonsPerDay = (lesson: { curriculum_goal_id?: string | null }) => {
+      if (!lesson.curriculum_goal_id) return 1;
+      const goal = curriculumGoals.find((g) => g.id === lesson.curriculum_goal_id);
+      return goal?.lessons_per_day ?? 1;
+    };
+
+    const { updates, undoData } = libPlanAddToNextSchoolDays(
+      target,
+      getSchoolDaysForLesson,
+      todayStr,
+      density,
+      getLessonsPerDay,
+    );
 
     for (let i = 0; i < updates.length; i += 20) {
       await Promise.all(
@@ -2450,9 +2479,16 @@ export default function PlanPage() {
                               return d.toLocaleDateString("en-US", opts);
                             };
 
-                            // Find the last scheduled incomplete lesson for this curriculum
+                            // Find the last scheduled incomplete lesson for this curriculum.
+                            // Defensive cap on lesson_number: if a stale row past
+                            // total_lessons survived a prior bug, ignore it so the
+                            // displayed finish date matches the wizard preview.
                             const incompleteDates = allLessons
-                              .filter(l => l.curriculum_goal_id === group.goalId && !l.completed && l.scheduled_date)
+                              .filter(l => {
+                                if (l.curriculum_goal_id !== group.goalId || l.completed || !l.scheduled_date) return false;
+                                const ln = l.lesson_number;
+                                return ln == null || ln <= displayTotal;
+                              })
                               .map(l => l.scheduled_date!)
                               .sort();
                             const lastScheduled = incompleteDates.length > 0 ? new Date(incompleteDates[incompleteDates.length - 1] + "T00:00:00") : null;
