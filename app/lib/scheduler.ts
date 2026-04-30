@@ -245,13 +245,38 @@ export type ReschedulableLesson = {
 
 /**
  * "Add to my next school day(s)" — places each missed lesson on the next
- * available school day, sequentially starting from todayStr. Pure: returns
- * the planned updates and undo data; the caller writes to the DB.
+ * available school day, starting STRICTLY AFTER today, with density
+ * awareness so missed lessons never stack onto a date that already has a
+ * forward-scheduled lesson at capacity.
+ *
+ * A candidate date is "available" iff:
+ *   1. it's a school day for the goal that owns the lesson, AND
+ *   2. existingByGoalDate.get(`${goal_id}|${date}`) < lessons_per_day for
+ *      that goal.
+ *
+ * The density map is consumed and mutated locally so placements made
+ * earlier in this call cannot be reused by later iterations. Pure: returns
+ * planned updates and undo data; the caller writes to the DB.
+ *
+ * Lessons with no curriculum_goal_id (one-off lessons) get a per-row
+ * synthetic key so they neither compete with each other nor with goal
+ * lessons; in practice they fall back to the old "consecutive school days"
+ * behavior because their density is always 0 of capacity 1.
+ *
+ * Why this exists: prior version walked `nthSchoolDay(today, schoolDays,
+ * i + 1)` for each missed lesson without consulting the lessons table. If
+ * the same goal already had forward-scheduled lessons on those exact dates
+ * (e.g. mom edited the goal earlier and lessons L8-L14 got packed onto
+ * Apr 30 - May 8), clicking "Add to my next school day(s)" on the missed
+ * banner stacked L2-L6 on top of L8-L12. Audited 2026-04-30 on
+ * garfieldbrittany / TGTB.
  */
 export function planAddToNextSchoolDays(
   missed: ReschedulableLesson[],
   getSchoolDaysForLesson: (lesson: ReschedulableLesson) => string[],
   todayStr: string,
+  existingByGoalDate: Map<string, number>,
+  getLessonsPerDay: (lesson: ReschedulableLesson) => number,
 ): {
   updates: { id: string; newDate: string }[];
   undoData: { lessonId: string; date: string }[];
@@ -260,11 +285,24 @@ export function planAddToNextSchoolDays(
     lessonId: l.id,
     date: l.scheduled_date ?? l.date ?? todayStr,
   }));
+  const density = new Map(existingByGoalDate);
   const updates: { id: string; newDate: string }[] = [];
-  for (let i = 0; i < missed.length; i++) {
-    const schoolDays = getSchoolDaysForLesson(missed[i]);
-    const targetDate = nthSchoolDay(todayStr, schoolDays, i + 1);
-    updates.push({ id: missed[i].id, newDate: targetDate });
+  for (const lesson of missed) {
+    const schoolDays = getSchoolDaysForLesson(lesson);
+    const cap = Math.max(1, getLessonsPerDay(lesson));
+    const keyPrefix = lesson.curriculum_goal_id ?? `__no_goal__${lesson.id}`;
+    let cursor = nthSchoolDay(todayStr, schoolDays, 1);
+    let safety = 0;
+    while (safety < 365) {
+      const key = `${keyPrefix}|${cursor}`;
+      if ((density.get(key) ?? 0) < cap) {
+        updates.push({ id: lesson.id, newDate: cursor });
+        density.set(key, (density.get(key) ?? 0) + 1);
+        break;
+      }
+      cursor = nthSchoolDay(cursor, schoolDays, 1);
+      safety++;
+    }
   }
   return { updates, undoData };
 }
