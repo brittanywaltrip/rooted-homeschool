@@ -9,9 +9,16 @@
     "lint": "eslint",
     "test": "node --test 'lib/**/*.test.ts' 'app/lib/**/*.test.ts'",
     "audit:stripe-linkage": "node --env-file=.env.local scripts/audit-stripe-linkage.ts",
-    "backfill:commission-amounts": "node --env-file=.env.local scripts/backfill-commission-amounts.ts"
+    "backfill:commission-amounts": "node --env-file=.env.local scripts/backfill-commission-amounts.ts",
+    "cap:sync": "npx cap sync",
+    "cap:ios": "npx cap open ios",
+    "cap:android": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
+    "@capacitor/ios": "^8.3.1",
     "@stripe/stripe-js": "^8.10.0",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.2",
