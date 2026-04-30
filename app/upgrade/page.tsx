@@ -155,7 +155,7 @@ function UpgradePageInner() {
 
         {/* Social proof */}
         <p className="text-sm text-[#9a8f85] text-center mb-10">
-          Join 1,200+ homeschool families already using Rooted 🌿
+          Join 1,500+ homeschool families already using Rooted 🌿
         </p>
 
         {/* Referral discount banner */}
@@ -264,7 +264,7 @@ function UpgradePageInner() {
             <ul className="space-y-2 mb-6 flex-1">
               {[
                 'Unlimited photos — keep every memory',
-                'Full yearbook — no watermark (print coming soon!)',
+                'Full yearbook — no watermark, download anytime',
                 'Transcripts & PDF reports — export anytime',
                 'Family sharing — invite grandparents & family',
                 'Hours & attendance log — track and export',

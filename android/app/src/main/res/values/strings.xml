@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Rooted</string>
+    <string name="title_activity_main">Rooted</string>
+    <string name="package_name">com.rootedhomeschoolapp.app</string>
+    <string name="custom_url_scheme">com.rootedhomeschoolapp.app</string>
+</resources>
