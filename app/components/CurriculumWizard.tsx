@@ -851,16 +851,36 @@ export default function CurriculumWizard({
       }
     }
 
-    // If lessons_per_day changed, the existing future lesson rows won't match
-    // the new cadence (too few for a 1→2 change, too many for 2→1). Delete
-    // future incomplete rows and regenerate them fresh. Past/completed rows
-    // are left untouched.
+    // Orphan cleanup: drop incomplete rows whose lesson_number is past the
+    // (possibly newly reduced) total_lessons. Runs unconditionally so legacy
+    // data with stale tails from a prior bug version heals on the next save.
+    // Completed and backfilled rows are spared. See heal-curriculum-lessons.ts
+    // for the matching one-time backfill.
+    if (activeGoalId) {
+      const { error: orphanErr } = await supabase
+        .from("lessons")
+        .delete()
+        .eq("curriculum_goal_id", activeGoalId)
+        .eq("completed", false)
+        .gt("lesson_number", totalNum);
+      if (orphanErr) {
+        console.error("[CurriculumWizard] orphan-lesson delete failed:", orphanErr);
+        setGenerating(false);
+        setError(`Could not clear stale lessons: ${orphanErr.message}`);
+        return;
+      }
+    }
+
+    // If lessons_per_day or total_lessons changed, the existing future lesson
+    // rows won't match the new cadence/length. Delete future incomplete rows
+    // and regenerate them fresh. Past/completed rows are left untouched.
     let regeneratedLessons = false;
-    if (
-      activeGoalId &&
+    const lessonsPerDayChanged =
       originalLessonsPerDay !== null &&
-      (parseInt(lessonsPerDay) || 1) !== originalLessonsPerDay
-    ) {
+      (parseInt(lessonsPerDay) || 1) !== originalLessonsPerDay;
+    const totalLessonsChanged =
+      originalTotalLessons !== null && totalNum !== originalTotalLessons;
+    if (activeGoalId && (lessonsPerDayChanged || totalLessonsChanged)) {
       const { error: delErr } = await supabase
         .from("lessons")
         .delete()

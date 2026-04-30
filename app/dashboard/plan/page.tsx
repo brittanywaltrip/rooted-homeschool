@@ -48,6 +48,7 @@ type Lesson  = {
   subjects: { name: string; color: string | null } | null;
   goal_id?: string | null;
   curriculum_goal_id?: string | null;
+  lesson_number?: number | null;
   notes?: string | null;
 };
 type CurriculumGroup = {
@@ -500,7 +501,7 @@ export default function PlanPage() {
     if (!effectiveUserId) return;
     const { data } = await supabase
       .from("lessons")
-      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
+      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color)")
       .eq("user_id", effectiveUserId);
     setAllLessons((data as unknown as Lesson[]) ?? []);
   }, [effectiveUserId]);
@@ -2478,9 +2479,16 @@ export default function PlanPage() {
                               return d.toLocaleDateString("en-US", opts);
                             };
 
-                            // Find the last scheduled incomplete lesson for this curriculum
+                            // Find the last scheduled incomplete lesson for this curriculum.
+                            // Defensive cap on lesson_number: if a stale row past
+                            // total_lessons survived a prior bug, ignore it so the
+                            // displayed finish date matches the wizard preview.
                             const incompleteDates = allLessons
-                              .filter(l => l.curriculum_goal_id === group.goalId && !l.completed && l.scheduled_date)
+                              .filter(l => {
+                                if (l.curriculum_goal_id !== group.goalId || l.completed || !l.scheduled_date) return false;
+                                const ln = l.lesson_number;
+                                return ln == null || ln <= displayTotal;
+                              })
                               .map(l => l.scheduled_date!)
                               .sort();
                             const lastScheduled = incompleteDates.length > 0 ? new Date(incompleteDates[incompleteDates.length - 1] + "T00:00:00") : null;
