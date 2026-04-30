@@ -46,6 +46,7 @@ function Cell({ value, highlight }: { value: string; highlight?: boolean }) {
 
 export default function DashboardPricingPage() {
   const [isPro, setIsPro] = useState<boolean | null>(null);
+  const [planType, setPlanType] = useState<string | null>(null);
 
   useEffect(() => { document.title = "Pricing \u00b7 Rooted"; }, []);
 
@@ -54,10 +55,12 @@ export default function DashboardPricingPage() {
       if (!user) { setIsPro(false); return; }
       const { data } = await supabase
         .from("profiles")
-        .select("subscription_status")
+        .select("subscription_status, plan_type")
         .eq("id", user.id)
         .maybeSingle();
-      setIsPro((data as { subscription_status?: string } | null)?.subscription_status === "active");
+      const profile = data as { subscription_status?: string; plan_type?: string } | null;
+      setIsPro(profile?.subscription_status === "active");
+      setPlanType(profile?.plan_type ?? null);
     });
   }, []);
 
@@ -87,14 +90,6 @@ export default function DashboardPricingPage() {
           </div>
         </div>
       )}
-
-      {/* Founding spots counter */}
-      <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 w-fit">
-        <span className="text-base">⏳</span>
-        <p className="text-xs font-medium text-amber-800">
-          Rooted+ Founding Family pricing · Lock in $39/yr before it ends
-        </p>
-      </div>
 
       {/* Plan cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -136,30 +131,39 @@ export default function DashboardPricingPage() {
           </div>
         </div>
 
-        {/* Founding Family */}
-        <div className={`relative bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border-2 rounded-2xl p-5 flex flex-col ${
-          loaded && isPro ? "border-[#5c7f63]" : "border-[#5c7f63]"
-        }`}>
+        {/* Rooted+ */}
+        <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] border-2 border-[#5c7f63] rounded-2xl p-5 flex flex-col">
           <div className="flex items-center gap-1.5 mb-1">
             <p className="text-base font-bold text-[#2d2926]">Rooted+</p>
-            <span className="text-[9px] font-bold bg-[#C4962A] text-white px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0">
-              Founding Family
-            </span>
+            {planType === "founding_family" && (
+              <span className="text-[9px] font-bold bg-[#C4962A] text-white px-1.5 py-0.5 rounded-full uppercase tracking-wide shrink-0">
+                Founding Family
+              </span>
+            )}
           </div>
           {loaded && isPro && (
             <span className="inline-block mb-2 text-[10px] font-bold bg-[#5c7f63] text-white px-2.5 py-1 rounded-full uppercase tracking-wide w-fit">
               Your current plan
             </span>
           )}
-          <p className="text-xs text-[#5c7f63] mb-1 leading-relaxed">Founding Family pricing — locked in forever.</p>
-          <p className="text-[#7a6f65] text-xs mb-4">After April 30, Rooted+ is $59/yr.</p>
+          <p className="text-xs text-[#5c7f63] mb-4 leading-relaxed">Unlimited photos, exports, and family sharing.</p>
           <div className="mb-5">
-            <span className="text-3xl font-bold text-[#2d2926]">$39</span>
-            <span className="text-sm text-[#7a6f65]">/yr</span>
-            <p className="text-[10px] text-[#5c7f63] mt-0.5">≈ $3.25/month</p>
+            {planType === "founding_family" ? (
+              <>
+                <span className="text-3xl font-bold text-[#2d2926]">$39</span>
+                <span className="text-sm text-[#7a6f65]">/yr</span>
+                <p className="text-[10px] text-[#5c7f63] mt-0.5">Your founding rate, locked forever 🎁</p>
+              </>
+            ) : (
+              <>
+                <span className="text-3xl font-bold text-[#2d2926]">$59</span>
+                <span className="text-sm text-[#7a6f65]">/yr</span>
+                <p className="text-[10px] text-[#7a6f65] mt-0.5">≈ $4.92/month</p>
+              </>
+            )}
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Rooted, plus:", "Unlimited photos", "All PDF exports (transcripts, hours, reports)", "Clean yearbook + transcript — no watermark", "Family sharing", "Priority support", "Founding price locked forever 🎁"].map(f => (
+            {["Everything in Rooted, plus:", "Unlimited photos", "All PDF exports (transcripts, hours, reports)", "Clean yearbook + transcript, no watermark", "Family sharing", "Priority support"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[var(--g-deep)]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -176,7 +180,7 @@ export default function DashboardPricingPage() {
                 href="/upgrade"
                 className="block w-full text-center py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-xs font-bold transition-colors shadow-sm"
               >
-                Get Rooted+ — $39/yr →
+                Get Rooted+ for $59/yr →
               </Link>
             )}
           </div>
@@ -263,7 +267,7 @@ export default function DashboardPricingPage() {
             className="inline-flex items-center gap-2 px-6 py-3 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold rounded-xl transition-colors shadow-sm"
           >
             <span>✨</span>
-            Get Rooted+ — $39/yr
+            Get Rooted+ for $59/yr
           </Link>
           <p className="text-xs text-[#b5aca4] mt-2">
             Secure checkout via Stripe · Cancel anytime

@@ -330,20 +330,16 @@ export default function PartnersPage() {
         <div className="max-w-3xl mx-auto text-center">
           <p className="text-xs font-semibold text-[var(--g-deep)] uppercase tracking-[0.2em] mb-3">What your followers get</p>
           <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
-            Rooted+ — Founding Family pricing — $39/yr, locked forever
+            Rooted+ is $59/yr
           </h2>
           <p className="text-sm text-[var(--g-deep)] leading-relaxed mb-3 max-w-lg mx-auto">
             Every new user starts with a 30-day free trial — full access to everything. Your code gives them 15% off when they upgrade to Rooted+.
           </p>
           <p className="text-sm text-[var(--g-deep)] leading-relaxed mb-4 max-w-lg mx-auto">
-            {(() => {
-              const diff = Math.ceil((new Date("2026-04-30").getTime() - Date.now()) / 86400000);
-              const deadline = diff <= 0 ? "" : diff === 1 ? " This offer ends tomorrow." : ` This offer ends in ${diff} days.`;
-              return `Rooted+ is $39/yr locked in forever with Founding Family pricing.${deadline}`;
-            })()}
+            Unlimited photos, full yearbook, PDF exports, and family sharing. Everything a homeschool family needs to remember the year.
           </p>
           <div className="inline-flex items-center gap-2 bg-white/70 border border-[#b8d9bc] rounded-xl px-4 py-2 text-sm text-[#2d2926] font-medium">
-            {"\uD83C\uDF81"} Your code: 15% off {"\u00B7"} Their price: locked forever
+            {"\uD83C\uDF81"} Your code: 15% off Rooted+ for your followers
           </div>
         </div>
       </section>

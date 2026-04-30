@@ -17,11 +17,10 @@ export default function UpgradePage() {
 function UpgradePageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [loadingPlan, setLoadingPlan] = useState<'founding' | null>(null)
+  const [loadingPlan, setLoadingPlan] = useState<'standard' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
-  const [countdown, setCountdown] = useState('')
   // Apply legacy alias (e.g. MILKELYS → MICKEY) at every ingestion source so
   // old shareable links, prior cookies, and prior localStorage values all
   // resolve to the partner's current code before display, tracking, or
@@ -78,21 +77,7 @@ function UpgradePageInner() {
     }
   }, [refParam, refCode])
 
-  useEffect(() => {
-    const deadline = new Date('2026-04-30T00:00:00').getTime()
-    function tick() {
-      const diff = deadline - Date.now()
-      if (diff <= 0) { setCountdown('Offer ended'); return }
-      const d = Math.floor(diff / 86400000)
-      const h = Math.floor((diff % 86400000) / 3600000)
-      setCountdown(`${d} day${d !== 1 ? 's' : ''}, ${h} hr${h !== 1 ? 's' : ''} left`)
-    }
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [])
-
-  async function handleClick(plan: 'founding') {
+  async function handleClick(plan: 'standard') {
     posthog.capture('upgrade_clicked', { plan })
     setError(null)
     setLoadingPlan(plan)
@@ -213,16 +198,9 @@ function UpgradePageInner() {
             </button>
           </div>
 
-          {/* Founding Family — featured */}
+          {/* Rooted+ featured card */}
           <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#cfe8d2] border-2 border-[#5c7f63] rounded-2xl p-6 flex flex-col shadow-md">
-            {/* Top badge */}
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <span className="text-[10px] font-bold bg-[#5c7f63] text-white px-3 py-1 rounded-full uppercase tracking-widest shadow-sm whitespace-nowrap">
-                ⭐ Limited Time
-              </span>
-            </div>
-
-            <div className="mb-5 mt-1">
+            <div className="mb-5">
               <div className="flex items-center gap-2 mb-1">
                 <p className="text-base font-bold text-[#2d2926]">Rooted+</p>
                 {planType === 'founding_family' && (
@@ -234,14 +212,14 @@ function UpgradePageInner() {
               <div className="flex items-baseline gap-1 my-3">
                 {refCode && refAffiliateName ? (
                   <>
-                    <span className="text-xl text-[#b5aca4] line-through font-bold">$39</span>
-                    <span className="text-3xl font-bold text-[var(--g-brand)]">$33.15</span>
-                    <span className="text-sm text-[#5c7f63] font-semibold">/yr · locked forever</span>
+                    <span className="text-xl text-[#b5aca4] line-through font-bold">$59</span>
+                    <span className="text-3xl font-bold text-[var(--g-brand)]">$50.15</span>
+                    <span className="text-sm text-[#5c7f63] font-semibold">/yr</span>
                   </>
                 ) : (
                   <>
-                    <span className="text-3xl font-bold text-[#2d2926]">$39</span>
-                    <span className="text-sm text-[#5c7f63] font-semibold">/yr · locked forever</span>
+                    <span className="text-3xl font-bold text-[#2d2926]">$59</span>
+                    <span className="text-sm text-[#5c7f63] font-semibold">/yr</span>
                   </>
                 )}
               </div>
@@ -249,15 +227,7 @@ function UpgradePageInner() {
                 <p className="text-xs text-[#5c7f63] font-medium -mt-1 mb-1">with {refAffiliateName}&apos;s referral</p>
               )}
               <p className="text-sm text-[var(--g-deep)] leading-relaxed">
-                Founding Family pricing — for the first 200 families
-              </p>
-              {countdown && (
-                <p className="text-xs font-semibold mt-2 text-[#a08040]">
-                  ⏳ {countdown}
-                </p>
-              )}
-              <p className="text-[#7a6f65] text-xs mt-1">
-                After April 30, Rooted+ is $59/yr. Lock in $39 — yours forever.
+                Unlimited photos, exports, and family sharing.
               </p>
             </div>
 
@@ -271,7 +241,6 @@ function UpgradePageInner() {
                 'Badges & certificates',
                 'All PDF exports',
                 'Priority support from Brittany',
-                'Founding price locked forever 🎁',
               ].map((label) => (
                 <li key={label} className="flex items-start gap-2 text-sm text-[#2d5c38] font-medium">
                   <span className="text-[#5c7f63] shrink-0 mt-0.5">✓</span>
@@ -289,19 +258,19 @@ function UpgradePageInner() {
               </Link>
             ) : (
               <button
-                onClick={() => handleClick('founding')}
+                onClick={() => handleClick('standard')}
                 disabled={loadingPlan !== null}
                 className="w-full bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm flex items-center justify-center gap-2"
               >
-                {loadingPlan === 'founding' ? (
+                {loadingPlan === 'standard' ? (
                   <>
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     Processing...
                   </>
                 ) : (
                   refCode && refAffiliateName
-                    ? 'Get Rooted+ → $33.15/yr'
-                    : 'Get Rooted+ → $39/yr'
+                    ? 'Get Rooted+ → $50.15/yr'
+                    : 'Get Rooted+ → $59/yr'
                 )}
               </button>
             )}
