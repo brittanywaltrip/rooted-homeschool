@@ -578,7 +578,7 @@ export default function GardenPage() {
         title="Garden"
         subtitle="Watch your family grow"
       />
-      <div className="max-w-3xl px-4 pt-5 pb-7 space-y-6">
+      <div className="max-w-3xl mx-auto px-4 pt-5 pb-7 space-y-6 overflow-x-hidden">
 
       {/* ── First-visit tip ───────────────────────────────── */}
       {!tipDismissed && totalLeaves === 0 && (
@@ -858,7 +858,7 @@ export default function GardenPage() {
       {/* ── Child Toggle Pills ────────────────────────────── */}
       {children.length > 1 && (
         <div className="flex justify-center">
-          <div className="inline-flex bg-white border border-[#e8e5e0] rounded-full p-1 gap-1">
+          <div className="flex flex-wrap bg-white border border-[#e8e5e0] rounded-full p-1 gap-1">
             {children.map((child) => (
               <button
                 key={child.id}
@@ -938,7 +938,7 @@ export default function GardenPage() {
             return (
               <div key={cat.id} className={catIdx < filteredCats.length - 1 ? "border-b border-[#f2f0ec] pb-3 mb-3" : ""}>
                 <p className="text-[13px] font-semibold text-[#2D2A26] mb-2">{cat.icon} {cat.name}</p>
-                <div className="flex gap-4">
+                <div className="flex flex-wrap gap-4">
                   {cat.tiers.map((t, tIdx) => {
                     const key = cat.perCurriculum
                       ? `${cat.id}_${t.tier}`
