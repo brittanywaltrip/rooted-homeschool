@@ -4,9 +4,13 @@ const config: CapacitorConfig = {
   appName: 'Rooted',
   webDir: 'out',
   server: {
-    url: 'https://rootedhomeschoolapp.com',
+    url: 'https://www.rootedhomeschoolapp.com',
     cleartext: false,
-    androidScheme: 'https'
+    androidScheme: 'https',
+    allowNavigation: [
+      'rootedhomeschoolapp.com',
+      'www.rootedhomeschoolapp.com'
+    ]
   },
   ios: {
     contentInset: 'always'
