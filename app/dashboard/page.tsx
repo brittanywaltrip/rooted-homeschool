@@ -611,9 +611,10 @@ export default function TodayPage() {
   const [showPwaBanner, setShowPwaBanner] = useState(false);
   const [showPwaModal,  setShowPwaModal]  = useState(false);
   useEffect(() => {
-    const dismissed  = localStorage.getItem("pwa-banner-dismissed") === "true";
-    const standalone = window.matchMedia("(display-mode: standalone)").matches;
-    if (!dismissed && !standalone) setShowPwaBanner(true);
+    const dismissed   = localStorage.getItem("pwa-banner-dismissed") === "true";
+    const standalone  = window.matchMedia("(display-mode: standalone)").matches;
+    const isCapacitor = !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
+    if (!dismissed && !standalone && !isCapacitor) setShowPwaBanner(true);
   }, []);
 
   const [subjects,     setSubjects]     = useState<Subject[]>([]);

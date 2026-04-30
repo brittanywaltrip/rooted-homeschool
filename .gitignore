@@ -41,3 +41,13 @@ yarn-error.log*
 next-env.d.ts
 .env*.local
 public/hero-video.mp4
+
+# Capacitor
+ios/App/Pods
+ios/App/build
+android/.gradle
+android/app/build
+android/build
+android/local.properties
+android/.idea
+android/captures
