@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { signedPhotoUrlsAdmin } from "@/lib/photo-url";
 import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
+import { canSendMarketingEmail } from "@/lib/email/can-send";
+import { buildFamilyListUnsubscribeHeaders } from "@/lib/email/list-unsubscribe";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,7 @@ export async function GET(req: NextRequest) {
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   let sent = 0;
+  let skipped = 0;
 
   // Get all active, opted-in invites
   const { data: invites } = await supabaseAdmin
@@ -21,7 +24,7 @@ export async function GET(req: NextRequest) {
     .eq("email_opt_out", false);
 
   if (!invites || invites.length === 0) {
-    return NextResponse.json({ sent: 0 });
+    return NextResponse.json({ sent: 0, skipped: 0 });
   }
 
   // Group invites by user_id to batch memory queries
@@ -32,6 +35,17 @@ export async function GET(req: NextRequest) {
   }
 
   for (const [userId, ownerInvites] of byOwner) {
+    // Owner-side gate: don't send the digest about a family whose owner has
+    // unsubscribed from marketing email. The invitees opted in via
+    // family_invites.email_opt_out separately, but it's a courtesy not to
+    // flood viewers with content from someone who's quitting our emails.
+    const ownerGate = await canSendMarketingEmail(userId, "family_digest", supabaseAdmin);
+    if (!ownerGate.allowed) {
+      skipped += ownerInvites.length;
+      console.debug(`[family-digest] skipped owner ${userId}: ${ownerGate.reason}`);
+      continue;
+    }
+
     // Check if mom is paid
     const { data: profile } = await supabaseAdmin
       .from("profiles")
@@ -111,6 +125,8 @@ export async function GET(req: NextRequest) {
           wins.map((w: string) => `<p style="color:#7a6f65;margin:0 0 4px;">• ${w}</p>`).join("")
         : "";
 
+      const listUnsubHeaders = buildFamilyListUnsubscribeHeaders(inv.token);
+
       try {
         const result = await sendResendTemplate(inv.email, TEMPLATES.familyDigest, {
           recipientName: inv.viewer_name ?? "Friend",
@@ -120,7 +136,7 @@ export async function GET(req: NextRequest) {
           highlights: highlightsHtml,
           familyUrl: viewUrl,
           unsubscribeUrl,
-        }, "Rooted <hello@rootedhomeschoolapp.com>");
+        }, "Rooted <hello@rootedhomeschoolapp.com>", undefined, listUnsubHeaders);
         if (result.ok) sent++;
         else console.error(`Digest email error for ${inv.email}:`, result.error);
       } catch (err) {
@@ -129,6 +145,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ sent });
+  return NextResponse.json({ sent, skipped });
 }
 

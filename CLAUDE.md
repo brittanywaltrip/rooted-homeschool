@@ -130,10 +130,21 @@ Step 5: Done + Brittany founder closing moment
 - No emoji overuse — meaningful only
 
 ## Database key tables
-- profiles: user settings, plan_type, school_days, family_photo_url
+- profiles: user settings, plan_type, school_days (text[] of weekday labels:
+  "monday".."sunday"), family_photo_url, last_catchup_dismissed_at
 - children: name, color, sort_order
-- lessons: scheduled_date, completed, curriculum_goal_id
-- curriculum_goals: curriculum_name, total_lessons, current_lesson
+- lessons: completed, curriculum_goal_id, lesson_number. scheduled_date and
+  date are now CACHES (Path A queue scheduling, May 2026), not the source
+  of truth for what to render. Today / Plan read from
+  curriculum_goals.current_lesson + lessons_per_day + school_days. Old code
+  paths still write the cache columns; new read code ignores them.
+  vacation_blocks rows scoped by user_id define break ranges. Queue
+  projector skips these dates. Manual completions are still allowed on
+  break days and advance current_lesson normally.
+- curriculum_goals: curriculum_name, total_lessons, current_lesson,
+  lessons_per_day, school_days (text[] of weekday labels: "Mon".."Sun",
+  defaults to Mon-Fri; null/empty also normalizes to Mon-Fri at the read
+  boundary)
 - memories: unified memory table (photo/book/project/field_trip/art/milestone)
 - app_events: legacy memory table (backward compat, still in use)
 - resources: category (weekly_picks, easy_win, discounts, field_trips, printables, science)
@@ -208,13 +219,23 @@ Curriculum planning + lesson scheduling. Contains:
 - Lesson checklist (tap to complete)
 - Course Progress / Finish Line pacing (PAID) —
   set total lessons, school days, target date.
-  Rooted auto-schedules forward at create time.
-  Missed lessons stay where they are until mom
-  reschedules them (no silent rescheduling).
-  Logging an extra lesson marks it complete with
-  today's date. It does NOT reshuffle the future
-  schedule. Any compression / shift UI lives on
-  Plan (TBD design).
+  Schedule is QUEUE-BASED (Path A, May 2026):
+  source of truth is curriculum_goals.current_lesson
+  + lessons_per_day + school_days. Today / Plan
+  project forward live from the queue.
+  - Today shows current_lesson + 1 .. current_lesson
+    + lessons_per_day on a school day; nothing on a
+    non-school day.
+  - Mark a lesson complete: current_lesson advances 1.
+  - Complete extra: current_lesson jumps; future
+    block shifts EARLIER as a whole, finish date
+    moves in.
+  - Complete nothing today: current_lesson does not
+    move; tomorrow re-shows today's lesson; future
+    block shifts LATER as a whole, finish date moves
+    out.
+  - Lessons NEVER appear out of order. Manual
+    queue reordering is a future PR.
   Breaks pause and resume lessons.
 - Progress Report (visible to all, DOWNLOAD paid) —
   shows total school hours + individual lesson log.

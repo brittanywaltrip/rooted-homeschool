@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { resendSuppress } from '@/lib/email/resend-suppression'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,19 +16,26 @@ export async function POST(req: NextRequest) {
 
     const cleanEmail = email.trim().toLowerCase()
 
-    // Find user by email
     const { data: listData } = await supabase.auth.admin.listUsers()
     const matchedUser = listData?.users?.find(
       (u) => u.email?.toLowerCase() === cleanEmail
     )
 
     if (matchedUser) {
-      // Set email_unsubscribed flag on profile
       await supabase
         .from('profiles')
         .update({ email_unsubscribed: true })
         .eq('id', matchedUser.id)
     }
+
+    // Audit trail row covers both matched and unmatched paths so we have a
+    // record even if the email never had a profile.
+    await supabase.from('email_suppressions').insert({
+      email: cleanEmail,
+      reason: 'user_unsubscribe',
+      source: 'click_through_form',
+    })
+    await resendSuppress(cleanEmail)
 
     // Always return success (don't reveal if email exists)
     return NextResponse.json({ ok: true })

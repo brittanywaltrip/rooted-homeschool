@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { posthog } from '@/lib/posthog'
 import { normalizeAffiliateCode } from '@/lib/referrals'
+import { copyToClipboard } from '@/lib/clipboard'
 
 export default function UpgradePage() {
   return (
@@ -21,6 +22,12 @@ function UpgradePageInner() {
   const [error, setError] = useState<string | null>(null)
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
+  // giftCopyState is the Copy link button's UX feedback (staging
+  // commit 56ea41f). Kept on resolve. The countdown state from the
+  // Founding Family deadline timer was dropped — feat/may-1-pricing
+  // intentionally removed it because the deadline (April 30 PDT) has
+  // passed.
+  const [giftCopyState, setGiftCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   // Apply legacy alias (e.g. MILKELYS → MICKEY) at every ingestion source so
   // old shareable links, prior cookies, and prior localStorage values all
   // resolve to the partner's current code before display, tracking, or
@@ -308,10 +315,14 @@ function UpgradePageInner() {
             <span className="flex-1 text-xs text-[#2d2926] truncate font-mono">rootedhomeschoolapp.com/gift</span>
             <button
               type="button"
-              onClick={() => { navigator.clipboard.writeText('https://rootedhomeschoolapp.com/gift'); }}
+              onClick={async () => {
+                const ok = await copyToClipboard('https://rootedhomeschoolapp.com/gift')
+                setGiftCopyState(ok ? 'copied' : 'failed')
+                setTimeout(() => setGiftCopyState('idle'), 2000)
+              }}
               className="shrink-0 text-xs font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors px-2 py-1"
             >
-              Copy link
+              {giftCopyState === 'copied' ? '✓ Copied!' : giftCopyState === 'failed' ? '✗ Try again' : 'Copy link'}
             </button>
           </div>
         </div>

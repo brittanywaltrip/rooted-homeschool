@@ -10,7 +10,10 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, buildLessonDateSnapshot, createInFlightGate, type LessonDateSnapshot, type InFlightGate } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+// TODO: remove after queue scheduling verified in production. Old pinned-date
+// reschedule planners — only consumed by dead functions kept for rollback.
+import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
@@ -22,7 +25,13 @@ import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import ListsSection from "@/app/components/ListsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
-import UnifiedTimeline from "@/app/components/UnifiedTimeline";
+import TodaySchedule from "@/app/components/today/TodaySchedule";
+import CatchUpModal, { type CatchUpEntry, type CatchUpGoal, type CatchUpSubmission } from "@/app/components/CatchUpModal";
+import TodayKidSection from "@/app/components/today/TodayKidSection";
+import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
+import { groupItems } from "@/app/components/today/groupItems";
+import { tintFromHex, darkenHex } from "@/lib/color-tint";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
@@ -40,6 +49,10 @@ type Lesson = {
   hours: number | null;
   minutes_spent: number | null;
   subjects: { name: string; color: string | null } | null;
+  // Fallback subject source — populated even on goals whose lessons have
+  // subject_id = NULL. Loaders join curriculum_goals(subject_label) so
+  // every consumer can pass both into resolveLessonSubject().
+  curriculum_goals?: { subject_label: string | null } | null;
   curriculum_goal_id?: string | null;
   lesson_number?: number | null;
   goal_id?: string | null;
@@ -233,308 +246,6 @@ function FloatingLeaves({ active }: { active: boolean }) {
   );
 }
 
-// ─── Today Lesson Card ────────────────────────────────────────────────────────
-
-type Particle = { id: number; x: number; y: number; color: string; delay: number };
-
-function TodayLessonCard({
-  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, onSkip, onStartEditingNote, onMinutesUpdate, isPartner,
-  editingNoteId, editingNoteText, noteSaveState, noteTextareaRef, onNoteTextChange, onSaveNote, onCancelEditingNote,
-}: {
-  lesson:    Lesson;
-  childObj:  Child | undefined;
-  onToggle:  (id: string, current: boolean) => void;
-  onEdit:    (lesson: Lesson) => void;
-  onDelete:  (id: string) => void;
-  onReschedule: (lesson: Lesson) => void;
-  onSkip:    (lesson: Lesson) => void;
-  onStartEditingNote: (lessonId: string, currentNotes: string | null | undefined) => void;
-  onMinutesUpdate: (id: string, minutes: number) => void;
-  isPartner: boolean;
-  editingNoteId: string | null;
-  editingNoteText: string;
-  noteSaveState: "idle" | "saving" | "saved" | "error";
-  noteTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
-  onNoteTextChange: (text: string) => void;
-  onSaveNote: (lessonId: string) => void;
-  onCancelEditingNote: () => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [showLeaf, setShowLeaf] = useState(false);
-  const [particles, setParticles] = useState<Particle[]>([]);
-  const prevCompleted = useRef(lesson.completed);
-
-  useEffect(() => {
-    if (!prevCompleted.current && lesson.completed) {
-      setShowLeaf(true);
-      const t = setTimeout(() => setShowLeaf(false), 1300);
-      prevCompleted.current = true;
-
-      // Tier 1: particle burst from checkbox
-      const colors = ['#5c7f63', '#7a9e7e', '#a8d4aa', '#f0d090', '#d4b896'];
-      const newParticles: Particle[] = Array.from({ length: 10 }, (_, i) => {
-        const angle = (i * 36 + Math.random() * 20 - 10) * (Math.PI / 180);
-        const dist  = 60 + Math.random() * 20;
-        return {
-          id:    i,
-          x:     Math.cos(angle) * dist,
-          y:     Math.sin(angle) * dist,
-          color: colors[i % colors.length],
-          delay: Math.round(Math.random() * 40),
-        };
-      });
-      setParticles(newParticles);
-      const pt = setTimeout(() => setParticles([]), 500);
-
-      return () => { clearTimeout(t); clearTimeout(pt); };
-    }
-    prevCompleted.current = lesson.completed;
-  }, [lesson.completed]);
-
-  const subStyle    = getSubjectStyle(lesson.subjects?.name);
-  const borderColor = childObj?.color ?? subStyle.text;
-
-  function handleClick(e: React.MouseEvent) {
-    if ((e.target as Element).closest("[data-no-toggle]")) return;
-    onToggle(lesson.id, lesson.completed);
-  }
-
-  const isEditingNote = editingNoteId === lesson.id;
-
-  return (
-    <div>
-    <div
-      className={`relative flex items-center gap-3 px-4 border transition-all cursor-pointer select-none ${
-        isEditingNote ? "rounded-t-2xl border-b-0" : "rounded-2xl"
-      } ${
-        lesson.completed
-          ? "bg-[#f0f7f1] border-[#c2dbc5]"
-          : "bg-[#fefcf9] border-[#e8e2d9] active:bg-[#f0f7f1]"
-      }`}
-      style={{ minHeight: "56px", borderLeftWidth: "4px", borderLeftColor: borderColor }}
-      onClick={handleClick}
-    >
-      {/* Circular checkbox */}
-      <div
-        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
-          lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5]"
-        }`}
-      >
-        {lesson.completed && (
-          <svg viewBox="0 0 10 8" className="w-3.5 h-2.5 fill-none">
-            <path d="M1 4l2.5 2.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )}
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0 py-3.5">
-        {lesson.subjects && (
-          <span
-            className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full mb-1"
-            style={{ backgroundColor: subStyle.bg, color: subStyle.text }}
-          >
-            {lesson.subjects.name}
-          </span>
-        )}
-        <div className="flex items-baseline gap-1.5">
-          <p className={`text-sm font-medium leading-snug ${
-            lesson.completed ? "line-through text-[#9a948e]" : "text-[#2d2926]"
-          }`}>
-            {lesson.title || (lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "Untitled")}
-          </p>
-          {lesson.completed && (() => {
-            const mins = lesson.minutes_spent ?? (lesson.hours != null && lesson.hours > 0 ? Math.round(lesson.hours * 60) : null);
-            return (
-              <button
-                type="button"
-                data-no-toggle
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const input = e.currentTarget.nextElementSibling as HTMLInputElement | null;
-                  if (input) { input.style.display = "inline-block"; input.focus(); e.currentTarget.style.display = "none"; }
-                }}
-                className="text-[11px] text-[#b5aca4] hover:text-[#5c7f63] transition-colors shrink-0"
-              >
-                · {mins != null ? `${mins} min` : "add time"}
-              </button>
-            );
-          })()}
-          {lesson.completed && (
-            <input
-              type="number"
-              data-no-toggle
-              defaultValue={lesson.minutes_spent ?? (lesson.hours != null && lesson.hours > 0 ? Math.round(lesson.hours * 60) : "")}
-              placeholder="min"
-              min="0"
-              max="480"
-              style={{ display: "none" }}
-              className="w-14 text-[11px] text-[#2d2926] bg-[#f0ede8] border border-[#e8e2d9] rounded-lg px-1.5 py-0.5 text-center focus:outline-none focus:border-[#5c7f63] shrink-0"
-              onClick={(e) => e.stopPropagation()}
-              onBlur={async (e) => {
-                const val = parseInt(e.target.value) || 0;
-                e.target.style.display = "none";
-                const btn = e.target.previousElementSibling as HTMLElement | null;
-                if (btn) btn.style.display = "";
-                if (val > 0) {
-                  await supabase.from("lessons").update({ minutes_spent: val }).eq("id", lesson.id);
-                  onMinutesUpdate(lesson.id, val);
-                }
-              }}
-              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-            />
-          )}
-        </div>
-        {/* Note preview (collapsed) */}
-        {!isEditingNote && lesson.notes && (
-          <p className="text-[11px] text-[#6b6560] italic mt-1 line-clamp-1">{lesson.notes}</p>
-        )}
-      </div>
-
-      {/* Child bubble */}
-      {childObj && (
-        <div
-          className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white"
-          style={{ backgroundColor: childObj.color ?? "#5c7f63" }}
-          data-no-toggle
-        >
-          {childObj.name.charAt(0).toUpperCase()}
-        </div>
-      )}
-
-      {/* Leaf pop animation */}
-      {showLeaf && (
-        <span
-          className="leaf-card-pop absolute text-xl"
-          style={{ right: "48px", top: "4px" }}
-        >
-          🍃
-        </span>
-      )}
-
-      {/* Tier 1: Particle burst */}
-      {particles.map(p => (
-        <span
-          key={p.id}
-          className="particle-burst absolute rounded-full"
-          style={{
-            width: 7,
-            height: 7,
-            left: 29,
-            top: 25,
-            backgroundColor: p.color,
-            animationDelay: `${p.delay}ms`,
-            '--px': `${p.x}px`,
-            '--py': `${p.y}px`,
-          } as React.CSSProperties}
-        />
-      ))}
-
-      {/* 3-dot menu */}
-      {!isPartner && (
-        <div className="relative shrink-0" data-no-toggle>
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-            aria-label="Lesson options"
-            data-no-toggle
-          >
-            <span className="text-base leading-none">···</span>
-          </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
-              <div className="absolute right-0 top-9 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[140px]">
-                <button
-                  onClick={(e) => { e.stopPropagation(); onStartEditingNote(lesson.id, lesson.notes); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                  data-no-toggle
-                >
-                  {lesson.notes ? "📝 Edit note" : "➕ Add a note"}
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onEdit(lesson); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                  data-no-toggle
-                >
-                  ✏️ Edit
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onReschedule(lesson); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                  data-no-toggle
-                >
-                  ⏭ Reschedule
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onSkip(lesson); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                  data-no-toggle
-                >
-                  ⏩ Skip
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(lesson.id); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
-                  data-no-toggle
-                >
-                  🗑 Delete
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-    {/* Inline note editor (parity with Plan page) */}
-    {isEditingNote && (
-      <div
-        className={`px-4 pb-3 pt-1 border border-t-0 rounded-b-2xl ${
-          lesson.completed ? "bg-[#f0f7f1] border-[#c2dbc5]" : "bg-[#fefcf9] border-[#e8e2d9]"
-        }`}
-        style={{ borderLeftWidth: "4px", borderLeftColor: borderColor }}
-      >
-        <textarea
-          ref={noteTextareaRef}
-          value={editingNoteText}
-          onChange={(e) => onNoteTextChange(e.target.value)}
-          placeholder="Prep items, extra activities, reminders..."
-          className="w-full min-h-[52px] max-h-[100px] rounded-lg border border-[#e8e2d9] bg-white p-2 text-[12px] text-[#3c3a37] resize-none focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/30"
-        />
-        <div className="flex items-center gap-2 mt-1">
-          <button
-            onClick={() => onSaveNote(lesson.id)}
-            disabled={noteSaveState === "saving" || noteSaveState === "saved"}
-            aria-live="polite"
-            className={`min-h-[44px] min-w-[88px] text-white text-[13px] font-semibold px-4 py-2 rounded-lg transition-colors ${
-              noteSaveState === "saved" ? "bg-[#5c7f63]" :
-              noteSaveState === "error" ? "bg-[#b91c1c]" :
-              noteSaveState === "saving" ? "bg-[#2D5A3D] opacity-70" :
-              "bg-[#2D5A3D] hover:bg-[var(--g-deep)]"
-            }`}
-          >
-            {noteSaveState === "saving" ? "Saving…" :
-             noteSaveState === "saved" ? "Saved ✓" :
-             noteSaveState === "error" ? "Try again" :
-             "Save"}
-          </button>
-          <button
-            onClick={onCancelEditingNote}
-            disabled={noteSaveState === "saving"}
-            className="min-h-[44px] text-[13px] text-[#8a8580] font-medium px-3 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          {noteSaveState === "error" && (
-            <span className="text-[11px] text-[#b91c1c]">Couldn&apos;t save — try again</span>
-          )}
-        </div>
-      </div>
-    )}
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 type FamilyNotification = {
@@ -695,7 +406,7 @@ export default function TodayPage() {
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [showExtraLessons, setShowExtraLessons] = useState(false);
-  type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; subjects: { name: string; color: string | null } | null };
+  type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; lesson_number?: number | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
   const [upcomingLessons, setUpcomingLessons] = useState<UpcomingLesson[]>([]);
   const [extraChecked, setExtraChecked] = useState<Set<string>>(new Set());
   const [savingExtra, setSavingExtra] = useState(false);
@@ -771,6 +482,17 @@ export default function TodayPage() {
   const [goalSchoolDaysMap, setGoalSchoolDaysMap] = useState<Map<string, string[]>>(new Map());
   const [showMissedSheet, setShowMissedSheet] = useState(false);
   const [missedSheetSubmitting, setMissedSheetSubmitting] = useState(false);
+
+  // ── Catch-up modal (queue-based scheduling, Path A) ───────────────────────
+  // Shown when the family has had a 5+ day gap with no completed lessons.
+  // Lists what *would have been* due in the gap so mom can check off what
+  // she actually did. Submit advances current_lesson per goal; dismiss
+  // leaves the queue alone so Today renders the next-in-queue lesson and
+  // the schedule effectively block-shifts forward.
+  const [showCatchUp, setShowCatchUp] = useState(false);
+  const [catchUpGoals, setCatchUpGoals] = useState<CatchUpGoal[]>([]);
+  const [catchUpEntriesByGoal, setCatchUpEntriesByGoal] = useState<Map<string, CatchUpEntry[]>>(new Map());
+  const [catchUpLastCompletion, setCatchUpLastCompletion] = useState<string | null>(null);
 
   // ── Open capture menu from URL param (used by other pages) ─────────────────
   useEffect(() => {
@@ -897,7 +619,7 @@ export default function TodayPage() {
       profileResult,
       authResult,
       childrenResult,
-      todayLessonsResult,
+      _todayLessonsResult,
       allLessonsResult,
       recentLessonsResult,
       completedResult,
@@ -916,12 +638,18 @@ export default function TodayPage() {
       lastMemResult,
       tier1Result,
       todayStoryResult,
-      goalEmojiResult,
+      curriculumGoalsResult,
     ] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, last_catchup_dismissed_at").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id, notes").eq("user_id", effectiveUserId).or(`date.eq.${today},scheduled_date.eq.${today}`),
+      // TODO: remove after queue scheduling verified in production. Old
+      // pinned-date Today loader. Replaced by queue projection: see Phase 1.5
+      // below where curriculumGoalsResult feeds computeTodayLessons() and
+      // we then fetch matching rows by (curriculum_goal_id, lesson_number).
+      // Kept as a tombstone (resolves to null data) so the destructure
+      // index slot stays stable for one-line rollback.
+      Promise.resolve({ data: null, error: null }),
       supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
       supabase.from("lessons").select("date, scheduled_date, completed").eq("user_id", effectiveUserId).gte("scheduled_date", localDateStr(thirtyDaysAgo)),
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
@@ -931,7 +659,7 @@ export default function TodayPage() {
       supabase.from("app_events").select("id, type, payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_photo"]).filter("payload->>date", "eq", today),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("vacation_blocks").select("name, end_date, start_date").eq("user_id", effectiveUserId),
-      supabase.from("lessons").select("title, scheduled_date, child_id, subjects(name)").eq("user_id", effectiveUserId).eq("completed", false).gte("scheduled_date", localDateStr(tomorrow)).lte("scheduled_date", localDateStr(twoWeeks)).order("scheduled_date"),
+      supabase.from("lessons").select("title, scheduled_date, child_id, subjects(name), curriculum_goals(subject_label)").eq("user_id", effectiveUserId).eq("completed", false).gte("scheduled_date", localDateStr(tomorrow)).lte("scheduled_date", localDateStr(twoWeeks)).order("scheduled_date"),
       supabase.from("memories").select("id").eq("user_id", effectiveUserId).gte("date", syStart),
       supabase.from("memories").select("id").eq("user_id", effectiveUserId).in("type", ["photo", "drawing"]),
       supabase.from("memories").select("id").eq("user_id", effectiveUserId).eq("include_in_book", true).gte("date", syStart),
@@ -940,17 +668,19 @@ export default function TodayPage() {
       supabase.from("memories").select("id, type, title, date, child_id, photo_url").eq("user_id", effectiveUserId).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("memories").select("id, title, date, child_id, photo_url").eq("user_id", effectiveUserId).gte("date", localDateStr(otdStart)).lte("date", localDateStr(otdEnd)).order("date", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("memories").select("id, type, title, caption, child_id, photo_url, include_in_book, created_at").eq("user_id", effectiveUserId).eq("date", today).order("created_at", { ascending: false }),
-      supabase.from("curriculum_goals").select("id, icon_emoji, school_days").eq("user_id", effectiveUserId),
+      // Curriculum goals — full config for queue-based scheduling. The same
+      // query also feeds the icon emoji + per-goal school_days lookups that
+      // used to be its only purpose.
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time").eq("user_id", effectiveUserId),
     ]);
 
-    // Missed = incomplete lessons whose scheduled_date is before today. Fetched
-    // separately so it doesn't block the main dashboard render on cold start.
-    const missedResult = await supabase.from("lessons")
-      .select("id, title, completed, child_id, hours, minutes_spent, scheduled_date, date, subjects(name, color), curriculum_goal_id, lesson_number, goal_id, notes")
-      .eq("user_id", effectiveUserId)
-      .eq("completed", false)
-      .lt("scheduled_date", today)
-      .order("scheduled_date", { ascending: true });
+    // TODO: remove after queue scheduling verified in production. The
+    // missed-lesson concept does not exist under queue projection — when
+    // mom misses a day, current_lesson does not advance and tomorrow shows
+    // the same lesson. Kept as an empty-array tombstone so downstream
+    // setMissedLessons([]) keeps the existing prop chain intact for one-
+    // line rollback.
+    const missedResult = { data: [] as MissedLesson[] };
 
     // ── Phase 2: Process all results (no awaits) ────────────────────────
 
@@ -1056,31 +786,202 @@ export default function TodayPage() {
     const childrenData = childrenResult.data;
     setChildren(capitalizeChildNames(childrenData ?? []));
 
-    // Today's lessons — enrich with curriculum emoji
-    const lessonsData = todayLessonsResult.data;
+    // Today's lessons — projected from curriculum goal queue position.
+    // Source of truth is curriculum_goals.current_lesson + lessons_per_day +
+    // school_days. We project today's lessons via computeTodayLessons, then
+    // fetch matching rows by (curriculum_goal_id, lesson_number) for the
+    // display fields (notes, subject, etc). scheduled_date is no longer
+    // read for projection; it remains in the rows as a cache.
+    type GoalRow = {
+      id: string;
+      icon_emoji: string | null;
+      school_days: string[] | null;
+      current_lesson: number;
+      total_lessons: number;
+      lessons_per_day: number;
+      child_id: string | null;
+      subject_label: string | null;
+      curriculum_name: string;
+      default_minutes: number;
+      scheduled_start_time: string | null;
+    };
+    const goalRows = (curriculumGoalsResult.data ?? []) as GoalRow[];
     const emojiMap = new Map<string, string>();
     const schoolDaysMap = new Map<string, string[]>();
-    for (const g of (goalEmojiResult.data ?? []) as { id: string; icon_emoji: string | null; school_days: string[] | null }[]) {
+    const goalById = new Map<string, GoalRow>();
+    for (const g of goalRows) {
       if (g.icon_emoji) emojiMap.set(g.id, g.icon_emoji);
       if (g.school_days && g.school_days.length > 0) schoolDaysMap.set(g.id, g.school_days);
+      goalById.set(g.id, g);
     }
-    setCurriculumGoalsCount(goalEmojiResult.data?.length ?? 0);
+    setCurriculumGoalsCount(goalRows.length);
     setGoalSchoolDaysMap(schoolDaysMap);
-    const loadedLessons = ((lessonsData as unknown as Lesson[]) ?? []).map(l => ({
-      ...l,
+
+    // Vacation blocks for the queue projector. The system never
+    // schedules onto a break day; mom can still manually log lessons
+    // there (mark-complete bypasses the projector). Loaded in Phase 1
+    // alongside goals so this is the same round trip.
+    const vacationBlocks: SchedVacationBlock[] = ((vacBlocksResult.data ?? []) as { start_date: string; end_date: string }[])
+      .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+
+    // Project today's lessons across all active goals.
+    const goalConfigs: CurriculumGoalConfig[] = goalRows.map((g) => ({
+      id: g.id,
+      total_lessons: g.total_lessons,
+      lessons_per_day: g.lessons_per_day,
+      school_days: g.school_days,
+      current_lesson: g.current_lesson,
+    }));
+    const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks);
+
+    // Fetch the lesson rows matching the projection so we can hydrate
+    // display fields (title, notes, completion state, subject join). We
+    // also fetch any one-off lessons (no curriculum_goal_id) that mom
+    // manually pinned to today — those still live by date.
+    type LoadedLessonRow = {
+      id: string;
+      title: string;
+      completed: boolean;
+      child_id: string;
+      hours: number | null;
+      minutes_spent: number | null;
+      subjects: { name: string; color: string | null } | null;
+      curriculum_goals: { subject_label: string | null } | null;
+      curriculum_goal_id: string | null;
+      lesson_number: number | null;
+      goal_id: string | null;
+      notes: string | null;
+    };
+    const projectedGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
+    const projectedNumbers = Array.from(new Set(projected.map((p) => p.lesson_number)));
+    const [projectedRowsResult, oneOffRowsResult] = await Promise.all([
+      projectedGoalIds.length > 0
+        ? supabase
+            .from("lessons")
+            .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes")
+            .eq("user_id", effectiveUserId)
+            .in("curriculum_goal_id", projectedGoalIds)
+            .in("lesson_number", projectedNumbers)
+        : Promise.resolve({ data: [] as unknown[] }),
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes")
+        .eq("user_id", effectiveUserId)
+        .is("curriculum_goal_id", null)
+        .or(`date.eq.${today},scheduled_date.eq.${today}`),
+    ]);
+    const projectedRows = ((projectedRowsResult.data ?? []) as unknown as LoadedLessonRow[]).filter((r) =>
+      // Only keep rows that match a projected (goal_id, lesson_number) pair —
+      // the IN/IN filter widens past the cartesian product so we narrow client-side.
+      projected.some((p) => p.goal_id === r.curriculum_goal_id && p.lesson_number === r.lesson_number)
+    );
+    const oneOffRows = (oneOffRowsResult.data ?? []) as unknown as LoadedLessonRow[];
+
+    // Order the projected rows to match the projection sequence (queue
+    // order). One-off lessons are appended in their existing date order.
+    const rowKey = (r: LoadedLessonRow) => `${r.curriculum_goal_id}|${r.lesson_number}`;
+    const projectedRowMap = new Map(projectedRows.map((r) => [rowKey(r), r]));
+    const orderedProjectedRows: LoadedLessonRow[] = [];
+    for (const p of projected) {
+      const r = projectedRowMap.get(`${p.goal_id}|${p.lesson_number}`);
+      if (r) orderedProjectedRows.push(r);
+      // If a projection has no matching row, the lesson hasn't been pre-
+      // generated. Skip silently — recomputeCurrentLesson on completion
+      // will still advance the queue from whatever exists. Pre-generation
+      // by CurriculumWizard means this case is rare; logging here would
+      // spam in normal use.
+    }
+
+    const loadedLessons = [...orderedProjectedRows, ...oneOffRows].map((l) => ({
+      ...(l as unknown as Lesson),
       icon_emoji: l.curriculum_goal_id ? (emojiMap.get(l.curriculum_goal_id) ?? "📚") : null,
     }));
     setLessons(loadedLessons);
 
-    // Missed lessons (past-dated incomplete) for the "From earlier" section.
-    const missedRaw = (missedResult.data ?? []) as unknown as MissedLesson[];
-    const missedEnriched = missedRaw.map(l => ({
-      ...l,
-      icon_emoji: l.curriculum_goal_id ? (emojiMap.get(l.curriculum_goal_id) ?? "📚") : null,
-    }));
-    setMissedLessons(missedEnriched);
+    // TODO: remove after queue scheduling verified in production. Missed
+    // lessons no longer exist under queue projection — see comment above
+    // missedResult tombstone. Kept as setMissedLessons([]) so the rest of
+    // the UI tree (collapsed under feature-gate) doesn't break during the
+    // transition.
+    setMissedLessons([]);
     setHasAnyLessons((allLessonsResult.data?.length ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
+
+    // ── Catch-up modal eligibility (Path A queue scheduling) ─────────────
+    // Show the modal when:
+    //   (a) there's at least one active goal,
+    //   (b) the family's most recent completion is 5+ calendar days old
+    //       (or there's never been one — first-time after wizard),
+    //   (c) profiles.last_catchup_dismissed_at is null OR older than the
+    //       gap start (so dismissing it sticks until the next 5-day gap).
+    void (async () => {
+      const activeGoals = goalRows.filter((g) => g.current_lesson < g.total_lessons);
+      if (activeGoals.length === 0) {
+        setShowCatchUp(false);
+        return;
+      }
+      const dismissedAtRaw = (profile as { last_catchup_dismissed_at?: string | null } | null)?.last_catchup_dismissed_at ?? null;
+      const dismissedAt = dismissedAtRaw ? new Date(dismissedAtRaw) : null;
+
+      const { data: lastCompRows } = await supabase
+        .from("lessons")
+        .select("completed_at")
+        .eq("user_id", effectiveUserId)
+        .eq("completed", true)
+        .not("completed_at", "is", null)
+        .order("completed_at", { ascending: false })
+        .limit(1);
+      const lastCompletedAtIso = (lastCompRows?.[0] as { completed_at: string | null } | undefined)?.completed_at ?? null;
+      const lastCompletedAt = lastCompletedAtIso ? new Date(lastCompletedAtIso) : null;
+
+      const todayMid = new Date(today + "T00:00:00");
+      const gapStart = lastCompletedAt
+        ? (() => { const d = new Date(lastCompletedAt); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 1); return d; })()
+        : todayMid; // never completed → no gap to show
+      const gapDays = Math.max(0, Math.floor((todayMid.getTime() - gapStart.getTime()) / 86400000));
+
+      // Hide if there's never been any completion at all — that's a brand
+      // new user, not someone returning after a gap. The wizard celebrates
+      // its own completion path and we don't want to nag empty families.
+      if (!lastCompletedAt) { setShowCatchUp(false); return; }
+      if (gapDays < 5) { setShowCatchUp(false); return; }
+      if (dismissedAt && dismissedAt > gapStart) { setShowCatchUp(false); return; }
+
+      // Compute per-goal catch-up entries. Vacation blocks exclude
+      // break days from the gap so the modal never asks about lessons
+      // during a vacation. If the entire gap is inside a break, the
+      // modal does not appear (entriesByGoal stays empty).
+      const entriesByGoal = new Map<string, CatchUpEntry[]>();
+      for (const goal of activeGoals) {
+        const cfg: CurriculumGoalConfig = {
+          id: goal.id,
+          total_lessons: goal.total_lessons,
+          lessons_per_day: goal.lessons_per_day,
+          school_days: goal.school_days,
+          current_lesson: goal.current_lesson,
+        };
+        const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
+        if (entries.length > 0) entriesByGoal.set(goal.id, entries);
+      }
+      if (entriesByGoal.size === 0) { setShowCatchUp(false); return; }
+
+      // Build display goal list with child names.
+      const childById = new Map((childrenData ?? []).map((c: Child) => [c.id, c]));
+      const displayGoals: CatchUpGoal[] = activeGoals
+        .filter((g) => entriesByGoal.has(g.id))
+        .map((g) => ({
+          id: g.id,
+          curriculum_name: g.curriculum_name,
+          subject_label: g.subject_label,
+          child_id: g.child_id,
+          child_name: g.child_id ? (childById.get(g.child_id)?.name ?? null) : null,
+        }));
+
+      setCatchUpGoals(displayGoals);
+      setCatchUpEntriesByGoal(entriesByGoal);
+      setCatchUpLastCompletion(lastCompletedAtIso ? lastCompletedAtIso.slice(0, 10) : null);
+      setShowCatchUp(true);
+    })();
 
     // Auto-select first incomplete child
     const kids = childrenData ?? [];
@@ -1116,7 +1017,7 @@ export default function TodayPage() {
     setAllVacationBlocks((vacBlocks ?? []) as { name: string; start_date: string; end_date: string }[]);
 
     // Upcoming lessons
-    type UpRow = { title: string; scheduled_date: string | null; child_id: string | null; subjects: { name: string } | null };
+    type UpRow = { title: string; scheduled_date: string | null; child_id: string | null; subjects: { name: string } | null; curriculum_goals?: { subject_label: string | null } | null };
     const upcomingData = upcomingResult.data;
     if (upcomingData && upcomingData.length > 0) {
       const rows = upcomingData as unknown as UpRow[];
@@ -1127,7 +1028,7 @@ export default function TodayPage() {
         lessons: dayRows.map((l) => ({
           title:       l.title,
           childId:     l.child_id,
-          subjectName: l.subjects?.name ?? null,
+          subjectName: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label),
         })),
       });
       const dayMap = new Map<string, number>();
@@ -1332,6 +1233,82 @@ export default function TodayPage() {
     const { data: { session } } = await supabase.auth.getSession();
     return session?.access_token ?? null;
   }, []);
+
+  // ── Catch-up modal handlers (queue-based scheduling) ──────────────────
+  const [catchUpToast, setCatchUpToast] = useState(false);
+
+  async function handleCatchUpSubmit(submission: CatchUpSubmission) {
+    if (!effectiveUserId) return;
+    // For each checked entry, mark the matching lesson row complete on
+    // the gap day it would have been due. The row exists in production
+    // because CurriculumWizard pre-generates lesson_number 1..total at
+    // curriculum creation. If a row is missing for any reason, fall
+    // back to inserting a new row keyed by (curriculum_goal_id,
+    // lesson_number).
+    const goalIds = Array.from(new Set(submission.done.map((d) => d.goal_id)));
+    for (const entry of submission.done) {
+      const completedAtIso = `${entry.date}T12:00:00Z`;
+      const { data: existing } = await supabase
+        .from("lessons")
+        .select("id")
+        .eq("user_id", effectiveUserId)
+        .eq("curriculum_goal_id", entry.goal_id)
+        .eq("lesson_number", entry.lesson_number)
+        .maybeSingle();
+      if (existing) {
+        await supabase.from("lessons").update({
+          completed: true,
+          completed_at: completedAtIso,
+          date: entry.date,
+          scheduled_date: entry.date,
+        }).eq("id", (existing as { id: string }).id);
+      } else {
+        // Fall back to insert. Title/subject hydrated from the goal so
+        // the row renders correctly in history. is_backfill marks this
+        // as a catch-up so reports can distinguish if needed.
+        const goal = catchUpGoals.find((g) => g.id === entry.goal_id);
+        const goalRow = await supabase.from("curriculum_goals").select("child_id, subject_label, default_minutes, subject_id").eq("id", entry.goal_id).maybeSingle();
+        const childId = (goalRow.data as { child_id?: string | null })?.child_id ?? null;
+        const subjectId = (goalRow.data as { subject_id?: string | null })?.subject_id ?? null;
+        const defaultMinutes = (goalRow.data as { default_minutes?: number | null })?.default_minutes ?? 30;
+        await supabase.from("lessons").insert({
+          user_id: effectiveUserId,
+          curriculum_goal_id: entry.goal_id,
+          lesson_number: entry.lesson_number,
+          title: `${goal?.subject_label ?? goal?.curriculum_name ?? "Lesson"} — Lesson ${entry.lesson_number}`,
+          completed: true,
+          completed_at: completedAtIso,
+          date: entry.date,
+          scheduled_date: entry.date,
+          child_id: childId,
+          subject_id: subjectId,
+          minutes_spent: defaultMinutes,
+          hours: defaultMinutes / 60,
+          is_backfill: true,
+        });
+      }
+    }
+    // Advance current_lesson per affected goal.
+    for (const goalId of goalIds) {
+      await recomputeCurrentLesson(supabase, goalId);
+    }
+    // Persist dismissal so we don't re-prompt for this gap window.
+    await supabase.from("profiles").update({ last_catchup_dismissed_at: new Date().toISOString() }).eq("id", effectiveUserId);
+    setShowCatchUp(false);
+    setCatchUpToast(true);
+    setTimeout(() => setCatchUpToast(false), 2500);
+    // Order matters for the regression guard: loadData first, then story.
+    await loadData();
+    await refreshTodayStory();
+  }
+
+  async function handleCatchUpDismiss() {
+    if (!effectiveUserId) return;
+    await supabase.from("profiles").update({ last_catchup_dismissed_at: new Date().toISOString() }).eq("id", effectiveUserId);
+    setShowCatchUp(false);
+    // No data refresh needed — Today already projects the next-in-queue
+    // lessons, and current_lesson didn't change.
+  }
 
   async function refreshTodayStory() {
     if (!effectiveUserId) return;
@@ -1692,18 +1669,114 @@ export default function TodayPage() {
 
   async function openExtraLessons() {
     if (!effectiveUserId) return;
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + 14);
-    const futureStr = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, "0")}-${String(futureDate.getDate()).padStart(2, "0")}`;
-    const { data } = await supabase
-      .from("lessons")
-      .select("id, title, child_id, scheduled_date, curriculum_goal_id, subjects(name, color)")
-      .eq("user_id", effectiveUserId)
-      .eq("completed", false)
-      .gt("scheduled_date", today)
-      .lte("scheduled_date", futureStr)
-      .order("scheduled_date");
-    setUpcomingLessons((data as unknown as UpcomingLesson[]) ?? []);
+
+    // Queue-based "next batch" picker (Path A). Today's allocation
+    // (current_lesson + 1 .. current_lesson + lessons_per_day) is
+    // already on the Today schedule and must NOT appear here. The
+    // modal projects the BATCH AFTER today onto upcoming school days,
+    // skipping vacation blocks, and shows lessons grouped by kid then
+    // subject in ascending lesson_number order.
+    const [{ data: goalsRaw }, { data: vacsRaw }] = await Promise.all([
+      supabase
+        .from("curriculum_goals")
+        .select("id, total_lessons, lessons_per_day, school_days, current_lesson, child_id, subject_label")
+        .eq("user_id", effectiveUserId),
+      supabase
+        .from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", effectiveUserId),
+    ]);
+    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null; child_id: string | null; subject_label: string | null }[];
+    const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
+      .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+
+    // Build per-goal "future pool" of lessons that aren't part of
+    // today's allocation. Approach: project from the real
+    // current_lesson starting TODAY, then drop any entries whose
+    // projected date == today (those ARE today's allocation and live
+    // on the Today schedule). Whatever's left is the future pool the
+    // modal can offer.
+    //
+    // Why not just `current_lesson + lessons_per_day` and project from
+    // tomorrow? Because if today is a break day or a non-school day,
+    // today consumed zero allocation — the offset would skip real
+    // lessons that mom never got.
+    const todayMid = new Date();
+    todayMid.setHours(0, 0, 0, 0);
+    const todayKey = `${todayMid.getFullYear()}-${String(todayMid.getMonth() + 1).padStart(2, "0")}-${String(todayMid.getDate()).padStart(2, "0")}`;
+    type Proj = { goal_id: string; lesson_number: number; date: string };
+    const allProjected: Proj[] = [];
+    for (const g of goals) {
+      const total = g.total_lessons ?? 0;
+      const cur = g.current_lesson ?? 0;
+      const perDay = Math.max(1, g.lessons_per_day ?? 1);
+      if (total <= 0 || cur >= total) continue;
+      const cfg: CurriculumGoalConfig = {
+        id: g.id,
+        total_lessons: total,
+        lessons_per_day: perDay,
+        school_days: g.school_days,
+        current_lesson: cur,
+      };
+      // 22 days ahead = today + 21 forward. Drop today's slots (those
+      // are the current allocation already on the Today schedule).
+      const projected = computeNextLessonsForGoal(cfg, todayMid, 22, vacationBlocks)
+        .filter((p) => p.date !== todayKey);
+      allProjected.push(...projected);
+    }
+
+    // Hydrate display fields from real lesson rows.
+    const projGoalIds = Array.from(new Set(allProjected.map((p) => p.goal_id)));
+    const projNumbers = Array.from(new Set(allProjected.map((p) => p.lesson_number)));
+    const { data: rowData } = projGoalIds.length > 0
+      ? await supabase
+          .from("lessons")
+          .select("id, title, child_id, scheduled_date, curriculum_goal_id, lesson_number, subjects(name, color), curriculum_goals(subject_label)")
+          .eq("user_id", effectiveUserId)
+          .in("curriculum_goal_id", projGoalIds)
+          .in("lesson_number", projNumbers)
+      : { data: [] as unknown[] };
+    type RowLite = { id: string; title: string; child_id: string | null; scheduled_date: string | null; curriculum_goal_id: string | null; lesson_number: number | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
+    const rowMap = new Map<string, RowLite>();
+    for (const r of (rowData ?? []) as RowLite[]) {
+      rowMap.set(`${r.curriculum_goal_id}|${r.lesson_number}`, r);
+    }
+
+    // Sort: kid → subject → lesson_number ascending. Override
+    // scheduled_date with the projected date so the modal renders the
+    // queue position, not the stale cache.
+    const out: UpcomingLesson[] = [];
+    for (const p of allProjected) {
+      const r = rowMap.get(`${p.goal_id}|${p.lesson_number}`);
+      if (!r) continue; // missing row — skip silently (wizard pre-generates)
+      out.push({
+        id: r.id,
+        title: r.title,
+        child_id: r.child_id ?? "",
+        scheduled_date: p.date,
+        curriculum_goal_id: r.curriculum_goal_id,
+        lesson_number: r.lesson_number,
+        subjects: r.subjects,
+        curriculum_goals: r.curriculum_goals,
+      } as UpcomingLesson);
+    }
+
+    // Stable order: child_id (matches Today layout), then
+    // subject_label, then lesson_number ascending. The group renderer
+    // walks this in-order so each subject is a clean numerical run.
+    out.sort((a, b) => {
+      const aCid = a.child_id ?? "";
+      const bCid = b.child_id ?? "";
+      if (aCid !== bCid) return aCid.localeCompare(bCid);
+      const aSubj = resolveLessonSubject(a.subjects?.name, a.curriculum_goals?.subject_label) ?? "";
+      const bSubj = resolveLessonSubject(b.subjects?.name, b.curriculum_goals?.subject_label) ?? "";
+      if (aSubj !== bSubj) return aSubj.localeCompare(bSubj);
+      const aN = a.lesson_number ?? 0;
+      const bN = b.lesson_number ?? 0;
+      return aN - bN;
+    });
+
+    setUpcomingLessons(out);
     setExtraChecked(new Set());
     setShowExtraLessons(true);
     posthog.capture('log_extra_lessons_opened', { user_plan: isPro ? 'paid' : 'free' });
@@ -1727,17 +1800,29 @@ export default function TodayPage() {
         if (goalRow) mins = (goalRow as { default_minutes?: number }).default_minutes ?? 30;
       }
 
-      // Mark complete with today's date. Future incomplete lessons are NOT
-      // shifted — that bunched the schedule onto fewer days (Kendra had 12
-      // Duolingo lessons stacked from this). Any compression / "finish
-      // earlier" UI lives on Plan (TBD design); Today just records the
-      // completion and walks away.
+      // Mark complete with today's date. Under queue-based scheduling
+      // we don't shift any future dates — completion advances
+      // current_lesson via recomputeCurrentLesson below, and the next
+      // render projects forward from the new queue position.
       await supabase.from("lessons").update({
         completed: true,
         completed_at: new Date().toISOString(),
         date: today,
+        scheduled_date: today,
         minutes_spent: mins,
       }).eq("id", lessonId);
+    }
+
+    // Advance current_lesson per affected goal. Without this, the
+    // queue projector would still include these lessons on the next
+    // render and Today would show them again on Monday.
+    const affectedGoalIds = new Set<string>();
+    for (const lessonId of extraChecked) {
+      const lesson = upcomingLessons.find((l) => l.id === lessonId);
+      if (lesson?.curriculum_goal_id) affectedGoalIds.add(lesson.curriculum_goal_id);
+    }
+    for (const goalId of affectedGoalIds) {
+      await recomputeCurrentLesson(supabase, goalId);
     }
 
     setSavingExtra(false);
@@ -1753,7 +1838,7 @@ export default function TodayPage() {
   function openEdit(lesson: Lesson) {
     setEditingLesson(lesson);
     setEditTitle(lesson.title);
-    setEditSubject(lesson.subjects?.name ?? "");
+    setEditSubject(resolveLessonSubject(lesson.subjects?.name, lesson.curriculum_goals?.subject_label) ?? "");
     setEditHours(lesson.minutes_spent != null ? String(lesson.minutes_spent) : "");
     setEditChildId(lesson.child_id ?? "");
   }
@@ -1984,7 +2069,48 @@ export default function TodayPage() {
       // date columns (loadData fetches them). Undo will restore each missed
       // lesson to its actual prior date, not "today".
       const snapshot = buildLessonDateSnapshot(missedLessons);
-      const { updates } = libPlanAddToNextSchoolDays(missedLessons, getSchoolDaysForLesson, today);
+
+      // Density-aware date picking: fetch lessons_per_day per affected goal
+      // and the existing forward-scheduled incomplete rows, so the planner
+      // can skip dates that are already at capacity for the goal. Without
+      // this the planner stacks missed lessons on top of forward-scheduled
+      // ones (audited 2026-04-30 — see scheduler.ts:planAddToNextSchoolDays).
+      const goalIds = [
+        ...new Set(missedLessons.map((l) => l.curriculum_goal_id).filter(Boolean) as string[]),
+      ];
+      const perDayMap = new Map<string, number>();
+      const density = new Map<string, number>();
+      if (goalIds.length > 0) {
+        const [{ data: goalRows }, { data: existingRows }] = await Promise.all([
+          supabase.from("curriculum_goals").select("id, lessons_per_day").in("id", goalIds),
+          supabase
+            .from("lessons")
+            .select("id, scheduled_date, date, curriculum_goal_id")
+            .in("curriculum_goal_id", goalIds)
+            .eq("completed", false),
+        ]);
+        for (const g of (goalRows ?? []) as { id: string; lessons_per_day: number | null }[]) {
+          perDayMap.set(g.id, g.lessons_per_day ?? 1);
+        }
+        const missedIds = new Set(missedLessons.map((l) => l.id));
+        for (const r of (existingRows ?? []) as { id: string; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null }[]) {
+          if (missedIds.has(r.id)) continue;
+          const d = r.scheduled_date ?? r.date;
+          if (!d || !r.curriculum_goal_id) continue;
+          const key = `${r.curriculum_goal_id}|${d}`;
+          density.set(key, (density.get(key) ?? 0) + 1);
+        }
+      }
+      const getLessonsPerDay = (l: { curriculum_goal_id?: string | null }) =>
+        (l.curriculum_goal_id && perDayMap.get(l.curriculum_goal_id)) || 1;
+
+      const { updates } = libPlanAddToNextSchoolDays(
+        missedLessons,
+        getSchoolDaysForLesson,
+        today,
+        density,
+        getLessonsPerDay,
+      );
       for (let i = 0; i < updates.length; i += 20) {
         await Promise.all(
           updates.slice(i, i + 20).map(({ id, newDate }) =>
@@ -2451,15 +2577,6 @@ export default function TodayPage() {
   const pendingLessons = totalToday > 0 && !allDone;
   const showUpcoming   = !activeVacation && isSchoolDay && subjects.length > 0 && !pendingLessons && !!upcomingDay;
 
-  const childrenWithLessons = children.filter(c => lessons.some(l => l.child_id === c.id));
-
-  // Detect timeline mode: any item today has a scheduled_start_time
-  const hasAnyStartTime = todayActivities.some(a => a.scheduled_start_time != null);
-  // We check curriculum_goals for lessons too — but we don't have that joined here.
-  // For simplicity, use activities' start times as the trigger (curriculum_goals.scheduled_start_time
-  // would require an extra join). Timeline mode activates if ANY activity has a start time.
-  const useTimeline = hasAnyStartTime;
-
   // Combined total for progress bar
   const totalItems = lessons.length + todayActivities.length;
   const doneItems = lessons.filter(l => l.completed).length + todayActivities.filter(a => a.completed).length;
@@ -2480,9 +2597,6 @@ export default function TodayPage() {
     }
     prevUnifiedDoneRef.current = unifiedDone;
   }, [unifiedAllDone, unifiedDone, unifiedTotal, loading, today]);
-
-  // Expanded child panel for lesson swipe
-  const [expandedChild, setExpandedChild] = useState<string | null>(null);
 
   if (loading) {
     return (
@@ -2650,401 +2764,144 @@ export default function TodayPage() {
           to do with them: mark complete, skip, reschedule individually,
           or open the bulk reschedule sheet. Nothing moves silently.
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && missedLessons.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between px-0.5 -mb-1">
-            <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">From earlier</p>
-            <span className="text-[12px] text-[#b5aca4]">
-              {missedLessons.length} lesson{missedLessons.length !== 1 ? "s" : ""}
-            </span>
-          </div>
-          <div className="bg-white rounded-2xl overflow-hidden mt-2" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}>
-            <div className="px-[14px] py-3">
-              {missedLessons.map((lesson, idx) => {
-                const child = children.find(c => c.id === lesson.child_id);
-                const subj = lesson.subjects?.name ?? null;
-                const dateStr = lesson.scheduled_date ?? lesson.date;
-                const dateLabel = dateStr
-                  ? new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
-                  : "";
-                const sub = [subj, child?.name].filter(Boolean).join(" · ");
-                return (
-                  <div
-                    key={lesson.id}
-                    className={`flex items-center gap-3 py-2.5 ${idx < missedLessons.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
-                  >
+      {/* TODO: remove after queue scheduling verified in production.
+          "From earlier" missed-lesson section. Under queue scheduling
+          there are no missed lessons — current_lesson stays put and the
+          same lesson re-appears on Today next school day. Replaced by
+          the catch-up modal (see CatchUpModal below) which only triggers
+          after a 5-day gap. */}
+      {false && !loading && missedLessons.length > 0 && (() => {
+        const missedItems = missedLessons.map((l) => ({
+          id: l.id,
+          kind: "lesson" as const,
+          child_ids: [l.child_id],
+          time: null,
+          duration_minutes: l.minutes_spent,
+          title: l.title,
+          subject_label: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label),
+          lesson_number: l.lesson_number ?? null,
+          completed: l.completed,
+          raw: l,
+        }));
+        const grouped = groupItems(missedItems, children);
+        const childrenLookup = new Map(children.map((c) => [c.id, { id: c.id, name: c.name, color: c.color }]));
+        const onlyKid = children.length === 1;
+
+        return (
+          <div>
+            <div className="flex items-center justify-between px-0.5 -mb-1">
+              <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">From earlier</p>
+              <span className="text-[12px] text-[#b5aca4]">
+                {missedLessons.length} lesson{missedLessons.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="bg-white rounded-2xl overflow-hidden mt-2" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}>
+              <div className="px-3 py-3">
+                {grouped.kids.map((kidSection) => (
+                  <TodayKidSection
+                    key={kidSection.child.id}
+                    section={kidSection}
+                    onlyKid={onlyKid}
+                    isPartner={isPartner}
+                    childrenLookup={childrenLookup}
+                    noteEditor={{
+                      editingNoteId,
+                      editingNoteText,
+                      noteSaveState,
+                      onNoteTextChange: setEditingNoteText,
+                      onSaveNote: saveNote,
+                      onCancelEditingNote: cancelEditingNote,
+                    }}
+                    handlers={{
+                      onToggleLesson: (id) => {
+                        if (isPartner) return;
+                        const m = missedLessons.find((x) => x.id === id);
+                        if (m) markMissedComplete(m);
+                      },
+                      onRescheduleLesson: (id) => {
+                        const m = missedLessons.find((x) => x.id === id);
+                        if (m) openReschedule(m);
+                      },
+                      onSkipLesson: (id) => {
+                        const m = missedLessons.find((x) => x.id === id);
+                        if (m) skipMissedLesson(m);
+                      },
+                      onStartEditingNote: (lessonId, currentNotes) => startEditingNote(lessonId, currentNotes),
+                    }}
+                  />
+                ))}
+                {!isPartner && (
+                  <div className="pt-2 mt-1 border-t border-[#f0ece6]">
                     <button
                       type="button"
-                      onClick={() => { if (!isPartner) markMissedComplete(lesson); }}
-                      aria-label="Mark complete"
-                      className="w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0"
-                      style={{ border: "2px solid #2D5A3D", background: "white" }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[14px] font-medium text-[#2a2520] truncate" style={{ letterSpacing: "-0.2px" }}>
-                        {lesson.title}
-                      </p>
-                      <p className="text-[12px] text-[#8a8580] truncate mt-0.5">
-                        {dateLabel}{sub ? ` · ${sub}` : ""}
-                      </p>
-                    </div>
-                    {!isPartner && (
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => openReschedule(lesson)}
-                          aria-label="Reschedule this lesson"
-                          className="px-2 py-1 text-[12px] font-medium text-[#2D5A3D] hover:text-[var(--g-deep)] transition-colors"
-                        >
-                          Reschedule
-                        </button>
-                        <span aria-hidden="true" className="text-[#cfc9c0]">·</span>
-                        <button
-                          type="button"
-                          onClick={() => skipMissedLesson(lesson)}
-                          aria-label="Skip this lesson"
-                          className="px-2 py-1 text-[12px] font-medium text-[#8a8580] hover:text-[#2d2926] transition-colors"
-                        >
-                          Skip
-                        </button>
-                      </div>
-                    )}
+                      onClick={() => setShowMissedSheet(true)}
+                      className="w-full text-left text-[13px] font-medium text-[#2D5A3D] hover:text-[var(--g-deep)] transition-colors py-1.5"
+                    >
+                      Reschedule these →
+                    </button>
                   </div>
-                );
-              })}
-              {!isPartner && (
-                <div className="pt-2 mt-1 border-t border-[#f0ece6]">
-                  <button
-                    type="button"
-                    onClick={() => setShowMissedSheet(true)}
-                    className="w-full text-left text-[13px] font-medium text-[#2D5A3D] hover:text-[var(--g-deep)] transition-colors py-1.5"
-                  >
-                    Reschedule these →
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
+          </div>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TODAY SCHEDULE — grouped by kid + subject, kid color tints
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && (
+        <div>
+          <TodaySchedule
+            lessons={lessons as never}
+            activities={todayActivities as never}
+            appointments={todayAppointments as never}
+            children={children}
+            isPartner={isPartner}
+            isSchoolDay={isSchoolDay}
+            handlers={{
+              onToggleLesson: (id, completed) => { if (!isPartner) openCheckOffModal(id, completed); },
+              onToggleActivity: (raw) => { if (!isPartner) toggleActivity(raw as TodayActivity); },
+              onToggleAppointment: async (id, completed) => {
+                if (isPartner) return;
+                const token = await getToken();
+                if (!token) return;
+                await fetch("/api/appointments", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ id, completed: !completed }) });
+                loadData();
+              },
+              onEditLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) openEdit(l); },
+              // TODO: remove after queue scheduling verified in production.
+              // Per-lesson reschedule + skip are pinned-date interventions
+              // that the queue model replaces with auto-shift. Manual queue
+              // reordering is a separate future PR.
+              // onRescheduleLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) openReschedule(l); },
+              // onSkipLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) skipLesson(l); },
+              onDeleteLesson: deleteLesson,
+              onStartEditingNote: (lessonId, currentNotes) => startEditingNote(lessonId, currentNotes),
+              onManageAppointment: () => setShowManageSchedule(true),
+              onLogExtra: openExtraLessons,
+              onManage: () => setShowManageSchedule(true),
+              onAddAppt: () => setShowApptWizard(true),
+            }}
+            noteEditor={{
+              editingNoteId,
+              editingNoteText,
+              noteSaveState,
+              onNoteTextChange: setEditingNoteText,
+              onSaveNote: saveNote,
+              onCancelEditingNote: cancelEditingNote,
+            }}
+          />
+          <div className="bg-white rounded-2xl overflow-hidden mt-2" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}>
+            <InlineScheduleTabs
+              children={children}
+              onManage={() => setShowManageSchedule(true)}
+              isPartner={isPartner}
+            />
           </div>
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════
-          UNIFIED TIMELINE — lessons + activities + appointments
-         ═══════════════════════════════════════════════════════════ */}
-      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && (
-        <UnifiedTimeline
-          lessons={lessons as { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null; icon_emoji?: string | null }[]}
-          activities={todayActivities}
-          appointments={todayAppointments}
-          children={children}
-          onToggleLesson={(id, completed) => { if (!isPartner) openCheckOffModal(id, completed); }}
-          onToggleActivity={(a) => { if (!isPartner) toggleActivity(a); }}
-          onToggleAppointment={async (id, completed) => {
-            const token = await getToken();
-            if (!token) return;
-            await fetch("/api/appointments", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ id, completed: !completed }) });
-            loadData();
-          }}
-          onLogExtra={openExtraLessons}
-          onManage={() => setShowManageSchedule(true)}
-          onAddAppt={() => setShowApptWizard(true)}
-          onEditLesson={(id) => { const l = lessons.find(x => x.id === id); if (l) openEdit(l); }}
-          onRescheduleLesson={(id) => { const l = lessons.find(x => x.id === id); if (l) openReschedule(l); }}
-          onSkipLesson={(id) => { const l = lessons.find(x => x.id === id); if (l) skipLesson(l); }}
-          onDeleteLesson={deleteLesson}
-          isPartner={isPartner}
-          upcomingDays={upcomingDays}
-          isSchoolDay={isSchoolDay}
-        />
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════
-          SCHEDULE CARD — detailed lesson management (child tabs, check-off, reschedule)
-         ═══════════════════════════════════════════════════════════ */}
-      {(hasAnyLessons || todayActivities.length > 0) && (() => {
-        const totalLessons = lessons.length;
-        const doneLessons = lessons.filter(l => l.completed).length;
-        const doneActivities = todayActivities.filter(a => a.completed).length;
-        const combinedTotal = totalLessons + todayActivities.length;
-        const combinedDone = doneLessons + doneActivities;
-        const combinedAllDone = combinedTotal > 0 && combinedDone === combinedTotal;
-        const combinedPct = combinedTotal > 0 ? (combinedDone / combinedTotal) * 100 : 0;
-        const uniqueChildIds = new Set([
-          ...lessons.map(l => l.child_id).filter(Boolean),
-          ...todayActivities.flatMap(a => a.child_ids),
-        ]);
-
-        // Build unified item list for both views
-        type ScheduleItem = (
-          | { kind: "lesson"; lesson: Lesson; startTime: number | null }
-          | { kind: "activity"; activity: TodayActivity; startTime: number | null }
-        );
-        const items: ScheduleItem[] = [
-          ...lessons.map(l => ({ kind: "lesson" as const, lesson: l, startTime: null as number | null })),
-          ...todayActivities.map(a => ({ kind: "activity" as const, activity: a, startTime: parseTimeToMinutes(a.scheduled_start_time) })),
-        ];
-
-        // Sort: completed at bottom, then by start time (nulls last), then lessons before activities
-        items.sort((a, b) => {
-          const aDone = a.kind === "lesson" ? a.lesson.completed : a.activity.completed;
-          const bDone = b.kind === "lesson" ? b.lesson.completed : b.activity.completed;
-          if (aDone !== bDone) return aDone ? 1 : -1;
-          const aTime = a.startTime ?? 9999;
-          const bTime = b.startTime ?? 9999;
-          if (aTime !== bTime) return aTime - bTime;
-          return a.kind === "lesson" ? -1 : 1;
-        });
-
-        // For timeline view: separate timed vs flexible items
-        const timedItems = items.filter(i => i.startTime != null);
-        const flexibleItems = items.filter(i => i.startTime == null);
-
-        // Apply shift offset for "Running late?" in timeline
-        const getDisplayTime = (mins: number | null) => {
-          if (mins == null) return null;
-          const shifted = mins + timeShiftOffset;
-          return shifted >= 1440 ? null : shifted; // past midnight → flexible
-        };
-
-        // Only render this card for timeline view (activities with scheduled start times).
-        // The checklist view is fully covered by UnifiedTimeline above.
-        const hasTimelineContent = useTimeline && combinedTotal > 0 && !combinedAllDone;
-        if (!hasTimelineContent) return null;
-
-        return (
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
-            {/* Header — only shown in timeline mode */}
-            {useTimeline && !isPartner && (
-              <div className="flex items-center justify-end px-5 pt-3 pb-2">
-                <button
-                  type="button"
-                  onClick={() => setShowRunningLate(true)}
-                  className="text-xs text-[#5c7f63] font-semibold bg-[#eef3ef] border-none px-2.5 py-1.5 rounded-lg"
-                >
-                  ⏩ Running late?
-                </button>
-              </div>
-            )}
-
-            {/* ── TIMELINE VIEW ──────────────────────────────────── */}
-            {useTimeline && combinedTotal > 0 && !combinedAllDone && (
-              <div className="px-4 pb-3">
-                {/* Timed items */}
-                {timedItems.length > 0 && (
-                  <div className="relative">
-                    {/* Vertical connecting line */}
-                    <div className="absolute left-[33px] top-[14px] bottom-[14px] w-[2px] bg-[#e8e5e0]" />
-                    {timedItems.map((item, idx) => {
-                      const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
-                      const isFirst = !isDone && !timedItems.slice(0, idx).some(i =>
-                        !(i.kind === "lesson" ? i.lesson.completed : i.activity.completed)
-                      );
-                      const displayMins = getDisplayTime(item.startTime);
-                      if (displayMins == null) return null; // shifted past midnight
-
-                      return (
-                        <button
-                          key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
-                          type="button"
-                          onClick={() => {
-                            if (isPartner) return;
-                            if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
-                            else toggleActivity(item.activity);
-                          }}
-                          className="relative w-full flex items-center gap-3 py-2.5 text-left"
-                        >
-                          {/* Time */}
-                          <span className="text-xs font-semibold text-[#b5aca4] w-12 text-right shrink-0">
-                            {formatTime(displayMins)}
-                          </span>
-                          {/* Dot */}
-                          <div className={`relative z-10 flex items-center justify-center shrink-0 ${
-                            isDone
-                              ? "w-[18px] h-[18px] rounded-full bg-[#2D5A3D]"
-                              : isFirst
-                                ? "w-[18px] h-[18px] rounded-full border-2 border-[#2D5A3D] bg-[#e8f0e9] shadow-[0_0_0_3px_rgba(45,90,61,0.15)]"
-                                : "w-[18px] h-[18px] rounded-full border-2 border-[#e0ddd8] bg-white"
-                          }`}>
-                            {isDone && (
-                              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                                <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            )}
-                          </div>
-                          {/* Content */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                                {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
-                                {item.kind === "lesson" ? item.lesson.title : item.activity.name}
-                              </p>
-                              {item.kind === "activity" && (
-                                <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-[#7a6f65] truncate">
-                              {item.kind === "lesson"
-                                ? [item.lesson.subjects?.name, children.find(c => c.id === item.lesson.child_id)?.name].filter(Boolean).join(" · ")
-                                : [formatDuration(item.activity.duration_minutes), ...item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean)].join(" · ")
-                              }
-                            </p>
-                          </div>
-                          {/* Child tag */}
-                          {item.kind === "lesson" && (() => {
-                            const child = children.find(c => c.id === item.lesson.child_id);
-                            return child && uniqueChildIds.size > 1 ? (
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-[#f0ede8] text-[#7a6f65] shrink-0">{child.name}</span>
-                            ) : null;
-                          })()}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Flexible section (no times) */}
-                {flexibleItems.length > 0 && (
-                  <>
-                    {timedItems.length > 0 && (
-                      <div className="flex items-center gap-2 my-2 px-1">
-                        <div className="flex-1 h-px bg-[#e8e5e0]" />
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#b5aca4]">Flexible</span>
-                        <div className="flex-1 h-px bg-[#e8e5e0]" />
-                      </div>
-                    )}
-                    {flexibleItems.map((item, idx) => {
-                      const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
-                      return (
-                        <button
-                          key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
-                          type="button"
-                          onClick={() => {
-                            if (isPartner) return;
-                            if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
-                            else toggleActivity(item.activity);
-                          }}
-                          className={`w-full flex items-center gap-3 py-3 px-1 text-left transition-colors ${idx < flexibleItems.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
-                        >
-                          <div className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                            isDone ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
-                          }`}>
-                            {isDone && (
-                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                                <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                                {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
-                                {item.kind === "lesson" ? item.lesson.title : item.activity.name}
-                              </p>
-                              {item.kind === "activity" && (
-                                <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-[#7a6f65] truncate">
-                              {item.kind === "lesson"
-                                ? item.lesson.subjects?.name || ""
-                                : [formatDuration(item.activity.duration_minutes), ...item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean)].join(" · ")
-                              }
-                            </p>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* ── CHECKLIST VIEW ─────────────────────────────────── */}
-            {!useTimeline && combinedTotal > 0 && !combinedAllDone && (() => {
-              // Auto-flow times when school_start_time is set
-              const showTimes = !!schoolStartTime;
-              let runningMins = 0;
-              if (showTimes && schoolStartTime) {
-                const [hh, mm] = schoolStartTime.split(":").map(Number);
-                runningMins = (hh || 0) * 60 + (mm || 0);
-              }
-              const fmtTime = (mins: number) => {
-                const h = Math.floor(mins / 60) % 12 || 12;
-                const m = mins % 60;
-                const ap = mins < 720 ? "am" : "pm";
-                return m > 0 ? `${h}:${String(m).padStart(2, "0")} ${ap}` : `${h} ${ap}`;
-              };
-
-              return (
-                <div className="px-4 pb-3">
-                  {items.map((item, idx) => {
-                    const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
-                    const durMins = item.kind === "lesson"
-                      ? (item.lesson.minutes_spent ?? 30)
-                      : (item.activity.duration_minutes ?? 60);
-                    const itemTime = showTimes ? fmtTime(runningMins) : null;
-                    if (showTimes) runningMins += durMins;
-
-                    return (
-                      <button
-                        key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
-                        type="button"
-                        onClick={() => {
-                          if (isPartner) return;
-                          if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
-                          else toggleActivity(item.activity);
-                        }}
-                        className={`w-full flex items-center gap-2 py-3 px-1 text-left transition-colors ${idx < items.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
-                      >
-                        {/* Time column */}
-                        {showTimes && (
-                          <span className="text-[#8B7E74] text-xs w-12 text-right shrink-0">{itemTime}</span>
-                        )}
-                        {/* Checkbox */}
-                        <div
-                          className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                            isDone ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
-                          }`}
-                        >
-                          {isDone && (
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                              <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          )}
-                        </div>
-                        {/* Item info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                              {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
-                              {item.kind === "lesson" ? item.lesson.title : item.activity.name}
-                            </p>
-                            {item.kind === "activity" && (
-                              <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-[#7a6f65] truncate">
-                            {item.kind === "lesson"
-                              ? (item.lesson.subjects?.name || "")
-                              : item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean).join(", ")
-                            }
-                          </p>
-                        </div>
-                        {/* Duration right-aligned */}
-                        <span className="text-[11px] text-[#8B7E74] shrink-0">
-                          {durMins >= 60 ? `${Math.floor(durMins / 60)} hr${durMins % 60 > 0 ? ` ${durMins % 60}m` : ""}` : `${durMins} min`}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-
-            {/* Redundant sections removed — covered by UnifiedTimeline status line + header counter */}
-          </div>
-        );
-      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           CAPTURE BUTTON — compact for returning users, big for new
@@ -3712,47 +3569,73 @@ export default function TodayPage() {
               {upcomingLessons.length === 0 ? (
                 <p className="text-sm text-[#7a6f65] text-center py-8">No upcoming lessons in the next 14 days.</p>
               ) : (() => {
-                // Group by child then show lessons
-                const grouped = new Map<string, UpcomingLesson[]>();
+                // Group by child → subject. Lessons within each subject
+                // already arrive in lesson_number ascending order from
+                // openExtraLessons (queue projection sort). Brittany:
+                // "everything should be in numerical order unless a mom
+                // needs a particular lesson moved out of order."
+                const byChild = new Map<string, UpcomingLesson[]>();
                 for (const l of upcomingLessons) {
                   const key = l.child_id ?? "__none__";
-                  if (!grouped.has(key)) grouped.set(key, []);
-                  grouped.get(key)!.push(l);
+                  if (!byChild.has(key)) byChild.set(key, []);
+                  byChild.get(key)!.push(l);
                 }
-                return Array.from(grouped.entries()).map(([childId, childLessons]) => {
+                return Array.from(byChild.entries()).map(([childId, childLessons]) => {
                   const child = children.find(c => c.id === childId);
+                  const kidColor = child?.color ?? "#7a6f65";
+                  const kidTint = tintFromHex(kidColor, 0.25);
+                  const kidDark = darkenHex(kidColor, 0.45);
+                  // Sub-group within child: subject_label → lessons.
+                  const bySubject = new Map<string, UpcomingLesson[]>();
+                  for (const l of childLessons) {
+                    const subj = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label) ?? "Other";
+                    if (!bySubject.has(subj)) bySubject.set(subj, []);
+                    bySubject.get(subj)!.push(l);
+                  }
                   return (
                     <div key={childId} className="mb-5">
-                      {child && <p className="text-xs font-semibold uppercase tracking-widest text-[#9a8f85] mb-2">{child.name}</p>}
-                      <div className="space-y-1">
-                        {childLessons.map(l => (
-                          <button
-                            key={l.id}
-                            type="button"
-                            onClick={() => setExtraChecked(prev => { const n = new Set(prev); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n; })}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${
-                              extraChecked.has(l.id) ? "bg-[#e8f0e9] border border-[#c8ddb8]" : "bg-white border border-[#f0ede8] hover:border-[#e8e2d9]"
-                            }`}
-                          >
-                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                              extraChecked.has(l.id) ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5]"
-                            }`}>
-                              {extraChecked.has(l.id) && <span className="text-white text-[10px] font-bold">✓</span>}
+                      {child && <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: kidDark }}>{child.name}</p>}
+                      {Array.from(bySubject.entries()).map(([subject, subjectLessons]) => {
+                        const subjColor = subjectLessons[0]?.subjects?.color ?? null;
+                        return (
+                          <div key={subject} className="mb-3 last:mb-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: subjColor ?? "#7a6f65" }}>
+                              {subject}
+                            </p>
+                            <div className="space-y-1">
+                              {subjectLessons.map(l => {
+                                const isChecked = extraChecked.has(l.id);
+                                return (
+                                  <button
+                                    key={l.id}
+                                    type="button"
+                                    onClick={() => setExtraChecked(prev => { const n = new Set(prev); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n; })}
+                                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors"
+                                    style={{
+                                      background: isChecked ? kidTint : "white",
+                                      border: `1px solid ${isChecked ? kidColor : "#f0ede8"}`,
+                                    }}
+                                  >
+                                    <div
+                                      className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors"
+                                      style={{
+                                        background: isChecked ? kidColor : "transparent",
+                                        borderColor: isChecked ? kidColor : "#c8bfb5",
+                                      }}
+                                    >
+                                      {isChecked && <span className="text-white text-[10px] font-bold">✓</span>}
+                                    </div>
+                                    <span className="flex-1 min-w-0 text-sm text-[#2d2926]">{l.title}</span>
+                                    <span className="text-[10px] text-[#b5aca4] shrink-0">
+                                      {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                    </span>
+                                  </button>
+                                );
+                              })}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              {l.subjects && (
-                                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full mr-1" style={{ backgroundColor: l.subjects.color ? `${l.subjects.color}20` : "#e8f0e9", color: l.subjects.color ?? "#5c7f63" }}>
-                                  {l.subjects.name}
-                                </span>
-                              )}
-                              <span className="text-sm text-[#2d2926]">{l.title}</span>
-                            </div>
-                            <span className="text-[10px] text-[#b5aca4] shrink-0">
-                              {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 });
@@ -4275,11 +4158,18 @@ export default function TodayPage() {
       )}
 
       {/* ── Reschedule bottom sheet ──────────────────────── */}
-      {rescheduleLesson && (() => {
+      {/* TODO: remove after queue scheduling verified in production.
+          Per-lesson reschedule modal — pinned-date manipulation that
+          the queue model auto-handles. Gate is `rescheduleLesson && false`
+          so TS narrowing still applies inside the IIFE. */}
+      {rescheduleLesson && false && (() => {
+        // Narrow to non-null inside the IIFE — TS doesn't carry the
+        // outer && narrowing across the closure boundary.
+        const rl = rescheduleLesson!;
         const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1);
         const tmrwStr = localDateStr(tmrw);
         const tmrwLabel = tmrw.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-        const curricName = rescheduleLesson.title?.replace(/ — Lesson.*$/, "") ?? "";
+        const curricName = rl.title?.replace(/ — Lesson.*$/, "") ?? "";
         return (
           <>
             <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => setRescheduleLesson(null)} />
@@ -4288,7 +4178,7 @@ export default function TodayPage() {
                 {/* Header */}
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-base font-medium text-[var(--g-deep)]" style={{ fontFamily: "var(--font-display)" }}>
-                    Reschedule {rescheduleLesson.title || "this lesson"}
+                    Reschedule {rl.title || "this lesson"}
                   </h3>
                   <button onClick={() => setRescheduleLesson(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
                 </div>
@@ -4342,7 +4232,7 @@ export default function TodayPage() {
                   </div>
 
                   {/* Curriculum-specific options */}
-                  {rescheduleLesson.curriculum_goal_id && (
+                  {rl.curriculum_goal_id && (
                     <>
                       {/* Push all remaining */}
                       <button
@@ -4399,7 +4289,10 @@ export default function TodayPage() {
       })()}
 
       {/* ── Missed-lesson reschedule sheet ──────────────────── */}
-      {showMissedSheet && missedLessons.length > 0 && (() => {
+      {/* TODO: remove after queue scheduling verified in production.
+          The "Add to next school day" / "Push back N days" actions are
+          pinned-date reshuffles. Queue model removes the missed concept. */}
+      {false && showMissedSheet && missedLessons.length > 0 && (() => {
         const n = missedLessons.length;
         return (
           <>
@@ -4457,6 +4350,26 @@ export default function TodayPage() {
           </>
         );
       })()}
+
+      {/* ── Catch-up modal (queue-based scheduling) ─────────────────
+           Trigger logic in loadData. Submit advances current_lesson per
+           goal, dismiss persists last_catchup_dismissed_at on profiles. */}
+      {showCatchUp && (
+        <CatchUpModal
+          lastCompletionDate={catchUpLastCompletion}
+          goals={catchUpGoals}
+          entriesByGoal={catchUpEntriesByGoal}
+          onSubmit={handleCatchUpSubmit}
+          onDismiss={handleCatchUpDismiss}
+        />
+      )}
+      {catchUpToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+          <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-lg">
+            Got it. Today is updated.
+          </div>
+        </div>
+      )}
 
       {/* ── Reschedule undo toast ────────────────────────────
            The whole pill is the tap target — the bare "Undo" word was a

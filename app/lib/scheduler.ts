@@ -244,14 +244,44 @@ export type ReschedulableLesson = {
 };
 
 /**
+ * @deprecated under queue-based scheduling (Path A, 2026-05). The "missed
+ * lesson" concept no longer exists in the new model — completions
+ * advance current_lesson, projection trusts current_lesson. Retained for
+ * rollback only. New code should not call this.
+ *
  * "Add to my next school day(s)" — places each missed lesson on the next
- * available school day, sequentially starting from todayStr. Pure: returns
- * the planned updates and undo data; the caller writes to the DB.
+ * available school day, starting STRICTLY AFTER today, with density
+ * awareness so missed lessons never stack onto a date that already has a
+ * forward-scheduled lesson at capacity.
+ *
+ * A candidate date is "available" iff:
+ *   1. it's a school day for the goal that owns the lesson, AND
+ *   2. existingByGoalDate.get(`${goal_id}|${date}`) < lessons_per_day for
+ *      that goal.
+ *
+ * The density map is consumed and mutated locally so placements made
+ * earlier in this call cannot be reused by later iterations. Pure: returns
+ * planned updates and undo data; the caller writes to the DB.
+ *
+ * Lessons with no curriculum_goal_id (one-off lessons) get a per-row
+ * synthetic key so they neither compete with each other nor with goal
+ * lessons; in practice they fall back to the old "consecutive school days"
+ * behavior because their density is always 0 of capacity 1.
+ *
+ * Why this exists: prior version walked `nthSchoolDay(today, schoolDays,
+ * i + 1)` for each missed lesson without consulting the lessons table. If
+ * the same goal already had forward-scheduled lessons on those exact dates
+ * (e.g. mom edited the goal earlier and lessons L8-L14 got packed onto
+ * Apr 30 - May 8), clicking "Add to my next school day(s)" on the missed
+ * banner stacked L2-L6 on top of L8-L12. Audited 2026-04-30 on
+ * garfieldbrittany / TGTB.
  */
 export function planAddToNextSchoolDays(
   missed: ReschedulableLesson[],
   getSchoolDaysForLesson: (lesson: ReschedulableLesson) => string[],
   todayStr: string,
+  existingByGoalDate: Map<string, number>,
+  getLessonsPerDay: (lesson: ReschedulableLesson) => number,
 ): {
   updates: { id: string; newDate: string }[];
   undoData: { lessonId: string; date: string }[];
@@ -260,16 +290,32 @@ export function planAddToNextSchoolDays(
     lessonId: l.id,
     date: l.scheduled_date ?? l.date ?? todayStr,
   }));
+  const density = new Map(existingByGoalDate);
   const updates: { id: string; newDate: string }[] = [];
-  for (let i = 0; i < missed.length; i++) {
-    const schoolDays = getSchoolDaysForLesson(missed[i]);
-    const targetDate = nthSchoolDay(todayStr, schoolDays, i + 1);
-    updates.push({ id: missed[i].id, newDate: targetDate });
+  for (const lesson of missed) {
+    const schoolDays = getSchoolDaysForLesson(lesson);
+    const cap = Math.max(1, getLessonsPerDay(lesson));
+    const keyPrefix = lesson.curriculum_goal_id ?? `__no_goal__${lesson.id}`;
+    let cursor = nthSchoolDay(todayStr, schoolDays, 1);
+    let safety = 0;
+    while (safety < 365) {
+      const key = `${keyPrefix}|${cursor}`;
+      if ((density.get(key) ?? 0) < cap) {
+        updates.push({ id: lesson.id, newDate: cursor });
+        density.set(key, (density.get(key) ?? 0) + 1);
+        break;
+      }
+      cursor = nthSchoolDay(cursor, schoolDays, 1);
+      safety++;
+    }
   }
   return { updates, undoData };
 }
 
 /**
+ * @deprecated under queue-based scheduling (Path A, 2026-05). Retained
+ * for rollback only.
+ *
  * "Push schedule back N school days" — shifts each future incomplete lesson
  * forward by `missed.length` school days, then fills the vacated slots with
  * the missed lessons. Pure: returns updates + undo data.
@@ -305,6 +351,11 @@ export function planPushBackNDays(
 }
 
 /**
+ * @deprecated under queue-based scheduling (Path A, 2026-05). The "log
+ * extra → re-spread future" choreography is unnecessary in the new model:
+ * completing an extra advances current_lesson, and the next render
+ * projects forward from the new position. Retained for rollback only.
+ *
  * After mom logs an "extra" lesson today (i.e., she completed lesson N+1 a
  * day early), this plans how to re-spread her remaining incomplete future
  * lessons onto upcoming school days at `perDay` density, packed tightly
@@ -493,3 +544,231 @@ export function hasScheduleFieldsChanged(
 }
 
 export { DAY_LABELS, DAY_LABEL_TO_IDX };
+
+// ─── Queue-based scheduling (Path A, 2026-05) ────────────────────────────
+//
+// Source of truth for "what's next" is the goal's queue position
+// (current_lesson) plus its cadence (lessons_per_day, school_days). Today
+// and Plan project forward from those columns rather than reading
+// lessons.scheduled_date — so missing a day shifts the whole upcoming
+// block forward, and finishing extra shifts it back, without any
+// reschedule write. lessons.scheduled_date is kept as a cache for legacy
+// reads but is no longer the source of truth.
+//
+// All functions below are pure: no DB access. They read goal config and
+// return projected (lesson_number, date) pairs. Callers join those back to
+// real lesson rows by (curriculum_goal_id, lesson_number) for display
+// fields like notes / subject / title.
+
+/**
+ * Goal config the projector needs. Mirrors the curriculum_goals columns
+ * that drive scheduling — total_lessons / lessons_per_day / school_days /
+ * current_lesson — plus id so callers can group results back per goal.
+ *
+ * `school_days` is the same string-label array stored in the DB
+ * (["Mon","Tue",…]) — see schoolDaysToBool / DAY_LABELS for the
+ * Mon=0..Sun=6 convention.
+ */
+export interface CurriculumGoalConfig {
+  id: string;
+  total_lessons: number;
+  lessons_per_day: number;
+  school_days: string[] | null;
+  current_lesson: number;
+}
+
+export interface ProjectedLesson {
+  goal_id: string;
+  lesson_number: number;
+  date: string; // YYYY-MM-DD
+}
+
+/**
+ * A vacation_blocks row for the queue projector. Inclusive on both ends:
+ * `start_date <= candidate <= end_date` is "in break". The projector
+ * skips these dates entirely; mom can still manually log lessons on
+ * break days, but the system never schedules onto them.
+ */
+export interface VacationBlock {
+  start_date: string; // YYYY-MM-DD
+  end_date: string;   // YYYY-MM-DD, inclusive
+}
+
+/**
+ * Is the given date inside any vacation block? Compares as YYYY-MM-DD
+ * strings so timezone math doesn't sneak in.
+ */
+export function isBreakDay(date: Date, vacationBlocks: VacationBlock[] | null | undefined): boolean {
+  if (!vacationBlocks || vacationBlocks.length === 0) return false;
+  const dateStr = toDateStr(date);
+  for (const b of vacationBlocks) {
+    if (dateStr >= b.start_date && dateStr <= b.end_date) return true;
+  }
+  return false;
+}
+
+/**
+ * Normalize a goal's school_days. The DB column defaults to Mon-Fri at
+ * insert, but legacy rows or hand-edits can land here as null or [], in
+ * which case we fall back to the same Mon-Fri default rather than
+ * silently project zero lessons forever.
+ */
+export function normalizeSchoolDays(input: string[] | null | undefined): string[] {
+  if (!input || input.length === 0) return ["Mon", "Tue", "Wed", "Thu", "Fri"];
+  return input;
+}
+
+/**
+ * Is the given calendar date a school day for this goal? Wrapper around
+ * isSchoolDayIdx that handles the string-label → bool[] conversion + the
+ * empty-array fallback. Use this at the day-walk boundary so callers
+ * never need to know the day-index convention.
+ */
+export function isSchoolDay(date: Date, schoolDays: string[] | null | undefined): boolean {
+  return isSchoolDayIdx(date, schoolDaysToBool(normalizeSchoolDays(schoolDays)));
+}
+
+/**
+ * Project the next `daysAhead` calendar days of lessons for one goal.
+ * Returns one entry per (school day, lesson slot) pair, in queue order.
+ *
+ * Inclusive on `fromDate`: if today is a school day and the goal isn't
+ * finished, today's lessons are first in the result.
+ *
+ * Stops when total_lessons is reached. Returns [] when the goal is done.
+ *
+ * If `vacationBlocks` is supplied, any candidate date that falls inside
+ * a block (start_date <= date <= end_date) is treated as NOT a school
+ * day — the system never schedules onto a break, regardless of what
+ * school_days says. Mom can still manually mark lessons complete on
+ * break days; that path goes through recomputeCurrentLesson and isn't
+ * gated by this projector.
+ */
+export function computeNextLessonsForGoal(
+  goal: CurriculumGoalConfig,
+  fromDate: Date,
+  daysAhead: number,
+  vacationBlocks?: VacationBlock[],
+): ProjectedLesson[] {
+  if (daysAhead <= 0) return [];
+  if (goal.current_lesson >= goal.total_lessons) return [];
+
+  const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
+  const perDay = Math.max(1, goal.lessons_per_day);
+  const out: ProjectedLesson[] = [];
+  const cursor = new Date(fromDate);
+  cursor.setHours(0, 0, 0, 0);
+
+  // The "next" lesson_number is current_lesson + 1 (current_lesson is the
+  // count of completed lessons; lesson_number is 1-indexed in the row).
+  let nextLesson = goal.current_lesson + 1;
+
+  for (let i = 0; i < daysAhead && nextLesson <= goal.total_lessons; i++) {
+    if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
+      const dateStr = toDateStr(cursor);
+      for (let s = 0; s < perDay && nextLesson <= goal.total_lessons; s++) {
+        out.push({ goal_id: goal.id, lesson_number: nextLesson, date: dateStr });
+        nextLesson++;
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return out;
+}
+
+/**
+ * Compute the calendar date the goal will finish on, projecting forward
+ * from `fromDate`. Returns null if the goal is already complete.
+ *
+ * Vacation blocks push the finish date out: each break day that falls
+ * inside the projection window pushes the finish by one school-day-
+ * worth of lessons. A 7-day break with lessons_per_day=1 means finish
+ * moves out by 7 calendar days (the lessons that would have landed
+ * inside the break get pushed past it).
+ */
+export function computeFinishDate(
+  goal: CurriculumGoalConfig,
+  fromDate: Date = new Date(),
+  vacationBlocks?: VacationBlock[],
+): Date | null {
+  if (goal.current_lesson >= goal.total_lessons) return null;
+
+  const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
+  const perDay = Math.max(1, goal.lessons_per_day);
+  const remaining = goal.total_lessons - goal.current_lesson;
+  const schoolDaysNeeded = Math.ceil(remaining / perDay);
+
+  const cursor = new Date(fromDate);
+  cursor.setHours(0, 0, 0, 0);
+  let lastSchoolDay: Date | null = null;
+  let walked = 0;
+  let safety = 0;
+
+  while (walked < schoolDaysNeeded && safety < 3650) {
+    if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
+      lastSchoolDay = new Date(cursor);
+      walked++;
+    }
+    if (walked < schoolDaysNeeded) cursor.setDate(cursor.getDate() + 1);
+    safety++;
+  }
+
+  return lastSchoolDay;
+}
+
+/**
+ * Across all of a family's curriculum goals, what should appear on Today?
+ *
+ *   - Each goal's first projected school day equals today (or skips today
+ *     if today isn't a school day for that goal, OR today is a break day).
+ *   - lessons_per_day on the goal controls how many slots come back.
+ *   - Goals that are complete contribute nothing.
+ *
+ * The same `today` Date is reused for every goal so the answer is stable
+ * within one render — callers don't need to clone.
+ */
+export function computeTodayLessons(
+  goals: CurriculumGoalConfig[],
+  today: Date,
+  vacationBlocks?: VacationBlock[],
+): ProjectedLesson[] {
+  const out: ProjectedLesson[] = [];
+  for (const goal of goals) {
+    // Project a single calendar day. computeNextLessonsForGoal will return
+    // [] if today isn't a school day for this goal — exactly what we want.
+    const projected = computeNextLessonsForGoal(goal, today, 1, vacationBlocks);
+    out.push(...projected);
+  }
+  return out;
+}
+
+/**
+ * For the catch-up modal: list the lessons that *would have been* due in
+ * the gap between `gapStartDate` and `today` (exclusive of today). The
+ * caller passes the goal as it stood at the start of the gap (i.e. with
+ * its pre-gap `current_lesson`) — projection walks forward from there.
+ *
+ * Returns one entry per (school day in the gap, lesson slot). Result is
+ * grouped by date in display order so the modal can render a checklist
+ * grouped by day.
+ *
+ * Vacation blocks exclude break days from the gap so the modal never
+ * asks "did you do lessons during your beach trip?" — only the school
+ * days mom actually missed get checkboxes. If the entire gap is inside
+ * a break, this returns [] and the modal does not appear at all.
+ */
+export function computeGapLessonsForGoal(
+  goal: CurriculumGoalConfig,
+  gapStartDate: Date,
+  today: Date,
+  vacationBlocks?: VacationBlock[],
+): ProjectedLesson[] {
+  const start = new Date(gapStartDate);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(today);
+  end.setHours(0, 0, 0, 0);
+  const days = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 86400000));
+  if (days === 0) return [];
+  return computeNextLessonsForGoal(goal, start, days, vacationBlocks);
+}

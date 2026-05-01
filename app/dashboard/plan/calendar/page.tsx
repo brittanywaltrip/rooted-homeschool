@@ -4,8 +4,11 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
+import { computeNextLessonsForGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { tintFromHex, darkenHex } from "@/lib/color-tint";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,6 +22,7 @@ type Lesson = {
   date: string | null;
   scheduled_date: string | null;
   subjects: { name: string; color: string | null } | null;
+  curriculum_goals?: { subject_label: string | null } | null;
   notes: string | null;
 };
 
@@ -118,27 +122,21 @@ export default function CalendarPage() {
     const s = toDateStr(ms);
     const e = toDateStr(me);
 
+    // Source of truth for upcoming lessons is the curriculum goal queue
+    // position (Path A, 2026-05). Past completions still come from the
+    // existing date columns; one-off (no-curriculum) lessons stay
+    // date-pinned. See app/lib/scheduler.ts computeNextLessonsForGoal.
     const [
       { data: kids },
-      { data: bySched },
-      { data: byDate },
+      { data: goalsRaw },
       { data: appEvents },
       { data: vacs },
     ] = await Promise.all([
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase
-        .from("lessons")
-        .select("id, title, completed, child_id, date, scheduled_date, notes, subjects(name, color)")
-        .eq("user_id", effectiveUserId)
-        .gte("scheduled_date", s)
-        .lte("scheduled_date", e),
-      supabase
-        .from("lessons")
-        .select("id, title, completed, child_id, date, scheduled_date, notes, subjects(name, color)")
-        .eq("user_id", effectiveUserId)
-        .is("scheduled_date", null)
-        .gte("date", s)
-        .lte("date", e),
+        .from("curriculum_goals")
+        .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
+        .eq("user_id", effectiveUserId),
       supabase
         .from("app_events")
         .select("id, type, created_at, payload")
@@ -154,14 +152,83 @@ export default function CalendarPage() {
     ]);
 
     setChildren(capitalizeChildNames(kids ?? []));
-    setLessons([
-      ...((bySched as unknown as Lesson[]) ?? []),
-      ...((byDate as unknown as Lesson[]) ?? []),
+
+    // Project the visible month from each goal's queue position, then
+    // hydrate matching rows by (curriculum_goal_id, lesson_number).
+    // Vacation blocks (already loaded via `vacs`) cause the projector
+    // to skip break days entirely.
+    //
+    // Projection ALWAYS starts from today, not from `ms`. current_lesson
+    // is "completed so far" — today's allocation is still in flight —
+    // so projecting from a future month start would re-place today's
+    // queue numbers onto that month start and shift the entire month
+    // by one slot. Day-detail off-by-one audited 2026-05-01.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daysAhead = Math.max(0, Math.floor((me.getTime() - today.getTime()) / 86400000) + 1);
+    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
+    const vacationBlocks: SchedVacationBlock[] = ((vacs ?? []) as { start_date: string; end_date: string }[])
+      .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+    const projected: { goal_id: string; lesson_number: number; date: string }[] = [];
+    for (const g of goals) {
+      if (!g.total_lessons || g.total_lessons <= 0) continue;
+      const cfg: CurriculumGoalConfig = {
+        id: g.id,
+        total_lessons: g.total_lessons,
+        lessons_per_day: g.lessons_per_day ?? 1,
+        school_days: g.school_days,
+        current_lesson: g.current_lesson ?? 0,
+      };
+      projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks).filter((p) => p.date >= s && p.date <= e));
+    }
+    const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
+    const projGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
+    const projNumbers = Array.from(new Set(projected.map((p) => p.lesson_number)));
+
+    const [{ data: projRowsRaw }, { data: pastDoneRaw }, { data: oneOffRaw }] = await Promise.all([
+      projGoalIds.length > 0
+        ? supabase
+            .from("lessons")
+            .select("id, title, completed, child_id, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+            .eq("user_id", effectiveUserId)
+            .in("curriculum_goal_id", projGoalIds)
+            .in("lesson_number", projNumbers)
+        : Promise.resolve({ data: [] as unknown[] }),
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+        .eq("user_id", effectiveUserId)
+        .eq("completed", true)
+        .lt("scheduled_date", todayStr)
+        .gte("scheduled_date", s)
+        .lte("scheduled_date", e),
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+        .eq("user_id", effectiveUserId)
+        .is("curriculum_goal_id", null)
+        .or(`and(scheduled_date.gte.${s},scheduled_date.lte.${e}),and(scheduled_date.is.null,date.gte.${s},date.lte.${e})`),
     ]);
+
+    type Row = Lesson & { curriculum_goal_id?: string | null; lesson_number?: number | null };
+    const projRows = ((projRowsRaw ?? []) as unknown as Row[])
+      .filter((r) => projDateByKey.has(`${r.curriculum_goal_id}|${r.lesson_number}`))
+      .map((r) => {
+        const projDate = projDateByKey.get(`${r.curriculum_goal_id}|${r.lesson_number}`)!;
+        return { ...r, scheduled_date: projDate, date: projDate } as Row;
+      });
+    const pastDoneRows = ((pastDoneRaw ?? []) as unknown as Row[]);
+    const oneOffRows = ((oneOffRaw ?? []) as unknown as Row[]);
+    const byId = new Map<string, Row>();
+    for (const r of pastDoneRows) byId.set(r.id, r);
+    for (const r of projRows) byId.set(r.id, r);
+    for (const r of oneOffRows) byId.set(r.id, r);
+    setLessons(Array.from(byId.values()) as Lesson[]);
+
     setEvents((appEvents as unknown as AppEvent[]) ?? []);
     setVacations((vacs as VacationBlock[]) ?? []);
     setLoading(false);
-  }, [monthStart, effectiveUserId]);
+  }, [monthStart, effectiveUserId, todayStr]);
 
   useEffect(() => {
     loadData();
@@ -617,19 +684,32 @@ export default function CalendarPage() {
                     </span>
                   </div>
 
-                  {/* Lessons */}
-                  {group.lessons.map((l) => (
+                  {/* Lessons — kid-color tinted card matching Today's
+                      schedule cards. Card background uses tintFromHex,
+                      title + subject pill use the kid's darker shade. */}
+                  {group.lessons.map((l) => {
+                    const kidColor = group.child?.color ?? "#7a6f65";
+                    const kidBg = tintFromHex(kidColor, 0.25);
+                    const kidTitle = darkenHex(kidColor, 0.45);
+                    const kidPillBg = tintFromHex(kidColor, 0.35);
+                    const kidPillText = darkenHex(kidColor, 0.55);
+                    return (
                     <div key={l.id} className="pl-8 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <div className="w-[5px] h-[5px] rounded-full bg-[var(--g-deep)] shrink-0" />
-                        <span className={`text-xs ${l.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                      <div
+                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${l.completed ? "opacity-60" : ""}`}
+                        style={{ background: kidBg }}
+                      >
+                        <span className={`text-xs ${l.completed ? "line-through" : ""}`} style={{ color: l.completed ? "#b5aca4" : kidTitle }}>
                           {l.title}
                         </span>
-                        {l.subjects?.name && (
-                          <span className="text-[9px] font-medium text-[#7a6f65] bg-[#f0ede8] px-1.5 py-0.5 rounded-full">
-                            {l.subjects.name}
-                          </span>
-                        )}
+                        {(() => {
+                          const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label);
+                          return subjName ? (
+                            <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full" style={{ background: kidPillBg, color: kidPillText }}>
+                              {subjName}
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
                       {/* Note editor / display */}
                       {editingNoteId === l.id ? (
@@ -663,7 +743,8 @@ export default function CalendarPage() {
                         </button>
                       ) : null}
                     </div>
-                  ))}
+                    );
+                  })}
 
                   {/* Memories */}
                   {group.memories.map((ev) => (
