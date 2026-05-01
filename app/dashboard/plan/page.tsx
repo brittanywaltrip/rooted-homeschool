@@ -15,8 +15,9 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, computeNextLessonsForGoal, computeFinishDate, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
+import { tintFromHex, darkenHex } from "@/lib/color-tint";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -173,6 +174,111 @@ function getSeasonalEmoji(month: number): string {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Queue-based lesson loader for a date range. Replaces the old
+ * `from("lessons").where(scheduled_date BETWEEN s, e)` queries on the
+ * Plan page (Path A, 2026-05).
+ *
+ * For dates >= today: project from each goal's queue position via
+ * computeNextLessonsForGoal, then fetch the matching rows by
+ * (curriculum_goal_id, lesson_number) and rewrite their scheduled_date
+ * to the projected date. The DB scheduled_date / date columns remain
+ * untouched — we just override on read.
+ *
+ * For dates < today: pull rows by their existing date / scheduled_date
+ * so completion history still renders where it actually happened.
+ *
+ * One-off lessons (no curriculum_goal_id) are still date-pinned and load
+ * by their stored scheduled_date / date.
+ */
+async function loadLessonsForRange(
+  userId: string,
+  rangeStart: Date,
+  rangeEnd: Date,
+  rangeStartStr: string,
+  rangeEndStr: string,
+  todayStr: string,
+  goals: { id: string; total_lessons: number | null; lessons_per_day?: number | null; school_days: string[] | null; current_lesson: number | null }[],
+  vacationBlocks: SchedVacationBlock[],
+): Promise<Lesson[]> {
+  // ── Project future lessons across the visible range, per goal ──
+  // Projection ALWAYS starts from today, then filters to the visible
+  // range. current_lesson in the DB is "lessons completed so far" —
+  // today's allocation hasn't moved that counter yet, so projecting
+  // from rangeStart (when rangeStart > today) would re-place today's
+  // queue numbers onto rangeStart and shift everything by one slot.
+  // Off-by-one bug audited 2026-05-01 on the calendar day-detail panel.
+  const todayMid = new Date(todayStr + "T00:00:00");
+  const daysAhead = Math.max(0, Math.floor((rangeEnd.getTime() - todayMid.getTime()) / 86400000) + 1);
+  const allProjected: { goal_id: string; lesson_number: number; date: string }[] = [];
+  for (const g of goals) {
+    if (!g.total_lessons || g.total_lessons <= 0) continue;
+    const cfg: CurriculumGoalConfig = {
+      id: g.id,
+      total_lessons: g.total_lessons,
+      lessons_per_day: g.lessons_per_day ?? 1,
+      school_days: g.school_days,
+      current_lesson: g.current_lesson ?? 0,
+    };
+    const projected = computeNextLessonsForGoal(cfg, todayMid, daysAhead, vacationBlocks)
+      .filter((p) => p.date >= rangeStartStr && p.date <= rangeEndStr);
+    allProjected.push(...projected);
+  }
+  const projDateByKey = new Map(allProjected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
+  const projGoalIds = Array.from(new Set(allProjected.map((p) => p.goal_id)));
+  const projNumbers = Array.from(new Set(allProjected.map((p) => p.lesson_number)));
+
+  // ── Three sets of rows feed the visible range ──
+  // 1. Future-projected rows: incomplete rows that match a (goal, lesson_number)
+  //    in the projection. Their displayed date is the projected date.
+  // 2. Past completed history: rows the family already finished, displayed
+  //    on whatever date they happened (date / scheduled_date / completed_at).
+  // 3. One-off rows: no curriculum_goal_id, still date-pinned.
+  const [projRowsRes, pastDoneRes, oneOffRes] = await Promise.all([
+    projGoalIds.length > 0
+      ? supabase
+          .from("lessons")
+          .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+          .eq("user_id", userId)
+          .in("curriculum_goal_id", projGoalIds)
+          .in("lesson_number", projNumbers)
+      : Promise.resolve({ data: [] as unknown[] }),
+    supabase
+      .from("lessons")
+      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+      .eq("user_id", userId)
+      .eq("completed", true)
+      .lt("scheduled_date", todayStr)
+      .gte("scheduled_date", rangeStartStr)
+      .lte("scheduled_date", rangeEndStr),
+    supabase
+      .from("lessons")
+      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+      .eq("user_id", userId)
+      .is("curriculum_goal_id", null)
+      .or(`and(scheduled_date.gte.${rangeStartStr},scheduled_date.lte.${rangeEndStr}),and(scheduled_date.is.null,date.gte.${rangeStartStr},date.lte.${rangeEndStr})`),
+  ]);
+
+  type Row = Lesson & { lesson_number?: number | null };
+  const projRowsRaw = (projRowsRes.data ?? []) as unknown as Row[];
+  const projRows = projRowsRaw
+    .filter((r) => projDateByKey.has(`${r.curriculum_goal_id}|${r.lesson_number}`))
+    .map((r) => {
+      const projDate = projDateByKey.get(`${r.curriculum_goal_id}|${r.lesson_number}`)!;
+      return { ...r, scheduled_date: projDate, date: projDate } as Row;
+    });
+  const pastDoneRows = (pastDoneRes.data ?? []) as unknown as Row[];
+  const oneOffRows = (oneOffRes.data ?? []) as unknown as Row[];
+
+  // De-dupe by id — a row can match both projection and past-done if a
+  // goal's current_lesson regressed (rare but possible).
+  const byId = new Map<string, Row>();
+  for (const r of pastDoneRows) byId.set(r.id, r);
+  for (const r of projRows) byId.set(r.id, r);
+  for (const r of oneOffRows) byId.set(r.id, r);
+  return Array.from(byId.values()) as unknown as Lesson[];
+}
 
 function toDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -480,15 +586,13 @@ export default function PlanPage() {
     const ws = new Date(weekStart), we = new Date(weekStart);
     we.setDate(we.getDate() + 6);
     const s = toDateStr(ws), e = toDateStr(we);
-    const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }, { data: bySched }, { data: byDate }] = await Promise.all([
+    const todayStr = toDateStr(new Date());
+    const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }, { data: vacs }] = await Promise.all([
       supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji, lessons_per_day").eq("user_id", effectiveUserId).order("created_at"),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
+      supabase.from("vacation_blocks").select("start_date, end_date").eq("user_id", effectiveUserId),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
     setProfileSchoolDays((profile as { school_days?: string[] } | null)?.school_days ?? []);
@@ -496,7 +600,9 @@ export default function PlanPage() {
     setChildren(capitalizeChildNames(kids ?? []));
     setSubjects((subs as Subject[]) ?? []);
     setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
-    setLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
+
+    const vacationBlocks: SchedVacationBlock[] = (vacs ?? []) as SchedVacationBlock[];
+    setLessons(await loadLessonsForRange(effectiveUserId, ws, we, s, e, todayStr, (goals ?? []) as unknown as CurriculumGoal[], vacationBlocks));
     setLoading(false);
   }, [weekStart, effectiveUserId]);
 
@@ -537,13 +643,20 @@ export default function PlanPage() {
     const ms = new Date(monthStart);
     const me = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
     const s = toDateStr(ms), e = toDateStr(me);
-    const [{ data: bySched }, { data: byDate }] = await Promise.all([
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
+    const todayStr = toDateStr(new Date());
+    // Re-fetch goals + vacation_blocks here so the projection stays
+    // consistent with whatever changed since the week-view load.
+    const [{ data: goalsData }, { data: vacsData }] = await Promise.all([
+      supabase.from("curriculum_goals")
+        .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
+        .eq("user_id", effectiveUserId),
+      supabase.from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", effectiveUserId),
     ]);
-    setMonthLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
+    const goals = (goalsData ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
+    const vacationBlocks: SchedVacationBlock[] = (vacsData ?? []) as SchedVacationBlock[];
+    setMonthLessons(await loadLessonsForRange(effectiveUserId, ms, me, s, e, todayStr, goals, vacationBlocks));
 
     // Fetch appointments for the month
     try {
@@ -2150,20 +2263,32 @@ export default function PlanPage() {
             )}
             {selLessons.map((l) => {
               const goal = l.curriculum_goal_id ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) : null;
+              // Kid-color tinting (parity with Today schedule cards):
+              // tint card background by the lesson's child color, darken
+              // for title and pill text. Matches the call-site pattern
+              // in InlineScheduleTabs / TodayKidSection so the same
+              // lesson reads the same shade across Today and Plan.
+              const lessonChild = l.child_id ? children.find((c) => c.id === l.child_id) : null;
+              const kidColor = lessonChild?.color ?? "#7a6f65";
+              const kidBg = tintFromHex(kidColor, 0.25);
+              const kidTitle = darkenHex(kidColor, 0.45);
+              const kidSubtle = darkenHex(kidColor, 0.30);
+              const kidPillBg = tintFromHex(kidColor, 0.35);
+              const kidPillText = darkenHex(kidColor, 0.55);
               return (
-                <div key={l.id} className={`rounded-xl ${l.completed ? "opacity-60" : ""}`} style={{ background: "linear-gradient(to bottom right, #eefbf0, #e0f8e6)", border: "1px solid #cef0d4" }}>
+                <div key={l.id} className={`rounded-xl ${l.completed ? "opacity-60" : ""}`} style={{ background: kidBg }}>
                   <div className="flex items-center gap-3 px-4 py-2.5">
                     <span className="text-xl shrink-0">{goal?.icon_emoji ?? "📚"}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className={`text-[14px] font-medium truncate ${l.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>{l.title}</span>
+                        <span className={`text-[14px] font-medium truncate ${l.completed ? "line-through" : ""}`} style={{ color: l.completed ? "#b5aca4" : kidTitle }}>{l.title}</span>
                         {l.completed ? (
-                          <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#2D5A3D] text-white">✓ Done</span>
+                          <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0" style={{ background: kidTitle, color: "white" }}>✓ Done</span>
                         ) : (
-                          <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#dcfce7] text-[#15803d]">Lesson</span>
+                          <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0" style={{ background: kidPillBg, color: kidPillText }}>Lesson</span>
                         )}
                       </div>
-                      {(() => { const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label); return subjName ? <p className="text-xs text-[#7a6f65] mt-0.5">{subjName}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p> : null; })()}
+                      {(() => { const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label); return subjName ? <p className="text-xs mt-0.5" style={{ color: kidSubtle }}>{subjName}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p> : null; })()}
                       {/* Note preview (collapsed) */}
                       {editingNoteId !== l.id && l.notes && (
                         <p className="text-[11px] text-[#6b6560] italic mt-1 line-clamp-1">{l.notes}</p>
@@ -2484,19 +2609,20 @@ export default function PlanPage() {
                               return d.toLocaleDateString("en-US", opts);
                             };
 
-                            // Find the last scheduled incomplete lesson for this curriculum.
-                            // Defensive cap on lesson_number: if a stale row past
-                            // total_lessons survived a prior bug, ignore it so the
-                            // displayed finish date matches the wizard preview.
-                            const incompleteDates = allLessons
-                              .filter(l => {
-                                if (l.curriculum_goal_id !== group.goalId || l.completed || !l.scheduled_date) return false;
-                                const ln = l.lesson_number;
-                                return ln == null || ln <= displayTotal;
-                              })
-                              .map(l => l.scheduled_date!)
-                              .sort();
-                            const lastScheduled = incompleteDates.length > 0 ? new Date(incompleteDates[incompleteDates.length - 1] + "T00:00:00") : null;
+                            // Queue-based finish date (Path A): project
+                            // forward from current_lesson, skipping
+                            // vacation blocks. Uses the live queue
+                            // position, not the cache scheduled_date.
+                            const goalSchoolDays = goal?.school_days ?? null;
+                            const goalLessonsPerDay = goal?.lessons_per_day ?? 1;
+                            const finishCfg: CurriculumGoalConfig = {
+                              id: group.goalId ?? "",
+                              total_lessons: displayTotal,
+                              lessons_per_day: goalLessonsPerDay,
+                              school_days: goalSchoolDays,
+                              current_lesson: displayCompleted,
+                            };
+                            const lastScheduled = computeFinishDate(finishCfg, new Date(), vacationBlocks as SchedVacationBlock[]);
                             const targetDate = goal?.target_date ? new Date(goal.target_date + "T00:00:00") : null;
 
                             const parts: React.ReactNode[] = [];

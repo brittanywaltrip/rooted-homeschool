@@ -1258,6 +1258,7 @@ export type Database = {
           first_name: string | null
           id: string
           is_pro: boolean | null
+          last_catchup_dismissed_at: string | null
           last_logged_date: string | null
           last_name: string | null
           legacy_free: boolean | null
@@ -1296,6 +1297,7 @@ export type Database = {
           first_name?: string | null
           id: string
           is_pro?: boolean | null
+          last_catchup_dismissed_at?: string | null
           last_logged_date?: string | null
           last_name?: string | null
           legacy_free?: boolean | null
@@ -1334,6 +1336,7 @@ export type Database = {
           first_name?: string | null
           id?: string
           is_pro?: boolean | null
+          last_catchup_dismissed_at?: string | null
           last_logged_date?: string | null
           last_name?: string | null
           legacy_free?: boolean | null

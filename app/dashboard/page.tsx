@@ -10,7 +10,10 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, buildLessonDateSnapshot, createInFlightGate, type LessonDateSnapshot, type InFlightGate } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+// TODO: remove after queue scheduling verified in production. Old pinned-date
+// reschedule planners — only consumed by dead functions kept for rollback.
+import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
@@ -23,6 +26,7 @@ import ListsSection from "@/app/components/ListsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import TodaySchedule from "@/app/components/today/TodaySchedule";
+import CatchUpModal, { type CatchUpEntry, type CatchUpGoal, type CatchUpSubmission } from "@/app/components/CatchUpModal";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
@@ -479,6 +483,17 @@ export default function TodayPage() {
   const [showMissedSheet, setShowMissedSheet] = useState(false);
   const [missedSheetSubmitting, setMissedSheetSubmitting] = useState(false);
 
+  // ── Catch-up modal (queue-based scheduling, Path A) ───────────────────────
+  // Shown when the family has had a 5+ day gap with no completed lessons.
+  // Lists what *would have been* due in the gap so mom can check off what
+  // she actually did. Submit advances current_lesson per goal; dismiss
+  // leaves the queue alone so Today renders the next-in-queue lesson and
+  // the schedule effectively block-shifts forward.
+  const [showCatchUp, setShowCatchUp] = useState(false);
+  const [catchUpGoals, setCatchUpGoals] = useState<CatchUpGoal[]>([]);
+  const [catchUpEntriesByGoal, setCatchUpEntriesByGoal] = useState<Map<string, CatchUpEntry[]>>(new Map());
+  const [catchUpLastCompletion, setCatchUpLastCompletion] = useState<string | null>(null);
+
   // ── Open capture menu from URL param (used by other pages) ─────────────────
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.search.includes("capture=1")) {
@@ -604,7 +619,7 @@ export default function TodayPage() {
       profileResult,
       authResult,
       childrenResult,
-      todayLessonsResult,
+      _todayLessonsResult,
       allLessonsResult,
       recentLessonsResult,
       completedResult,
@@ -623,12 +638,18 @@ export default function TodayPage() {
       lastMemResult,
       tier1Result,
       todayStoryResult,
-      goalEmojiResult,
+      curriculumGoalsResult,
     ] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, last_catchup_dismissed_at").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes").eq("user_id", effectiveUserId).or(`date.eq.${today},scheduled_date.eq.${today}`),
+      // TODO: remove after queue scheduling verified in production. Old
+      // pinned-date Today loader. Replaced by queue projection: see Phase 1.5
+      // below where curriculumGoalsResult feeds computeTodayLessons() and
+      // we then fetch matching rows by (curriculum_goal_id, lesson_number).
+      // Kept as a tombstone (resolves to null data) so the destructure
+      // index slot stays stable for one-line rollback.
+      Promise.resolve({ data: null, error: null }),
       supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
       supabase.from("lessons").select("date, scheduled_date, completed").eq("user_id", effectiveUserId).gte("scheduled_date", localDateStr(thirtyDaysAgo)),
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
@@ -647,17 +668,19 @@ export default function TodayPage() {
       supabase.from("memories").select("id, type, title, date, child_id, photo_url").eq("user_id", effectiveUserId).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("memories").select("id, title, date, child_id, photo_url").eq("user_id", effectiveUserId).gte("date", localDateStr(otdStart)).lte("date", localDateStr(otdEnd)).order("date", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("memories").select("id, type, title, caption, child_id, photo_url, include_in_book, created_at").eq("user_id", effectiveUserId).eq("date", today).order("created_at", { ascending: false }),
-      supabase.from("curriculum_goals").select("id, icon_emoji, school_days").eq("user_id", effectiveUserId),
+      // Curriculum goals — full config for queue-based scheduling. The same
+      // query also feeds the icon emoji + per-goal school_days lookups that
+      // used to be its only purpose.
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time").eq("user_id", effectiveUserId),
     ]);
 
-    // Missed = incomplete lessons whose scheduled_date is before today. Fetched
-    // separately so it doesn't block the main dashboard render on cold start.
-    const missedResult = await supabase.from("lessons")
-      .select("id, title, completed, child_id, hours, minutes_spent, scheduled_date, date, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes")
-      .eq("user_id", effectiveUserId)
-      .eq("completed", false)
-      .lt("scheduled_date", today)
-      .order("scheduled_date", { ascending: true });
+    // TODO: remove after queue scheduling verified in production. The
+    // missed-lesson concept does not exist under queue projection — when
+    // mom misses a day, current_lesson does not advance and tomorrow shows
+    // the same lesson. Kept as an empty-array tombstone so downstream
+    // setMissedLessons([]) keeps the existing prop chain intact for one-
+    // line rollback.
+    const missedResult = { data: [] as MissedLesson[] };
 
     // ── Phase 2: Process all results (no awaits) ────────────────────────
 
@@ -763,31 +786,202 @@ export default function TodayPage() {
     const childrenData = childrenResult.data;
     setChildren(capitalizeChildNames(childrenData ?? []));
 
-    // Today's lessons — enrich with curriculum emoji
-    const lessonsData = todayLessonsResult.data;
+    // Today's lessons — projected from curriculum goal queue position.
+    // Source of truth is curriculum_goals.current_lesson + lessons_per_day +
+    // school_days. We project today's lessons via computeTodayLessons, then
+    // fetch matching rows by (curriculum_goal_id, lesson_number) for the
+    // display fields (notes, subject, etc). scheduled_date is no longer
+    // read for projection; it remains in the rows as a cache.
+    type GoalRow = {
+      id: string;
+      icon_emoji: string | null;
+      school_days: string[] | null;
+      current_lesson: number;
+      total_lessons: number;
+      lessons_per_day: number;
+      child_id: string | null;
+      subject_label: string | null;
+      curriculum_name: string;
+      default_minutes: number;
+      scheduled_start_time: string | null;
+    };
+    const goalRows = (curriculumGoalsResult.data ?? []) as GoalRow[];
     const emojiMap = new Map<string, string>();
     const schoolDaysMap = new Map<string, string[]>();
-    for (const g of (goalEmojiResult.data ?? []) as { id: string; icon_emoji: string | null; school_days: string[] | null }[]) {
+    const goalById = new Map<string, GoalRow>();
+    for (const g of goalRows) {
       if (g.icon_emoji) emojiMap.set(g.id, g.icon_emoji);
       if (g.school_days && g.school_days.length > 0) schoolDaysMap.set(g.id, g.school_days);
+      goalById.set(g.id, g);
     }
-    setCurriculumGoalsCount(goalEmojiResult.data?.length ?? 0);
+    setCurriculumGoalsCount(goalRows.length);
     setGoalSchoolDaysMap(schoolDaysMap);
-    const loadedLessons = ((lessonsData as unknown as Lesson[]) ?? []).map(l => ({
-      ...l,
+
+    // Vacation blocks for the queue projector. The system never
+    // schedules onto a break day; mom can still manually log lessons
+    // there (mark-complete bypasses the projector). Loaded in Phase 1
+    // alongside goals so this is the same round trip.
+    const vacationBlocks: SchedVacationBlock[] = ((vacBlocksResult.data ?? []) as { start_date: string; end_date: string }[])
+      .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+
+    // Project today's lessons across all active goals.
+    const goalConfigs: CurriculumGoalConfig[] = goalRows.map((g) => ({
+      id: g.id,
+      total_lessons: g.total_lessons,
+      lessons_per_day: g.lessons_per_day,
+      school_days: g.school_days,
+      current_lesson: g.current_lesson,
+    }));
+    const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks);
+
+    // Fetch the lesson rows matching the projection so we can hydrate
+    // display fields (title, notes, completion state, subject join). We
+    // also fetch any one-off lessons (no curriculum_goal_id) that mom
+    // manually pinned to today — those still live by date.
+    type LoadedLessonRow = {
+      id: string;
+      title: string;
+      completed: boolean;
+      child_id: string;
+      hours: number | null;
+      minutes_spent: number | null;
+      subjects: { name: string; color: string | null } | null;
+      curriculum_goals: { subject_label: string | null } | null;
+      curriculum_goal_id: string | null;
+      lesson_number: number | null;
+      goal_id: string | null;
+      notes: string | null;
+    };
+    const projectedGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
+    const projectedNumbers = Array.from(new Set(projected.map((p) => p.lesson_number)));
+    const [projectedRowsResult, oneOffRowsResult] = await Promise.all([
+      projectedGoalIds.length > 0
+        ? supabase
+            .from("lessons")
+            .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes")
+            .eq("user_id", effectiveUserId)
+            .in("curriculum_goal_id", projectedGoalIds)
+            .in("lesson_number", projectedNumbers)
+        : Promise.resolve({ data: [] as unknown[] }),
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes")
+        .eq("user_id", effectiveUserId)
+        .is("curriculum_goal_id", null)
+        .or(`date.eq.${today},scheduled_date.eq.${today}`),
+    ]);
+    const projectedRows = ((projectedRowsResult.data ?? []) as unknown as LoadedLessonRow[]).filter((r) =>
+      // Only keep rows that match a projected (goal_id, lesson_number) pair —
+      // the IN/IN filter widens past the cartesian product so we narrow client-side.
+      projected.some((p) => p.goal_id === r.curriculum_goal_id && p.lesson_number === r.lesson_number)
+    );
+    const oneOffRows = (oneOffRowsResult.data ?? []) as unknown as LoadedLessonRow[];
+
+    // Order the projected rows to match the projection sequence (queue
+    // order). One-off lessons are appended in their existing date order.
+    const rowKey = (r: LoadedLessonRow) => `${r.curriculum_goal_id}|${r.lesson_number}`;
+    const projectedRowMap = new Map(projectedRows.map((r) => [rowKey(r), r]));
+    const orderedProjectedRows: LoadedLessonRow[] = [];
+    for (const p of projected) {
+      const r = projectedRowMap.get(`${p.goal_id}|${p.lesson_number}`);
+      if (r) orderedProjectedRows.push(r);
+      // If a projection has no matching row, the lesson hasn't been pre-
+      // generated. Skip silently — recomputeCurrentLesson on completion
+      // will still advance the queue from whatever exists. Pre-generation
+      // by CurriculumWizard means this case is rare; logging here would
+      // spam in normal use.
+    }
+
+    const loadedLessons = [...orderedProjectedRows, ...oneOffRows].map((l) => ({
+      ...(l as unknown as Lesson),
       icon_emoji: l.curriculum_goal_id ? (emojiMap.get(l.curriculum_goal_id) ?? "📚") : null,
     }));
     setLessons(loadedLessons);
 
-    // Missed lessons (past-dated incomplete) for the "From earlier" section.
-    const missedRaw = (missedResult.data ?? []) as unknown as MissedLesson[];
-    const missedEnriched = missedRaw.map(l => ({
-      ...l,
-      icon_emoji: l.curriculum_goal_id ? (emojiMap.get(l.curriculum_goal_id) ?? "📚") : null,
-    }));
-    setMissedLessons(missedEnriched);
+    // TODO: remove after queue scheduling verified in production. Missed
+    // lessons no longer exist under queue projection — see comment above
+    // missedResult tombstone. Kept as setMissedLessons([]) so the rest of
+    // the UI tree (collapsed under feature-gate) doesn't break during the
+    // transition.
+    setMissedLessons([]);
     setHasAnyLessons((allLessonsResult.data?.length ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
+
+    // ── Catch-up modal eligibility (Path A queue scheduling) ─────────────
+    // Show the modal when:
+    //   (a) there's at least one active goal,
+    //   (b) the family's most recent completion is 5+ calendar days old
+    //       (or there's never been one — first-time after wizard),
+    //   (c) profiles.last_catchup_dismissed_at is null OR older than the
+    //       gap start (so dismissing it sticks until the next 5-day gap).
+    void (async () => {
+      const activeGoals = goalRows.filter((g) => g.current_lesson < g.total_lessons);
+      if (activeGoals.length === 0) {
+        setShowCatchUp(false);
+        return;
+      }
+      const dismissedAtRaw = (profile as { last_catchup_dismissed_at?: string | null } | null)?.last_catchup_dismissed_at ?? null;
+      const dismissedAt = dismissedAtRaw ? new Date(dismissedAtRaw) : null;
+
+      const { data: lastCompRows } = await supabase
+        .from("lessons")
+        .select("completed_at")
+        .eq("user_id", effectiveUserId)
+        .eq("completed", true)
+        .not("completed_at", "is", null)
+        .order("completed_at", { ascending: false })
+        .limit(1);
+      const lastCompletedAtIso = (lastCompRows?.[0] as { completed_at: string | null } | undefined)?.completed_at ?? null;
+      const lastCompletedAt = lastCompletedAtIso ? new Date(lastCompletedAtIso) : null;
+
+      const todayMid = new Date(today + "T00:00:00");
+      const gapStart = lastCompletedAt
+        ? (() => { const d = new Date(lastCompletedAt); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 1); return d; })()
+        : todayMid; // never completed → no gap to show
+      const gapDays = Math.max(0, Math.floor((todayMid.getTime() - gapStart.getTime()) / 86400000));
+
+      // Hide if there's never been any completion at all — that's a brand
+      // new user, not someone returning after a gap. The wizard celebrates
+      // its own completion path and we don't want to nag empty families.
+      if (!lastCompletedAt) { setShowCatchUp(false); return; }
+      if (gapDays < 5) { setShowCatchUp(false); return; }
+      if (dismissedAt && dismissedAt > gapStart) { setShowCatchUp(false); return; }
+
+      // Compute per-goal catch-up entries. Vacation blocks exclude
+      // break days from the gap so the modal never asks about lessons
+      // during a vacation. If the entire gap is inside a break, the
+      // modal does not appear (entriesByGoal stays empty).
+      const entriesByGoal = new Map<string, CatchUpEntry[]>();
+      for (const goal of activeGoals) {
+        const cfg: CurriculumGoalConfig = {
+          id: goal.id,
+          total_lessons: goal.total_lessons,
+          lessons_per_day: goal.lessons_per_day,
+          school_days: goal.school_days,
+          current_lesson: goal.current_lesson,
+        };
+        const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
+        if (entries.length > 0) entriesByGoal.set(goal.id, entries);
+      }
+      if (entriesByGoal.size === 0) { setShowCatchUp(false); return; }
+
+      // Build display goal list with child names.
+      const childById = new Map((childrenData ?? []).map((c: Child) => [c.id, c]));
+      const displayGoals: CatchUpGoal[] = activeGoals
+        .filter((g) => entriesByGoal.has(g.id))
+        .map((g) => ({
+          id: g.id,
+          curriculum_name: g.curriculum_name,
+          subject_label: g.subject_label,
+          child_id: g.child_id,
+          child_name: g.child_id ? (childById.get(g.child_id)?.name ?? null) : null,
+        }));
+
+      setCatchUpGoals(displayGoals);
+      setCatchUpEntriesByGoal(entriesByGoal);
+      setCatchUpLastCompletion(lastCompletedAtIso ? lastCompletedAtIso.slice(0, 10) : null);
+      setShowCatchUp(true);
+    })();
 
     // Auto-select first incomplete child
     const kids = childrenData ?? [];
@@ -1039,6 +1233,82 @@ export default function TodayPage() {
     const { data: { session } } = await supabase.auth.getSession();
     return session?.access_token ?? null;
   }, []);
+
+  // ── Catch-up modal handlers (queue-based scheduling) ──────────────────
+  const [catchUpToast, setCatchUpToast] = useState(false);
+
+  async function handleCatchUpSubmit(submission: CatchUpSubmission) {
+    if (!effectiveUserId) return;
+    // For each checked entry, mark the matching lesson row complete on
+    // the gap day it would have been due. The row exists in production
+    // because CurriculumWizard pre-generates lesson_number 1..total at
+    // curriculum creation. If a row is missing for any reason, fall
+    // back to inserting a new row keyed by (curriculum_goal_id,
+    // lesson_number).
+    const goalIds = Array.from(new Set(submission.done.map((d) => d.goal_id)));
+    for (const entry of submission.done) {
+      const completedAtIso = `${entry.date}T12:00:00Z`;
+      const { data: existing } = await supabase
+        .from("lessons")
+        .select("id")
+        .eq("user_id", effectiveUserId)
+        .eq("curriculum_goal_id", entry.goal_id)
+        .eq("lesson_number", entry.lesson_number)
+        .maybeSingle();
+      if (existing) {
+        await supabase.from("lessons").update({
+          completed: true,
+          completed_at: completedAtIso,
+          date: entry.date,
+          scheduled_date: entry.date,
+        }).eq("id", (existing as { id: string }).id);
+      } else {
+        // Fall back to insert. Title/subject hydrated from the goal so
+        // the row renders correctly in history. is_backfill marks this
+        // as a catch-up so reports can distinguish if needed.
+        const goal = catchUpGoals.find((g) => g.id === entry.goal_id);
+        const goalRow = await supabase.from("curriculum_goals").select("child_id, subject_label, default_minutes, subject_id").eq("id", entry.goal_id).maybeSingle();
+        const childId = (goalRow.data as { child_id?: string | null })?.child_id ?? null;
+        const subjectId = (goalRow.data as { subject_id?: string | null })?.subject_id ?? null;
+        const defaultMinutes = (goalRow.data as { default_minutes?: number | null })?.default_minutes ?? 30;
+        await supabase.from("lessons").insert({
+          user_id: effectiveUserId,
+          curriculum_goal_id: entry.goal_id,
+          lesson_number: entry.lesson_number,
+          title: `${goal?.subject_label ?? goal?.curriculum_name ?? "Lesson"} — Lesson ${entry.lesson_number}`,
+          completed: true,
+          completed_at: completedAtIso,
+          date: entry.date,
+          scheduled_date: entry.date,
+          child_id: childId,
+          subject_id: subjectId,
+          minutes_spent: defaultMinutes,
+          hours: defaultMinutes / 60,
+          is_backfill: true,
+        });
+      }
+    }
+    // Advance current_lesson per affected goal.
+    for (const goalId of goalIds) {
+      await recomputeCurrentLesson(supabase, goalId);
+    }
+    // Persist dismissal so we don't re-prompt for this gap window.
+    await supabase.from("profiles").update({ last_catchup_dismissed_at: new Date().toISOString() }).eq("id", effectiveUserId);
+    setShowCatchUp(false);
+    setCatchUpToast(true);
+    setTimeout(() => setCatchUpToast(false), 2500);
+    // Order matters for the regression guard: loadData first, then story.
+    await loadData();
+    await refreshTodayStory();
+  }
+
+  async function handleCatchUpDismiss() {
+    if (!effectiveUserId) return;
+    await supabase.from("profiles").update({ last_catchup_dismissed_at: new Date().toISOString() }).eq("id", effectiveUserId);
+    setShowCatchUp(false);
+    // No data refresh needed — Today already projects the next-in-queue
+    // lessons, and current_lesson didn't change.
+  }
 
   async function refreshTodayStory() {
     if (!effectiveUserId) return;
@@ -1399,19 +1669,114 @@ export default function TodayPage() {
 
   async function openExtraLessons() {
     if (!effectiveUserId) return;
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + 14);
-    const futureStr = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, "0")}-${String(futureDate.getDate()).padStart(2, "0")}`;
-    const { data } = await supabase
-      .from("lessons")
-      .select("id, title, child_id, scheduled_date, curriculum_goal_id, lesson_number, subjects(name, color), curriculum_goals(subject_label)")
-      .eq("user_id", effectiveUserId)
-      .eq("completed", false)
-      .gt("scheduled_date", today)
-      .lte("scheduled_date", futureStr)
-      .order("scheduled_date")
-      .order("lesson_number", { ascending: true, nullsFirst: false });
-    setUpcomingLessons((data as unknown as UpcomingLesson[]) ?? []);
+
+    // Queue-based "next batch" picker (Path A). Today's allocation
+    // (current_lesson + 1 .. current_lesson + lessons_per_day) is
+    // already on the Today schedule and must NOT appear here. The
+    // modal projects the BATCH AFTER today onto upcoming school days,
+    // skipping vacation blocks, and shows lessons grouped by kid then
+    // subject in ascending lesson_number order.
+    const [{ data: goalsRaw }, { data: vacsRaw }] = await Promise.all([
+      supabase
+        .from("curriculum_goals")
+        .select("id, total_lessons, lessons_per_day, school_days, current_lesson, child_id, subject_label")
+        .eq("user_id", effectiveUserId),
+      supabase
+        .from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", effectiveUserId),
+    ]);
+    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null; child_id: string | null; subject_label: string | null }[];
+    const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
+      .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+
+    // Build per-goal "future pool" of lessons that aren't part of
+    // today's allocation. Approach: project from the real
+    // current_lesson starting TODAY, then drop any entries whose
+    // projected date == today (those ARE today's allocation and live
+    // on the Today schedule). Whatever's left is the future pool the
+    // modal can offer.
+    //
+    // Why not just `current_lesson + lessons_per_day` and project from
+    // tomorrow? Because if today is a break day or a non-school day,
+    // today consumed zero allocation — the offset would skip real
+    // lessons that mom never got.
+    const todayMid = new Date();
+    todayMid.setHours(0, 0, 0, 0);
+    const todayKey = `${todayMid.getFullYear()}-${String(todayMid.getMonth() + 1).padStart(2, "0")}-${String(todayMid.getDate()).padStart(2, "0")}`;
+    type Proj = { goal_id: string; lesson_number: number; date: string };
+    const allProjected: Proj[] = [];
+    for (const g of goals) {
+      const total = g.total_lessons ?? 0;
+      const cur = g.current_lesson ?? 0;
+      const perDay = Math.max(1, g.lessons_per_day ?? 1);
+      if (total <= 0 || cur >= total) continue;
+      const cfg: CurriculumGoalConfig = {
+        id: g.id,
+        total_lessons: total,
+        lessons_per_day: perDay,
+        school_days: g.school_days,
+        current_lesson: cur,
+      };
+      // 22 days ahead = today + 21 forward. Drop today's slots (those
+      // are the current allocation already on the Today schedule).
+      const projected = computeNextLessonsForGoal(cfg, todayMid, 22, vacationBlocks)
+        .filter((p) => p.date !== todayKey);
+      allProjected.push(...projected);
+    }
+
+    // Hydrate display fields from real lesson rows.
+    const projGoalIds = Array.from(new Set(allProjected.map((p) => p.goal_id)));
+    const projNumbers = Array.from(new Set(allProjected.map((p) => p.lesson_number)));
+    const { data: rowData } = projGoalIds.length > 0
+      ? await supabase
+          .from("lessons")
+          .select("id, title, child_id, scheduled_date, curriculum_goal_id, lesson_number, subjects(name, color), curriculum_goals(subject_label)")
+          .eq("user_id", effectiveUserId)
+          .in("curriculum_goal_id", projGoalIds)
+          .in("lesson_number", projNumbers)
+      : { data: [] as unknown[] };
+    type RowLite = { id: string; title: string; child_id: string | null; scheduled_date: string | null; curriculum_goal_id: string | null; lesson_number: number | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
+    const rowMap = new Map<string, RowLite>();
+    for (const r of (rowData ?? []) as RowLite[]) {
+      rowMap.set(`${r.curriculum_goal_id}|${r.lesson_number}`, r);
+    }
+
+    // Sort: kid → subject → lesson_number ascending. Override
+    // scheduled_date with the projected date so the modal renders the
+    // queue position, not the stale cache.
+    const out: UpcomingLesson[] = [];
+    for (const p of allProjected) {
+      const r = rowMap.get(`${p.goal_id}|${p.lesson_number}`);
+      if (!r) continue; // missing row — skip silently (wizard pre-generates)
+      out.push({
+        id: r.id,
+        title: r.title,
+        child_id: r.child_id ?? "",
+        scheduled_date: p.date,
+        curriculum_goal_id: r.curriculum_goal_id,
+        lesson_number: r.lesson_number,
+        subjects: r.subjects,
+        curriculum_goals: r.curriculum_goals,
+      } as UpcomingLesson);
+    }
+
+    // Stable order: child_id (matches Today layout), then
+    // subject_label, then lesson_number ascending. The group renderer
+    // walks this in-order so each subject is a clean numerical run.
+    out.sort((a, b) => {
+      const aCid = a.child_id ?? "";
+      const bCid = b.child_id ?? "";
+      if (aCid !== bCid) return aCid.localeCompare(bCid);
+      const aSubj = resolveLessonSubject(a.subjects?.name, a.curriculum_goals?.subject_label) ?? "";
+      const bSubj = resolveLessonSubject(b.subjects?.name, b.curriculum_goals?.subject_label) ?? "";
+      if (aSubj !== bSubj) return aSubj.localeCompare(bSubj);
+      const aN = a.lesson_number ?? 0;
+      const bN = b.lesson_number ?? 0;
+      return aN - bN;
+    });
+
+    setUpcomingLessons(out);
     setExtraChecked(new Set());
     setShowExtraLessons(true);
     posthog.capture('log_extra_lessons_opened', { user_plan: isPro ? 'paid' : 'free' });
@@ -1435,17 +1800,29 @@ export default function TodayPage() {
         if (goalRow) mins = (goalRow as { default_minutes?: number }).default_minutes ?? 30;
       }
 
-      // Mark complete with today's date. Future incomplete lessons are NOT
-      // shifted — that bunched the schedule onto fewer days (Kendra had 12
-      // Duolingo lessons stacked from this). Any compression / "finish
-      // earlier" UI lives on Plan (TBD design); Today just records the
-      // completion and walks away.
+      // Mark complete with today's date. Under queue-based scheduling
+      // we don't shift any future dates — completion advances
+      // current_lesson via recomputeCurrentLesson below, and the next
+      // render projects forward from the new queue position.
       await supabase.from("lessons").update({
         completed: true,
         completed_at: new Date().toISOString(),
         date: today,
+        scheduled_date: today,
         minutes_spent: mins,
       }).eq("id", lessonId);
+    }
+
+    // Advance current_lesson per affected goal. Without this, the
+    // queue projector would still include these lessons on the next
+    // render and Today would show them again on Monday.
+    const affectedGoalIds = new Set<string>();
+    for (const lessonId of extraChecked) {
+      const lesson = upcomingLessons.find((l) => l.id === lessonId);
+      if (lesson?.curriculum_goal_id) affectedGoalIds.add(lesson.curriculum_goal_id);
+    }
+    for (const goalId of affectedGoalIds) {
+      await recomputeCurrentLesson(supabase, goalId);
     }
 
     setSavingExtra(false);
@@ -2387,11 +2764,13 @@ export default function TodayPage() {
           to do with them: mark complete, skip, reschedule individually,
           or open the bulk reschedule sheet. Nothing moves silently.
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && missedLessons.length > 0 && (() => {
-        // Reuse the Today grouping for missed lessons. Each missed row
-        // always carries a single child_id, so the Everyone bucket stays
-        // empty. Restricted handlers: only Reschedule + Skip + mark-done
-        // (no Edit/Delete on missed cards — preserves prior scope).
+      {/* TODO: remove after queue scheduling verified in production.
+          "From earlier" missed-lesson section. Under queue scheduling
+          there are no missed lessons — current_lesson stays put and the
+          same lesson re-appears on Today next school day. Replaced by
+          the catch-up modal (see CatchUpModal below) which only triggers
+          after a 5-day gap. */}
+      {false && !loading && missedLessons.length > 0 && (() => {
         const missedItems = missedLessons.map((l) => ({
           id: l.id,
           kind: "lesson" as const,
@@ -2491,8 +2870,12 @@ export default function TodayPage() {
                 loadData();
               },
               onEditLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) openEdit(l); },
-              onRescheduleLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) openReschedule(l); },
-              onSkipLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) skipLesson(l); },
+              // TODO: remove after queue scheduling verified in production.
+              // Per-lesson reschedule + skip are pinned-date interventions
+              // that the queue model replaces with auto-shift. Manual queue
+              // reordering is a separate future PR.
+              // onRescheduleLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) openReschedule(l); },
+              // onSkipLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) skipLesson(l); },
               onDeleteLesson: deleteLesson,
               onStartEditingNote: (lessonId, currentNotes) => startEditingNote(lessonId, currentNotes),
               onManageAppointment: () => setShowManageSchedule(true),
@@ -3186,69 +3569,73 @@ export default function TodayPage() {
               {upcomingLessons.length === 0 ? (
                 <p className="text-sm text-[#7a6f65] text-center py-8">No upcoming lessons in the next 14 days.</p>
               ) : (() => {
-                // Group by child then show lessons
-                const grouped = new Map<string, UpcomingLesson[]>();
+                // Group by child → subject. Lessons within each subject
+                // already arrive in lesson_number ascending order from
+                // openExtraLessons (queue projection sort). Brittany:
+                // "everything should be in numerical order unless a mom
+                // needs a particular lesson moved out of order."
+                const byChild = new Map<string, UpcomingLesson[]>();
                 for (const l of upcomingLessons) {
                   const key = l.child_id ?? "__none__";
-                  if (!grouped.has(key)) grouped.set(key, []);
-                  grouped.get(key)!.push(l);
+                  if (!byChild.has(key)) byChild.set(key, []);
+                  byChild.get(key)!.push(l);
                 }
-                return Array.from(grouped.entries()).map(([childId, childLessons]) => {
+                return Array.from(byChild.entries()).map(([childId, childLessons]) => {
                   const child = children.find(c => c.id === childId);
-                  // Each kid section is tinted with that kid's own color so
-                  // mom can scan by child even within this multi-kid modal.
-                  // Subject tags keep their own subject color (not changed).
-                  // The primary CTA at the bottom stays neutral green
-                  // because it commits a multi-kid selection.
                   const kidColor = child?.color ?? "#7a6f65";
                   const kidTint = tintFromHex(kidColor, 0.25);
                   const kidDark = darkenHex(kidColor, 0.45);
+                  // Sub-group within child: subject_label → lessons.
+                  const bySubject = new Map<string, UpcomingLesson[]>();
+                  for (const l of childLessons) {
+                    const subj = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label) ?? "Other";
+                    if (!bySubject.has(subj)) bySubject.set(subj, []);
+                    bySubject.get(subj)!.push(l);
+                  }
                   return (
                     <div key={childId} className="mb-5">
                       {child && <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: kidDark }}>{child.name}</p>}
-                      <div className="space-y-1">
-                        {childLessons.map(l => {
-                          const isChecked = extraChecked.has(l.id);
-                          return (
-                            <button
-                              key={l.id}
-                              type="button"
-                              onClick={() => setExtraChecked(prev => { const n = new Set(prev); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n; })}
-                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors"
-                              style={{
-                                background: isChecked ? kidTint : "white",
-                                border: `1px solid ${isChecked ? kidColor : "#f0ede8"}`,
-                              }}
-                            >
-                              <div
-                                className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors"
-                                style={{
-                                  background: isChecked ? kidColor : "transparent",
-                                  borderColor: isChecked ? kidColor : "#c8bfb5",
-                                }}
-                              >
-                                {isChecked && <span className="text-white text-[10px] font-bold">✓</span>}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                {(() => {
-                                  const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label);
-                                  if (!subjName) return null;
-                                  const subjColor = l.subjects?.color ?? null;
-                                  return (
-                                    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full mr-1" style={{ backgroundColor: subjColor ? `${subjColor}20` : "#e8f0e9", color: subjColor ?? "#5c7f63" }}>
-                                      {subjName}
+                      {Array.from(bySubject.entries()).map(([subject, subjectLessons]) => {
+                        const subjColor = subjectLessons[0]?.subjects?.color ?? null;
+                        return (
+                          <div key={subject} className="mb-3 last:mb-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: subjColor ?? "#7a6f65" }}>
+                              {subject}
+                            </p>
+                            <div className="space-y-1">
+                              {subjectLessons.map(l => {
+                                const isChecked = extraChecked.has(l.id);
+                                return (
+                                  <button
+                                    key={l.id}
+                                    type="button"
+                                    onClick={() => setExtraChecked(prev => { const n = new Set(prev); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n; })}
+                                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors"
+                                    style={{
+                                      background: isChecked ? kidTint : "white",
+                                      border: `1px solid ${isChecked ? kidColor : "#f0ede8"}`,
+                                    }}
+                                  >
+                                    <div
+                                      className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors"
+                                      style={{
+                                        background: isChecked ? kidColor : "transparent",
+                                        borderColor: isChecked ? kidColor : "#c8bfb5",
+                                      }}
+                                    >
+                                      {isChecked && <span className="text-white text-[10px] font-bold">✓</span>}
+                                    </div>
+                                    <span className="flex-1 min-w-0 text-sm text-[#2d2926]">{l.title}</span>
+                                    <span className="text-[10px] text-[#b5aca4] shrink-0">
+                                      {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                                     </span>
-                                  );
-                                })()}
-                                <span className="text-sm text-[#2d2926]">{l.title}</span>
-                              </div>
-                              <span className="text-[10px] text-[#b5aca4] shrink-0">
-                                {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 });
@@ -3771,11 +4158,18 @@ export default function TodayPage() {
       )}
 
       {/* ── Reschedule bottom sheet ──────────────────────── */}
-      {rescheduleLesson && (() => {
+      {/* TODO: remove after queue scheduling verified in production.
+          Per-lesson reschedule modal — pinned-date manipulation that
+          the queue model auto-handles. Gate is `rescheduleLesson && false`
+          so TS narrowing still applies inside the IIFE. */}
+      {rescheduleLesson && false && (() => {
+        // Narrow to non-null inside the IIFE — TS doesn't carry the
+        // outer && narrowing across the closure boundary.
+        const rl = rescheduleLesson!;
         const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1);
         const tmrwStr = localDateStr(tmrw);
         const tmrwLabel = tmrw.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-        const curricName = rescheduleLesson.title?.replace(/ — Lesson.*$/, "") ?? "";
+        const curricName = rl.title?.replace(/ — Lesson.*$/, "") ?? "";
         return (
           <>
             <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => setRescheduleLesson(null)} />
@@ -3784,7 +4178,7 @@ export default function TodayPage() {
                 {/* Header */}
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-base font-medium text-[var(--g-deep)]" style={{ fontFamily: "var(--font-display)" }}>
-                    Reschedule {rescheduleLesson.title || "this lesson"}
+                    Reschedule {rl.title || "this lesson"}
                   </h3>
                   <button onClick={() => setRescheduleLesson(null)} className="text-[#b5aca4] hover:text-[#7a6f65] text-lg leading-none p-1">✕</button>
                 </div>
@@ -3838,7 +4232,7 @@ export default function TodayPage() {
                   </div>
 
                   {/* Curriculum-specific options */}
-                  {rescheduleLesson.curriculum_goal_id && (
+                  {rl.curriculum_goal_id && (
                     <>
                       {/* Push all remaining */}
                       <button
@@ -3895,7 +4289,10 @@ export default function TodayPage() {
       })()}
 
       {/* ── Missed-lesson reschedule sheet ──────────────────── */}
-      {showMissedSheet && missedLessons.length > 0 && (() => {
+      {/* TODO: remove after queue scheduling verified in production.
+          The "Add to next school day" / "Push back N days" actions are
+          pinned-date reshuffles. Queue model removes the missed concept. */}
+      {false && showMissedSheet && missedLessons.length > 0 && (() => {
         const n = missedLessons.length;
         return (
           <>
@@ -3953,6 +4350,26 @@ export default function TodayPage() {
           </>
         );
       })()}
+
+      {/* ── Catch-up modal (queue-based scheduling) ─────────────────
+           Trigger logic in loadData. Submit advances current_lesson per
+           goal, dismiss persists last_catchup_dismissed_at on profiles. */}
+      {showCatchUp && (
+        <CatchUpModal
+          lastCompletionDate={catchUpLastCompletion}
+          goals={catchUpGoals}
+          entriesByGoal={catchUpEntriesByGoal}
+          onSubmit={handleCatchUpSubmit}
+          onDismiss={handleCatchUpDismiss}
+        />
+      )}
+      {catchUpToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
+          <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-lg">
+            Got it. Today is updated.
+          </div>
+        </div>
+      )}
 
       {/* ── Reschedule undo toast ────────────────────────────
            The whole pill is the tap target — the bare "Undo" word was a
