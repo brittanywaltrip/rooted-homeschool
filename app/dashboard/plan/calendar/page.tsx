@@ -8,6 +8,7 @@ import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { computeNextLessonsForGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { tintFromHex, darkenHex } from "@/lib/color-tint";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -683,18 +684,28 @@ export default function CalendarPage() {
                     </span>
                   </div>
 
-                  {/* Lessons */}
-                  {group.lessons.map((l) => (
+                  {/* Lessons — kid-color tinted card matching Today's
+                      schedule cards. Card background uses tintFromHex,
+                      title + subject pill use the kid's darker shade. */}
+                  {group.lessons.map((l) => {
+                    const kidColor = group.child?.color ?? "#7a6f65";
+                    const kidBg = tintFromHex(kidColor, 0.25);
+                    const kidTitle = darkenHex(kidColor, 0.45);
+                    const kidPillBg = tintFromHex(kidColor, 0.35);
+                    const kidPillText = darkenHex(kidColor, 0.55);
+                    return (
                     <div key={l.id} className="pl-8 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <div className="w-[5px] h-[5px] rounded-full bg-[var(--g-deep)] shrink-0" />
-                        <span className={`text-xs ${l.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                      <div
+                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${l.completed ? "opacity-60" : ""}`}
+                        style={{ background: kidBg }}
+                      >
+                        <span className={`text-xs ${l.completed ? "line-through" : ""}`} style={{ color: l.completed ? "#b5aca4" : kidTitle }}>
                           {l.title}
                         </span>
                         {(() => {
                           const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label);
                           return subjName ? (
-                            <span className="text-[9px] font-medium text-[#7a6f65] bg-[#f0ede8] px-1.5 py-0.5 rounded-full">
+                            <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full" style={{ background: kidPillBg, color: kidPillText }}>
                               {subjName}
                             </span>
                           ) : null;
@@ -732,7 +743,8 @@ export default function CalendarPage() {
                         </button>
                       ) : null}
                     </div>
-                  ))}
+                    );
+                  })}
 
                   {/* Memories */}
                   {group.memories.map((ev) => (

@@ -91,6 +91,12 @@ type TabLesson = {
   // Used by the Past tab's per-subject lesson_number desc sort. Optional
   // because not every legacy row has a lesson_number set.
   lesson_number?: number | null;
+  // Past tab uses these for the date label so completed lessons never
+  // show "Tomorrow" because their cache scheduled_date is stale. Loader
+  // pulls completed_at and updated_at on Past rows; Upcoming rows leave
+  // both null.
+  completed_at?: string | null;
+  updated_at?: string | null;
 };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -174,11 +180,11 @@ export default function InlineScheduleTabs({
       setRecurring((recRes.data ?? []) as TabAppt[]);
       setPast((pastRes.data ?? []) as TabAppt[]);
 
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(0, 0, 0, 0);
+      const todayMid = new Date();
+      todayMid.setHours(0, 0, 0, 0);
       const fmtD = (d: Date) =>
         `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const todayKey = fmtD(todayMid);
 
       // Queue-based "Upcoming" loader (Path A). The cache scheduled_date
       // is no longer the source of truth — we project from each goal's
@@ -198,8 +204,17 @@ export default function InlineScheduleTabs({
       const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
         .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
 
-      // Project 14 days starting tomorrow so we always find at least the
-      // next school day even if it's after a long weekend or break.
+      // Project 15 calendar days starting TODAY, then drop entries dated
+      // today. Why "from today, drop today" instead of "from tomorrow"?
+      // computeNextLessonsForGoal starts allocating at lesson_number =
+      // current_lesson + 1 on the first school day at-or-after fromDate.
+      // If we passed `tomorrow` straight in, tomorrow gets lesson 95 —
+      // but today already claimed 95 (it's the current allocation
+      // shown on Today). Projecting from today and dropping today's
+      // slots gets us lesson 96 on tomorrow, correctly.
+      // Edge case: today is non-school or break — `computeNextLessons`
+      // returns nothing for today, so the drop is a no-op and the next
+      // school day correctly gets lesson_number = current_lesson + 1.
       type Proj = { goal_id: string; lesson_number: number; date: string };
       const allProjected: Proj[] = [];
       for (const g of goals) {
@@ -211,7 +226,9 @@ export default function InlineScheduleTabs({
           school_days: g.school_days,
           current_lesson: g.current_lesson ?? 0,
         };
-        allProjected.push(...computeNextLessonsForGoal(cfg, tomorrow, 14, vacationBlocks));
+        const projected = computeNextLessonsForGoal(cfg, todayMid, 15, vacationBlocks)
+          .filter((p) => p.date !== todayKey);
+        allProjected.push(...projected);
       }
       const projGoalIds = Array.from(new Set(allProjected.map((p) => p.goal_id)));
       const projNumbers = Array.from(new Set(allProjected.map((p) => p.lesson_number)));
@@ -253,19 +270,21 @@ export default function InlineScheduleTabs({
       });
       setUpcomingLessons(hydrated);
 
-      // Past lessons: keep the date-window query (it's filtering on
-      // when mom completed, not projecting from queue). Sort changes
-      // happen at render time — see the Past tab block below where we
-      // group by kid → subject → lesson_number desc.
+      // Past lessons: filter the window by completed_at since mom may
+      // have completed something whose cache scheduled_date is in the
+      // future (stale row). Pull completed_at + updated_at so the Past
+      // render labels each row with WHEN mom actually completed it,
+      // never the stale cache date.
       const sevenAgo = new Date();
       sevenAgo.setDate(sevenAgo.getDate() - 7);
+      const sevenAgoIso = `${fmtD(sevenAgo)}T00:00:00Z`;
       const { data: pastLessonData } = await supabase
         .from("lessons")
-        .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number")
+        .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, completed_at, updated_at")
         .eq("user_id", user.id)
         .eq("completed", true)
-        .gte("scheduled_date", fmtD(sevenAgo))
-        .order("scheduled_date", { ascending: false })
+        .gte("completed_at", sevenAgoIso)
+        .order("completed_at", { ascending: false })
         .order("title");
       setPastLessons((pastLessonData ?? []) as unknown as TabLesson[]);
 
@@ -569,13 +588,16 @@ export default function InlineScheduleTabs({
                     bySubject.get(subj)!.push(l);
                   }
                   // Sort each subject by lesson_number desc, fallback
-                  // to scheduled_date desc when lesson_number is null.
+                  // to completed_at desc when lesson_number is null
+                  // (matches the date label, which also reads completed_at).
                   for (const items of bySubject.values()) {
                     items.sort((a, b) => {
                       const an = a.lesson_number ?? -Infinity;
                       const bn = b.lesson_number ?? -Infinity;
                       if (an !== bn) return bn - an;
-                      return b.scheduled_date.localeCompare(a.scheduled_date);
+                      const ad = a.completed_at ?? a.updated_at ?? a.scheduled_date;
+                      const bd = b.completed_at ?? b.updated_at ?? b.scheduled_date;
+                      return bd.localeCompare(ad);
                     });
                   }
                   const subjectsOrdered = Array.from(bySubject.keys()).sort();
@@ -592,6 +614,15 @@ export default function InlineScheduleTabs({
                             <p className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color: subjColor ?? "#9a8e84" }}>{subject}</p>
                             {items.map((l) => {
                               const skin = skinForChildIds(l.child_id ? [l.child_id] : null, kids);
+                              // Date label = WHEN mom actually completed it.
+                              // Cache scheduled_date can be in the future
+                              // (stale pre-pinned row) so showing it for a
+                              // completed lesson would render "Tomorrow"
+                              // under a struck-through ✓ row. Fall back to
+                              // updated_at if completed_at somehow lost
+                              // its timestamp.
+                              const completionTs = l.completed_at ?? l.updated_at ?? null;
+                              const completionDate = completionTs ? completionTs.slice(0, 10) : l.scheduled_date;
                               return (
                                 <div
                                   key={`l-${l.id}`}
@@ -601,7 +632,7 @@ export default function InlineScheduleTabs({
                                   <span className="text-lg shrink-0">✓</span>
                                   <div className="flex-1 min-w-0">
                                     <span className="text-[13px] font-medium line-through truncate" style={{ color: skin.titleColor }}>{l.title}</span>
-                                    <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>{fmtRelDate(l.scheduled_date)}</p>
+                                    <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>{fmtRelDate(completionDate)}</p>
                                   </div>
                                 </div>
                               );

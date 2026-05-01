@@ -17,6 +17,7 @@ import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
 import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, computeNextLessonsForGoal, computeFinishDate, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
+import { tintFromHex, darkenHex } from "@/lib/color-tint";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2262,20 +2263,32 @@ export default function PlanPage() {
             )}
             {selLessons.map((l) => {
               const goal = l.curriculum_goal_id ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) : null;
+              // Kid-color tinting (parity with Today schedule cards):
+              // tint card background by the lesson's child color, darken
+              // for title and pill text. Matches the call-site pattern
+              // in InlineScheduleTabs / TodayKidSection so the same
+              // lesson reads the same shade across Today and Plan.
+              const lessonChild = l.child_id ? children.find((c) => c.id === l.child_id) : null;
+              const kidColor = lessonChild?.color ?? "#7a6f65";
+              const kidBg = tintFromHex(kidColor, 0.25);
+              const kidTitle = darkenHex(kidColor, 0.45);
+              const kidSubtle = darkenHex(kidColor, 0.30);
+              const kidPillBg = tintFromHex(kidColor, 0.35);
+              const kidPillText = darkenHex(kidColor, 0.55);
               return (
-                <div key={l.id} className={`rounded-xl ${l.completed ? "opacity-60" : ""}`} style={{ background: "linear-gradient(to bottom right, #eefbf0, #e0f8e6)", border: "1px solid #cef0d4" }}>
+                <div key={l.id} className={`rounded-xl ${l.completed ? "opacity-60" : ""}`} style={{ background: kidBg }}>
                   <div className="flex items-center gap-3 px-4 py-2.5">
                     <span className="text-xl shrink-0">{goal?.icon_emoji ?? "📚"}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className={`text-[14px] font-medium truncate ${l.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>{l.title}</span>
+                        <span className={`text-[14px] font-medium truncate ${l.completed ? "line-through" : ""}`} style={{ color: l.completed ? "#b5aca4" : kidTitle }}>{l.title}</span>
                         {l.completed ? (
-                          <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#2D5A3D] text-white">✓ Done</span>
+                          <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0" style={{ background: kidTitle, color: "white" }}>✓ Done</span>
                         ) : (
-                          <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#dcfce7] text-[#15803d]">Lesson</span>
+                          <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0" style={{ background: kidPillBg, color: kidPillText }}>Lesson</span>
                         )}
                       </div>
-                      {(() => { const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label); return subjName ? <p className="text-xs text-[#7a6f65] mt-0.5">{subjName}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p> : null; })()}
+                      {(() => { const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label); return subjName ? <p className="text-xs mt-0.5" style={{ color: kidSubtle }}>{subjName}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p> : null; })()}
                       {/* Note preview (collapsed) */}
                       {editingNoteId !== l.id && l.notes && (
                         <p className="text-[11px] text-[#6b6560] italic mt-1 line-clamp-1">{l.notes}</p>

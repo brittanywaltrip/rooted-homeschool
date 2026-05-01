@@ -8,6 +8,7 @@ import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { computeNextLessonsForGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { tintFromHex, darkenHex } from "@/lib/color-tint";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -364,29 +365,34 @@ export default function SchedulePage() {
                     {dayLessons.map((lesson) => {
                       const child = children.find((c) => c.id === lesson.child_id);
                       const subjName = resolveLessonSubject(lesson.subjects?.name, lesson.curriculum_goals?.subject_label);
-                      const subStyle = subjName
-                        ? getSubjectStyle(lesson.subjects?.color ?? null, subjName)
-                        : { bg: "#f0ede8", text: "#5c5248" };
+                      // Kid-color tinted card matches Today schedule
+                      // (parity with InlineScheduleTabs / TodayKidSection).
+                      // Background tinted; subject pill uses the kid's
+                      // darker shade. Subject color from the subjects
+                      // table is no longer used here — the card already
+                      // signals the subject by its kid-keyed background.
+                      const kidColor = child?.color ?? "#7a6f65";
+                      const kidBg = tintFromHex(kidColor, 0.25);
+                      const kidTitle = darkenHex(kidColor, 0.45);
+                      const kidPillBg = tintFromHex(kidColor, 0.35);
+                      const kidPillText = darkenHex(kidColor, 0.55);
                       return (
                         <div
                           key={lesson.id}
-                          className={`rounded-lg p-1.5 border-l-2 text-[10px] transition-all ${
+                          className={`rounded-lg p-1.5 text-[10px] transition-all ${
                             lesson.completed ? "opacity-50" : ""
                           }`}
                           style={{
-                            borderLeftColor: child?.color ?? subStyle.text,
-                            backgroundColor: lesson.completed ? "#f0f7f1" : "white",
+                            backgroundColor: kidBg,
                           }}
                         >
-                          <p className={`font-medium leading-snug ${
-                            lesson.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"
-                          }`}>
+                          <p className={`font-medium leading-snug ${lesson.completed ? "line-through" : ""}`} style={{ color: lesson.completed ? "#b5aca4" : kidTitle }}>
                             {lesson.title}
                           </p>
                           {subjName && (
                             <span
                               className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold"
-                              style={{ backgroundColor: subStyle.bg, color: subStyle.text }}
+                              style={{ backgroundColor: kidPillBg, color: kidPillText }}
                             >
                               {subjName}
                             </span>

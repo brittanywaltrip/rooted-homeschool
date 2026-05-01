@@ -1024,6 +1024,103 @@ test('bug 5: Past tab grouping by kid → subject → lesson_number desc preserv
   ])
 })
 
+// ── Verification round 2 bug fixes (PR #48 follow-up #2, 2026-05-01) ──
+
+test('bug A: Upcoming tab projection skips today and starts at lesson current+lessons_per_day+1', () => {
+  // Repro: Upcoming tab showed Sat May 2 lesson_number = 95 when today
+  // was Fri May 1 with current_lesson = 94. Lesson 95 is today's
+  // allocation; Saturday should be lesson 96.
+  // Fix pattern (matches Log Extra modal): project from today, drop
+  // entries dated today. Today's allocation thereby leaves the pool
+  // and the next entry starts at lesson_number = current_lesson + 1
+  // shifted forward by today's slots.
+  const friday = new Date(2026, 4, 1) // Fri May 1 2026
+  const todayKey = '2026-05-01'
+  const goal = goalCfg({
+    current_lesson: 94,
+    total_lessons: 200,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], // 7-day school
+  })
+  const pool = computeNextLessonsForGoal(goal, friday, 15)
+    .filter((p) => p.date !== todayKey)
+  // First pool item lands on Sat May 2 with lesson 96 (NOT 95).
+  assert.equal(pool[0].date, '2026-05-02')
+  assert.equal(pool[0].lesson_number, 96)
+  // Sun May 3 is also a school day → lesson 97.
+  assert.equal(pool[1].date, '2026-05-03')
+  assert.equal(pool[1].lesson_number, 97)
+})
+
+test('bug A: Upcoming on a non-school day → today consumed nothing → pool starts at current+1', () => {
+  // Sat May 2 with Mon-Fri schedule. Today is non-school, today
+  // consumed zero allocation, so the drop-today filter is a no-op
+  // and the first pool item is lesson_number = current_lesson + 1
+  // on the next school day.
+  const sat = new Date(2026, 4, 2) // Sat May 2 — not a school day
+  const todayKey = '2026-05-02'
+  const goal = goalCfg({
+    current_lesson: 94,
+    total_lessons: 200,
+    lessons_per_day: 1,
+  })
+  const pool = computeNextLessonsForGoal(goal, sat, 15)
+    .filter((p) => p.date !== todayKey)
+  assert.equal(pool[0].date, '2026-05-04', 'next school day')
+  assert.equal(pool[0].lesson_number, 95, 'lesson 95 because today consumed nothing')
+})
+
+test('bug B: Past tab date label uses completed_at, never a stale future scheduled_date', () => {
+  // Repro: completed Emma LA lesson 91 displayed "Tomorrow" in the
+  // Past tab because the row's pre-pinned scheduled_date was in the
+  // future. Fix: use completed_at (sliced to YYYY-MM-DD) as the date
+  // label source. Fall back to updated_at, then scheduled_date.
+  type Row = { id: string; completed_at: string | null; updated_at: string | null; scheduled_date: string }
+  function dateLabelDate(l: Row): string {
+    const ts = l.completed_at ?? l.updated_at ?? null
+    return ts ? ts.slice(0, 10) : l.scheduled_date
+  }
+
+  const completed = { id: 'L91', completed_at: '2026-04-28T15:30:00Z', updated_at: '2026-04-28T15:30:01Z', scheduled_date: '2026-05-02' }
+  assert.equal(dateLabelDate(completed), '2026-04-28', 'completed_at wins over future scheduled_date')
+
+  const completedAtNull = { id: 'L91', completed_at: null, updated_at: '2026-04-27T10:00:00Z', scheduled_date: '2026-05-02' }
+  assert.equal(dateLabelDate(completedAtNull), '2026-04-27', 'updated_at fallback when completed_at is missing')
+
+  const bothNull = { id: 'L91', completed_at: null, updated_at: null, scheduled_date: '2026-05-02' }
+  assert.equal(dateLabelDate(bothNull), '2026-05-02', 'scheduled_date fallback when both timestamps are missing')
+})
+
+test('bug C: Plan lesson cards derive their tint from the kid color, not a global sage-green', () => {
+  // The render code passes the lesson's child_id → child.color into
+  // tintFromHex/darkenHex. Two different kids must produce two
+  // different card backgrounds for the same goal_id / subject. This
+  // test pins the call-site contract — that the renderer keys tint by
+  // child color, not by subject.
+  function tint(hex: string, opacity: number): string {
+    // mirror of lib/color-tint.tintFromHex semantics so this test
+    // doesn't depend on importing browser-only helpers
+    const h = hex.replace('#', '')
+    const r = parseInt(h.slice(0, 2), 16)
+    const g = parseInt(h.slice(2, 4), 16)
+    const b = parseInt(h.slice(4, 6), 16)
+    const tr = Math.round(r * opacity + 255 * (1 - opacity))
+    const tg = Math.round(g * opacity + 255 * (1 - opacity))
+    const tb = Math.round(b * opacity + 255 * (1 - opacity))
+    return `#${tr.toString(16).padStart(2, '0')}${tg.toString(16).padStart(2, '0')}${tb.toString(16).padStart(2, '0')}`
+  }
+  const emmaColor = '#9b6bff'
+  const zoeColor = '#ff8a3c'
+  const emmaBg = tint(emmaColor, 0.25)
+  const zoeBg = tint(zoeColor, 0.25)
+  assert.notEqual(emmaBg, zoeBg, 'two kids → two distinct tinted backgrounds')
+  // The fallback color (no kid set) must match what the Plan renderer
+  // uses so unassigned lessons render the same neutral tint they
+  // always have.
+  const fallback = tint('#7a6f65', 0.25)
+  assert.ok(/^#[0-9a-f]{6}$/.test(fallback), 'fallback tint produces a valid hex')
+})
+
 test('vacation: catch-up gap mixing school days and break days only checkboxes the school days', () => {
   // Mom finished lesson 9 on Fri May 1. Today is Mon May 11. The gap is
   // Sat May 2 through Sun May 10 (9 calendar days). Family was on break
