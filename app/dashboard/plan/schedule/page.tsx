@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
-import { computeNextLessonsForGoal, type CurriculumGoalConfig } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,7 +109,7 @@ export default function SchedulePage() {
 
     // Source of truth for upcoming lessons is the curriculum goal queue
     // position (Path A, 2026-05). See app/lib/scheduler.ts.
-    const [{ data: kids }, { data: subs }, { data: goalsRaw }] = await Promise.all([
+    const [{ data: kids }, { data: subs }, { data: goalsRaw }, { data: vacsRaw }] = await Promise.all([
       supabase
         .from("children")
         .select("id, name, color")
@@ -125,6 +125,10 @@ export default function SchedulePage() {
         .from("curriculum_goals")
         .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
         .eq("user_id", effectiveUserId),
+      supabase
+        .from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", effectiveUserId),
     ]);
 
     setChildren(capitalizeChildNames(kids ?? []));
@@ -135,6 +139,8 @@ export default function SchedulePage() {
     const projStart = ws > today ? ws : today;
     const daysAhead = Math.max(0, Math.floor((we.getTime() - projStart.getTime()) / 86400000) + 1);
     const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
+    const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
+      .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
     const projected: { goal_id: string; lesson_number: number; date: string }[] = [];
     for (const g of goals) {
       if (!g.total_lessons || g.total_lessons <= 0) continue;
@@ -145,7 +151,7 @@ export default function SchedulePage() {
         school_days: g.school_days,
         current_lesson: g.current_lesson ?? 0,
       };
-      projected.push(...computeNextLessonsForGoal(cfg, projStart, daysAhead).filter((p) => p.date >= s && p.date <= e));
+      projected.push(...computeNextLessonsForGoal(cfg, projStart, daysAhead, vacationBlocks).filter((p) => p.date >= s && p.date <= e));
     }
     const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
     const projGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));

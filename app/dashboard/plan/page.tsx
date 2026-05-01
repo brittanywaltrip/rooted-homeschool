@@ -15,7 +15,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, computeNextLessonsForGoal, type CurriculumGoalConfig } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, computeNextLessonsForGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -199,6 +199,7 @@ async function loadLessonsForRange(
   rangeEndStr: string,
   todayStr: string,
   goals: { id: string; total_lessons: number | null; lessons_per_day?: number | null; school_days: string[] | null; current_lesson: number | null }[],
+  vacationBlocks: SchedVacationBlock[],
 ): Promise<Lesson[]> {
   // ── Project future lessons across the visible range, per goal ──
   const todayMid = new Date(todayStr + "T00:00:00");
@@ -214,7 +215,7 @@ async function loadLessonsForRange(
       school_days: g.school_days,
       current_lesson: g.current_lesson ?? 0,
     };
-    const projected = computeNextLessonsForGoal(cfg, projStart, daysAhead)
+    const projected = computeNextLessonsForGoal(cfg, projStart, daysAhead, vacationBlocks)
       .filter((p) => p.date >= rangeStartStr && p.date <= rangeEndStr);
     allProjected.push(...projected);
   }
@@ -580,11 +581,12 @@ export default function PlanPage() {
     we.setDate(we.getDate() + 6);
     const s = toDateStr(ws), e = toDateStr(we);
     const todayStr = toDateStr(new Date());
-    const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }] = await Promise.all([
+    const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }, { data: vacs }] = await Promise.all([
       supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji, lessons_per_day").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("vacation_blocks").select("start_date, end_date").eq("user_id", effectiveUserId),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
     setProfileSchoolDays((profile as { school_days?: string[] } | null)?.school_days ?? []);
@@ -593,7 +595,8 @@ export default function PlanPage() {
     setSubjects((subs as Subject[]) ?? []);
     setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
 
-    setLessons(await loadLessonsForRange(effectiveUserId, ws, we, s, e, todayStr, (goals ?? []) as unknown as CurriculumGoal[]));
+    const vacationBlocks: SchedVacationBlock[] = (vacs ?? []) as SchedVacationBlock[];
+    setLessons(await loadLessonsForRange(effectiveUserId, ws, we, s, e, todayStr, (goals ?? []) as unknown as CurriculumGoal[], vacationBlocks));
     setLoading(false);
   }, [weekStart, effectiveUserId]);
 
@@ -635,13 +638,19 @@ export default function PlanPage() {
     const me = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
     const s = toDateStr(ms), e = toDateStr(me);
     const todayStr = toDateStr(new Date());
-    // Re-fetch goals here so the projection is consistent with whatever
-    // changed since the week-view load (rare race, but possible).
-    const { data: goalsData } = await supabase.from("curriculum_goals")
-      .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
-      .eq("user_id", effectiveUserId);
+    // Re-fetch goals + vacation_blocks here so the projection stays
+    // consistent with whatever changed since the week-view load.
+    const [{ data: goalsData }, { data: vacsData }] = await Promise.all([
+      supabase.from("curriculum_goals")
+        .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
+        .eq("user_id", effectiveUserId),
+      supabase.from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", effectiveUserId),
+    ]);
     const goals = (goalsData ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
-    setMonthLessons(await loadLessonsForRange(effectiveUserId, ms, me, s, e, todayStr, goals));
+    const vacationBlocks: SchedVacationBlock[] = (vacsData ?? []) as SchedVacationBlock[];
+    setMonthLessons(await loadLessonsForRange(effectiveUserId, ms, me, s, e, todayStr, goals, vacationBlocks));
 
     // Fetch appointments for the month
     try {

@@ -584,6 +584,30 @@ export interface ProjectedLesson {
 }
 
 /**
+ * A vacation_blocks row for the queue projector. Inclusive on both ends:
+ * `start_date <= candidate <= end_date` is "in break". The projector
+ * skips these dates entirely; mom can still manually log lessons on
+ * break days, but the system never schedules onto them.
+ */
+export interface VacationBlock {
+  start_date: string; // YYYY-MM-DD
+  end_date: string;   // YYYY-MM-DD, inclusive
+}
+
+/**
+ * Is the given date inside any vacation block? Compares as YYYY-MM-DD
+ * strings so timezone math doesn't sneak in.
+ */
+export function isBreakDay(date: Date, vacationBlocks: VacationBlock[] | null | undefined): boolean {
+  if (!vacationBlocks || vacationBlocks.length === 0) return false;
+  const dateStr = toDateStr(date);
+  for (const b of vacationBlocks) {
+    if (dateStr >= b.start_date && dateStr <= b.end_date) return true;
+  }
+  return false;
+}
+
+/**
  * Normalize a goal's school_days. The DB column defaults to Mon-Fri at
  * insert, but legacy rows or hand-edits can land here as null or [], in
  * which case we fall back to the same Mon-Fri default rather than
@@ -612,11 +636,19 @@ export function isSchoolDay(date: Date, schoolDays: string[] | null | undefined)
  * finished, today's lessons are first in the result.
  *
  * Stops when total_lessons is reached. Returns [] when the goal is done.
+ *
+ * If `vacationBlocks` is supplied, any candidate date that falls inside
+ * a block (start_date <= date <= end_date) is treated as NOT a school
+ * day — the system never schedules onto a break, regardless of what
+ * school_days says. Mom can still manually mark lessons complete on
+ * break days; that path goes through recomputeCurrentLesson and isn't
+ * gated by this projector.
  */
 export function computeNextLessonsForGoal(
   goal: CurriculumGoalConfig,
   fromDate: Date,
   daysAhead: number,
+  vacationBlocks?: VacationBlock[],
 ): ProjectedLesson[] {
   if (daysAhead <= 0) return [];
   if (goal.current_lesson >= goal.total_lessons) return [];
@@ -632,7 +664,7 @@ export function computeNextLessonsForGoal(
   let nextLesson = goal.current_lesson + 1;
 
   for (let i = 0; i < daysAhead && nextLesson <= goal.total_lessons; i++) {
-    if (isSchoolDayIdx(cursor, schoolDaysBool)) {
+    if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
       const dateStr = toDateStr(cursor);
       for (let s = 0; s < perDay && nextLesson <= goal.total_lessons; s++) {
         out.push({ goal_id: goal.id, lesson_number: nextLesson, date: dateStr });
@@ -648,10 +680,17 @@ export function computeNextLessonsForGoal(
 /**
  * Compute the calendar date the goal will finish on, projecting forward
  * from `fromDate`. Returns null if the goal is already complete.
+ *
+ * Vacation blocks push the finish date out: each break day that falls
+ * inside the projection window pushes the finish by one school-day-
+ * worth of lessons. A 7-day break with lessons_per_day=1 means finish
+ * moves out by 7 calendar days (the lessons that would have landed
+ * inside the break get pushed past it).
  */
 export function computeFinishDate(
   goal: CurriculumGoalConfig,
   fromDate: Date = new Date(),
+  vacationBlocks?: VacationBlock[],
 ): Date | null {
   if (goal.current_lesson >= goal.total_lessons) return null;
 
@@ -667,7 +706,7 @@ export function computeFinishDate(
   let safety = 0;
 
   while (walked < schoolDaysNeeded && safety < 3650) {
-    if (isSchoolDayIdx(cursor, schoolDaysBool)) {
+    if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
       lastSchoolDay = new Date(cursor);
       walked++;
     }
@@ -682,7 +721,7 @@ export function computeFinishDate(
  * Across all of a family's curriculum goals, what should appear on Today?
  *
  *   - Each goal's first projected school day equals today (or skips today
- *     if today isn't a school day for that goal).
+ *     if today isn't a school day for that goal, OR today is a break day).
  *   - lessons_per_day on the goal controls how many slots come back.
  *   - Goals that are complete contribute nothing.
  *
@@ -692,12 +731,13 @@ export function computeFinishDate(
 export function computeTodayLessons(
   goals: CurriculumGoalConfig[],
   today: Date,
+  vacationBlocks?: VacationBlock[],
 ): ProjectedLesson[] {
   const out: ProjectedLesson[] = [];
   for (const goal of goals) {
     // Project a single calendar day. computeNextLessonsForGoal will return
     // [] if today isn't a school day for this goal — exactly what we want.
-    const projected = computeNextLessonsForGoal(goal, today, 1);
+    const projected = computeNextLessonsForGoal(goal, today, 1, vacationBlocks);
     out.push(...projected);
   }
   return out;
@@ -712,11 +752,17 @@ export function computeTodayLessons(
  * Returns one entry per (school day in the gap, lesson slot). Result is
  * grouped by date in display order so the modal can render a checklist
  * grouped by day.
+ *
+ * Vacation blocks exclude break days from the gap so the modal never
+ * asks "did you do lessons during your beach trip?" — only the school
+ * days mom actually missed get checkboxes. If the entire gap is inside
+ * a break, this returns [] and the modal does not appear at all.
  */
 export function computeGapLessonsForGoal(
   goal: CurriculumGoalConfig,
   gapStartDate: Date,
   today: Date,
+  vacationBlocks?: VacationBlock[],
 ): ProjectedLesson[] {
   const start = new Date(gapStartDate);
   start.setHours(0, 0, 0, 0);
@@ -724,5 +770,5 @@ export function computeGapLessonsForGoal(
   end.setHours(0, 0, 0, 0);
   const days = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 86400000));
   if (days === 0) return [];
-  return computeNextLessonsForGoal(goal, start, days);
+  return computeNextLessonsForGoal(goal, start, days, vacationBlocks);
 }

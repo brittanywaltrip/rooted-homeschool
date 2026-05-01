@@ -138,6 +138,9 @@ Step 5: Done + Brittany founder closing moment
   of truth for what to render. Today / Plan read from
   curriculum_goals.current_lesson + lessons_per_day + school_days. Old code
   paths still write the cache columns; new read code ignores them.
+  vacation_blocks rows scoped by user_id define break ranges. Queue
+  projector skips these dates. Manual completions are still allowed on
+  break days and advance current_lesson normally.
 - curriculum_goals: curriculum_name, total_lessons, current_lesson,
   lessons_per_day, school_days (text[] of weekday labels: "Mon".."Sun",
   defaults to Mon-Fri; null/empty also normalizes to Mon-Fri at the read

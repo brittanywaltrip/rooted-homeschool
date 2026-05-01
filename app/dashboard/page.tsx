@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
 import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
@@ -817,6 +817,13 @@ export default function TodayPage() {
     setCurriculumGoalsCount(goalRows.length);
     setGoalSchoolDaysMap(schoolDaysMap);
 
+    // Vacation blocks for the queue projector. The system never
+    // schedules onto a break day; mom can still manually log lessons
+    // there (mark-complete bypasses the projector). Loaded in Phase 1
+    // alongside goals so this is the same round trip.
+    const vacationBlocks: SchedVacationBlock[] = ((vacBlocksResult.data ?? []) as { start_date: string; end_date: string }[])
+      .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+
     // Project today's lessons across all active goals.
     const goalConfigs: CurriculumGoalConfig[] = goalRows.map((g) => ({
       id: g.id,
@@ -825,7 +832,7 @@ export default function TodayPage() {
       school_days: g.school_days,
       current_lesson: g.current_lesson,
     }));
-    const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date());
+    const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks);
 
     // Fetch the lesson rows matching the projection so we can hydrate
     // display fields (title, notes, completion state, subject join). We
@@ -940,7 +947,10 @@ export default function TodayPage() {
       if (gapDays < 5) { setShowCatchUp(false); return; }
       if (dismissedAt && dismissedAt > gapStart) { setShowCatchUp(false); return; }
 
-      // Compute per-goal catch-up entries.
+      // Compute per-goal catch-up entries. Vacation blocks exclude
+      // break days from the gap so the modal never asks about lessons
+      // during a vacation. If the entire gap is inside a break, the
+      // modal does not appear (entriesByGoal stays empty).
       const entriesByGoal = new Map<string, CatchUpEntry[]>();
       for (const goal of activeGoals) {
         const cfg: CurriculumGoalConfig = {
@@ -950,7 +960,7 @@ export default function TodayPage() {
           school_days: goal.school_days,
           current_lesson: goal.current_lesson,
         };
-        const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid);
+        const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
         if (entries.length > 0) entriesByGoal.set(goal.id, entries);
       }
       if (entriesByGoal.size === 0) { setShowCatchUp(false); return; }

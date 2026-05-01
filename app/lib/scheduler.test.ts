@@ -25,10 +25,12 @@ import {
   computeFinishDate,
   computeTodayLessons,
   computeGapLessonsForGoal,
+  isBreakDay,
   isSchoolDay,
   normalizeSchoolDays,
   type ReschedulableLesson,
   type CurriculumGoalConfig,
+  type VacationBlock,
 } from './scheduler.ts'
 
 test('forwardScheduleStart bumps today to tomorrow', () => {
@@ -779,5 +781,142 @@ test('queue: projection stops at total_lessons even with daysAhead remaining', (
   assert.deepEqual(out, [
     { goal_id: 'g1', lesson_number: 9, date: '2026-04-27' },
     { goal_id: 'g1', lesson_number: 10, date: '2026-04-28' },
+  ])
+})
+
+// ── Vacation blocks (Path A queue scheduling, 2026-05) ─────────────────
+//
+// Brittany's product rule: "i need the vacation thing to work so that
+// needs to go into tonights fixes so it knows to skip break days
+// entirely. now i know break sometimes means catch up.. so extra
+// classes should be able to be logged on those days by the user but not
+// scheduled by the system."
+//
+// Forward projection skips break days. Mark-complete is never blocked
+// (that path doesn't go through the projector). Catch-up gap excludes
+// break days so mom never gets asked "did you do lessons during your
+// beach trip?".
+
+test('isBreakDay: matches inclusive on both ends, no match outside', () => {
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  assert.equal(isBreakDay(new Date(2026, 4, 3),  blocks), false, 'day before break')
+  assert.equal(isBreakDay(new Date(2026, 4, 4),  blocks), true,  'first break day')
+  assert.equal(isBreakDay(new Date(2026, 4, 6),  blocks), true,  'middle of break')
+  assert.equal(isBreakDay(new Date(2026, 4, 8),  blocks), true,  'last break day')
+  assert.equal(isBreakDay(new Date(2026, 4, 9),  blocks), false, 'day after break')
+  assert.equal(isBreakDay(new Date(2026, 4, 6), null),     false, 'no blocks → no break')
+  assert.equal(isBreakDay(new Date(2026, 4, 6), []),       false, 'empty blocks → no break')
+})
+
+test('vacation: no break leaves projection unchanged', () => {
+  const tue = new Date(2026, 3, 28)
+  const goal = goalCfg({ current_lesson: 0, total_lessons: 5 })
+  const withoutBlocks = computeNextLessonsForGoal(goal, tue, 14)
+  const withEmptyBlocks = computeNextLessonsForGoal(goal, tue, 14, [])
+  assert.deepEqual(withEmptyBlocks, withoutBlocks)
+})
+
+test('vacation: 5-day break pushes those lessons past the break and the finish moves out 5 calendar days', () => {
+  // Goal: 10 lessons, lessons_per_day=1, Mon-Fri. Starts Mon Apr 27 2026.
+  // Break: Mon May 4 - Fri May 8 (5 school days).
+  // Without break: lessons 1-5 land Mon-Fri Apr 27 - May 1; lessons 6-10
+  //   land Mon-Fri May 4 - May 8. Finish = May 8.
+  // With break: lessons 1-5 still land Apr 27 - May 1; the May 4-May 8
+  //   week gets skipped; lessons 6-10 land Mon-Fri May 11 - May 15.
+  //   Finish = May 15. That's 7 calendar days later (5 school days +
+  //   the weekend in between).
+  const mon = new Date(2026, 3, 27) // Mon Apr 27
+  const goal = goalCfg({ current_lesson: 0, total_lessons: 10, lessons_per_day: 1 })
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+
+  const noBreak = computeNextLessonsForGoal(goal, mon, 30)
+  assert.equal(noBreak.length, 10)
+  assert.equal(noBreak[5].date, '2026-05-04', 'baseline lesson 6 lands on Mon May 4')
+  assert.equal(noBreak[9].date, '2026-05-08', 'baseline lesson 10 lands on Fri May 8')
+
+  const withBreak = computeNextLessonsForGoal(goal, mon, 30, blocks)
+  assert.equal(withBreak.length, 10)
+  assert.equal(withBreak[5].date, '2026-05-11', 'lesson 6 pushed to Mon May 11')
+  assert.equal(withBreak[9].date, '2026-05-15', 'lesson 10 pushed to Fri May 15')
+
+  const finishNoBreak = computeFinishDate(goal, mon)
+  const finishWithBreak = computeFinishDate(goal, mon, blocks)
+  assert.equal(toDateStr(finishNoBreak!), '2026-05-08')
+  assert.equal(toDateStr(finishWithBreak!), '2026-05-15')
+})
+
+test('vacation: today inside a break returns nothing for that goal', () => {
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  const wedDuringBreak = new Date(2026, 4, 6) // Wed May 6 — middle of break
+  const goal = goalCfg({ current_lesson: 4, total_lessons: 20 })
+  const today = computeTodayLessons([goal], wedDuringBreak, blocks)
+  assert.deepEqual(today, [])
+})
+
+test('vacation: mom logs a lesson during a break — projection picks up day after break and starts one lesson later', () => {
+  // Goal at current_lesson=4, total=20, Mon-Fri, perDay=1. Break Mon
+  // May 4 - Fri May 8. Mom completes lesson 5 on Wed May 6 (mid-break),
+  // which the projector doesn't see — recomputeCurrentLesson advances
+  // current_lesson to 5 directly.
+  // Tomorrow's projection (Thu May 7, still mid-break): nothing.
+  // Day-after-break projection (Mon May 11): lesson 6 leads.
+  // Without her break-day log, lesson 5 would lead on May 11 instead.
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  const monAfterBreak = new Date(2026, 4, 11) // Mon May 11
+
+  const beforeLog = goalCfg({ current_lesson: 4, total_lessons: 20 })
+  const afterLog  = goalCfg({ current_lesson: 5, total_lessons: 20 })
+
+  const before = computeNextLessonsForGoal(beforeLog, monAfterBreak, 1, blocks)
+  const after  = computeNextLessonsForGoal(afterLog,  monAfterBreak, 1, blocks)
+  assert.deepEqual(before, [{ goal_id: 'g1', lesson_number: 5, date: '2026-05-11' }])
+  assert.deepEqual(after,  [{ goal_id: 'g1', lesson_number: 6, date: '2026-05-11' }])
+})
+
+test('vacation: catch-up gap entirely inside a break returns nothing (modal does not appear)', () => {
+  // Mom finished lesson 4 on Sat May 2. Family went on break Sun May 3 -
+  // Sat May 9. Today is Sun May 10. The 7-day gap from Sun May 3 to Sat
+  // May 9 is entirely inside the break + weekend, so no school days
+  // were "missed" — modal must not appear.
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-03', end_date: '2026-05-09' }]
+  const gapStart = new Date(2026, 4, 3)  // Sun May 3
+  const today = new Date(2026, 4, 10)    // Sun May 10
+  const goal = goalCfg({ current_lesson: 4, total_lessons: 20 })
+  const gap = computeGapLessonsForGoal(goal, gapStart, today, blocks)
+  assert.deepEqual(gap, [])
+})
+
+test('vacation: catch-up gap mixing school days and break days only checkboxes the school days', () => {
+  // Mom finished lesson 9 on Fri May 1. Today is Mon May 11. The gap is
+  // Sat May 2 through Sun May 10 (9 calendar days). Family was on break
+  // Mon May 4 - Fri May 8 (5 school days). The school days that were
+  // genuinely missed: only Mon May 11... wait, Mon May 11 IS today.
+  // School days inside the gap (Sat May 2 → Sun May 10):
+  //   Sat May 2  — weekend, not school
+  //   Sun May 3  — weekend, not school
+  //   Mon May 4  — break
+  //   Tue May 5  — break
+  //   Wed May 6  — break
+  //   Thu May 7  — break
+  //   Fri May 8  — break
+  //   Sat May 9  — weekend, not school
+  //   Sun May 10 — weekend, not school
+  // So the entire "missed" portion is break + weekends → 0 entries.
+  // We need a gap that has at least one school day on either side of
+  // the break. Adjust: gapStart = Thu Apr 30 (school day pre-break),
+  // today = Mon May 11 (school day post-break). School days "missed":
+  //   Thu Apr 30, Fri May 1 (pre-break) — 2 school days
+  //   Then break May 4 - May 8 — skipped
+  //   Mon May 11 is today, excluded.
+  // Goal current_lesson at start of gap = 7; expects lessons 8, 9 on
+  // those two pre-break school days.
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  const gapStart = new Date(2026, 3, 30) // Thu Apr 30
+  const today = new Date(2026, 4, 11)    // Mon May 11
+  const goal = goalCfg({ current_lesson: 7, total_lessons: 20 })
+  const gap = computeGapLessonsForGoal(goal, gapStart, today, blocks)
+  assert.deepEqual(gap, [
+    { goal_id: 'g1', lesson_number: 8, date: '2026-04-30' },
+    { goal_id: 'g1', lesson_number: 9, date: '2026-05-01' },
   ])
 })
