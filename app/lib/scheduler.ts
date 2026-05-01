@@ -643,12 +643,23 @@ export function isSchoolDay(date: Date, schoolDays: string[] | null | undefined)
  * school_days says. Mom can still manually mark lessons complete on
  * break days; that path goes through recomputeCurrentLesson and isn't
  * gated by this projector.
+ *
+ * `completedTodayCount` is the number of lessons for THIS goal whose
+ * completed_at falls within the user's local calendar day for fromDate.
+ * On the first day of the projection, slots start at
+ * (current_lesson - completedTodayCount + 1) and emit `perDay` slots,
+ * so the lessons already done today are included in today's view as
+ * checked cards, and marking another complete does not pull a new
+ * lesson onto today. Default 0 preserves the prior behavior for callers
+ * projecting from a past or future date (catch-up modal, calendar/week
+ * views projecting forward only).
  */
 export function computeNextLessonsForGoal(
   goal: CurriculumGoalConfig,
   fromDate: Date,
   daysAhead: number,
   vacationBlocks?: VacationBlock[],
+  completedTodayCount: number = 0,
 ): ProjectedLesson[] {
   if (daysAhead <= 0) return [];
   if (goal.current_lesson >= goal.total_lessons) return [];
@@ -658,18 +669,27 @@ export function computeNextLessonsForGoal(
   const out: ProjectedLesson[] = [];
   const cursor = new Date(fromDate);
   cursor.setHours(0, 0, 0, 0);
+  const fromDateStr = toDateStr(cursor);
 
   // The "next" lesson_number is current_lesson + 1 (current_lesson is the
   // count of completed lessons; lesson_number is 1-indexed in the row).
+  // On the first day this is overridden to include lessons already
+  // completed today, so today's slot count stays stable across a
+  // mark-complete (the completed lesson stays visible as a checked card).
   let nextLesson = goal.current_lesson + 1;
 
   for (let i = 0; i < daysAhead && nextLesson <= goal.total_lessons; i++) {
     if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
       const dateStr = toDateStr(cursor);
-      for (let s = 0; s < perDay && nextLesson <= goal.total_lessons; s++) {
-        out.push({ goal_id: goal.id, lesson_number: nextLesson, date: dateStr });
-        nextLesson++;
+      const isFirstDay = dateStr === fromDateStr;
+      let lessonStart = isFirstDay
+        ? Math.max(1, goal.current_lesson - completedTodayCount + 1)
+        : nextLesson;
+      for (let s = 0; s < perDay && lessonStart <= goal.total_lessons; s++) {
+        out.push({ goal_id: goal.id, lesson_number: lessonStart, date: dateStr });
+        lessonStart++;
       }
+      nextLesson = lessonStart;
     }
     cursor.setDate(cursor.getDate() + 1);
   }
@@ -686,31 +706,46 @@ export function computeNextLessonsForGoal(
  * worth of lessons. A 7-day break with lessons_per_day=1 means finish
  * moves out by 7 calendar days (the lessons that would have landed
  * inside the break get pushed past it).
+ *
+ * `completedTodayCount` mirrors the projector: lessons completed today
+ * have already used some of today's quota, so today contributes
+ * (perDay - completedToday) usable slots, clamped at 0 if the day's
+ * quota is met. Without this, finishing a lesson would shift the finish
+ * date earlier by one school day every time, because remaining shrinks
+ * but today still contributes a full perDay slots.
  */
 export function computeFinishDate(
   goal: CurriculumGoalConfig,
   fromDate: Date = new Date(),
   vacationBlocks?: VacationBlock[],
+  completedTodayCount: number = 0,
 ): Date | null {
   if (goal.current_lesson >= goal.total_lessons) return null;
 
   const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
   const perDay = Math.max(1, goal.lessons_per_day);
   const remaining = goal.total_lessons - goal.current_lesson;
-  const schoolDaysNeeded = Math.ceil(remaining / perDay);
 
   const cursor = new Date(fromDate);
   cursor.setHours(0, 0, 0, 0);
+  const fromDateStr = toDateStr(cursor);
   let lastSchoolDay: Date | null = null;
-  let walked = 0;
+  let slotsRemaining = remaining;
   let safety = 0;
 
-  while (walked < schoolDaysNeeded && safety < 3650) {
+  while (slotsRemaining > 0 && safety < 3650) {
     if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
-      lastSchoolDay = new Date(cursor);
-      walked++;
+      const isFirstDay = toDateStr(cursor) === fromDateStr;
+      const slotsThisDay = isFirstDay
+        ? Math.max(0, perDay - completedTodayCount)
+        : perDay;
+      if (slotsThisDay > 0) {
+        const consumed = Math.min(slotsThisDay, slotsRemaining);
+        slotsRemaining -= consumed;
+        lastSchoolDay = new Date(cursor);
+      }
     }
-    if (walked < schoolDaysNeeded) cursor.setDate(cursor.getDate() + 1);
+    if (slotsRemaining > 0) cursor.setDate(cursor.getDate() + 1);
     safety++;
   }
 
@@ -727,17 +762,28 @@ export function computeFinishDate(
  *
  * The same `today` Date is reused for every goal so the answer is stable
  * within one render — callers don't need to clone.
+ *
+ * `completedTodayPerGoal` keys lessons completed today (in the user's
+ * local timezone) by curriculum_goal_id. Today's slot list for each
+ * goal is anchored to (current_lesson - completedTodayCount + 1) for
+ * `lessons_per_day` slots, so completed-today lessons stay visible as
+ * checked cards and the queue does not pull a fresh lesson onto today
+ * every time mom marks one complete (the production hotfix this
+ * parameter exists for). Default empty preserves prior behavior for
+ * callers that don't have the count handy.
  */
 export function computeTodayLessons(
   goals: CurriculumGoalConfig[],
   today: Date,
   vacationBlocks?: VacationBlock[],
+  completedTodayPerGoal?: Map<string, number>,
 ): ProjectedLesson[] {
   const out: ProjectedLesson[] = [];
   for (const goal of goals) {
+    const completed = completedTodayPerGoal?.get(goal.id) ?? 0;
     // Project a single calendar day. computeNextLessonsForGoal will return
     // [] if today isn't a school day for this goal — exactly what we want.
-    const projected = computeNextLessonsForGoal(goal, today, 1, vacationBlocks);
+    const projected = computeNextLessonsForGoal(goal, today, 1, vacationBlocks, completed);
     out.push(...projected);
   }
   return out;

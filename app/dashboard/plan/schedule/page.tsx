@@ -110,7 +110,10 @@ export default function SchedulePage() {
 
     // Source of truth for upcoming lessons is the curriculum goal queue
     // position (Path A, 2026-05). See app/lib/scheduler.ts.
-    const [{ data: kids }, { data: subs }, { data: goalsRaw }, { data: vacsRaw }] = await Promise.all([
+    const todayLocalStart = new Date(toDateStr(new Date()) + "T00:00:00");
+    const tomorrowLocalStart = new Date(todayLocalStart);
+    tomorrowLocalStart.setDate(tomorrowLocalStart.getDate() + 1);
+    const [{ data: kids }, { data: subs }, { data: goalsRaw }, { data: vacsRaw }, { data: completedTodayRaw }] = await Promise.all([
       supabase
         .from("children")
         .select("id, name, color")
@@ -130,7 +133,24 @@ export default function SchedulePage() {
         .from("vacation_blocks")
         .select("start_date, end_date")
         .eq("user_id", effectiveUserId),
+      // Per-goal completed-today counts. Anchors today's projected
+      // slots so completing a lesson does not shift the rest of the
+      // visible week forward by one slot.
+      supabase
+        .from("lessons")
+        .select("curriculum_goal_id")
+        .eq("user_id", effectiveUserId)
+        .eq("completed", true)
+        .gte("completed_at", todayLocalStart.toISOString())
+        .lt("completed_at", tomorrowLocalStart.toISOString())
+        .not("curriculum_goal_id", "is", null),
     ]);
+    const completedTodayPerGoal = new Map<string, number>();
+    for (const row of (completedTodayRaw ?? []) as { curriculum_goal_id: string | null }[]) {
+      const gid = row.curriculum_goal_id;
+      if (!gid) continue;
+      completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
+    }
 
     setChildren(capitalizeChildNames(kids ?? []));
     setSubjects((subs as unknown as Subject[]) ?? []);
@@ -154,7 +174,8 @@ export default function SchedulePage() {
         school_days: g.school_days,
         current_lesson: g.current_lesson ?? 0,
       };
-      projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks).filter((p) => p.date >= s && p.date <= e));
+      const completed = completedTodayPerGoal.get(g.id) ?? 0;
+      projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks, completed).filter((p) => p.date >= s && p.date <= e));
     }
     const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
     const projGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));

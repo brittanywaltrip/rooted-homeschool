@@ -1155,3 +1155,98 @@ test('vacation: catch-up gap mixing school days and break days only checkboxes t
     { goal_id: 'g1', lesson_number: 9, date: '2026-05-01' },
   ])
 })
+
+// ── Lessons-per-day quota fix (production hotfix, 2026-05-01) ──────────
+//
+// Production bug: completing a lesson advanced current_lesson, then the
+// 15-second poll re-projected today and current_lesson + 1 was the next
+// queue lesson, pulling a fresh card onto Today every time mom marked
+// complete. Real-world users walked themselves 7+ lessons forward in an
+// hour because each new card felt obligatory.
+// Fix: the projector accepts a completedTodayCount and anchors today's
+// slots to (current_lesson - completedTodayCount + 1), holding today's
+// slot list stable across mark-complete actions.
+
+test('hotfix: completing one lesson today does not pull the next onto today (perDay=1)', () => {
+  const friday = new Date(2026, 4, 1) // Fri May 1 2026
+  const goal = goalCfg({ current_lesson: 5, total_lessons: 30, lessons_per_day: 1 })
+  // Mom just finished lesson 5 → current_lesson=5, completedToday=1
+  const result = computeTodayLessons([goal], friday, undefined, new Map([['g1', 1]]))
+  assert.deepEqual(result, [
+    { goal_id: 'g1', lesson_number: 5, date: '2026-05-01' },
+  ], 'today still shows lesson 5 (the completed one), not lesson 6')
+})
+
+test('hotfix: lessons_per_day=2 with one done shows checked + unchecked, not two unchecked', () => {
+  const friday = new Date(2026, 4, 1)
+  const goal = goalCfg({ current_lesson: 5, total_lessons: 30, lessons_per_day: 2 })
+  // Lesson 5 done, lesson 6 still pending. completedToday=1.
+  const result = computeTodayLessons([goal], friday, undefined, new Map([['g1', 1]]))
+  assert.deepEqual(result, [
+    { goal_id: 'g1', lesson_number: 5, date: '2026-05-01' },
+    { goal_id: 'g1', lesson_number: 6, date: '2026-05-01' },
+  ])
+})
+
+test('hotfix: first day includes completed-today, future days continue from queue position', () => {
+  const friday = new Date(2026, 4, 1) // Fri May 1
+  const goal = goalCfg({ current_lesson: 5, total_lessons: 30, lessons_per_day: 1 })
+  // 7 days ahead, 1 lesson already done today. Today emits lesson 5
+  // (the completed slot); Mon-Thu of next week emit 6, 7, 8, 9.
+  const result = computeNextLessonsForGoal(goal, friday, 7, undefined, 1)
+  assert.deepEqual(result, [
+    { goal_id: 'g1', lesson_number: 5, date: '2026-05-01' },
+    { goal_id: 'g1', lesson_number: 6, date: '2026-05-04' },
+    { goal_id: 'g1', lesson_number: 7, date: '2026-05-05' },
+    { goal_id: 'g1', lesson_number: 8, date: '2026-05-06' },
+    { goal_id: 'g1', lesson_number: 9, date: '2026-05-07' },
+  ])
+})
+
+test('hotfix: computeFinishDate subtracts completed-today from today\'s slot allocation', () => {
+  // current_lesson=8 means lesson 8 was just completed; total=10 leaves
+  // 2 lessons (9 and 10) remaining. Today is Fri May 1. With
+  // completedToday=1, today contributes 0 usable slots. Lesson 9
+  // lands Mon May 4, lesson 10 lands Tue May 5. Without the fix,
+  // today would have absorbed lesson 9 and finish would drift to Mon.
+  const friday = new Date(2026, 4, 1)
+  const goal = goalCfg({ current_lesson: 8, total_lessons: 10, lessons_per_day: 1 })
+  const finish = computeFinishDate(goal, friday, undefined, 1)
+  assert.equal(toDateStr(finish!), '2026-05-05')
+})
+
+test('hotfix regression: rapid mark-complete clicks do not advance Today\'s slot', () => {
+  // Simulates the production bug. Goal at current_lesson=4. Click
+  // through. The projector must return the same lesson_number on
+  // every render after the completion, not the next-in-queue.
+  const friday = new Date(2026, 4, 1)
+  const baseGoal = goalCfg({ current_lesson: 4, total_lessons: 30, lessons_per_day: 1 })
+
+  // Initial render: nothing completed today, today shows lesson 5.
+  let result = computeTodayLessons([baseGoal], friday, undefined, new Map())
+  assert.deepEqual(result, [{ goal_id: 'g1', lesson_number: 5, date: '2026-05-01' }])
+
+  // After completing lesson 5: current_lesson=5, completedToday=1.
+  // Today STILL shows lesson 5 (now checked, but the same slot).
+  const advancedGoal = goalCfg({ current_lesson: 5, total_lessons: 30, lessons_per_day: 1 })
+  result = computeTodayLessons([advancedGoal], friday, undefined, new Map([['g1', 1]]))
+  assert.deepEqual(result, [{ goal_id: 'g1', lesson_number: 5, date: '2026-05-01' }],
+    'second render returns the same lesson_number, not lesson 6')
+
+  // 15-second poll re-firing returns the same again, stable.
+  result = computeTodayLessons([advancedGoal], friday, undefined, new Map([['g1', 1]]))
+  assert.deepEqual(result, [{ goal_id: 'g1', lesson_number: 5, date: '2026-05-01' }])
+})
+
+test('hotfix: omitting completedTodayPerGoal preserves prior behavior (callers projecting from past dates)', () => {
+  // computeGapLessonsForGoal projects from a past date for the catch-up
+  // modal. completedTodayCount is irrelevant there, the default of 0
+  // must keep the projector emitting current_lesson + 1 on the first
+  // school day of the gap.
+  const friday = new Date(2026, 4, 1)
+  const goal = goalCfg({ current_lesson: 5, total_lessons: 30, lessons_per_day: 1 })
+  // No completedToday map passed → defaults to 0 → today shows lesson 6.
+  const result = computeTodayLessons([goal], friday, undefined)
+  assert.deepEqual(result, [{ goal_id: 'g1', lesson_number: 6, date: '2026-05-01' }],
+    'no map → behaves identically to prior callsites')
+})

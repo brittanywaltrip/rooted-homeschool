@@ -126,11 +126,15 @@ export default function CalendarPage() {
     // position (Path A, 2026-05). Past completions still come from the
     // existing date columns; one-off (no-curriculum) lessons stay
     // date-pinned. See app/lib/scheduler.ts computeNextLessonsForGoal.
+    const todayLocalStart = new Date(toDateStr(new Date()) + "T00:00:00");
+    const tomorrowLocalStart = new Date(todayLocalStart);
+    tomorrowLocalStart.setDate(tomorrowLocalStart.getDate() + 1);
     const [
       { data: kids },
       { data: goalsRaw },
       { data: appEvents },
       { data: vacs },
+      { data: completedTodayRaw },
     ] = await Promise.all([
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase
@@ -149,7 +153,24 @@ export default function CalendarPage() {
         .select("id, name, start_date, end_date")
         .eq("user_id", effectiveUserId)
         .order("start_date"),
+      // Per-goal completed-today counts so today's projected slot
+      // sequence is anchored to (current_lesson - completedToday + 1)
+      // and the visible month doesn't shift when mom marks complete.
+      supabase
+        .from("lessons")
+        .select("curriculum_goal_id")
+        .eq("user_id", effectiveUserId)
+        .eq("completed", true)
+        .gte("completed_at", todayLocalStart.toISOString())
+        .lt("completed_at", tomorrowLocalStart.toISOString())
+        .not("curriculum_goal_id", "is", null),
     ]);
+    const completedTodayPerGoal = new Map<string, number>();
+    for (const row of (completedTodayRaw ?? []) as { curriculum_goal_id: string | null }[]) {
+      const gid = row.curriculum_goal_id;
+      if (!gid) continue;
+      completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
+    }
 
     setChildren(capitalizeChildNames(kids ?? []));
 
@@ -179,7 +200,8 @@ export default function CalendarPage() {
         school_days: g.school_days,
         current_lesson: g.current_lesson ?? 0,
       };
-      projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks).filter((p) => p.date >= s && p.date <= e));
+      const completed = completedTodayPerGoal.get(g.id) ?? 0;
+      projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks, completed).filter((p) => p.date >= s && p.date <= e));
     }
     const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
     const projGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));

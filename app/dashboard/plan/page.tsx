@@ -211,6 +211,28 @@ async function loadLessonsForRange(
   // Off-by-one bug audited 2026-05-01 on the calendar day-detail panel.
   const todayMid = new Date(todayStr + "T00:00:00");
   const daysAhead = Math.max(0, Math.floor((rangeEnd.getTime() - todayMid.getTime()) / 86400000) + 1);
+
+  // Today's completed-lesson counts per goal anchor today's projected
+  // slots. Without this, completing a lesson would shift the displayed
+  // lesson_number on tomorrow forward and pull the next lesson onto
+  // today (production hotfix, 2026-05-01).
+  const tomorrowLocalStart = new Date(todayMid);
+  tomorrowLocalStart.setDate(tomorrowLocalStart.getDate() + 1);
+  const { data: completedTodayRaw } = await supabase
+    .from("lessons")
+    .select("curriculum_goal_id")
+    .eq("user_id", userId)
+    .eq("completed", true)
+    .gte("completed_at", todayMid.toISOString())
+    .lt("completed_at", tomorrowLocalStart.toISOString())
+    .not("curriculum_goal_id", "is", null);
+  const completedTodayPerGoal = new Map<string, number>();
+  for (const row of (completedTodayRaw ?? []) as { curriculum_goal_id: string | null }[]) {
+    const gid = row.curriculum_goal_id;
+    if (!gid) continue;
+    completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
+  }
+
   const allProjected: { goal_id: string; lesson_number: number; date: string }[] = [];
   for (const g of goals) {
     if (!g.total_lessons || g.total_lessons <= 0) continue;
@@ -221,7 +243,8 @@ async function loadLessonsForRange(
       school_days: g.school_days,
       current_lesson: g.current_lesson ?? 0,
     };
-    const projected = computeNextLessonsForGoal(cfg, todayMid, daysAhead, vacationBlocks)
+    const completed = completedTodayPerGoal.get(g.id) ?? 0;
+    const projected = computeNextLessonsForGoal(cfg, todayMid, daysAhead, vacationBlocks, completed)
       .filter((p) => p.date >= rangeStartStr && p.date <= rangeEndStr);
     allProjected.push(...projected);
   }
@@ -500,6 +523,11 @@ export default function PlanPage() {
 
   // ── Vacation blocks ───────────────────────────────────────────────────────
   const [vacationBlocks,   setVacationBlocks]   = useState<VacationBlock[]>([]);
+  // Per-goal count of lessons completed today (local-day window).
+  // Anchors today's projected slots so completing a lesson does not
+  // pull a new lesson onto today and does not drift the finish-date
+  // projection (production hotfix, 2026-05-01).
+  const [completedTodayPerGoal, setCompletedTodayPerGoal] = useState<Map<string, number>>(new Map());
   const [showVacModal,     setShowVacModal]     = useState(false);
   const [vacName,          setVacName]          = useState("");
   const [vacStart,         setVacStart]         = useState("");
@@ -627,6 +655,28 @@ export default function PlanPage() {
     setVacationBlocks((data as VacationBlock[]) ?? []);
   }, [effectiveUserId]);
 
+  const loadCompletedTodayPerGoal = useCallback(async () => {
+    if (!effectiveUserId) return;
+    const todayLocalStart = new Date(toDateStr(new Date()) + "T00:00:00");
+    const tomorrowLocalStart = new Date(todayLocalStart);
+    tomorrowLocalStart.setDate(tomorrowLocalStart.getDate() + 1);
+    const { data } = await supabase
+      .from("lessons")
+      .select("curriculum_goal_id")
+      .eq("user_id", effectiveUserId)
+      .eq("completed", true)
+      .gte("completed_at", todayLocalStart.toISOString())
+      .lt("completed_at", tomorrowLocalStart.toISOString())
+      .not("curriculum_goal_id", "is", null);
+    const next = new Map<string, number>();
+    for (const row of (data ?? []) as { curriculum_goal_id: string | null }[]) {
+      const gid = row.curriculum_goal_id;
+      if (!gid) continue;
+      next.set(gid, (next.get(gid) ?? 0) + 1);
+    }
+    setCompletedTodayPerGoal(next);
+  }, [effectiveUserId]);
+
   const loadActivities = useCallback(async () => {
     if (!effectiveUserId) return;
     const { data } = await supabase
@@ -673,6 +723,7 @@ export default function PlanPage() {
   useEffect(() => { loadData(); },           [loadData]);
   useEffect(() => { loadAllLessons(); },     [loadAllLessons]);
   useEffect(() => { loadVacationBlocks(); }, [loadVacationBlocks]);
+  useEffect(() => { loadCompletedTodayPerGoal(); }, [loadCompletedTodayPerGoal]);
   useEffect(() => { loadActivities(); },     [loadActivities]);
 
   // Re-fetch when children are edited in Settings
@@ -2622,7 +2673,8 @@ export default function PlanPage() {
                               school_days: goalSchoolDays,
                               current_lesson: displayCompleted,
                             };
-                            const lastScheduled = computeFinishDate(finishCfg, new Date(), vacationBlocks as SchedVacationBlock[]);
+                            const finishCompletedToday = group.goalId ? (completedTodayPerGoal.get(group.goalId) ?? 0) : 0;
+                            const lastScheduled = computeFinishDate(finishCfg, new Date(), vacationBlocks as SchedVacationBlock[], finishCompletedToday);
                             const targetDate = goal?.target_date ? new Date(goal.target_date + "T00:00:00") : null;
 
                             const parts: React.ReactNode[] = [];

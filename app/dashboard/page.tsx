@@ -480,6 +480,11 @@ export default function TodayPage() {
   // school_days per goal id, used to pick the right calendar for each lesson
   // when the user opens "Reschedule these → Add to my next school day(s)".
   const [goalSchoolDaysMap, setGoalSchoolDaysMap] = useState<Map<string, string[]>>(new Map());
+  // Per-goal count of lessons completed today (local-day window). Powers
+  // the queue projector's "stable today slot" logic; consumers include
+  // computeTodayLessons in loadData and the InlineScheduleTabs Upcoming
+  // tab so tomorrow's projection starts at the correct lesson_number.
+  const [completedTodayPerGoal, setCompletedTodayPerGoal] = useState<Map<string, number>>(new Map());
   const [showMissedSheet, setShowMissedSheet] = useState(false);
   const [missedSheetSubmitting, setMissedSheetSubmitting] = useState(false);
 
@@ -615,6 +620,14 @@ export default function TodayPage() {
     const lastYear = otdNow.getFullYear() - 1;
     const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
     const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
+    // Local-day window for today's per-goal completion counts. The
+    // queue projector subtracts these from today's slot allocation so
+    // marking complete doesn't pull a fresh lesson onto today.
+    const todayStartLocal = new Date(`${today}T00:00:00`);
+    const tomorrowStartLocal = new Date(todayStartLocal);
+    tomorrowStartLocal.setDate(tomorrowStartLocal.getDate() + 1);
+    const todayStartIso = todayStartLocal.toISOString();
+    const tomorrowStartIso = tomorrowStartLocal.toISOString();
     const [
       profileResult,
       authResult,
@@ -639,6 +652,7 @@ export default function TodayPage() {
       tier1Result,
       todayStoryResult,
       curriculumGoalsResult,
+      completedTodayResult,
     ] = await Promise.all([
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, last_catchup_dismissed_at").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
@@ -672,6 +686,18 @@ export default function TodayPage() {
       // query also feeds the icon emoji + per-goal school_days lookups that
       // used to be its only purpose.
       supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time").eq("user_id", effectiveUserId),
+      // Lessons completed today per goal (local-day window). The queue
+      // projector subtracts these from today's slot allocation so that
+      // marking complete keeps today's slot count stable instead of
+      // pulling the next lesson into today.
+      supabase
+        .from("lessons")
+        .select("curriculum_goal_id")
+        .eq("user_id", effectiveUserId)
+        .eq("completed", true)
+        .gte("completed_at", todayStartIso)
+        .lt("completed_at", tomorrowStartIso)
+        .not("curriculum_goal_id", "is", null),
     ]);
 
     // TODO: remove after queue scheduling verified in production. The
@@ -832,7 +858,19 @@ export default function TodayPage() {
       school_days: g.school_days,
       current_lesson: g.current_lesson,
     }));
-    const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks);
+    // Per-goal count of lessons whose completed_at falls in today's
+    // local-day window. Anchors today's slots to (current_lesson -
+    // completedToday + 1) so completed cards stay visible and the queue
+    // doesn't roll a new lesson onto today every time mom marks one
+    // complete.
+    const completedTodayPerGoal = new Map<string, number>();
+    for (const row of (completedTodayResult.data ?? []) as { curriculum_goal_id: string | null }[]) {
+      const gid = row.curriculum_goal_id;
+      if (!gid) continue;
+      completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
+    }
+    setCompletedTodayPerGoal(completedTodayPerGoal);
+    const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks, completedTodayPerGoal);
 
     // Fetch the lesson rows matching the projection so we can hydrate
     // display fields (title, notes, completion state, subject join). We
@@ -1676,7 +1714,10 @@ export default function TodayPage() {
     // modal projects the BATCH AFTER today onto upcoming school days,
     // skipping vacation blocks, and shows lessons grouped by kid then
     // subject in ascending lesson_number order.
-    const [{ data: goalsRaw }, { data: vacsRaw }] = await Promise.all([
+    const todayLocalStart = new Date(today + "T00:00:00");
+    const tomorrowLocalStart = new Date(todayLocalStart);
+    tomorrowLocalStart.setDate(tomorrowLocalStart.getDate() + 1);
+    const [{ data: goalsRaw }, { data: vacsRaw }, { data: completedTodayRaw }] = await Promise.all([
       supabase
         .from("curriculum_goals")
         .select("id, total_lessons, lessons_per_day, school_days, current_lesson, child_id, subject_label")
@@ -1685,10 +1726,28 @@ export default function TodayPage() {
         .from("vacation_blocks")
         .select("start_date, end_date")
         .eq("user_id", effectiveUserId),
+      supabase
+        .from("lessons")
+        .select("curriculum_goal_id")
+        .eq("user_id", effectiveUserId)
+        .eq("completed", true)
+        .gte("completed_at", todayLocalStart.toISOString())
+        .lt("completed_at", tomorrowLocalStart.toISOString())
+        .not("curriculum_goal_id", "is", null),
     ]);
     const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null; child_id: string | null; subject_label: string | null }[];
     const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
       .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+    // Today's per-goal completion count anchors today's projected slots
+    // so the future pool starts at the correct lesson_number. Without
+    // this, "Log extras" would offer current_lesson + 2 onwards (the
+    // un-fixed projection) and skip a lesson the user hasn't done.
+    const completedTodayPerGoal = new Map<string, number>();
+    for (const row of (completedTodayRaw ?? []) as { curriculum_goal_id: string | null }[]) {
+      const gid = row.curriculum_goal_id;
+      if (!gid) continue;
+      completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
+    }
 
     // Build per-goal "future pool" of lessons that aren't part of
     // today's allocation. Approach: project from the real
@@ -1720,7 +1779,8 @@ export default function TodayPage() {
       };
       // 22 days ahead = today + 21 forward. Drop today's slots (those
       // are the current allocation already on the Today schedule).
-      const projected = computeNextLessonsForGoal(cfg, todayMid, 22, vacationBlocks)
+      const completed = completedTodayPerGoal.get(g.id) ?? 0;
+      const projected = computeNextLessonsForGoal(cfg, todayMid, 22, vacationBlocks, completed)
         .filter((p) => p.date !== todayKey);
       allProjected.push(...projected);
     }
