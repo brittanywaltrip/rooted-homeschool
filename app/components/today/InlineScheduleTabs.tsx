@@ -191,7 +191,14 @@ export default function InlineScheduleTabs({
       // is no longer the source of truth — we project from each goal's
       // current_lesson + lessons_per_day + school_days, skipping
       // vacation blocks. Then hydrate display fields from real rows.
-      const [{ data: goalsRaw }, { data: vacsRaw }] = await Promise.all([
+      // Also fetch lessons completed today per goal so today's slot
+      // count stays anchored at (current_lesson - completedToday + 1)
+      // for perDay slots. Without it, marking complete would shift
+      // tomorrow's projected lesson_number forward by one.
+      const todayLocalStart = new Date(todayKey + "T00:00:00");
+      const tomorrowLocalStart = new Date(todayLocalStart);
+      tomorrowLocalStart.setDate(tomorrowLocalStart.getDate() + 1);
+      const [{ data: goalsRaw }, { data: vacsRaw }, { data: completedTodayRaw }] = await Promise.all([
         supabase
           .from("curriculum_goals")
           .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
@@ -200,7 +207,21 @@ export default function InlineScheduleTabs({
           .from("vacation_blocks")
           .select("start_date, end_date")
           .eq("user_id", user.id),
+        supabase
+          .from("lessons")
+          .select("curriculum_goal_id")
+          .eq("user_id", user.id)
+          .eq("completed", true)
+          .gte("completed_at", todayLocalStart.toISOString())
+          .lt("completed_at", tomorrowLocalStart.toISOString())
+          .not("curriculum_goal_id", "is", null),
       ]);
+      const completedTodayPerGoal = new Map<string, number>();
+      for (const row of (completedTodayRaw ?? []) as { curriculum_goal_id: string | null }[]) {
+        const gid = row.curriculum_goal_id;
+        if (!gid) continue;
+        completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
+      }
       const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
       const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
         .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
@@ -227,7 +248,8 @@ export default function InlineScheduleTabs({
           school_days: g.school_days,
           current_lesson: g.current_lesson ?? 0,
         };
-        const projected = computeNextLessonsForGoal(cfg, todayMid, 15, vacationBlocks)
+        const completed = completedTodayPerGoal.get(g.id) ?? 0;
+        const projected = computeNextLessonsForGoal(cfg, todayMid, 15, vacationBlocks, completed)
           .filter((p) => p.date !== todayKey);
         allProjected.push(...projected);
       }
