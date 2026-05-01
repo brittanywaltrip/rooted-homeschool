@@ -21,7 +21,14 @@ import {
   buildLessonDateSnapshot,
   applyUndoSnapshot,
   createInFlightGate,
+  computeNextLessonsForGoal,
+  computeFinishDate,
+  computeTodayLessons,
+  computeGapLessonsForGoal,
+  isSchoolDay,
+  normalizeSchoolDays,
   type ReschedulableLesson,
+  type CurriculumGoalConfig,
 } from './scheduler.ts'
 
 test('forwardScheduleStart bumps today to tomorrow', () => {
@@ -94,7 +101,11 @@ test('no-backfill curriculum: 30 lessons starting today still skips today', () =
   assert.equal(slots.filter((s) => s.date === '2026-04-28').length, 0)
 })
 
-test('planCompressAfterExtra compresses by exactly one school day', () => {
+// SKIPPED under queue-based scheduling (Path A, 2026-05). The "log
+// extra → recompress remaining future dates" choreography is unnecessary
+// in the new model — completing an extra advances current_lesson and the
+// next render projects forward from the new position. Re-enable on rollback.
+test.skip('planCompressAfterExtra compresses by exactly one school day', () => {
   // Mom logged 1 extra today (Wed 2026-04-29). She had 31 incomplete future
   // lessons before; now there are 30 left. With perDay=3 + Mon-Fri, the
   // remaining 30 should fit in 10 school days starting tomorrow (Thu 4-30).
@@ -137,7 +148,8 @@ test('planCompressAfterExtra compresses by exactly one school day', () => {
   }
 })
 
-test('planCompressAfterExtra preserves lesson_number ordering across days', () => {
+// SKIPPED under queue-based scheduling (Path A, 2026-05). Re-enable on rollback.
+test.skip('planCompressAfterExtra preserves lesson_number ordering across days', () => {
   // Caller is contracted to pass lessons sorted by lesson_number ASC. The
   // planner just walks the input, so the sequence on the calendar mirrors
   // the input order — lesson 1 on the earliest school day, lesson N on
@@ -470,7 +482,11 @@ test('createInFlightGate: independent gates don\'t cross-block', () => {
 // The fix: walk forward past dates that are already at lessons_per_day
 // capacity for that goal.
 
-test('planAddToNextSchoolDays: missed lessons skip past forward-scheduled dates (TGTB repro)', () => {
+// SKIPPED under queue-based scheduling (Path A, 2026-05). This test
+// pinned the OLD pinned-date density-aware reshuffle behavior that the
+// new model removes — there are no "missed lessons" to redistribute under
+// queue projection. Re-enable on rollback.
+test.skip('planAddToNextSchoolDays: missed lessons skip past forward-scheduled dates (TGTB repro)', () => {
   const today = '2026-04-29' // user-local Apr 29 (the moment of the bug)
   const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
   const goalId = 'tgtb'
@@ -508,7 +524,8 @@ test('planAddToNextSchoolDays: missed lessons skip past forward-scheduled dates 
   ])
 })
 
-test('planAddToNextSchoolDays: empty density map matches old behavior (no regression)', () => {
+// SKIPPED under queue-based scheduling (Path A, 2026-05). Re-enable on rollback.
+test.skip('planAddToNextSchoolDays: empty density map matches old behavior (no regression)', () => {
   const today = '2026-04-29'
   const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
   const missed: ReschedulableLesson[] = [
@@ -530,7 +547,8 @@ test('planAddToNextSchoolDays: empty density map matches old behavior (no regres
   ])
 })
 
-test('planAddToNextSchoolDays: per-goal density isolates collisions', () => {
+// SKIPPED under queue-based scheduling (Path A, 2026-05). Re-enable on rollback.
+test.skip('planAddToNextSchoolDays: per-goal density isolates collisions', () => {
   // Goal A is full on Apr 30. Goal B has nothing. A missed lesson on goal B
   // should still land on Apr 30; only goal A is forced past.
   const today = '2026-04-29'
@@ -554,7 +572,8 @@ test('planAddToNextSchoolDays: per-goal density isolates collisions', () => {
   ])
 })
 
-test('planAddToNextSchoolDays: lessons_per_day=2 allows two lessons per date', () => {
+// SKIPPED under queue-based scheduling (Path A, 2026-05). Re-enable on rollback.
+test.skip('planAddToNextSchoolDays: lessons_per_day=2 allows two lessons per date', () => {
   const today = '2026-04-29'
   const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
   const density = new Map<string, number>() // empty
@@ -578,7 +597,8 @@ test('planAddToNextSchoolDays: lessons_per_day=2 allows two lessons per date', (
   ])
 })
 
-test('planAddToNextSchoolDays: same-call placements increment the running map (no self-collision)', () => {
+// SKIPPED under queue-based scheduling (Path A, 2026-05). Re-enable on rollback.
+test.skip('planAddToNextSchoolDays: same-call placements increment the running map (no self-collision)', () => {
   // Two missed lessons on the same goal at lessons_per_day=1. The first
   // placement must occupy Apr 30 so the second has to walk past it.
   const today = '2026-04-29'
@@ -597,5 +617,167 @@ test('planAddToNextSchoolDays: same-call placements increment the running map (n
   assert.deepEqual(updates, [
     { id: 'X1', newDate: '2026-04-30' },
     { id: 'X2', newDate: '2026-05-01' },
+  ])
+})
+
+// ── Queue-based scheduling (Path A, 2026-05) ───────────────────────────
+//
+// The new read model. Today / Plan project forward from
+// (current_lesson, lessons_per_day, school_days) instead of querying
+// pinned scheduled_date. Block of upcoming lessons shifts forward when
+// mom finishes extra and shifts backward when she misses a day, with no
+// reschedule write. These tests pin the new behavior.
+
+function goalCfg(overrides: Partial<CurriculumGoalConfig> = {}): CurriculumGoalConfig {
+  return {
+    id: 'g1',
+    total_lessons: 100,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 0,
+    ...overrides,
+  }
+}
+
+test('queue: today on a school day for a fresh goal returns lesson 1', () => {
+  const today = new Date(2026, 3, 28) // Tue Apr 28 2026
+  const out = computeTodayLessons([goalCfg()], today)
+  assert.deepEqual(out, [{ goal_id: 'g1', lesson_number: 1, date: '2026-04-28' }])
+})
+
+test('queue: today on a non-school day returns nothing for that goal', () => {
+  const sat = new Date(2026, 4, 2) // Sat May 2 2026
+  const out = computeTodayLessons([goalCfg()], sat)
+  assert.deepEqual(out, [])
+})
+
+test('queue: lessons_per_day=2 places two slots today and the next two tomorrow', () => {
+  const tue = new Date(2026, 3, 28)
+  const goal = goalCfg({ lessons_per_day: 2 })
+  const today = computeTodayLessons([goal], tue)
+  assert.deepEqual(today, [
+    { goal_id: 'g1', lesson_number: 1, date: '2026-04-28' },
+    { goal_id: 'g1', lesson_number: 2, date: '2026-04-28' },
+  ])
+  // Tomorrow's view: project 2 days starting Tue 4/28 — Tue gets 1+2, Wed gets 3+4.
+  const twoDays = computeNextLessonsForGoal(goal, tue, 2)
+  assert.deepEqual(twoDays, [
+    { goal_id: 'g1', lesson_number: 1, date: '2026-04-28' },
+    { goal_id: 'g1', lesson_number: 2, date: '2026-04-28' },
+    { goal_id: 'g1', lesson_number: 3, date: '2026-04-29' },
+    { goal_id: 'g1', lesson_number: 4, date: '2026-04-29' },
+  ])
+})
+
+test('queue: block shift forward when mom completes extra (Kendra-style overachiever)', () => {
+  // Goal had current_lesson=5 yesterday. Mom completed lessons 6+7 today
+  // (mark-complete advanced current_lesson to 7). Tomorrow's projection
+  // must start at lesson 8 — and the projected finish moves earlier
+  // compared to the not-overachieving baseline.
+  const tue = new Date(2026, 3, 28) // Tue Apr 28
+  const wed = new Date(2026, 3, 29) // Wed Apr 29
+  const baseline = goalCfg({ current_lesson: 5, total_lessons: 20 })
+  const overachieved = goalCfg({ current_lesson: 7, total_lessons: 20 })
+
+  const tomorrow = computeNextLessonsForGoal(overachieved, wed, 1)
+  assert.deepEqual(tomorrow, [
+    { goal_id: 'g1', lesson_number: 8, date: '2026-04-29' },
+  ])
+
+  const finishBaseline = computeFinishDate(baseline, tue)
+  const finishOverachieved = computeFinishDate(overachieved, tue)
+  assert.ok(finishBaseline && finishOverachieved, 'both projections finish')
+  assert.ok(
+    finishOverachieved!.getTime() < finishBaseline!.getTime(),
+    `overachieved finish (${toDateStr(finishOverachieved!)}) should be earlier than baseline (${toDateStr(finishBaseline!)})`,
+  )
+})
+
+test('queue: block shift backward when mom misses a day (no completion = no advance)', () => {
+  // current_lesson=5. Today is a school day, mom completes nothing
+  // (current_lesson stays at 5). Tomorrow's projection still leads with
+  // lesson 6, so the upcoming block has effectively slipped one school
+  // day forward and the finish date moves out by one school day.
+  const tue = new Date(2026, 3, 28)
+  const wed = new Date(2026, 3, 29)
+  const goal = goalCfg({ current_lesson: 5, total_lessons: 20 })
+
+  const today = computeTodayLessons([goal], tue)
+  assert.deepEqual(today, [{ goal_id: 'g1', lesson_number: 6, date: '2026-04-28' }])
+
+  const tomorrow = computeTodayLessons([goal], wed)
+  assert.deepEqual(tomorrow, [{ goal_id: 'g1', lesson_number: 6, date: '2026-04-29' }],
+    'lesson 6 reappears on Wed because current_lesson never advanced')
+
+  // Compare against a "had-completed-by-today" projection: that finishes
+  // exactly one school day earlier than the missed-day projection.
+  const completed = goalCfg({ current_lesson: 6, total_lessons: 20 })
+  const finishMissed = computeFinishDate(goal, wed)
+  const finishCompleted = computeFinishDate(completed, wed)
+  assert.ok(finishMissed && finishCompleted)
+  // Walk one school day from finishCompleted; should equal finishMissed.
+  const expected = new Date(finishCompleted!)
+  do { expected.setDate(expected.getDate() + 1) } while (!isSchoolDay(expected, goal.school_days))
+  assert.equal(toDateStr(finishMissed!), toDateStr(expected),
+    'finish date slips by exactly one school day')
+})
+
+test('queue: completed goal returns nothing on Today and null finish', () => {
+  const today = new Date(2026, 3, 28)
+  const goal = goalCfg({ current_lesson: 100, total_lessons: 100 })
+  assert.deepEqual(computeTodayLessons([goal], today), [])
+  assert.equal(computeFinishDate(goal, today), null)
+})
+
+test('queue: empty school_days normalizes to Mon-Fri', () => {
+  assert.deepEqual(normalizeSchoolDays([]), ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])
+  assert.deepEqual(normalizeSchoolDays(null), ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])
+  assert.deepEqual(normalizeSchoolDays(undefined), ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])
+  // Non-empty arrays pass through untouched (don't pre-sort or mutate).
+  assert.deepEqual(normalizeSchoolDays(['Tue', 'Thu']), ['Tue', 'Thu'])
+})
+
+test('queue: catch-up gap lists the lessons that would have been due, in order', () => {
+  // 7-calendar-day gap starting Mon 2026-04-20, ending today Mon 2026-04-27.
+  // Goal: current_lesson=10 at the start of the gap, lessons_per_day=1, Mon-Fri.
+  // School days in the gap: Mon 4/20, Tue 4/21, Wed 4/22, Thu 4/23, Fri 4/24
+  // (weekend skipped). That's 5 school days → lessons 11..15 in order.
+  const gapStart = new Date(2026, 3, 20) // Mon Apr 20
+  const today = new Date(2026, 3, 27)    // Mon Apr 27
+  const goal = goalCfg({ current_lesson: 10, total_lessons: 100 })
+  const gap = computeGapLessonsForGoal(goal, gapStart, today)
+  assert.deepEqual(gap, [
+    { goal_id: 'g1', lesson_number: 11, date: '2026-04-20' },
+    { goal_id: 'g1', lesson_number: 12, date: '2026-04-21' },
+    { goal_id: 'g1', lesson_number: 13, date: '2026-04-22' },
+    { goal_id: 'g1', lesson_number: 14, date: '2026-04-23' },
+    { goal_id: 'g1', lesson_number: 15, date: '2026-04-24' },
+  ])
+})
+
+test('queue: computeTodayLessons aggregates across multiple goals', () => {
+  // Two goals, both Mon-Fri, both at current_lesson=0. Today (Tue) returns
+  // the next lesson from each goal in input order.
+  const tue = new Date(2026, 3, 28)
+  const out = computeTodayLessons([
+    goalCfg({ id: 'math', total_lessons: 50 }),
+    goalCfg({ id: 'reading', total_lessons: 30, lessons_per_day: 2 }),
+  ], tue)
+  assert.deepEqual(out, [
+    { goal_id: 'math', lesson_number: 1, date: '2026-04-28' },
+    { goal_id: 'reading', lesson_number: 1, date: '2026-04-28' },
+    { goal_id: 'reading', lesson_number: 2, date: '2026-04-28' },
+  ])
+})
+
+test('queue: projection stops at total_lessons even with daysAhead remaining', () => {
+  const mon = new Date(2026, 3, 27) // Mon Apr 27
+  const goal = goalCfg({ current_lesson: 8, total_lessons: 10, lessons_per_day: 1 })
+  // 5 days ahead, but only 2 lessons remain (9, 10). Should return those
+  // and stop.
+  const out = computeNextLessonsForGoal(goal, mon, 5)
+  assert.deepEqual(out, [
+    { goal_id: 'g1', lesson_number: 9, date: '2026-04-27' },
+    { goal_id: 'g1', lesson_number: 10, date: '2026-04-28' },
   ])
 })

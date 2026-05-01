@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
+import { computeNextLessonsForGoal, type CurriculumGoalConfig } from "@/app/lib/scheduler";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,27 +121,21 @@ export default function CalendarPage() {
     const s = toDateStr(ms);
     const e = toDateStr(me);
 
+    // Source of truth for upcoming lessons is the curriculum goal queue
+    // position (Path A, 2026-05). Past completions still come from the
+    // existing date columns; one-off (no-curriculum) lessons stay
+    // date-pinned. See app/lib/scheduler.ts computeNextLessonsForGoal.
     const [
       { data: kids },
-      { data: bySched },
-      { data: byDate },
+      { data: goalsRaw },
       { data: appEvents },
       { data: vacs },
     ] = await Promise.all([
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase
-        .from("lessons")
-        .select("id, title, completed, child_id, date, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId)
-        .gte("scheduled_date", s)
-        .lte("scheduled_date", e),
-      supabase
-        .from("lessons")
-        .select("id, title, completed, child_id, date, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId)
-        .is("scheduled_date", null)
-        .gte("date", s)
-        .lte("date", e),
+        .from("curriculum_goals")
+        .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
+        .eq("user_id", effectiveUserId),
       supabase
         .from("app_events")
         .select("id, type, created_at, payload")
@@ -156,14 +151,74 @@ export default function CalendarPage() {
     ]);
 
     setChildren(capitalizeChildNames(kids ?? []));
-    setLessons([
-      ...((bySched as unknown as Lesson[]) ?? []),
-      ...((byDate as unknown as Lesson[]) ?? []),
+
+    // Project the visible month from each goal's queue position, then
+    // hydrate matching rows by (curriculum_goal_id, lesson_number).
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const projStart = ms > today ? ms : today;
+    const daysAhead = Math.max(0, Math.floor((me.getTime() - projStart.getTime()) / 86400000) + 1);
+    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
+    const projected: { goal_id: string; lesson_number: number; date: string }[] = [];
+    for (const g of goals) {
+      if (!g.total_lessons || g.total_lessons <= 0) continue;
+      const cfg: CurriculumGoalConfig = {
+        id: g.id,
+        total_lessons: g.total_lessons,
+        lessons_per_day: g.lessons_per_day ?? 1,
+        school_days: g.school_days,
+        current_lesson: g.current_lesson ?? 0,
+      };
+      projected.push(...computeNextLessonsForGoal(cfg, projStart, daysAhead).filter((p) => p.date >= s && p.date <= e));
+    }
+    const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
+    const projGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
+    const projNumbers = Array.from(new Set(projected.map((p) => p.lesson_number)));
+
+    const [{ data: projRowsRaw }, { data: pastDoneRaw }, { data: oneOffRaw }] = await Promise.all([
+      projGoalIds.length > 0
+        ? supabase
+            .from("lessons")
+            .select("id, title, completed, child_id, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+            .eq("user_id", effectiveUserId)
+            .in("curriculum_goal_id", projGoalIds)
+            .in("lesson_number", projNumbers)
+        : Promise.resolve({ data: [] as unknown[] }),
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+        .eq("user_id", effectiveUserId)
+        .eq("completed", true)
+        .lt("scheduled_date", todayStr)
+        .gte("scheduled_date", s)
+        .lte("scheduled_date", e),
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+        .eq("user_id", effectiveUserId)
+        .is("curriculum_goal_id", null)
+        .or(`and(scheduled_date.gte.${s},scheduled_date.lte.${e}),and(scheduled_date.is.null,date.gte.${s},date.lte.${e})`),
     ]);
+
+    type Row = Lesson & { curriculum_goal_id?: string | null; lesson_number?: number | null };
+    const projRows = ((projRowsRaw ?? []) as unknown as Row[])
+      .filter((r) => projDateByKey.has(`${r.curriculum_goal_id}|${r.lesson_number}`))
+      .map((r) => {
+        const projDate = projDateByKey.get(`${r.curriculum_goal_id}|${r.lesson_number}`)!;
+        return { ...r, scheduled_date: projDate, date: projDate } as Row;
+      });
+    const pastDoneRows = ((pastDoneRaw ?? []) as unknown as Row[]);
+    const oneOffRows = ((oneOffRaw ?? []) as unknown as Row[]);
+    const byId = new Map<string, Row>();
+    for (const r of pastDoneRows) byId.set(r.id, r);
+    for (const r of projRows) byId.set(r.id, r);
+    for (const r of oneOffRows) byId.set(r.id, r);
+    setLessons(Array.from(byId.values()) as Lesson[]);
+
     setEvents((appEvents as unknown as AppEvent[]) ?? []);
     setVacations((vacs as VacationBlock[]) ?? []);
     setLoading(false);
-  }, [monthStart, effectiveUserId]);
+  }, [monthStart, effectiveUserId, todayStr]);
 
   useEffect(() => {
     loadData();

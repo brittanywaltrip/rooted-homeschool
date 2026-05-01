@@ -15,7 +15,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, computeNextLessonsForGoal, type CurriculumGoalConfig } from "@/app/lib/scheduler";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -173,6 +173,105 @@ function getSeasonalEmoji(month: number): string {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Queue-based lesson loader for a date range. Replaces the old
+ * `from("lessons").where(scheduled_date BETWEEN s, e)` queries on the
+ * Plan page (Path A, 2026-05).
+ *
+ * For dates >= today: project from each goal's queue position via
+ * computeNextLessonsForGoal, then fetch the matching rows by
+ * (curriculum_goal_id, lesson_number) and rewrite their scheduled_date
+ * to the projected date. The DB scheduled_date / date columns remain
+ * untouched — we just override on read.
+ *
+ * For dates < today: pull rows by their existing date / scheduled_date
+ * so completion history still renders where it actually happened.
+ *
+ * One-off lessons (no curriculum_goal_id) are still date-pinned and load
+ * by their stored scheduled_date / date.
+ */
+async function loadLessonsForRange(
+  userId: string,
+  rangeStart: Date,
+  rangeEnd: Date,
+  rangeStartStr: string,
+  rangeEndStr: string,
+  todayStr: string,
+  goals: { id: string; total_lessons: number | null; lessons_per_day?: number | null; school_days: string[] | null; current_lesson: number | null }[],
+): Promise<Lesson[]> {
+  // ── Project future lessons across the visible range, per goal ──
+  const todayMid = new Date(todayStr + "T00:00:00");
+  const projStart = rangeStart > todayMid ? rangeStart : todayMid;
+  const daysAhead = Math.max(0, Math.floor((rangeEnd.getTime() - projStart.getTime()) / 86400000) + 1);
+  const allProjected: { goal_id: string; lesson_number: number; date: string }[] = [];
+  for (const g of goals) {
+    if (!g.total_lessons || g.total_lessons <= 0) continue;
+    const cfg: CurriculumGoalConfig = {
+      id: g.id,
+      total_lessons: g.total_lessons,
+      lessons_per_day: g.lessons_per_day ?? 1,
+      school_days: g.school_days,
+      current_lesson: g.current_lesson ?? 0,
+    };
+    const projected = computeNextLessonsForGoal(cfg, projStart, daysAhead)
+      .filter((p) => p.date >= rangeStartStr && p.date <= rangeEndStr);
+    allProjected.push(...projected);
+  }
+  const projDateByKey = new Map(allProjected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
+  const projGoalIds = Array.from(new Set(allProjected.map((p) => p.goal_id)));
+  const projNumbers = Array.from(new Set(allProjected.map((p) => p.lesson_number)));
+
+  // ── Three sets of rows feed the visible range ──
+  // 1. Future-projected rows: incomplete rows that match a (goal, lesson_number)
+  //    in the projection. Their displayed date is the projected date.
+  // 2. Past completed history: rows the family already finished, displayed
+  //    on whatever date they happened (date / scheduled_date / completed_at).
+  // 3. One-off rows: no curriculum_goal_id, still date-pinned.
+  const [projRowsRes, pastDoneRes, oneOffRes] = await Promise.all([
+    projGoalIds.length > 0
+      ? supabase
+          .from("lessons")
+          .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+          .eq("user_id", userId)
+          .in("curriculum_goal_id", projGoalIds)
+          .in("lesson_number", projNumbers)
+      : Promise.resolve({ data: [] as unknown[] }),
+    supabase
+      .from("lessons")
+      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+      .eq("user_id", userId)
+      .eq("completed", true)
+      .lt("scheduled_date", todayStr)
+      .gte("scheduled_date", rangeStartStr)
+      .lte("scheduled_date", rangeEndStr),
+    supabase
+      .from("lessons")
+      .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+      .eq("user_id", userId)
+      .is("curriculum_goal_id", null)
+      .or(`and(scheduled_date.gte.${rangeStartStr},scheduled_date.lte.${rangeEndStr}),and(scheduled_date.is.null,date.gte.${rangeStartStr},date.lte.${rangeEndStr})`),
+  ]);
+
+  type Row = Lesson & { lesson_number?: number | null };
+  const projRowsRaw = (projRowsRes.data ?? []) as unknown as Row[];
+  const projRows = projRowsRaw
+    .filter((r) => projDateByKey.has(`${r.curriculum_goal_id}|${r.lesson_number}`))
+    .map((r) => {
+      const projDate = projDateByKey.get(`${r.curriculum_goal_id}|${r.lesson_number}`)!;
+      return { ...r, scheduled_date: projDate, date: projDate } as Row;
+    });
+  const pastDoneRows = (pastDoneRes.data ?? []) as unknown as Row[];
+  const oneOffRows = (oneOffRes.data ?? []) as unknown as Row[];
+
+  // De-dupe by id — a row can match both projection and past-done if a
+  // goal's current_lesson regressed (rare but possible).
+  const byId = new Map<string, Row>();
+  for (const r of pastDoneRows) byId.set(r.id, r);
+  for (const r of projRows) byId.set(r.id, r);
+  for (const r of oneOffRows) byId.set(r.id, r);
+  return Array.from(byId.values()) as unknown as Lesson[];
+}
 
 function toDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -480,15 +579,12 @@ export default function PlanPage() {
     const ws = new Date(weekStart), we = new Date(weekStart);
     we.setDate(we.getDate() + 6);
     const s = toDateStr(ws), e = toDateStr(we);
-    const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }, { data: bySched }, { data: byDate }] = await Promise.all([
+    const todayStr = toDateStr(new Date());
+    const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }] = await Promise.all([
       supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji, lessons_per_day").eq("user_id", effectiveUserId).order("created_at"),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
     setProfileSchoolDays((profile as { school_days?: string[] } | null)?.school_days ?? []);
@@ -496,7 +592,8 @@ export default function PlanPage() {
     setChildren(capitalizeChildNames(kids ?? []));
     setSubjects((subs as Subject[]) ?? []);
     setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
-    setLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
+
+    setLessons(await loadLessonsForRange(effectiveUserId, ws, we, s, e, todayStr, (goals ?? []) as unknown as CurriculumGoal[]));
     setLoading(false);
   }, [weekStart, effectiveUserId]);
 
@@ -537,13 +634,14 @@ export default function PlanPage() {
     const ms = new Date(monthStart);
     const me = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
     const s = toDateStr(ms), e = toDateStr(me);
-    const [{ data: bySched }, { data: byDate }] = await Promise.all([
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
-    ]);
-    setMonthLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
+    const todayStr = toDateStr(new Date());
+    // Re-fetch goals here so the projection is consistent with whatever
+    // changed since the week-view load (rare race, but possible).
+    const { data: goalsData } = await supabase.from("curriculum_goals")
+      .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
+      .eq("user_id", effectiveUserId);
+    const goals = (goalsData ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
+    setMonthLessons(await loadLessonsForRange(effectiveUserId, ms, me, s, e, todayStr, goals));
 
     // Fetch appointments for the month
     try {
