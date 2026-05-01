@@ -8,6 +8,7 @@ export async function sendResendTemplate(
   variables: Record<string, string>,
   from?: string,
   subject?: string,
+  headers?: Record<string, string>,
 ): Promise<{ ok: boolean; error?: string }> {
   const payload: Record<string, unknown> = {
     from: from ?? FROM,
@@ -18,6 +19,7 @@ export async function sendResendTemplate(
     },
   }
   if (subject) payload.subject = subject
+  if (headers && Object.keys(headers).length > 0) payload.headers = headers
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',

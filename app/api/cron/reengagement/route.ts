@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { canSendMarketingEmail, type MarketingEmailType } from '@/lib/email/can-send'
+import { buildUserListUnsubscribeHeaders, ensureUnsubscribeToken } from '@/lib/email/list-unsubscribe'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,25 +62,38 @@ async function sendTemplate(
   to: string,
   templateId: string,
   variables: Record<string, string>,
+  headers?: Record<string, string>,
 ): Promise<{ ok: boolean; error?: string }> {
+  const payload: Record<string, unknown> = {
+    from: FROM,
+    to,
+    template_id: templateId,
+    template_variables: variables,
+  }
+  if (headers && Object.keys(headers).length > 0) payload.headers = headers
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      from: FROM,
-      to,
-      template_id: templateId,
-      template_variables: variables,
-    }),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const err = await res.json()
     return { ok: false, error: err.message ?? JSON.stringify(err) }
   }
   return { ok: true }
+}
+
+async function gateAndHeaders(
+  userId: string,
+  type: MarketingEmailType,
+): Promise<{ allowed: boolean; reason?: string; headers: Record<string, string> }> {
+  const gate = await canSendMarketingEmail(userId, type, supabase)
+  if (!gate.allowed) return { allowed: false, reason: gate.reason, headers: {} }
+  const token = await ensureUnsubscribeToken(userId, supabase)
+  return { allowed: true, headers: buildUserListUnsubscribeHeaders(token) }
 }
 
 export async function GET(req: NextRequest) {
@@ -97,13 +112,18 @@ export async function GET(req: NextRequest) {
 
   const { data: e1Users } = await supabase
     .from('profiles')
-    .select('id, first_name, created_at, email_unsubscribed')
+    .select('id, first_name, created_at')
     .gte('created_at', e1WindowStart.toISOString())
     .lte('created_at', e1WindowEnd.toISOString())
 
   for (const user of e1Users ?? []) {
-    if (user.email_unsubscribed) { skipped++; continue }
     const emailType = 'reengagement_1'
+    const gate = await gateAndHeaders(user.id, emailType)
+    if (!gate.allowed) {
+      skipped++
+      console.debug(`[reengagement_1] skipped ${user.id}: ${gate.reason}`)
+      continue
+    }
     if (await alreadySent(user.id, emailType)) { skipped++; continue }
     if (await hasCurriculum(user.id) || await hasLessons(user.id)) { skipped++; continue }
 
@@ -116,7 +136,7 @@ export async function GET(req: NextRequest) {
       firstName,
       dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
       email,
-    })
+    }, gate.headers)
 
     if (!result.ok) {
       console.error(`reengagement_1 error for ${email}:`, result.error)
@@ -133,13 +153,18 @@ export async function GET(req: NextRequest) {
 
   const { data: e2Users } = await supabase
     .from('profiles')
-    .select('id, first_name, created_at, email_unsubscribed')
+    .select('id, first_name, created_at')
     .gte('created_at', e2WindowStart.toISOString())
     .lte('created_at', e2WindowEnd.toISOString())
 
   for (const user of e2Users ?? []) {
-    if (user.email_unsubscribed) { skipped++; continue }
     const emailType = 'reengagement_2'
+    const gate = await gateAndHeaders(user.id, emailType)
+    if (!gate.allowed) {
+      skipped++
+      console.debug(`[reengagement_2] skipped ${user.id}: ${gate.reason}`)
+      continue
+    }
     if (await alreadySent(user.id, emailType)) { skipped++; continue }
     if (await hasLessons(user.id)) { skipped++; continue }
 
@@ -152,7 +177,7 @@ export async function GET(req: NextRequest) {
       firstName,
       planUrl: 'https://rootedhomeschoolapp.com/dashboard/plan',
       email,
-    })
+    }, gate.headers)
 
     if (!result.ok) {
       console.error(`reengagement_2 error for ${email}:`, result.error)
@@ -169,13 +194,18 @@ export async function GET(req: NextRequest) {
 
   const { data: e3Users } = await supabase
     .from('profiles')
-    .select('id, first_name, created_at, email_unsubscribed')
+    .select('id, first_name, created_at')
     .gte('created_at', e3WindowStart.toISOString())
     .lte('created_at', e3WindowEnd.toISOString())
 
   for (const user of e3Users ?? []) {
-    if (user.email_unsubscribed) { skipped++; continue }
     const emailType = 'reengagement_3'
+    const gate = await gateAndHeaders(user.id, emailType)
+    if (!gate.allowed) {
+      skipped++
+      console.debug(`[reengagement_3] skipped ${user.id}: ${gate.reason}`)
+      continue
+    }
     if (await alreadySent(user.id, emailType)) { skipped++; continue }
     if (await hasLessons(user.id)) { skipped++; continue }
 
@@ -188,7 +218,7 @@ export async function GET(req: NextRequest) {
       firstName,
       dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
       email,
-    })
+    }, gate.headers)
 
     if (!result.ok) {
       console.error(`reengagement_3 error for ${email}:`, result.error)
@@ -207,14 +237,19 @@ export async function GET(req: NextRequest) {
 
   const { data: backfillUsers } = await supabase
     .from('profiles')
-    .select('id, first_name, created_at, email_unsubscribed')
+    .select('id, first_name, created_at')
     .gte('created_at', backfillCutoff)
     .lte('created_at', backfillEnd.toISOString())
 
   let backfilled = 0
 
   for (const user of backfillUsers ?? []) {
-    if (user.email_unsubscribed) { skipped++; continue }
+    const gate = await gateAndHeaders(user.id, 'reengagement_1')
+    if (!gate.allowed) {
+      skipped++
+      console.debug(`[reengagement_1 backfill] skipped ${user.id}: ${gate.reason}`)
+      continue
+    }
     if (await alreadySent(user.id, 'reengagement_1')) { skipped++; continue }
     if (await hasLessons(user.id) || await hasMemories(user.id)) { skipped++; continue }
 
@@ -227,7 +262,7 @@ export async function GET(req: NextRequest) {
       firstName,
       dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
       email,
-    })
+    }, gate.headers)
 
     if (!result.ok) {
       console.error(`reengagement_1 backfill error for ${email}:`, result.error)

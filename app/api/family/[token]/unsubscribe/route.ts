@@ -9,7 +9,7 @@ export async function POST(
 
   const { data: invite } = await supabaseAdmin
     .from("family_invites")
-    .select("id, user_id")
+    .select("id, user_id, email")
     .eq("token", token)
     .maybeSingle();
 
@@ -21,6 +21,14 @@ export async function POST(
     .from("family_invites")
     .update({ email_opt_out: true })
     .eq("id", invite.id);
+
+  if (invite.email) {
+    await supabaseAdmin.from("email_suppressions").insert({
+      email: invite.email,
+      reason: "user_unsubscribe",
+      source: "family_invite_token",
+    });
+  }
 
   // Get family name for the confirmation message
   const { data: profile } = await supabaseAdmin

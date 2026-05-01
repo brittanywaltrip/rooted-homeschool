@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
+import { canSendMarketingEmail } from '@/lib/email/can-send'
+import { buildUserListUnsubscribeHeaders, ensureUnsubscribeToken } from '@/lib/email/list-unsubscribe'
 
 export const dynamic = 'force-dynamic'
 
@@ -95,7 +97,7 @@ function buildSummary(
 
 // ── Core logic (shared by GET cron + POST test) ─────────────────────────
 
-async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; totalUsers: number }> {
+async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; totalUsers: number; skipped: number }> {
   const resend = new Resend(process.env.RESEND_API_KEY)
 
   const sevenDaysAgo = new Date()
@@ -116,7 +118,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
   for (const m of recentMemories ?? []) activeUserIds.add(m.user_id)
   for (const l of recentLessons ?? []) activeUserIds.add(l.user_id)
 
-  if (activeUserIds.size === 0) return { sent: 0, totalUsers: 0 }
+  if (activeUserIds.size === 0) return { sent: 0, totalUsers: 0, skipped: 0 }
 
   // Fetch this week's data (last 7 days) for the email content
   const [{ data: weekMemories }, { data: weekLessons }] = await Promise.all([
@@ -160,7 +162,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
   const userIds = [...activeUserIds]
   const { data: profiles } = await supabase
     .from('profiles')
-    .select('id, first_name, email_unsubscribed')
+    .select('id, first_name')
     .in('id', userIds)
 
   const { data: listData } = await supabase.auth.admin.listUsers()
@@ -185,24 +187,33 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
         text: `Hi ${sampleName}, Last week was a great week of homeschooling. You captured 0 memories this week.\n\n— Brittany\nFounder, Rooted${emailFooterText()}`,
         html: emailHtml(sampleName, 'Last week was a great week of homeschooling.', 0),
       })
-      return { sent: 1, totalUsers: 1 }
+      return { sent: 1, totalUsers: 1, skipped: 0 }
     }
     targetUsers = [testUserId]
   }
 
   let sent = 0
+  let skipped = 0
   for (const userId of targetUsers) {
     const email = emailMap.get(userId)
-    if (!email) continue
+    if (!email) { skipped++; continue }
     if (testOnly && email !== TEST_EMAIL) continue
 
-    const profile = (profiles ?? []).find(p => p.id === userId) as { first_name?: string; email_unsubscribed?: boolean } | undefined
-    if (profile?.email_unsubscribed) continue
+    const gate = await canSendMarketingEmail(userId, 'weekly_summary', supabase)
+    if (!gate.allowed) {
+      skipped++
+      console.debug(`[weekly-summary] skipped ${email}: ${gate.reason}`)
+      continue
+    }
+
+    const profile = (profiles ?? []).find(p => p.id === userId) as { first_name?: string } | undefined
     const name = profile?.first_name ?? ''
     const mems = userMemories.get(userId) ?? []
     const lessons = userLessons.get(userId) ?? []
     const summaryLine = buildSummary(lessons, mems)
     const unsubscribeUrl = `https://www.rootedhomeschoolapp.com/unsubscribe?email=${encodeURIComponent(email)}`
+    const unsubToken = await ensureUnsubscribeToken(userId, supabase)
+    const listUnsubHeaders = buildUserListUnsubscribeHeaders(unsubToken)
 
     try {
       const displayName = name || 'there'
@@ -215,7 +226,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
         weeklySummary: `${summaryLine} You captured ${mems.length} ${mems.length === 1 ? 'memory' : 'memories'} this week.`,
         memoriesUrl: 'https://www.rootedhomeschoolapp.com/dashboard/memories',
         unsubscribeUrl,
-      }, undefined, personalizedSubject)
+      }, undefined, personalizedSubject, listUnsubHeaders)
       if (result.ok) {
         sent++
         try { await supabase.from('email_log').insert({ user_id: userId, email_type: 'weekly_summary' }) } catch {}
@@ -227,7 +238,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
     }
   }
 
-  return { sent, totalUsers: activeUserIds.size }
+  return { sent, totalUsers: activeUserIds.size, skipped }
 }
 
 // ── GET: Vercel cron trigger ────────────────────────────────────────────

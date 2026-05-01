@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 
@@ -19,6 +20,7 @@ type Lesson = {
   date: string | null;
   scheduled_date: string | null;
   subjects: { name: string; color: string | null } | null;
+  curriculum_goals?: { subject_label: string | null } | null;
   notes: string | null;
 };
 
@@ -128,13 +130,13 @@ export default function CalendarPage() {
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, date, scheduled_date, notes, subjects(name, color)")
+        .select("id, title, completed, child_id, date, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label)")
         .eq("user_id", effectiveUserId)
         .gte("scheduled_date", s)
         .lte("scheduled_date", e),
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, date, scheduled_date, notes, subjects(name, color)")
+        .select("id, title, completed, child_id, date, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label)")
         .eq("user_id", effectiveUserId)
         .is("scheduled_date", null)
         .gte("date", s)
@@ -625,11 +627,14 @@ export default function CalendarPage() {
                         <span className={`text-xs ${l.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
                           {l.title}
                         </span>
-                        {l.subjects?.name && (
-                          <span className="text-[9px] font-medium text-[#7a6f65] bg-[#f0ede8] px-1.5 py-0.5 rounded-full">
-                            {l.subjects.name}
-                          </span>
-                        )}
+                        {(() => {
+                          const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label);
+                          return subjName ? (
+                            <span className="text-[9px] font-medium text-[#7a6f65] bg-[#f0ede8] px-1.5 py-0.5 rounded-full">
+                              {subjName}
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
                       {/* Note editor / display */}
                       {editingNoteId === l.id ? (

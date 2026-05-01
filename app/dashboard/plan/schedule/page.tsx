@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ type Lesson = {
   completed: boolean;
   child_id: string | null;
   subjects: { name: string; color: string | null } | null;
+  curriculum_goals?: { subject_label: string | null } | null;
   scheduled_date: string | null;
   date: string | null;
 };
@@ -118,13 +120,13 @@ export default function SchedulePage() {
         .order("name"),
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, subjects(name, color), scheduled_date, date")
+        .select("id, title, completed, child_id, subjects(name, color), curriculum_goals(subject_label), scheduled_date, date")
         .eq("user_id", effectiveUserId)
         .gte("scheduled_date", s)
         .lte("scheduled_date", e),
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, subjects(name, color), scheduled_date, date")
+        .select("id, title, completed, child_id, subjects(name, color), curriculum_goals(subject_label), scheduled_date, date")
         .eq("user_id", effectiveUserId)
         .is("scheduled_date", null)
         .gte("date", s)
@@ -299,8 +301,9 @@ export default function SchedulePage() {
                     )}
                     {dayLessons.map((lesson) => {
                       const child = children.find((c) => c.id === lesson.child_id);
-                      const subStyle = lesson.subjects
-                        ? getSubjectStyle(lesson.subjects.color, lesson.subjects.name)
+                      const subjName = resolveLessonSubject(lesson.subjects?.name, lesson.curriculum_goals?.subject_label);
+                      const subStyle = subjName
+                        ? getSubjectStyle(lesson.subjects?.color ?? null, subjName)
                         : { bg: "#f0ede8", text: "#5c5248" };
                       return (
                         <div
@@ -318,12 +321,12 @@ export default function SchedulePage() {
                           }`}>
                             {lesson.title}
                           </p>
-                          {lesson.subjects && (
+                          {subjName && (
                             <span
                               className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold"
                               style={{ backgroundColor: subStyle.bg, color: subStyle.text }}
                             >
-                              {lesson.subjects.name}
+                              {subjName}
                             </span>
                           )}
                         </div>
