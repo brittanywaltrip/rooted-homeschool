@@ -7,6 +7,8 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
+import { computeNextLessonsForGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { tintFromHex, darkenHex } from "@/lib/color-tint";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -106,7 +108,9 @@ export default function SchedulePage() {
     const s = toDateStr(ws);
     const e = toDateStr(we);
 
-    const [{ data: kids }, { data: subs }, { data: bySched }, { data: byDate }] = await Promise.all([
+    // Source of truth for upcoming lessons is the curriculum goal queue
+    // position (Path A, 2026-05). See app/lib/scheduler.ts.
+    const [{ data: kids }, { data: subs }, { data: goalsRaw }, { data: vacsRaw }] = await Promise.all([
       supabase
         .from("children")
         .select("id, name, color")
@@ -119,25 +123,84 @@ export default function SchedulePage() {
         .eq("user_id", effectiveUserId)
         .order("name"),
       supabase
-        .from("lessons")
-        .select("id, title, completed, child_id, subjects(name, color), curriculum_goals(subject_label), scheduled_date, date")
-        .eq("user_id", effectiveUserId)
-        .gte("scheduled_date", s)
-        .lte("scheduled_date", e),
+        .from("curriculum_goals")
+        .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
+        .eq("user_id", effectiveUserId),
       supabase
-        .from("lessons")
-        .select("id, title, completed, child_id, subjects(name, color), curriculum_goals(subject_label), scheduled_date, date")
-        .eq("user_id", effectiveUserId)
-        .is("scheduled_date", null)
-        .gte("date", s)
-        .lte("date", e),
+        .from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", effectiveUserId),
     ]);
 
     setChildren(capitalizeChildNames(kids ?? []));
     setSubjects((subs as unknown as Subject[]) ?? []);
-    setLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
+
+    // Projection ALWAYS starts from today, not from `ws`. See note in
+    // app/dashboard/plan/page.tsx loadLessonsForRange for the off-by-
+    // one rationale (day-detail audit 2026-05-01).
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daysAhead = Math.max(0, Math.floor((we.getTime() - today.getTime()) / 86400000) + 1);
+    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
+    const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
+      .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+    const projected: { goal_id: string; lesson_number: number; date: string }[] = [];
+    for (const g of goals) {
+      if (!g.total_lessons || g.total_lessons <= 0) continue;
+      const cfg: CurriculumGoalConfig = {
+        id: g.id,
+        total_lessons: g.total_lessons,
+        lessons_per_day: g.lessons_per_day ?? 1,
+        school_days: g.school_days,
+        current_lesson: g.current_lesson ?? 0,
+      };
+      projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks).filter((p) => p.date >= s && p.date <= e));
+    }
+    const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
+    const projGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
+    const projNumbers = Array.from(new Set(projected.map((p) => p.lesson_number)));
+
+    const [{ data: projRowsRaw }, { data: pastDoneRaw }, { data: oneOffRaw }] = await Promise.all([
+      projGoalIds.length > 0
+        ? supabase
+            .from("lessons")
+            .select("id, title, completed, child_id, subjects(name, color), curriculum_goals(subject_label), scheduled_date, date, curriculum_goal_id, lesson_number")
+            .eq("user_id", effectiveUserId)
+            .in("curriculum_goal_id", projGoalIds)
+            .in("lesson_number", projNumbers)
+        : Promise.resolve({ data: [] as unknown[] }),
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, subjects(name, color), curriculum_goals(subject_label), scheduled_date, date, curriculum_goal_id, lesson_number")
+        .eq("user_id", effectiveUserId)
+        .eq("completed", true)
+        .lt("scheduled_date", todayStr)
+        .gte("scheduled_date", s)
+        .lte("scheduled_date", e),
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, subjects(name, color), curriculum_goals(subject_label), scheduled_date, date, curriculum_goal_id, lesson_number")
+        .eq("user_id", effectiveUserId)
+        .is("curriculum_goal_id", null)
+        .or(`and(scheduled_date.gte.${s},scheduled_date.lte.${e}),and(scheduled_date.is.null,date.gte.${s},date.lte.${e})`),
+    ]);
+
+    type Row = Lesson & { curriculum_goal_id?: string | null; lesson_number?: number | null };
+    const projRows = ((projRowsRaw ?? []) as unknown as Row[])
+      .filter((r) => projDateByKey.has(`${r.curriculum_goal_id}|${r.lesson_number}`))
+      .map((r) => {
+        const projDate = projDateByKey.get(`${r.curriculum_goal_id}|${r.lesson_number}`)!;
+        return { ...r, scheduled_date: projDate, date: projDate } as Row;
+      });
+    const pastDoneRows = ((pastDoneRaw ?? []) as unknown as Row[]);
+    const oneOffRows = ((oneOffRaw ?? []) as unknown as Row[]);
+    const byId = new Map<string, Row>();
+    for (const r of pastDoneRows) byId.set(r.id, r);
+    for (const r of projRows) byId.set(r.id, r);
+    for (const r of oneOffRows) byId.set(r.id, r);
+    setLessons(Array.from(byId.values()) as Lesson[]);
     setLoading(false);
-  }, [weekStart, effectiveUserId]);
+  }, [weekStart, effectiveUserId, todayStr]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -302,29 +365,34 @@ export default function SchedulePage() {
                     {dayLessons.map((lesson) => {
                       const child = children.find((c) => c.id === lesson.child_id);
                       const subjName = resolveLessonSubject(lesson.subjects?.name, lesson.curriculum_goals?.subject_label);
-                      const subStyle = subjName
-                        ? getSubjectStyle(lesson.subjects?.color ?? null, subjName)
-                        : { bg: "#f0ede8", text: "#5c5248" };
+                      // Kid-color tinted card matches Today schedule
+                      // (parity with InlineScheduleTabs / TodayKidSection).
+                      // Background tinted; subject pill uses the kid's
+                      // darker shade. Subject color from the subjects
+                      // table is no longer used here — the card already
+                      // signals the subject by its kid-keyed background.
+                      const kidColor = child?.color ?? "#7a6f65";
+                      const kidBg = tintFromHex(kidColor, 0.25);
+                      const kidTitle = darkenHex(kidColor, 0.45);
+                      const kidPillBg = tintFromHex(kidColor, 0.35);
+                      const kidPillText = darkenHex(kidColor, 0.55);
                       return (
                         <div
                           key={lesson.id}
-                          className={`rounded-lg p-1.5 border-l-2 text-[10px] transition-all ${
+                          className={`rounded-lg p-1.5 text-[10px] transition-all ${
                             lesson.completed ? "opacity-50" : ""
                           }`}
                           style={{
-                            borderLeftColor: child?.color ?? subStyle.text,
-                            backgroundColor: lesson.completed ? "#f0f7f1" : "white",
+                            backgroundColor: kidBg,
                           }}
                         >
-                          <p className={`font-medium leading-snug ${
-                            lesson.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"
-                          }`}>
+                          <p className={`font-medium leading-snug ${lesson.completed ? "line-through" : ""}`} style={{ color: lesson.completed ? "#b5aca4" : kidTitle }}>
                             {lesson.title}
                           </p>
                           {subjName && (
                             <span
                               className="inline-block mt-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold"
-                              style={{ backgroundColor: subStyle.bg, color: subStyle.text }}
+                              style={{ backgroundColor: kidPillBg, color: kidPillText }}
                             >
                               {subjName}
                             </span>
