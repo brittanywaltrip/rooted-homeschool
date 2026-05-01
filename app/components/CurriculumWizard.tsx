@@ -149,6 +149,13 @@ export default function CurriculumWizard({
   // ── Children ──────────────────────────────────────────────────────────────
   const [children, setChildren] = useState<Child[]>([]);
   const [pastCurriculumNames, setPastCurriculumNames] = useState<string[]>([]);
+  // ── Vacation blocks (preview math) ────────────────────────────────────────
+  // Loaded once at mount. The Step 3 finish-date / required-per-day previews
+  // walk forward through dates and need to skip break days the same way the
+  // lesson generator does. Without this, the previews drift earlier than
+  // actual lesson rows for any user with a vacation in their projection
+  // window. Generator already uses isDateInBlocks at the equivalent step.
+  const [vacationBlocks, setVacationBlocks] = useState<{ start_date: string; end_date: string }[]>([]);
 
   useEffect(() => { posthog.capture('curriculum_wizard_opened', { mode }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -189,6 +196,17 @@ export default function CurriculumWizard({
     if (!effectiveUserId) return;
     refreshPastCurriculumNames(effectiveUserId);
   }, [effectiveUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    supabase
+      .from("vacation_blocks")
+      .select("start_date, end_date")
+      .eq("user_id", effectiveUserId)
+      .then(({ data }) => {
+        setVacationBlocks((data ?? []) as { start_date: string; end_date: string }[]);
+      });
+  }, [effectiveUserId]);
 
   // ── Wizard state ──────────────────────────────────────────────────────────
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(() => {
@@ -394,7 +412,8 @@ export default function CurriculumWizard({
     let safety = 0;
     while (cnt < daysNeeded && safety < 3650) {
       const dayIdx = (cursor.getDay() + 6) % 7;
-      if (schoolDays[dayIdx]) cnt++;
+      const dateStr = toDateStr(cursor);
+      if (schoolDays[dayIdx] && !isDateInBlocks(dateStr, vacationBlocks)) cnt++;
       if (cnt < daysNeeded) cursor.setDate(cursor.getDate() + 1);
       safety++;
     }
@@ -411,7 +430,8 @@ export default function CurriculumWizard({
     let safety = 0;
     while (cursor <= goal && safety < 3650) {
       const dayIdx = (cursor.getDay() + 6) % 7;
-      if (schoolDays[dayIdx]) schoolDayCount++;
+      const dateStr = toDateStr(cursor);
+      if (schoolDays[dayIdx] && !isDateInBlocks(dateStr, vacationBlocks)) schoolDayCount++;
       cursor.setDate(cursor.getDate() + 1);
       safety++;
     }

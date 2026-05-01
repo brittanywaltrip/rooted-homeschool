@@ -1270,3 +1270,142 @@ test('hotfix: omitting completedTodayPerGoal preserves prior behavior (callers p
   assert.deepEqual(result, [{ goal_id: 'g1', lesson_number: 6, date: '2026-05-01' }],
     'no map → behaves identically to prior callsites')
 })
+
+// ── CurriculumWizard preview math: vacation_blocks honored ─────────────
+//
+// The wizard's Step 3 finish-date and required-per-day previews walk
+// dates forward from forwardScheduleStart. After the May 2026 hardening
+// they correctly skip non-school-days; this round adds vacation-block
+// skipping so the preview matches the actual lesson generator (which
+// already skipped break days). The inline simulators below mirror the
+// wizard's calcFinishDate / calcRequiredPerDay loops exactly so the
+// test reflects component behavior without booting a JSX environment.
+
+type WizardBlock = { start_date: string; end_date: string }
+function isInBlocks(dateStr: string, blocks: WizardBlock[]): boolean {
+  return blocks.some((b) => dateStr >= b.start_date && dateStr <= b.end_date)
+}
+
+function simulateCalcFinishDate(input: {
+  remaining: number
+  perDay: number
+  schoolDays: boolean[]   // Mon=0..Sun=6
+  startDate: Date
+  today: Date
+  vacationBlocks: WizardBlock[]
+}): string | null {
+  const { remaining, perDay, schoolDays, startDate, today, vacationBlocks } = input
+  if (remaining === 0 || perDay <= 0 || !schoolDays.some(Boolean)) return null
+  const daysNeeded = Math.ceil(remaining / perDay)
+  let cnt = 0
+  const cursor = forwardScheduleStart(startDate, today)
+  let safety = 0
+  while (cnt < daysNeeded && safety < 3650) {
+    const dayIdx = (cursor.getDay() + 6) % 7
+    const dateStr = toDateStr(cursor)
+    if (schoolDays[dayIdx] && !isInBlocks(dateStr, vacationBlocks)) cnt++
+    if (cnt < daysNeeded) cursor.setDate(cursor.getDate() + 1)
+    safety++
+  }
+  return toDateStr(cursor)
+}
+
+function simulateCalcRequiredPerDay(input: {
+  remaining: number
+  schoolDays: boolean[]
+  startDate: Date
+  targetDate: Date
+  vacationBlocks: WizardBlock[]
+}): number | null {
+  const { remaining, schoolDays, startDate, targetDate, vacationBlocks } = input
+  if (!schoolDays.some(Boolean) || remaining === 0) return null
+  if (targetDate < startDate) return null
+  let schoolDayCount = 0
+  const cursor = new Date(startDate)
+  let safety = 0
+  while (cursor <= targetDate && safety < 3650) {
+    const dayIdx = (cursor.getDay() + 6) % 7
+    const dateStr = toDateStr(cursor)
+    if (schoolDays[dayIdx] && !isInBlocks(dateStr, vacationBlocks)) schoolDayCount++
+    cursor.setDate(cursor.getDate() + 1)
+    safety++
+  }
+  return schoolDayCount > 0 ? Math.ceil(remaining / schoolDayCount) : null
+}
+
+test('wizard preview: calcFinishDate without vacation blocks finishes on Fri Jun 12', () => {
+  // 30 lessons, perDay=1, Mon-Fri, start May 1 2026 (Friday).
+  // forwardScheduleStart bumps May 1 → May 2 (Sat). Cursor walks to first
+  // school day after that: Mon May 4 = lesson 1. 30 weekdays of Mon-Fri
+  // walking from May 4 inclusive lands the 30th on Fri Jun 12 2026.
+  const result = simulateCalcFinishDate({
+    remaining: 30,
+    perDay: 1,
+    schoolDays: [true, true, true, true, true, false, false],
+    startDate: new Date(2026, 4, 1),
+    today: new Date(2026, 4, 1),
+    vacationBlocks: [],
+  })
+  assert.equal(result, '2026-06-12', 'baseline: no vacation, 30 weekdays from May 4')
+})
+
+test('wizard preview: calcFinishDate skips vacation blocks (May 3-17 pushes finish to Jun 26)', () => {
+  // Same setup as above, plus a vacation block May 3-17 inclusive.
+  // The vacation contains 10 weekdays (Mon May 4-Fri May 8 plus Mon
+  // May 11-Fri May 15). Cursor skips them; lesson 1 lands on Mon May 18,
+  // 30th on Fri Jun 26 2026, exactly the 10-school-day shift we expect.
+  const result = simulateCalcFinishDate({
+    remaining: 30,
+    perDay: 1,
+    schoolDays: [true, true, true, true, true, false, false],
+    startDate: new Date(2026, 4, 1),
+    today: new Date(2026, 4, 1),
+    vacationBlocks: [{ start_date: '2026-05-03', end_date: '2026-05-17' }],
+  })
+  assert.equal(result, '2026-06-26', 'vacation pushes finish out by 10 school days')
+})
+
+test('wizard preview: calcFinishDate with vacation outside the projection window unchanged', () => {
+  // Sanity: a vacation that ends BEFORE the projection window starts has
+  // no effect. Apr 1-15 is fully past Fri May 1 and the forward walk.
+  const noVac = simulateCalcFinishDate({
+    remaining: 30, perDay: 1,
+    schoolDays: [true, true, true, true, true, false, false],
+    startDate: new Date(2026, 4, 1), today: new Date(2026, 4, 1),
+    vacationBlocks: [],
+  })
+  const pastVac = simulateCalcFinishDate({
+    remaining: 30, perDay: 1,
+    schoolDays: [true, true, true, true, true, false, false],
+    startDate: new Date(2026, 4, 1), today: new Date(2026, 4, 1),
+    vacationBlocks: [{ start_date: '2026-04-01', end_date: '2026-04-15' }],
+  })
+  assert.equal(pastVac, noVac, 'past vacations are no-ops')
+})
+
+test('wizard preview: calcRequiredPerDay raises the rate when vacation blocks consume school days', () => {
+  // 30 remaining lessons, target Jun 26 2026, Mon-Fri school days, start
+  // May 1. Without vacation: Fri May 1 through Fri Jun 26 contains 41
+  // weekdays. 30 / 41 = 0.73 → ceil = 1.
+  const without = simulateCalcRequiredPerDay({
+    remaining: 30,
+    schoolDays: [true, true, true, true, true, false, false],
+    startDate: new Date(2026, 4, 1),
+    targetDate: new Date(2026, 5, 26),
+    vacationBlocks: [],
+  })
+  assert.equal(without, 1, 'baseline: 41 weekdays, 30 lessons → 1/day suffices')
+
+  // With vacation May 3-17 (10 weekdays consumed): 31 usable school days
+  // → 30 / 31 → ceil = 1. Need a tighter target to see the rate change.
+  // Target May 22 has only 16 weekdays (May 1, 4-8, 11-15, 18-22), drop
+  // the 10 vacation weekdays leaves 6 usable → ceil(30/6) = 5/day.
+  const tightWith = simulateCalcRequiredPerDay({
+    remaining: 30,
+    schoolDays: [true, true, true, true, true, false, false],
+    startDate: new Date(2026, 4, 1),
+    targetDate: new Date(2026, 4, 22),
+    vacationBlocks: [{ start_date: '2026-05-03', end_date: '2026-05-17' }],
+  })
+  assert.equal(tightWith, 5, 'vacation consumes 10 school days from a 16-day window')
+})
