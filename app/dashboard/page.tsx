@@ -26,6 +26,7 @@ import TodaySchedule from "@/app/components/today/TodaySchedule";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
+import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
@@ -3188,37 +3189,54 @@ export default function TodayPage() {
                 }
                 return Array.from(grouped.entries()).map(([childId, childLessons]) => {
                   const child = children.find(c => c.id === childId);
+                  // Each kid section is tinted with that kid's own color so
+                  // mom can scan by child even within this multi-kid modal.
+                  // Subject tags keep their own subject color (not changed).
+                  // The primary CTA at the bottom stays neutral green
+                  // because it commits a multi-kid selection.
+                  const kidColor = child?.color ?? "#7a6f65";
+                  const kidTint = tintFromHex(kidColor, 0.25);
+                  const kidDark = darkenHex(kidColor, 0.45);
                   return (
                     <div key={childId} className="mb-5">
-                      {child && <p className="text-xs font-semibold uppercase tracking-widest text-[#9a8f85] mb-2">{child.name}</p>}
+                      {child && <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: kidDark }}>{child.name}</p>}
                       <div className="space-y-1">
-                        {childLessons.map(l => (
-                          <button
-                            key={l.id}
-                            type="button"
-                            onClick={() => setExtraChecked(prev => { const n = new Set(prev); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n; })}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${
-                              extraChecked.has(l.id) ? "bg-[#e8f0e9] border border-[#c8ddb8]" : "bg-white border border-[#f0ede8] hover:border-[#e8e2d9]"
-                            }`}
-                          >
-                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                              extraChecked.has(l.id) ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5]"
-                            }`}>
-                              {extraChecked.has(l.id) && <span className="text-white text-[10px] font-bold">✓</span>}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              {l.subjects && (
-                                <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full mr-1" style={{ backgroundColor: l.subjects.color ? `${l.subjects.color}20` : "#e8f0e9", color: l.subjects.color ?? "#5c7f63" }}>
-                                  {l.subjects.name}
-                                </span>
-                              )}
-                              <span className="text-sm text-[#2d2926]">{l.title}</span>
-                            </div>
-                            <span className="text-[10px] text-[#b5aca4] shrink-0">
-                              {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                            </span>
-                          </button>
-                        ))}
+                        {childLessons.map(l => {
+                          const isChecked = extraChecked.has(l.id);
+                          return (
+                            <button
+                              key={l.id}
+                              type="button"
+                              onClick={() => setExtraChecked(prev => { const n = new Set(prev); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n; })}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors"
+                              style={{
+                                background: isChecked ? kidTint : "white",
+                                border: `1px solid ${isChecked ? kidColor : "#f0ede8"}`,
+                              }}
+                            >
+                              <div
+                                className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors"
+                                style={{
+                                  background: isChecked ? kidColor : "transparent",
+                                  borderColor: isChecked ? kidColor : "#c8bfb5",
+                                }}
+                              >
+                                {isChecked && <span className="text-white text-[10px] font-bold">✓</span>}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                {l.subjects && (
+                                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full mr-1" style={{ backgroundColor: l.subjects.color ? `${l.subjects.color}20` : "#e8f0e9", color: l.subjects.color ?? "#5c7f63" }}>
+                                    {l.subjects.name}
+                                  </span>
+                                )}
+                                <span className="text-sm text-[#2d2926]">{l.title}</span>
+                              </div>
+                              <span className="text-[10px] text-[#b5aca4] shrink-0">
+                                {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   );

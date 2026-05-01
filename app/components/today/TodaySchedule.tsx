@@ -194,19 +194,22 @@ export default function TodaySchedule({
         <div className="px-[18px] pt-4 pb-3 border-b border-[#f0ece6]">
           {!isPartner && (
             <div className="flex items-center gap-2">
+              {/* Both pills are global actions, not kid-specific. Neutral
+                  warm-beige pair so they read as a matched action set,
+                  visually distinct from the dark-green Manage button. */}
               <button
                 type="button"
                 onClick={handlers.onAddAppt}
-                className="text-[12px] font-medium text-[#7C3AED] rounded-full px-3.5 py-1.5"
-                style={{ background: "#f5f0ff", border: "1px solid #e8deff" }}
+                className="text-[12px] font-medium rounded-full px-3.5 py-1.5"
+                style={{ background: "#f0ede8", color: "var(--g-deep)", border: "1px solid #e8e3dc" }}
               >
                 + Appt
               </button>
               <button
                 type="button"
                 onClick={handlers.onLogExtra}
-                className="text-[12px] font-medium text-[#7a6f65] rounded-full px-3.5 py-1.5"
-                style={{ background: "#f5f2ed", border: "1px solid #e8e3dc" }}
+                className="text-[12px] font-medium rounded-full px-3.5 py-1.5"
+                style={{ background: "#f0ede8", color: "var(--g-deep)", border: "1px solid #e8e3dc" }}
               >
                 + Log an extra lesson
               </button>
