@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { emailFooterHtml } from '@/lib/email-footer'
+import { canSendMarketingEmail } from '@/lib/email/can-send'
+import { buildUserListUnsubscribeHeaders, ensureUnsubscribeToken } from '@/lib/email/list-unsubscribe'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,7 +41,7 @@ export async function GET(req: NextRequest) {
     // Find users who started onboarding 23-49h ago but didn't finish
     const { data: profiles, error: profileErr } = await supabase
       .from('profiles')
-      .select('id, first_name, email_unsubscribed')
+      .select('id, first_name')
       .eq('onboarded', false)
       .not('first_name', 'is', null)
       .gte('created_at', ago49h)
@@ -50,9 +52,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: profileErr.message }, { status: 500 })
     }
 
-    const eligible = (profiles ?? []).filter(p => !p.email_unsubscribed)
+    const eligible = profiles ?? []
     if (eligible.length === 0) {
-      return NextResponse.json({ sent: 0, total: 0 })
+      return NextResponse.json({ sent: 0, total: 0, skipped: 0 })
     }
 
     // Get emails from auth
@@ -68,9 +70,17 @@ export async function GET(req: NextRequest) {
     }
 
     let sent = 0
+    let skipped = 0
     for (const profile of eligible) {
       const email = emailMap.get(profile.id)
-      if (!email) continue
+      if (!email) { skipped++; continue }
+
+      const gate = await canSendMarketingEmail(profile.id, 'onboarding_reminder', supabase)
+      if (!gate.allowed) {
+        skipped++
+        console.debug(`[onboarding-reminder] skipped ${email}: ${gate.reason}`)
+        continue
+      }
 
       // Skip if already sent
       const { data: alreadySent } = await supabase
@@ -79,23 +89,28 @@ export async function GET(req: NextRequest) {
         .eq('user_id', profile.id)
         .eq('email_type', 'onboarding_reminder')
         .limit(1)
-      if (alreadySent && alreadySent.length > 0) continue
+      if (alreadySent && alreadySent.length > 0) { skipped++; continue }
 
       const firstName = profile.first_name || 'there'
+      const unsubToken = await ensureUnsubscribeToken(profile.id, supabase)
+      const listUnsubHeaders = buildUserListUnsubscribeHeaders(unsubToken)
 
       try {
+        const body: Record<string, unknown> = {
+          from: FROM,
+          to: email,
+          subject: 'Your Rooted garden is waiting 🌱',
+          html: buildHtml(firstName),
+        }
+        if (Object.keys(listUnsubHeaders).length > 0) body.headers = listUnsubHeaders
+
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            from: FROM,
-            to: email,
-            subject: 'Your Rooted garden is waiting 🌱',
-            html: buildHtml(firstName),
-          }),
+          body: JSON.stringify(body),
         })
 
         if (res.ok) {
@@ -110,7 +125,7 @@ export async function GET(req: NextRequest) {
     }
 
     console.log(`[onboarding-reminder] Sent ${sent}/${eligible.length}`)
-    return NextResponse.json({ sent, total: eligible.length })
+    return NextResponse.json({ sent, total: eligible.length, skipped })
   } catch (err) {
     console.error('[onboarding-reminder] Error:', err)
     return NextResponse.json({ error: 'Internal error' }, { status: 500 })

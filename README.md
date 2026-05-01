@@ -1,5 +1,17 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Environment variables
+
+Required at runtime (set in `.env.local` for dev, Vercel project settings for staging/prod):
+
+- `NEXT_PUBLIC_SUPABASE_URL` — Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY` — service-role key for cron + webhook routes
+- `STRIPE_SECRET_KEY` — Stripe API key
+- `RESEND_API_KEY` — Resend API key for outbound email
+- `RESEND_WEBHOOK_SECRET` — Resend webhook signing secret (`whsec_...`). Set this after adding `https://www.rootedhomeschoolapp.com/api/webhooks/resend` as a webhook endpoint in the Resend dashboard subscribed to `email.bounced` and `email.complained`. Without it the webhook returns 500.
+- `RESEND_AUDIENCE_ID` — optional. When set, suppressed addresses are also pushed to Resend's audience as a defense-in-depth block. Leave unset to skip; suppressions still land in the `email_suppressions` table.
+- `CRON_SECRET` — bearer token for Vercel cron auth
+
 ## Getting Started
 
 First, run the development server:
