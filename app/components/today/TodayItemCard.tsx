@@ -18,6 +18,7 @@
 import { useState, useRef } from "react";
 import { Pencil, Trash2, Calendar, X } from "lucide-react";
 import type { TodayItem } from "./groupItems";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
 
 export type CardSkin = {
   /** Card background. Caller computes this (kid tint or neutral). */
@@ -128,7 +129,7 @@ export default function TodayItemCard({
   };
 
   // Resolve raw shapes for fields not normalized into TodayItem.
-  type RawLesson = { notes?: string | null; subjects?: { name: string } | null; child_id?: string };
+  type RawLesson = { notes?: string | null; subjects?: { name: string } | null; curriculum_goals?: { subject_label: string | null } | null; child_id?: string };
   type RawAppointment = { notes?: string | null; location?: string | null; emoji?: string | null };
   type RawActivity = { emoji?: string | null };
 
@@ -186,7 +187,7 @@ export default function TodayItemCard({
   // Secondary line below the title.
   const renderSubtitle = () => {
     if (item.kind === "lesson") {
-      const subj = lessonRaw?.subjects?.name;
+      const subj = resolveLessonSubject(lessonRaw?.subjects?.name, lessonRaw?.curriculum_goals?.subject_label);
       return subj ? <span className="text-[10px]" style={{ color: skin.subtitleColor }}>{subj}</span> : null;
     }
     if (item.kind === "activity") {
@@ -454,9 +455,10 @@ export default function TodayItemCard({
             {item.kind === "lesson" && (
               <>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] mb-1">
-                  {lessonRaw?.subjects?.name && (
-                    <span className="font-medium" style={{ color: skin.titleColor }}>{lessonRaw.subjects.name}</span>
-                  )}
+                  {(() => {
+                    const subj = resolveLessonSubject(lessonRaw?.subjects?.name, lessonRaw?.curriculum_goals?.subject_label);
+                    return subj ? <span className="font-medium" style={{ color: skin.titleColor }}>{subj}</span> : null;
+                  })()}
                   {lessonRaw?.child_id && childrenLookup.get(lessonRaw.child_id) && (
                     <span style={{ color: skin.subtitleColor }}>{childrenLookup.get(lessonRaw.child_id)!.name}</span>
                   )}

@@ -20,6 +20,7 @@ import TodayEveryoneSection from "./TodayEveryoneSection";
 import TodayKidSection from "./TodayKidSection";
 import { groupItems, type TodayItem, type Child } from "./groupItems";
 import type { CardHandlers } from "./TodayItemCard";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
 
 // ─── Source-row shapes the page already loads (mirror dashboard/page.tsx) ──
 
@@ -31,6 +32,10 @@ type LessonRow = {
   hours: number | null;
   minutes_spent: number | null;
   subjects: { name: string; color: string | null } | null;
+  // Joined fallback for lessons whose subject_id is null. Loaders include
+  // curriculum_goals(subject_label) in every lesson SELECT so the subject
+  // grouping ("Math" vs the dreaded "Untitled" bucket) resolves correctly.
+  curriculum_goals?: { subject_label: string | null } | null;
   curriculum_goal_id: string | null;
   lesson_number?: number | null;
   goal_id?: string | null;
@@ -106,7 +111,7 @@ function toItems(
       time: lessonTime(l),
       duration_minutes: l.minutes_spent,
       title: l.title,
-      subject_label: l.subjects?.name ?? null,
+      subject_label: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label),
       lesson_number: l.lesson_number ?? null,
       completed: l.completed,
       raw: l,

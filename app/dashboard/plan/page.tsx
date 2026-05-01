@@ -16,6 +16,7 @@ import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
 import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,10 @@ type Lesson  = {
   date: string | null;
   scheduled_date: string | null;
   subjects: { name: string; color: string | null } | null;
+  // Joined from curriculum_goals(subject_label) so resolveLessonSubject()
+  // can fall back when subjects is null. Loaders include it in every
+  // lesson SELECT.
+  curriculum_goals?: { subject_label: string | null } | null;
   goal_id?: string | null;
   curriculum_goal_id?: string | null;
   lesson_number?: number | null;
@@ -480,9 +485,9 @@ export default function PlanPage() {
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji, lessons_per_day").eq("user_id", effectiveUserId).order("created_at"),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
@@ -533,9 +538,9 @@ export default function PlanPage() {
     const me = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
     const s = toDateStr(ms), e = toDateStr(me);
     const [{ data: bySched }, { data: byDate }] = await Promise.all([
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
         .eq("user_id", effectiveUserId).gte("scheduled_date", s).lte("scheduled_date", e),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color)")
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, notes, subjects(name, color), curriculum_goals(subject_label)")
         .eq("user_id", effectiveUserId).is("scheduled_date", null).gte("date", s).lte("date", e),
     ]);
     setMonthLessons([...((bySched as unknown as Lesson[]) ?? []), ...((byDate as unknown as Lesson[]) ?? [])]);
@@ -663,7 +668,7 @@ export default function PlanPage() {
   function openEdit(lesson: Lesson) {
     setEditingLesson(lesson);
     setEditTitle(lesson.title);
-    setEditSubject(lesson.subjects?.name ?? "");
+    setEditSubject(resolveLessonSubject(lesson.subjects?.name, lesson.curriculum_goals?.subject_label) ?? "");
     setEditHours(lesson.hours != null ? String(lesson.hours) : "");
     setEditChildId(lesson.child_id ?? "");
   }
@@ -1294,7 +1299,7 @@ export default function PlanPage() {
         const goal = l.curriculum_goal_id
           ? curriculumGoals.find((g) => g.id === l.curriculum_goal_id)
           : curriculumGoals.find((g) => g.curriculum_name === cName && g.child_id === l.child_id);
-        map.set(key, { key, curricName: cName, childId: l.child_id, subjectName: l.subjects?.name ?? null, totalCount: 0, remainingCount: 0, lessonIds: [], goalId: goal?.id ?? null, goalData: goal ?? null });
+        map.set(key, { key, curricName: cName, childId: l.child_id, subjectName: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label), totalCount: 0, remainingCount: 0, lessonIds: [], goalId: goal?.id ?? null, goalData: goal ?? null });
       }
       const g = map.get(key)!;
       g.totalCount++;
@@ -1370,14 +1375,14 @@ export default function PlanPage() {
       const yr = now.getMonth() >= 6 ? `${now.getFullYear()}–${now.getFullYear() + 1}` : `${now.getFullYear() - 1}–${now.getFullYear()}`;
       const dateGen = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-      type LR = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null; is_backfill?: boolean };
+      type LR = { child_id: string; title: string; completed: boolean; minutes_spent: number | null; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null; subjects: { name: string } | null; curriculum_goals?: { subject_label: string | null } | null; is_backfill?: boolean };
       type MR = { child_id: string | null; type: string; title: string | null; date: string; duration_minutes: number | null };
       type GR = { id: string; default_minutes: number };
       type AL = { activity_id: string; date: string; minutes_spent: number | null; completed: boolean; is_backfill?: boolean };
       type ACT = { id: string; name: string; emoji: string; child_ids: string[] | null };
 
       const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }] = await Promise.all([
-        supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), is_backfill").eq("user_id", effectiveUserId),
+        supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label), is_backfill").eq("user_id", effectiveUserId),
         supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", effectiveUserId),
         supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", effectiveUserId),
         supabase.from("activity_logs").select("activity_id, date, minutes_spent, completed, is_backfill").eq("user_id", effectiveUserId).eq("completed", true),
@@ -1491,7 +1496,7 @@ export default function PlanPage() {
         const childActDays = new Set(childActs.map(a => a.date));
         const cd = new Set([...childLessonDays, ...childActDays]).size;
         const sa: Record<string, { n: number; m: number; e: boolean }> = {};
-        for (const l of cl) { const nm = l.subjects?.name || "General"; if (!sa[nm]) sa[nm] = { n: 0, m: 0, e: false }; sa[nm].n++; const r = lm(l); sa[nm].m += r.m; if (r.e) sa[nm].e = true; }
+        for (const l of cl) { const nm = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label) ?? "General"; if (!sa[nm]) sa[nm] = { n: 0, m: 0, e: false }; sa[nm].n++; const r = lm(l); sa[nm].m += r.m; if (r.e) sa[nm].e = true; }
         // Group activities
         const actGroups: Record<string, { name: string; emoji: string; sessions: number; mins: number }> = {};
         for (const a of childActs) {
@@ -1521,7 +1526,7 @@ export default function PlanPage() {
 
       // Daily log — scoped to selected child when per-child
       const logMap: Record<string, { childName: string; subject: string; description: string; minutes: number; type: string; estimated: boolean }[]> = {};
-      for (const l of scopedDone) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ childName: childNameMap[l.child_id] || "", subject: l.subjects?.name || "General", description: l.is_backfill ? `${l.title || "Lesson"} (imported)` : (l.title || "Lesson"), minutes: r.m, type: l.is_backfill ? "Imported" : "Lesson", estimated: r.e }); }
+      for (const l of scopedDone) { const d = ld(l); if (!d) continue; if (!logMap[d]) logMap[d] = []; const r = lm(l); logMap[d].push({ childName: childNameMap[l.child_id] || "", subject: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label) ?? "General", description: l.is_backfill ? `${l.title || "Lesson"} (imported)` : (l.title || "Lesson"), minutes: r.m, type: l.is_backfill ? "Imported" : "Lesson", estimated: r.e }); }
       for (const m of scopedMemories) { if (!m.duration_minutes || !["field_trip","project","activity","win"].includes(m.type)) continue; if (!logMap[m.date]) logMap[m.date] = []; logMap[m.date].push({ childName: m.child_id ? (childNameMap[m.child_id] || "") : "", subject: m.type === "win" ? "Win" : "Field Trip", description: m.title || "Activity", minutes: m.duration_minutes, type: "Activity", estimated: false }); }
       for (const a of scopedActivityLogs) { const act = activityMap[a.activity_id]; if (!act || !a.minutes_spent) continue; if (!logMap[a.date]) logMap[a.date] = []; const childNames = (act.child_ids || []).map(id => childNameMap[id] || "").filter(Boolean).join(", "); logMap[a.date].push({ childName: childNames, subject: act.name, description: `${act.emoji} ${act.name}${a.is_backfill ? " (imported)" : ""}`, minutes: a.minutes_spent, type: "Activity", estimated: false }); }
       const dailyLog = Object.entries(logMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => ({
@@ -1661,7 +1666,7 @@ export default function PlanPage() {
             {missedLessons.slice(0, 10).map(lesson => {
               const d = new Date((lesson.scheduled_date ?? lesson.date ?? "") + "T00:00:00");
               const dateLabel = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-              const subjectLabel = lesson.subjects?.name ?? "General";
+              const subjectLabel = resolveLessonSubject(lesson.subjects?.name, lesson.curriculum_goals?.subject_label) ?? "General";
               return (
                 <div key={lesson.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, background: "white", borderRadius: 10, padding: "8px 12px", border: "0.5px solid #f0dda8" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -2158,7 +2163,7 @@ export default function PlanPage() {
                           <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#dcfce7] text-[#15803d]">Lesson</span>
                         )}
                       </div>
-                      {l.subjects?.name && <p className="text-xs text-[#7a6f65] mt-0.5">{l.subjects.name}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p>}
+                      {(() => { const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label); return subjName ? <p className="text-xs text-[#7a6f65] mt-0.5">{subjName}{l.child_id ? ` · ${children.find(c => c.id === l.child_id)?.name ?? ""}` : ""}</p> : null; })()}
                       {/* Note preview (collapsed) */}
                       {editingNoteId !== l.id && l.notes && (
                         <p className="text-[11px] text-[#6b6560] italic mt-1 line-clamp-1">{l.notes}</p>

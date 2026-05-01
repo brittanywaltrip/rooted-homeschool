@@ -27,6 +27,7 @@ import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
@@ -44,6 +45,10 @@ type Lesson = {
   hours: number | null;
   minutes_spent: number | null;
   subjects: { name: string; color: string | null } | null;
+  // Fallback subject source — populated even on goals whose lessons have
+  // subject_id = NULL. Loaders join curriculum_goals(subject_label) so
+  // every consumer can pass both into resolveLessonSubject().
+  curriculum_goals?: { subject_label: string | null } | null;
   curriculum_goal_id?: string | null;
   lesson_number?: number | null;
   goal_id?: string | null;
@@ -397,7 +402,7 @@ export default function TodayPage() {
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [showExtraLessons, setShowExtraLessons] = useState(false);
-  type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; subjects: { name: string; color: string | null } | null };
+  type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
   const [upcomingLessons, setUpcomingLessons] = useState<UpcomingLesson[]>([]);
   const [extraChecked, setExtraChecked] = useState<Set<string>>(new Set());
   const [savingExtra, setSavingExtra] = useState(false);
@@ -623,7 +628,7 @@ export default function TodayPage() {
       supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goal_id, lesson_number, goal_id, notes").eq("user_id", effectiveUserId).or(`date.eq.${today},scheduled_date.eq.${today}`),
+      supabase.from("lessons").select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes").eq("user_id", effectiveUserId).or(`date.eq.${today},scheduled_date.eq.${today}`),
       supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
       supabase.from("lessons").select("date, scheduled_date, completed").eq("user_id", effectiveUserId).gte("scheduled_date", localDateStr(thirtyDaysAgo)),
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
@@ -633,7 +638,7 @@ export default function TodayPage() {
       supabase.from("app_events").select("id, type, payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_photo"]).filter("payload->>date", "eq", today),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("vacation_blocks").select("name, end_date, start_date").eq("user_id", effectiveUserId),
-      supabase.from("lessons").select("title, scheduled_date, child_id, subjects(name)").eq("user_id", effectiveUserId).eq("completed", false).gte("scheduled_date", localDateStr(tomorrow)).lte("scheduled_date", localDateStr(twoWeeks)).order("scheduled_date"),
+      supabase.from("lessons").select("title, scheduled_date, child_id, subjects(name), curriculum_goals(subject_label)").eq("user_id", effectiveUserId).eq("completed", false).gte("scheduled_date", localDateStr(tomorrow)).lte("scheduled_date", localDateStr(twoWeeks)).order("scheduled_date"),
       supabase.from("memories").select("id").eq("user_id", effectiveUserId).gte("date", syStart),
       supabase.from("memories").select("id").eq("user_id", effectiveUserId).in("type", ["photo", "drawing"]),
       supabase.from("memories").select("id").eq("user_id", effectiveUserId).eq("include_in_book", true).gte("date", syStart),
@@ -648,7 +653,7 @@ export default function TodayPage() {
     // Missed = incomplete lessons whose scheduled_date is before today. Fetched
     // separately so it doesn't block the main dashboard render on cold start.
     const missedResult = await supabase.from("lessons")
-      .select("id, title, completed, child_id, hours, minutes_spent, scheduled_date, date, subjects(name, color), curriculum_goal_id, lesson_number, goal_id, notes")
+      .select("id, title, completed, child_id, hours, minutes_spent, scheduled_date, date, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes")
       .eq("user_id", effectiveUserId)
       .eq("completed", false)
       .lt("scheduled_date", today)
@@ -818,7 +823,7 @@ export default function TodayPage() {
     setAllVacationBlocks((vacBlocks ?? []) as { name: string; start_date: string; end_date: string }[]);
 
     // Upcoming lessons
-    type UpRow = { title: string; scheduled_date: string | null; child_id: string | null; subjects: { name: string } | null };
+    type UpRow = { title: string; scheduled_date: string | null; child_id: string | null; subjects: { name: string } | null; curriculum_goals?: { subject_label: string | null } | null };
     const upcomingData = upcomingResult.data;
     if (upcomingData && upcomingData.length > 0) {
       const rows = upcomingData as unknown as UpRow[];
@@ -829,7 +834,7 @@ export default function TodayPage() {
         lessons: dayRows.map((l) => ({
           title:       l.title,
           childId:     l.child_id,
-          subjectName: l.subjects?.name ?? null,
+          subjectName: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label),
         })),
       });
       const dayMap = new Map<string, number>();
@@ -1399,7 +1404,7 @@ export default function TodayPage() {
     const futureStr = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, "0")}-${String(futureDate.getDate()).padStart(2, "0")}`;
     const { data } = await supabase
       .from("lessons")
-      .select("id, title, child_id, scheduled_date, curriculum_goal_id, subjects(name, color)")
+      .select("id, title, child_id, scheduled_date, curriculum_goal_id, subjects(name, color), curriculum_goals(subject_label)")
       .eq("user_id", effectiveUserId)
       .eq("completed", false)
       .gt("scheduled_date", today)
@@ -1455,7 +1460,7 @@ export default function TodayPage() {
   function openEdit(lesson: Lesson) {
     setEditingLesson(lesson);
     setEditTitle(lesson.title);
-    setEditSubject(lesson.subjects?.name ?? "");
+    setEditSubject(resolveLessonSubject(lesson.subjects?.name, lesson.curriculum_goals?.subject_label) ?? "");
     setEditHours(lesson.minutes_spent != null ? String(lesson.minutes_spent) : "");
     setEditChildId(lesson.child_id ?? "");
   }
@@ -2393,7 +2398,7 @@ export default function TodayPage() {
           time: null,
           duration_minutes: l.minutes_spent,
           title: l.title,
-          subject_label: l.subjects?.name ?? null,
+          subject_label: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label),
           lesson_number: l.lesson_number ?? null,
           completed: l.completed,
           raw: l,
@@ -3224,11 +3229,16 @@ export default function TodayPage() {
                                 {isChecked && <span className="text-white text-[10px] font-bold">✓</span>}
                               </div>
                               <div className="flex-1 min-w-0">
-                                {l.subjects && (
-                                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full mr-1" style={{ backgroundColor: l.subjects.color ? `${l.subjects.color}20` : "#e8f0e9", color: l.subjects.color ?? "#5c7f63" }}>
-                                    {l.subjects.name}
-                                  </span>
-                                )}
+                                {(() => {
+                                  const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label);
+                                  if (!subjName) return null;
+                                  const subjColor = l.subjects?.color ?? null;
+                                  return (
+                                    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full mr-1" style={{ backgroundColor: subjColor ? `${subjColor}20` : "#e8f0e9", color: subjColor ?? "#5c7f63" }}>
+                                      {subjName}
+                                    </span>
+                                  );
+                                })()}
                                 <span className="text-sm text-[#2d2926]">{l.title}</span>
                               </div>
                               <span className="text-[10px] text-[#b5aca4] shrink-0">

@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { Pencil } from "lucide-react";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
 
 type Child = { id: string; name: string; color: string | null };
 
@@ -85,6 +86,7 @@ type TabLesson = {
   scheduled_date: string;
   notes?: string | null;
   subjects: { name: string; color: string | null } | null;
+  curriculum_goals?: { subject_label: string | null } | null;
 };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -176,7 +178,7 @@ export default function InlineScheduleTabs({
         `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const { data: lessonData } = await supabase
         .from("lessons")
-        .select("id, title, child_id, scheduled_date, notes, subjects(name, color)")
+        .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label)")
         .eq("user_id", user.id)
         .eq("completed", false)
         .gte("scheduled_date", fmtD(tomorrow))
@@ -189,7 +191,7 @@ export default function InlineScheduleTabs({
       sevenAgo.setDate(sevenAgo.getDate() - 7);
       const { data: pastLessonData } = await supabase
         .from("lessons")
-        .select("id, title, child_id, scheduled_date, notes, subjects(name, color)")
+        .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label)")
         .eq("user_id", user.id)
         .eq("completed", true)
         .gte("scheduled_date", fmtD(sevenAgo))
@@ -331,11 +333,10 @@ export default function InlineScheduleTabs({
                                 <span className="text-[13px] font-medium truncate" style={{ color: skin.titleColor }}>{l.title}</span>
                               </div>
                               <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>
-                                {l.subjects?.name ?? ""}
-                                {l.subjects?.name && l.child_id ? " · " : ""}
                                 {(() => {
-                                  const c = kids.find((ch) => ch.id === l.child_id);
-                                  return c ? c.name : "";
+                                  const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label);
+                                  const childName = (() => { const c = kids.find((ch) => ch.id === l.child_id); return c ? c.name : ""; })();
+                                  return `${subjName ?? ""}${subjName && childName ? " · " : ""}${childName}`;
                                 })()}
                               </p>
                               {editingNoteId !== l.id && l.notes && (
@@ -477,7 +478,7 @@ export default function InlineScheduleTabs({
               const l = row.lesson;
               const c = kids.find((k) => k.id === l.child_id);
               const skin = skinForChildIds(l.child_id ? [l.child_id] : null, kids);
-              const subBits = [l.subjects?.name, fmtRelDate(l.scheduled_date)].filter(Boolean);
+              const subBits = [resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label), fmtRelDate(l.scheduled_date)].filter(Boolean);
               return (
                 <div
                   key={`l-${l.id}`}
