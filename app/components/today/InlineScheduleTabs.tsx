@@ -15,6 +15,7 @@ import { Pencil } from "lucide-react";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { computeNextLessonsForGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { formatRelativeDate, formatRelativeFromTimestamp } from "./relativeDate";
 
 type Child = { id: string; name: string; color: string | null };
 
@@ -306,14 +307,12 @@ export default function InlineScheduleTabs({
     setPast((prev) => prev.filter((a) => a.id !== id));
   }
 
+  // Relative-date label. The previous inline implementation had a
+  // local-midnight-vs-noon rounding bug that mislabelled same-local-day
+  // dates as "Tomorrow" — see app/components/today/relativeDate.ts and
+  // its tests. Thin wrapper kept so callers don't need to be touched.
   function fmtRelDate(d: string): string {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const target = new Date(d + "T12:00:00");
-    const diff = Math.round((target.getTime() - today.getTime()) / 86400000);
-    if (diff === 1) return "Tomorrow";
-    if (diff >= 2 && diff <= 6) return target.toLocaleDateString("en-US", { weekday: "short" });
-    return target.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return formatRelativeDate(d);
   }
 
   function freqLabel(a: TabAppt): string {
@@ -614,15 +613,20 @@ export default function InlineScheduleTabs({
                             <p className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color: subjColor ?? "#9a8e84" }}>{subject}</p>
                             {items.map((l) => {
                               const skin = skinForChildIds(l.child_id ? [l.child_id] : null, kids);
-                              // Date label = WHEN mom actually completed it.
-                              // Cache scheduled_date can be in the future
-                              // (stale pre-pinned row) so showing it for a
-                              // completed lesson would render "Tomorrow"
-                              // under a struck-through ✓ row. Fall back to
-                              // updated_at if completed_at somehow lost
-                              // its timestamp.
+                              // Date label = WHEN mom actually completed
+                              // it, in HER local timezone. Earlier impl
+                              // sliced completed_at.toISOString() which
+                              // gave the UTC date — for a completion at
+                              // 2026-05-01T05:21Z (12:21 AM Central on
+                              // May 1) the UTC slice yielded "2026-05-01"
+                              // and the diff helper then mislabelled
+                              // same-local-day completions as "Tomorrow".
+                              // formatRelativeFromTimestamp reads the
+                              // LOCAL Y-M-D from the raw timestamp.
                               const completionTs = l.completed_at ?? l.updated_at ?? null;
-                              const completionDate = completionTs ? completionTs.slice(0, 10) : l.scheduled_date;
+                              const dateLabel = completionTs
+                                ? formatRelativeFromTimestamp(completionTs)
+                                : fmtRelDate(l.scheduled_date);
                               return (
                                 <div
                                   key={`l-${l.id}`}
@@ -632,7 +636,7 @@ export default function InlineScheduleTabs({
                                   <span className="text-lg shrink-0">✓</span>
                                   <div className="flex-1 min-w-0">
                                     <span className="text-[13px] font-medium line-through truncate" style={{ color: skin.titleColor }}>{l.title}</span>
-                                    <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>{fmtRelDate(completionDate)}</p>
+                                    <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>{dateLabel}</p>
                                   </div>
                                 </div>
                               );
