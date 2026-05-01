@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
 import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
@@ -1669,19 +1669,114 @@ export default function TodayPage() {
 
   async function openExtraLessons() {
     if (!effectiveUserId) return;
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + 14);
-    const futureStr = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, "0")}-${String(futureDate.getDate()).padStart(2, "0")}`;
-    const { data } = await supabase
-      .from("lessons")
-      .select("id, title, child_id, scheduled_date, curriculum_goal_id, lesson_number, subjects(name, color), curriculum_goals(subject_label)")
-      .eq("user_id", effectiveUserId)
-      .eq("completed", false)
-      .gt("scheduled_date", today)
-      .lte("scheduled_date", futureStr)
-      .order("scheduled_date")
-      .order("lesson_number", { ascending: true, nullsFirst: false });
-    setUpcomingLessons((data as unknown as UpcomingLesson[]) ?? []);
+
+    // Queue-based "next batch" picker (Path A). Today's allocation
+    // (current_lesson + 1 .. current_lesson + lessons_per_day) is
+    // already on the Today schedule and must NOT appear here. The
+    // modal projects the BATCH AFTER today onto upcoming school days,
+    // skipping vacation blocks, and shows lessons grouped by kid then
+    // subject in ascending lesson_number order.
+    const [{ data: goalsRaw }, { data: vacsRaw }] = await Promise.all([
+      supabase
+        .from("curriculum_goals")
+        .select("id, total_lessons, lessons_per_day, school_days, current_lesson, child_id, subject_label")
+        .eq("user_id", effectiveUserId),
+      supabase
+        .from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", effectiveUserId),
+    ]);
+    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null; child_id: string | null; subject_label: string | null }[];
+    const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
+      .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+
+    // Build per-goal "future pool" of lessons that aren't part of
+    // today's allocation. Approach: project from the real
+    // current_lesson starting TODAY, then drop any entries whose
+    // projected date == today (those ARE today's allocation and live
+    // on the Today schedule). Whatever's left is the future pool the
+    // modal can offer.
+    //
+    // Why not just `current_lesson + lessons_per_day` and project from
+    // tomorrow? Because if today is a break day or a non-school day,
+    // today consumed zero allocation — the offset would skip real
+    // lessons that mom never got.
+    const todayMid = new Date();
+    todayMid.setHours(0, 0, 0, 0);
+    const todayKey = `${todayMid.getFullYear()}-${String(todayMid.getMonth() + 1).padStart(2, "0")}-${String(todayMid.getDate()).padStart(2, "0")}`;
+    type Proj = { goal_id: string; lesson_number: number; date: string };
+    const allProjected: Proj[] = [];
+    for (const g of goals) {
+      const total = g.total_lessons ?? 0;
+      const cur = g.current_lesson ?? 0;
+      const perDay = Math.max(1, g.lessons_per_day ?? 1);
+      if (total <= 0 || cur >= total) continue;
+      const cfg: CurriculumGoalConfig = {
+        id: g.id,
+        total_lessons: total,
+        lessons_per_day: perDay,
+        school_days: g.school_days,
+        current_lesson: cur,
+      };
+      // 22 days ahead = today + 21 forward. Drop today's slots (those
+      // are the current allocation already on the Today schedule).
+      const projected = computeNextLessonsForGoal(cfg, todayMid, 22, vacationBlocks)
+        .filter((p) => p.date !== todayKey);
+      allProjected.push(...projected);
+    }
+
+    // Hydrate display fields from real lesson rows.
+    const projGoalIds = Array.from(new Set(allProjected.map((p) => p.goal_id)));
+    const projNumbers = Array.from(new Set(allProjected.map((p) => p.lesson_number)));
+    const { data: rowData } = projGoalIds.length > 0
+      ? await supabase
+          .from("lessons")
+          .select("id, title, child_id, scheduled_date, curriculum_goal_id, lesson_number, subjects(name, color), curriculum_goals(subject_label)")
+          .eq("user_id", effectiveUserId)
+          .in("curriculum_goal_id", projGoalIds)
+          .in("lesson_number", projNumbers)
+      : { data: [] as unknown[] };
+    type RowLite = { id: string; title: string; child_id: string | null; scheduled_date: string | null; curriculum_goal_id: string | null; lesson_number: number | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
+    const rowMap = new Map<string, RowLite>();
+    for (const r of (rowData ?? []) as RowLite[]) {
+      rowMap.set(`${r.curriculum_goal_id}|${r.lesson_number}`, r);
+    }
+
+    // Sort: kid → subject → lesson_number ascending. Override
+    // scheduled_date with the projected date so the modal renders the
+    // queue position, not the stale cache.
+    const out: UpcomingLesson[] = [];
+    for (const p of allProjected) {
+      const r = rowMap.get(`${p.goal_id}|${p.lesson_number}`);
+      if (!r) continue; // missing row — skip silently (wizard pre-generates)
+      out.push({
+        id: r.id,
+        title: r.title,
+        child_id: r.child_id ?? "",
+        scheduled_date: p.date,
+        curriculum_goal_id: r.curriculum_goal_id,
+        lesson_number: r.lesson_number,
+        subjects: r.subjects,
+        curriculum_goals: r.curriculum_goals,
+      } as UpcomingLesson);
+    }
+
+    // Stable order: child_id (matches Today layout), then
+    // subject_label, then lesson_number ascending. The group renderer
+    // walks this in-order so each subject is a clean numerical run.
+    out.sort((a, b) => {
+      const aCid = a.child_id ?? "";
+      const bCid = b.child_id ?? "";
+      if (aCid !== bCid) return aCid.localeCompare(bCid);
+      const aSubj = resolveLessonSubject(a.subjects?.name, a.curriculum_goals?.subject_label) ?? "";
+      const bSubj = resolveLessonSubject(b.subjects?.name, b.curriculum_goals?.subject_label) ?? "";
+      if (aSubj !== bSubj) return aSubj.localeCompare(bSubj);
+      const aN = a.lesson_number ?? 0;
+      const bN = b.lesson_number ?? 0;
+      return aN - bN;
+    });
+
+    setUpcomingLessons(out);
     setExtraChecked(new Set());
     setShowExtraLessons(true);
     posthog.capture('log_extra_lessons_opened', { user_plan: isPro ? 'paid' : 'free' });
@@ -1705,17 +1800,29 @@ export default function TodayPage() {
         if (goalRow) mins = (goalRow as { default_minutes?: number }).default_minutes ?? 30;
       }
 
-      // Mark complete with today's date. Future incomplete lessons are NOT
-      // shifted — that bunched the schedule onto fewer days (Kendra had 12
-      // Duolingo lessons stacked from this). Any compression / "finish
-      // earlier" UI lives on Plan (TBD design); Today just records the
-      // completion and walks away.
+      // Mark complete with today's date. Under queue-based scheduling
+      // we don't shift any future dates — completion advances
+      // current_lesson via recomputeCurrentLesson below, and the next
+      // render projects forward from the new queue position.
       await supabase.from("lessons").update({
         completed: true,
         completed_at: new Date().toISOString(),
         date: today,
+        scheduled_date: today,
         minutes_spent: mins,
       }).eq("id", lessonId);
+    }
+
+    // Advance current_lesson per affected goal. Without this, the
+    // queue projector would still include these lessons on the next
+    // render and Today would show them again on Monday.
+    const affectedGoalIds = new Set<string>();
+    for (const lessonId of extraChecked) {
+      const lesson = upcomingLessons.find((l) => l.id === lessonId);
+      if (lesson?.curriculum_goal_id) affectedGoalIds.add(lesson.curriculum_goal_id);
+    }
+    for (const goalId of affectedGoalIds) {
+      await recomputeCurrentLesson(supabase, goalId);
     }
 
     setSavingExtra(false);
@@ -3462,69 +3569,73 @@ export default function TodayPage() {
               {upcomingLessons.length === 0 ? (
                 <p className="text-sm text-[#7a6f65] text-center py-8">No upcoming lessons in the next 14 days.</p>
               ) : (() => {
-                // Group by child then show lessons
-                const grouped = new Map<string, UpcomingLesson[]>();
+                // Group by child → subject. Lessons within each subject
+                // already arrive in lesson_number ascending order from
+                // openExtraLessons (queue projection sort). Brittany:
+                // "everything should be in numerical order unless a mom
+                // needs a particular lesson moved out of order."
+                const byChild = new Map<string, UpcomingLesson[]>();
                 for (const l of upcomingLessons) {
                   const key = l.child_id ?? "__none__";
-                  if (!grouped.has(key)) grouped.set(key, []);
-                  grouped.get(key)!.push(l);
+                  if (!byChild.has(key)) byChild.set(key, []);
+                  byChild.get(key)!.push(l);
                 }
-                return Array.from(grouped.entries()).map(([childId, childLessons]) => {
+                return Array.from(byChild.entries()).map(([childId, childLessons]) => {
                   const child = children.find(c => c.id === childId);
-                  // Each kid section is tinted with that kid's own color so
-                  // mom can scan by child even within this multi-kid modal.
-                  // Subject tags keep their own subject color (not changed).
-                  // The primary CTA at the bottom stays neutral green
-                  // because it commits a multi-kid selection.
                   const kidColor = child?.color ?? "#7a6f65";
                   const kidTint = tintFromHex(kidColor, 0.25);
                   const kidDark = darkenHex(kidColor, 0.45);
+                  // Sub-group within child: subject_label → lessons.
+                  const bySubject = new Map<string, UpcomingLesson[]>();
+                  for (const l of childLessons) {
+                    const subj = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label) ?? "Other";
+                    if (!bySubject.has(subj)) bySubject.set(subj, []);
+                    bySubject.get(subj)!.push(l);
+                  }
                   return (
                     <div key={childId} className="mb-5">
                       {child && <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: kidDark }}>{child.name}</p>}
-                      <div className="space-y-1">
-                        {childLessons.map(l => {
-                          const isChecked = extraChecked.has(l.id);
-                          return (
-                            <button
-                              key={l.id}
-                              type="button"
-                              onClick={() => setExtraChecked(prev => { const n = new Set(prev); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n; })}
-                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors"
-                              style={{
-                                background: isChecked ? kidTint : "white",
-                                border: `1px solid ${isChecked ? kidColor : "#f0ede8"}`,
-                              }}
-                            >
-                              <div
-                                className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors"
-                                style={{
-                                  background: isChecked ? kidColor : "transparent",
-                                  borderColor: isChecked ? kidColor : "#c8bfb5",
-                                }}
-                              >
-                                {isChecked && <span className="text-white text-[10px] font-bold">✓</span>}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                {(() => {
-                                  const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label);
-                                  if (!subjName) return null;
-                                  const subjColor = l.subjects?.color ?? null;
-                                  return (
-                                    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full mr-1" style={{ backgroundColor: subjColor ? `${subjColor}20` : "#e8f0e9", color: subjColor ?? "#5c7f63" }}>
-                                      {subjName}
+                      {Array.from(bySubject.entries()).map(([subject, subjectLessons]) => {
+                        const subjColor = subjectLessons[0]?.subjects?.color ?? null;
+                        return (
+                          <div key={subject} className="mb-3 last:mb-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: subjColor ?? "#7a6f65" }}>
+                              {subject}
+                            </p>
+                            <div className="space-y-1">
+                              {subjectLessons.map(l => {
+                                const isChecked = extraChecked.has(l.id);
+                                return (
+                                  <button
+                                    key={l.id}
+                                    type="button"
+                                    onClick={() => setExtraChecked(prev => { const n = new Set(prev); n.has(l.id) ? n.delete(l.id) : n.add(l.id); return n; })}
+                                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors"
+                                    style={{
+                                      background: isChecked ? kidTint : "white",
+                                      border: `1px solid ${isChecked ? kidColor : "#f0ede8"}`,
+                                    }}
+                                  >
+                                    <div
+                                      className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors"
+                                      style={{
+                                        background: isChecked ? kidColor : "transparent",
+                                        borderColor: isChecked ? kidColor : "#c8bfb5",
+                                      }}
+                                    >
+                                      {isChecked && <span className="text-white text-[10px] font-bold">✓</span>}
+                                    </div>
+                                    <span className="flex-1 min-w-0 text-sm text-[#2d2926]">{l.title}</span>
+                                    <span className="text-[10px] text-[#b5aca4] shrink-0">
+                                      {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                                     </span>
-                                  );
-                                })()}
-                                <span className="text-sm text-[#2d2926]">{l.title}</span>
-                              </div>
-                              <span className="text-[10px] text-[#b5aca4] shrink-0">
-                                {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 });

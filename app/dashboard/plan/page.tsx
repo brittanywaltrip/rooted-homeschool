@@ -15,7 +15,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, computeNextLessonsForGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, computeNextLessonsForGoal, computeFinishDate, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -202,9 +202,14 @@ async function loadLessonsForRange(
   vacationBlocks: SchedVacationBlock[],
 ): Promise<Lesson[]> {
   // ── Project future lessons across the visible range, per goal ──
+  // Projection ALWAYS starts from today, then filters to the visible
+  // range. current_lesson in the DB is "lessons completed so far" —
+  // today's allocation hasn't moved that counter yet, so projecting
+  // from rangeStart (when rangeStart > today) would re-place today's
+  // queue numbers onto rangeStart and shift everything by one slot.
+  // Off-by-one bug audited 2026-05-01 on the calendar day-detail panel.
   const todayMid = new Date(todayStr + "T00:00:00");
-  const projStart = rangeStart > todayMid ? rangeStart : todayMid;
-  const daysAhead = Math.max(0, Math.floor((rangeEnd.getTime() - projStart.getTime()) / 86400000) + 1);
+  const daysAhead = Math.max(0, Math.floor((rangeEnd.getTime() - todayMid.getTime()) / 86400000) + 1);
   const allProjected: { goal_id: string; lesson_number: number; date: string }[] = [];
   for (const g of goals) {
     if (!g.total_lessons || g.total_lessons <= 0) continue;
@@ -215,7 +220,7 @@ async function loadLessonsForRange(
       school_days: g.school_days,
       current_lesson: g.current_lesson ?? 0,
     };
-    const projected = computeNextLessonsForGoal(cfg, projStart, daysAhead, vacationBlocks)
+    const projected = computeNextLessonsForGoal(cfg, todayMid, daysAhead, vacationBlocks)
       .filter((p) => p.date >= rangeStartStr && p.date <= rangeEndStr);
     allProjected.push(...projected);
   }
@@ -2591,19 +2596,20 @@ export default function PlanPage() {
                               return d.toLocaleDateString("en-US", opts);
                             };
 
-                            // Find the last scheduled incomplete lesson for this curriculum.
-                            // Defensive cap on lesson_number: if a stale row past
-                            // total_lessons survived a prior bug, ignore it so the
-                            // displayed finish date matches the wizard preview.
-                            const incompleteDates = allLessons
-                              .filter(l => {
-                                if (l.curriculum_goal_id !== group.goalId || l.completed || !l.scheduled_date) return false;
-                                const ln = l.lesson_number;
-                                return ln == null || ln <= displayTotal;
-                              })
-                              .map(l => l.scheduled_date!)
-                              .sort();
-                            const lastScheduled = incompleteDates.length > 0 ? new Date(incompleteDates[incompleteDates.length - 1] + "T00:00:00") : null;
+                            // Queue-based finish date (Path A): project
+                            // forward from current_lesson, skipping
+                            // vacation blocks. Uses the live queue
+                            // position, not the cache scheduled_date.
+                            const goalSchoolDays = goal?.school_days ?? null;
+                            const goalLessonsPerDay = goal?.lessons_per_day ?? 1;
+                            const finishCfg: CurriculumGoalConfig = {
+                              id: group.goalId ?? "",
+                              total_lessons: displayTotal,
+                              lessons_per_day: goalLessonsPerDay,
+                              school_days: goalSchoolDays,
+                              current_lesson: displayCompleted,
+                            };
+                            const lastScheduled = computeFinishDate(finishCfg, new Date(), vacationBlocks as SchedVacationBlock[]);
                             const targetDate = goal?.target_date ? new Date(goal.target_date + "T00:00:00") : null;
 
                             const parts: React.ReactNode[] = [];

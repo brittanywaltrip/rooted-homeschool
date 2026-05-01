@@ -134,10 +134,12 @@ export default function SchedulePage() {
     setChildren(capitalizeChildNames(kids ?? []));
     setSubjects((subs as unknown as Subject[]) ?? []);
 
+    // Projection ALWAYS starts from today, not from `ws`. See note in
+    // app/dashboard/plan/page.tsx loadLessonsForRange for the off-by-
+    // one rationale (day-detail audit 2026-05-01).
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const projStart = ws > today ? ws : today;
-    const daysAhead = Math.max(0, Math.floor((we.getTime() - projStart.getTime()) / 86400000) + 1);
+    const daysAhead = Math.max(0, Math.floor((we.getTime() - today.getTime()) / 86400000) + 1);
     const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
     const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
       .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
@@ -151,7 +153,7 @@ export default function SchedulePage() {
         school_days: g.school_days,
         current_lesson: g.current_lesson ?? 0,
       };
-      projected.push(...computeNextLessonsForGoal(cfg, projStart, daysAhead, vacationBlocks).filter((p) => p.date >= s && p.date <= e));
+      projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks).filter((p) => p.date >= s && p.date <= e));
     }
     const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
     const projGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));

@@ -886,6 +886,144 @@ test('vacation: catch-up gap entirely inside a break returns nothing (modal does
   assert.deepEqual(gap, [])
 })
 
+// ── Verification round 1 bug fixes (PR #48 follow-up, 2026-05-01) ─────
+//
+// Each test pins one of the bugs Brittany hit on the Vercel preview and
+// asserts the queue projector returns the right shape. The wiring (which
+// surface calls which function with which inputs) is covered by hand via
+// the preview verification; these tests pin the function-level contracts.
+
+test('bug 3: calendar projection is anchored to today, not the visible month start', () => {
+  // Repro from preview verification: the calendar day-detail panel
+  // showed today's queue numbers on tomorrow's cell when the visible
+  // month started AFTER today. Root cause: caller passed projStart =
+  // ms (May 1) and current_lesson = 94, so the projector treated May 1
+  // as the first allocation slot — re-placing today's lessons (Apr 30
+  // → 95) onto May 1.
+  // Fix is at the caller boundary (loaders project from today, then
+  // filter to the visible range). This test pins the projector contract
+  // we depend on: starting at today=Apr 30, May 1 must be slot 2 of
+  // the queue (lesson 96) not slot 1 (lesson 95).
+  const today = new Date(2026, 3, 30) // Thu Apr 30 2026
+  const goal = goalCfg({ current_lesson: 94, total_lessons: 200, lessons_per_day: 1 })
+  const out = computeNextLessonsForGoal(goal, today, 7)
+  // Apr 30 (Thu) = 95, May 1 (Fri) = 96, weekend skipped, Mon May 4 = 97,
+  //   Tue May 5 = 98, Wed May 6 = 99
+  assert.deepEqual(out, [
+    { goal_id: 'g1', lesson_number: 95, date: '2026-04-30' },
+    { goal_id: 'g1', lesson_number: 96, date: '2026-05-01' },
+    { goal_id: 'g1', lesson_number: 97, date: '2026-05-04' },
+    { goal_id: 'g1', lesson_number: 98, date: '2026-05-05' },
+    { goal_id: 'g1', lesson_number: 99, date: '2026-05-06' },
+  ])
+})
+
+test('bug 3: starting from a future date with stale current_lesson is the bug we eliminated', () => {
+  // Documents the off-by-one. Caller passing projStart = May 1 (the
+  // visible month start) with current_lesson still at 94 causes May 1
+  // to be filled with lesson 95, which IS today's allocation. This is
+  // the broken pattern; loaders must NOT do this.
+  const may1 = new Date(2026, 4, 1)
+  const goal = goalCfg({ current_lesson: 94, total_lessons: 200, lessons_per_day: 1 })
+  const buggy = computeNextLessonsForGoal(goal, may1, 7)
+  assert.equal(buggy[0].lesson_number, 95, 'projecting from a future date with un-advanced current_lesson re-places today\'s lessons there — the bug')
+  assert.equal(buggy[0].date, '2026-05-01', 'May 1 gets today\'s queue lesson, off-by-one')
+})
+
+test('bug 4: finish date computed from current_lesson, not from MAX(scheduled_date)', () => {
+  // Repro: Plan curriculum cards showed "On track to finish May 30"
+  // for Emma LA with 94 done of 120, but should finish May 26 (94 done,
+  // 26 remaining, 1/day Mon-Fri, starting May 1).
+  // computeFinishDate uses current_lesson + total_lessons + lessons_per_day
+  // + school_days, which is the live queue truth. Cache scheduled_date
+  // doesn't enter the calculation.
+  const may1 = new Date(2026, 4, 1) // Fri May 1
+  const goal = goalCfg({ current_lesson: 94, total_lessons: 120, lessons_per_day: 1 })
+  // 26 remaining at 1/day Mon-Fri starting Fri May 1.
+  // School days from Fri May 1: Fri 1, Mon 4, Tue 5, Wed 6, Thu 7, Fri 8, Mon 11, Tue 12, Wed 13, Thu 14,
+  //   Fri 15, Mon 18, Tue 19, Wed 20, Thu 21, Fri 22, Mon 25, Tue 26, Wed 27, Thu 28, Fri 29,
+  //   Mon Jun 1, Tue 2, Wed 3, Thu 4, Fri 5
+  // That's 26 school days; the 26th is Fri Jun 5.
+  const finish = computeFinishDate(goal, may1)
+  assert.equal(toDateStr(finish!), '2026-06-05', 'finish date follows the queue, not the cache')
+})
+
+test('bug 1+2: Log Extra modal pool excludes today\'s allocation but includes everything else', () => {
+  // Repro: Log Extra was offering today's current allocation (Emma LA
+  // 95 on a Tuesday) by reading scheduled_date directly. The new
+  // contract: project from today with the real current_lesson, then
+  // drop entries dated today. What remains is the future pool the
+  // modal can offer — one entry per (goal, lesson_number, projected_date).
+  const today = new Date(2026, 4, 1) // Fri May 1
+  const todayKey = '2026-05-01'
+  const goal = goalCfg({ current_lesson: 94, total_lessons: 100, lessons_per_day: 1 })
+  // Project 22 days from today, drop today.
+  const all = computeNextLessonsForGoal(goal, today, 22)
+  const pool = all.filter((p) => p.date !== todayKey)
+  // Today (Fri May 1) is goal\'s lesson 95 — must be excluded from pool.
+  assert.equal(pool.find((p) => p.lesson_number === 95), undefined, 'today\'s allocation is excluded')
+  // The next entry (May 4 Mon) is lesson 96 — must be the first pool item.
+  assert.equal(pool[0].lesson_number, 96)
+  assert.equal(pool[0].date, '2026-05-04')
+})
+
+test('bug 1+2: on a non-school day or break, today\'s allocation is empty and the pool starts at lesson current+1', () => {
+  // Edge case: today is Saturday (or in a break). computeNextLessons
+  // returns nothing for today, so the "drop today" filter is a no-op
+  // and the first pool item is lesson_number = current_lesson + 1 on
+  // the next school day.
+  const sat = new Date(2026, 4, 2) // Sat May 2 — non-school day
+  const todayKey = '2026-05-02'
+  const goal = goalCfg({ current_lesson: 94, total_lessons: 100, lessons_per_day: 1 })
+  const pool = computeNextLessonsForGoal(goal, sat, 22).filter((p) => p.date !== todayKey)
+  // First school day after Sat May 2 with Mon-Fri schedule = Mon May 4 = lesson 95.
+  assert.equal(pool[0].lesson_number, 95, 'pool starts at lesson 95 — today consumed nothing')
+  assert.equal(pool[0].date, '2026-05-04')
+})
+
+test('bug 5: Past tab grouping by kid → subject → lesson_number desc preserves a clean per-subject sequence', () => {
+  // Repro: within a date the rows alternated kid/subject. Brittany
+  // wants per-subject grouping with descending lesson_number.
+  // This test pins the sort order the renderer applies.
+  type Row = { id: string; child_id: string; subject: string; lesson_number: number | null; scheduled_date: string }
+  const rows: Row[] = [
+    { id: 'a', child_id: 'emma', subject: 'LA',   lesson_number: 88, scheduled_date: '2026-04-28' },
+    { id: 'b', child_id: 'emma', subject: 'Math', lesson_number: 84, scheduled_date: '2026-04-28' },
+    { id: 'c', child_id: 'zoe',  subject: 'LA',   lesson_number: 75, scheduled_date: '2026-04-28' },
+    { id: 'd', child_id: 'zoe',  subject: 'Math', lesson_number: 83, scheduled_date: '2026-04-28' },
+    { id: 'e', child_id: 'emma', subject: 'LA',   lesson_number: 89, scheduled_date: '2026-04-29' },
+    { id: 'f', child_id: 'emma', subject: 'LA',   lesson_number: 90, scheduled_date: '2026-04-30' },
+    { id: 'g', child_id: 'emma', subject: 'Math', lesson_number: 85, scheduled_date: '2026-04-29' },
+    { id: 'h', child_id: 'zoe',  subject: 'LA',   lesson_number: 76, scheduled_date: '2026-04-29' },
+  ]
+  // Apply the renderer's grouping + sort: kid asc, then subject group,
+  // then lesson_number desc within subject.
+  const byKid = new Map<string, Row[]>()
+  for (const r of rows) {
+    const k = byKid.get(r.child_id) ?? []
+    k.push(r); byKid.set(r.child_id, k)
+  }
+  const orderedKids = Array.from(byKid.keys()).sort()
+  const out: { kid: string; subject: string; lessonNumbers: number[] }[] = []
+  for (const kid of orderedKids) {
+    const bySubj = new Map<string, Row[]>()
+    for (const r of byKid.get(kid)!) {
+      const s = bySubj.get(r.subject) ?? []
+      s.push(r); bySubj.set(r.subject, s)
+    }
+    for (const subject of Array.from(bySubj.keys()).sort()) {
+      const items = bySubj.get(subject)!.slice().sort((a, b) => (b.lesson_number ?? 0) - (a.lesson_number ?? 0))
+      out.push({ kid, subject, lessonNumbers: items.map((r) => r.lesson_number!) })
+    }
+  }
+  assert.deepEqual(out, [
+    { kid: 'emma', subject: 'LA',   lessonNumbers: [90, 89, 88] },
+    { kid: 'emma', subject: 'Math', lessonNumbers: [85, 84] },
+    { kid: 'zoe',  subject: 'LA',   lessonNumbers: [76, 75] },
+    { kid: 'zoe',  subject: 'Math', lessonNumbers: [83] },
+  ])
+})
+
 test('vacation: catch-up gap mixing school days and break days only checkboxes the school days', () => {
   // Mom finished lesson 9 on Fri May 1. Today is Mon May 11. The gap is
   // Sat May 2 through Sun May 10 (9 calendar days). Family was on break

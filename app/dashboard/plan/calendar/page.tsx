@@ -156,10 +156,15 @@ export default function CalendarPage() {
     // hydrate matching rows by (curriculum_goal_id, lesson_number).
     // Vacation blocks (already loaded via `vacs`) cause the projector
     // to skip break days entirely.
+    //
+    // Projection ALWAYS starts from today, not from `ms`. current_lesson
+    // is "completed so far" — today's allocation is still in flight —
+    // so projecting from a future month start would re-place today's
+    // queue numbers onto that month start and shift the entire month
+    // by one slot. Day-detail off-by-one audited 2026-05-01.
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const projStart = ms > today ? ms : today;
-    const daysAhead = Math.max(0, Math.floor((me.getTime() - projStart.getTime()) / 86400000) + 1);
+    const daysAhead = Math.max(0, Math.floor((me.getTime() - today.getTime()) / 86400000) + 1);
     const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
     const vacationBlocks: SchedVacationBlock[] = ((vacs ?? []) as { start_date: string; end_date: string }[])
       .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
@@ -173,7 +178,7 @@ export default function CalendarPage() {
         school_days: g.school_days,
         current_lesson: g.current_lesson ?? 0,
       };
-      projected.push(...computeNextLessonsForGoal(cfg, projStart, daysAhead, vacationBlocks).filter((p) => p.date >= s && p.date <= e));
+      projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks).filter((p) => p.date >= s && p.date <= e));
     }
     const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
     const projGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
