@@ -520,8 +520,8 @@ export default function AdminPartnersPage() {
 
                     {/* Stats row — cycle-aware */}
                     <div className="grid grid-cols-4 gap-2 mt-3 bg-[#f8f7f4] rounded-xl px-3 py-2.5">
-                      <MiniStat label="Clicks" value={a.clicks} />
-                      <MiniStat label="Signups" value={a.signups_referred} />
+                      <MiniStat label="Lifetime clicks" value={a.clicks} />
+                      <MiniStat label="Lifetime signups" value={a.signups_referred} />
                       <MiniStat label="Refs / cycle" value={a.real_paying_refs_this_cycle} accent />
                       <MiniStat
                         label="Owed / cycle"

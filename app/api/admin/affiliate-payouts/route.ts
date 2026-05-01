@@ -133,7 +133,7 @@ export async function GET(req: Request) {
   // Load active affiliates
   const { data: affiliates, error: affErr } = await supabaseAdmin
     .from("affiliates")
-    .select("id, name, code, stripe_coupon_id, is_active, paypal_email")
+    .select("id, name, code, stripe_coupon_id, is_active, paypal_email, payment_method")
     .eq("is_active", true);
 
   if (affErr || !affiliates) {
@@ -218,6 +218,7 @@ export async function GET(req: Request) {
       gross_this_month_cents: stats.grossCents,
       commission_cents: commissionCents,
       paypal_email: aff.paypal_email ?? null,
+      payment_method: aff.payment_method ?? null,
       lifetime_paid: Math.round((lifetimePaidByCode.get(aff.code) ?? 0) * 100) / 100,
       last_paid_month: lastPaidMonthByCode.get(aff.code) ?? null,
       month_label: "All Time",

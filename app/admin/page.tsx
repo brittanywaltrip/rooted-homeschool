@@ -212,7 +212,7 @@ export default function AdminPage() {
   const [reengageSent, setReengageSent] = useState(false);
 
   // Affiliate payouts
-  const [affiliatePayouts, setAffiliatePayouts] = useState<{ name: string; code: string; redemptions_this_month: number; gross_this_month_cents: number; commission_cents: number; paypal_email: string | null; lifetime_paid: number; last_paid_month: string | null; month_label: string }[]>([]);
+  const [affiliatePayouts, setAffiliatePayouts] = useState<{ name: string; code: string; redemptions_this_month: number; gross_this_month_cents: number; commission_cents: number; paypal_email: string | null; payment_method: string | null; lifetime_paid: number; last_paid_month: string | null; month_label: string }[]>([]);
   const [payoutsLoading, setPayoutsLoading] = useState(false);
   const [payoutsError, setPayoutsError] = useState(false);
 
@@ -923,10 +923,10 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    {/* PayPal row */}
+                    {/* Payout row, channel-aware */}
                     {aff.paypal_email && (
                       <div className="flex items-center gap-2 mb-2 text-sm text-[#7a6f65]">
-                        <span>Pay via PayPal Business → {aff.paypal_email}</span>
+                        <span>Pay via {aff.payment_method || 'PayPal'} → {aff.paypal_email}</span>
                         <span className="text-[#2d2926] font-medium">Send ${commission}</span>
                         <button
                           onClick={() => navigator.clipboard.writeText(commission)}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
+import { buildPartnerAppRow } from '@/lib/partner-apply'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,33 +25,29 @@ export async function POST(req: NextRequest) {
   const {
     firstName, lastName, email,
     hasRootedAccount, rootedAccountEmail,
+    // paymentMethod is the channel (PayPal / Venmo / Zelle / Mercury (ACH) / Other).
+    // paymentAccount is the destination address; it lands in paypal_email
+    // regardless of channel since renaming the column would be more churn
+    // than it's worth. paypalEmail is accepted as a back-compat alias.
+    paymentMethod, paymentAccount,
     paypalEmail, socialHandle, audienceSize, whyRooted,
-    // Legacy fields from old form — still accept them
+    // Legacy fields from old form, still accepted.
     platforms, platformLinks, platformSizes, story, whatToShare, usedRooted, postFrequency,
   } = body
+  const destinationAddress: string = paymentAccount || paypalEmail || ''
+  const channel: string = paymentMethod || 'PayPal'
 
   if (!firstName || !lastName || !email) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
   try {
-    // Save to database — insert into the existing table with both old and new columns
-    const { error: insertErr } = await supabase.from('partner_apps').insert({
-      first_name: firstName,
-      last_name: lastName,
-      email,
-      has_rooted_account: hasRootedAccount ?? false,
-      rooted_account_email: rootedAccountEmail || null,
-      paypal_email: paypalEmail || '',
-      social_handle: socialHandle || '',
-      audience_size: audienceSize || '',
-      why_rooted: whyRooted || story || '',
-      // Legacy fields
-      platforms: platforms ?? [],
-      platform_sizes: platformSizes ?? {},
-      about_journey: story || whyRooted || '',
-      used_rooted: usedRooted ?? '',
-    })
+    // Save to database. buildPartnerAppRow lives in lib/partner-apply.ts so
+    // the body-to-row mapping (notably the multi-channel payment_method
+    // logic) is unit-testable without booting Supabase or Resend.
+    const { error: insertErr } = await supabase.from('partner_apps').insert(
+      buildPartnerAppRow(body),
+    )
     if (insertErr) {
       console.error('[partners/apply] insert failed:', insertErr)
       return NextResponse.json({ error: 'Failed to save application' }, { status: 500 })
@@ -96,7 +93,7 @@ PERSON
 Name:               ${firstName} ${lastName}
 Email:              ${email}
 Already on Rooted:  ${hasRootedAccount ? 'Yes' : 'No'}${rootedAccountEmail ? ` (${rootedAccountEmail})` : ''}
-PayPal:             ${paypalEmail || 'not provided'}
+${channel}:${' '.repeat(Math.max(1, 20 - channel.length - 1))}${destinationAddress || 'not provided'}
 Has used Rooted:    ${usedRooted || 'not specified'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
