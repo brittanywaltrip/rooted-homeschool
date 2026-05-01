@@ -955,8 +955,8 @@ function HomeInner() {
           </div>
         )}
 
-        {/* Plan cards — 3 cols on desktop because only 3 cards render (Monthly is gated off during the Founding Family window). When Monthly is re-enabled, bump back to lg:grid-cols-4. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-12 mt-4 items-start">
+        {/* Plan cards. 2 cols on desktop because only 2 cards render (Monthly is gated off). When Monthly is re-enabled, bump to lg:grid-cols-3. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-5 mb-12 mt-4 items-start max-w-3xl mx-auto">
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
@@ -992,68 +992,6 @@ function HomeInner() {
             </Link>
           </div>
 
-          {/* Founding Family */}
-          <div className="relative bg-gradient-to-br from-[#eaf6ec] via-[#d6ecd9] to-[#c4e2ca] rounded-2xl p-6 text-center flex flex-col founding-glow">
-            {/* Shimmer badge */}
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap founding-shimmer-badge text-white text-[11px] font-bold px-5 py-1.5 rounded-full shadow-md">
-              🌱 Best Value — Rooted+
-            </div>
-            <p className="text-xs font-bold uppercase tracking-widest text-[#5c7f63] mb-1 mt-2">
-              Rooted+
-            </p>
-            <p className="text-[10px] font-bold text-[#C4962A] uppercase tracking-wide mb-3">Founding Family Pricing</p>
-            <div className="flex items-end justify-center gap-1 mb-1">
-              <span
-                className="text-4xl font-bold text-[#2d2926]"
-                style={{ fontFamily: "var(--font-display)" }}
-              >
-                $39
-              </span>
-              <span className="text-sm text-[#7a6f65] mb-1">/year</span>
-            </div>
-            <p className="text-xs text-[#8b6f47] font-semibold mb-6">
-              Lock in forever · ~$3.33/month
-            </p>
-            <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
-              {[
-                "Unlimited children",
-                "Unlimited photo memories",
-                "Complete memory timeline — every moment, forever",
-                "Full yearbook — no watermark, download anytime",
-                "Transcripts & PDF reports — export anytime",
-                "Badges & certificates",
-                "Hours & Attendance Log — track and export your learning hours",
-                "Curriculum progress tracking — stay on track all year without the stress",
-                "Share with family — send grandparents a private link to follow along in real time",
-                "Priority support",
-                "Founding price locked forever 🎁",
-              ].map((f) => (
-                <li key={f} className="flex items-start gap-2 text-[#2d2926]">
-                  <span className="text-[#5c7f63] mt-0.5 shrink-0 text-xs font-bold">✓</span>
-                  {f}
-                </li>
-              ))}
-            </ul>
-            <Link
-              href="/signup"
-              className="block w-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white font-bold py-3.5 rounded-xl transition-colors text-sm shadow-sm"
-            >
-              Get Rooted+ →
-            </Link>
-            {(() => {
-              const diff = getFoundingFamilyDaysLeft();
-              if (diff < 0) return null; // post-deadline: hide entirely
-              const tail = diff === 0
-                ? "Last day — ends today!"
-                : `${diff} day${diff === 1 ? "" : "s"} left`;
-              return (
-                <p className="text-[11px] text-[#8b6f47] font-semibold mt-3">
-                  🌱 Rooted+ Founding Family pricing ends April 30 — {tail}
-                </p>
-              );
-            })()}
-          </div>
-
           {/* Standard */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
             <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Rooted+</p>
@@ -1066,7 +1004,7 @@ function HomeInner() {
               </span>
               <span className="text-sm text-[#b5aca4] mb-1">/year</span>
             </div>
-            <p className="text-xs text-[#b5aca4] mb-6">After Founding Family pricing ends</p>
+            <p className="text-xs text-[#b5aca4] mb-6">≈ $4.92/month</p>
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
@@ -1131,9 +1069,8 @@ function HomeInner() {
           </div>}
         </div>
 
-        {/* Bridge between the 3-card pricing display and the 2-column comparison table — clarifies that both Founding Family and Standard tiers map to "Rooted+". */}
         <p className="text-xs sm:text-sm text-[#7a6f65] text-center max-w-2xl mx-auto px-4 pt-6 pb-8 leading-relaxed">
-          <strong className="text-[#2d2926]">Rooted+ includes both Founding Family ($39/yr) and Standard ($59/yr) tiers — same features, different pricing.</strong>
+          <strong className="text-[#2d2926]">Rooted+ is $59/yr. Unlimited photos, exports, and family sharing.</strong>
         </p>
 
         {/* Feature comparison table */}
@@ -1160,7 +1097,6 @@ function HomeInner() {
                 { feature: "Family sharing",            free: "During trial only", founding: "✓"          },
                 { feature: "Hours & Attendance Log",    free: "Full during trial · View only after", founding: "✓ + PDF export" },
                 { feature: "Badges & certificates",     free: "During trial only", founding: "✓"          },
-                { feature: "Founding price locked",     free: "—",            founding: "Forever 🎁"      },
               ].map((row, i) => (
                 <tr
                   key={row.feature}
