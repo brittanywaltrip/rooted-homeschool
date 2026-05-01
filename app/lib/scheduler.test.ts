@@ -54,6 +54,26 @@ test('forwardScheduleStart honors a user pick later than tomorrow', () => {
   assert.equal(toDateStr(out), '2026-05-15')
 })
 
+// Wizard hardening (2026-05-01): pin May 1 behavior used by the
+// calcFinishDate preview now that it shares forwardScheduleStart with
+// the lesson generator. Without this anchor, the preview counted the
+// picked start date as a school day while the generator skipped it,
+// producing a one-school-day off-by-one in the displayed finish date.
+
+test('forwardScheduleStart returns the day strictly after today when picked is today', () => {
+  const today = new Date('2026-05-01T00:00:00')    // Friday
+  const picked = new Date('2026-05-01T00:00:00')
+  const result = forwardScheduleStart(picked, today)
+  assert.equal(toDateStr(result), '2026-05-02')    // Saturday
+})
+
+test('forwardScheduleStart honors user pick if later than tomorrow', () => {
+  const today = new Date('2026-05-01T00:00:00')
+  const picked = new Date('2026-05-15T00:00:00')
+  const result = forwardScheduleStart(picked, today)
+  assert.equal(toDateStr(result), '2026-05-15')
+})
+
 test('Kendra repro: 62 lessons, 3/day Mon-Fri, 15 backfilled, no doubling on today', () => {
   // Reproduces the production bug from 2026-04-28: backfill lessons 1-15
   // occupy past school days, forward lessons 16-62 must spread cleanly

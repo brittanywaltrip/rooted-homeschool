@@ -329,9 +329,13 @@ export default function CurriculumWizard({
   const remaining        = Math.max(0, totalNum - startNum + 1);
   const selectedDayNames = DAY_LABELS.filter((_, i) => schoolDays[i]).join(", ");
   const perDayNum        = parseInt(lessonsPerDay) || 1;
+  // Reject 0/negative input explicitly so the user sees their value was
+  // overridden. parseInt(lessonsPerDay) || 1 silently clamps to 1, which
+  // produced misleading previews like "0 lessons/day, finish 30 by Jun 11".
+  const perDayInputInvalid = lessonsPerDay !== "" && (parseInt(lessonsPerDay) <= 0 || isNaN(parseInt(lessonsPerDay)));
   const otherSubjValid   = subject !== "Other" || customSubject.trim().length > 0;
   const step2Valid       = curricName.trim().length > 0 && totalLessons.trim().length > 0 && totalNum > 0 && otherSubjValid;
-  const step3Valid       = schoolDays.some(Boolean) && perDayNum > 0 && !!startDate;
+  const step3Valid       = schoolDays.some(Boolean) && perDayNum > 0 && !!startDate && !perDayInputInvalid;
 
   // Dynamic total steps: 4 normally, 5 when backfill is enabled
   const totalSteps       = backfillEnabled ? 5 : 4;
@@ -380,7 +384,13 @@ export default function CurriculumWizard({
     if (remaining === 0 || pd <= 0 || !schoolDays.some(Boolean)) return "";
     const daysNeeded = Math.ceil(remaining / pd);
     let cnt = 0;
-    const cursor = new Date(startDateObj);
+    // Use the same anchor the lesson generator uses (forwardScheduleStart):
+    // the first school-day-eligible cursor strictly after today, or the
+    // user-picked startDate if it's later. Without this, the preview
+    // counted the picked start date as a school day while the generator
+    // skipped it, producing a one-school-day off-by-one in the displayed
+    // finish date.
+    const cursor = forwardScheduleStart(startDateObj, todayMidnight);
     let safety = 0;
     while (cnt < daysNeeded && safety < 3650) {
       const dayIdx = (cursor.getDay() + 6) % 7;
@@ -880,13 +890,41 @@ export default function CurriculumWizard({
       (parseInt(lessonsPerDay) || 1) !== originalLessonsPerDay;
     const totalLessonsChanged =
       originalTotalLessons !== null && totalNum !== originalTotalLessons;
-    if (activeGoalId && (lessonsPerDayChanged || totalLessonsChanged)) {
+    // school_days change also requires regenerate because existing
+    // incomplete rows would otherwise keep dates that no longer fall on
+    // school days (production drift item C, 2026-04-30: lina.hernandez
+    // dropped Thursday and lesson 2 was still scheduled on a Thursday).
+    const schoolDaysChanged = (() => {
+      if (originalSchoolDays === null) return false;
+      const origSet = new Set(originalSchoolDays);
+      const newDays = booleanToDays(schoolDays);
+      if (origSet.size !== newDays.length) return true;
+      for (const d of newDays) if (!origSet.has(d)) return true;
+      return false;
+    })();
+    if (activeGoalId && (lessonsPerDayChanged || totalLessonsChanged || schoolDaysChanged)) {
+      // Determine the lesson_number floor from completions, then delete every
+      // incomplete row at-or-above that floor. Path A: scheduled_date is a
+      // stale cache and unreliable, so the prior `gte("scheduled_date",
+      // todayStr)` filter could leave behind future-incomplete rows whose
+      // stale dates were in the past, causing duplicate lesson_numbers on
+      // regenerate (production drift items B and C, 2026-04-30).
+      const { data: maxCompletedRow } = await supabase
+        .from("lessons")
+        .select("lesson_number")
+        .eq("curriculum_goal_id", activeGoalId)
+        .eq("completed", true)
+        .not("lesson_number", "is", null)
+        .order("lesson_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const completedFloor = (maxCompletedRow?.lesson_number ?? 0);
       const { error: delErr } = await supabase
         .from("lessons")
         .delete()
         .eq("curriculum_goal_id", activeGoalId)
         .eq("completed", false)
-        .gte("scheduled_date", todayStr);
+        .gt("lesson_number", completedFloor);
       if (delErr) {
         console.error("[CurriculumWizard] future-lesson delete failed:", delErr);
         setGenerating(false);
@@ -894,15 +932,7 @@ export default function CurriculumWizard({
         return;
       }
 
-      // Determine next lesson number from remaining (past/completed) rows
-      const { data: maxRow } = await supabase
-        .from("lessons")
-        .select("lesson_number")
-        .eq("curriculum_goal_id", activeGoalId)
-        .order("lesson_number", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const nextLessonNum = Math.max((maxRow?.lesson_number ?? 0) + 1, 1);
+      const nextLessonNum = completedFloor + 1;
 
       // Resolve subject_id for the new rows
       let regenSubjectId: string | null = null;
@@ -943,8 +973,44 @@ export default function CurriculumWizard({
         rsafety++;
       }
 
+      // Density-aware packing: when lessons_per_day increases, regen
+      // start can land on a date that already has completed lessons,
+      // stacking past the per-day cap. Production drift item B
+      // (jun.jygan, 2 lessons stacked on May 14, 2026-04-30): bumping
+      // perDay from 1 to 2 placed two new lessons on a date already
+      // holding a completed one. Shift forward to the next available
+      // school-day-and-not-break slot when the cap is hit.
+      const completedRowsRes = await supabase
+        .from("lessons")
+        .select("scheduled_date")
+        .eq("curriculum_goal_id", activeGoalId)
+        .eq("completed", true)
+        .not("scheduled_date", "is", null);
+      const dateUsage = new Map<string, number>();
+      for (const r of (completedRowsRes.data ?? []) as { scheduled_date: string }[]) {
+        dateUsage.set(r.scheduled_date, (dateUsage.get(r.scheduled_date) ?? 0) + 1);
+      }
+      const adjustedRegenRows: { date: string; n: number }[] = [];
+      for (const row of regenRows) {
+        const candidate = new Date(row.date + "T00:00:00");
+        let used = dateUsage.get(toDateStr(candidate)) ?? 0;
+        while (used >= perDayNum) {
+          candidate.setDate(candidate.getDate() + 1);
+          while (
+            !schoolDays[(candidate.getDay() + 6) % 7] ||
+            isDateInBlocks(toDateStr(candidate), vacBlockList)
+          ) {
+            candidate.setDate(candidate.getDate() + 1);
+          }
+          used = dateUsage.get(toDateStr(candidate)) ?? 0;
+        }
+        const newDateStr = toDateStr(candidate);
+        dateUsage.set(newDateStr, used + 1);
+        adjustedRegenRows.push({ date: newDateStr, n: row.n });
+      }
+
       const trimmedNotes = defaultNotes.trim() || null;
-      const regenInserts = regenRows.map(({ date, n }) => ({
+      const regenInserts = adjustedRegenRows.map(({ date, n }) => ({
         user_id: user.id,
         child_id: editData.childId || null,
         subject_id: regenSubjectId,
@@ -1646,6 +1712,9 @@ export default function CurriculumWizard({
               <input value={lessonsPerDay} onChange={(e) => setLessonsPerDay(e.target.value)}
                 type="number" min="1" max="10" placeholder="1"
                 className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              {perDayInputInvalid && (
+                <p className="text-xs text-[#a04444] mt-1">Must be at least 1.</p>
+              )}
             </div>
 
             <div>
@@ -1671,7 +1740,7 @@ export default function CurriculumWizard({
                 {finishDate && (
                   <div className="bg-[#f2f9f3] border border-[#c8ddb8] rounded-2xl px-4 py-3 text-center">
                     <p className="text-sm text-[var(--g-deep)] leading-relaxed">
-                      📅 At <strong>{lessonsPerDay}</strong> lesson{perDayNum !== 1 ? "s" : ""}/day on{" "}
+                      📅 At <strong>{perDayNum}</strong> lesson{perDayNum !== 1 ? "s" : ""}/day on{" "}
                       <strong>{selectedDayNames || "your school days"}</strong>,
                       <br />you&apos;ll finish <strong>{remaining} lesson{remaining !== 1 ? "s" : ""}</strong> by{" "}
                       <strong>{finishDate}</strong>.
@@ -1952,7 +2021,7 @@ export default function CurriculumWizard({
                     ),
                     { label: "School days", value: selectedDayNames || "—" },
                     { label: "Per day",     value: `${lessonsPerDay} lesson${perDayNum !== 1 ? "s" : ""}` },
-                    ...(finishDate && mode === "create" ? [{ label: "Finishes around", value: finishDate }] : []),
+                    ...(finishDate ? [{ label: "Finishes around", value: finishDate }] : []),
                     ...(targetDate ? [{ label: "Finish line date", value: new Date(targetDate + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) }] : []),
                     ...(lessonStartTime ? [{ label: "Lesson time", value: (() => { const [h, m] = lessonStartTime.split(":").map(Number); const ampm = h >= 12 ? "PM" : "AM"; return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`; })() }] : []),
                     ...(defaultNotes.trim() ? [{ label: "Lesson notes", value: defaultNotes.trim() }] : []),
