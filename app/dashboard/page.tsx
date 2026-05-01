@@ -22,7 +22,10 @@ import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import ListsSection from "@/app/components/ListsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
-import UnifiedTimeline from "@/app/components/UnifiedTimeline";
+import TodaySchedule from "@/app/components/today/TodaySchedule";
+import TodayKidSection from "@/app/components/today/TodayKidSection";
+import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
+import { groupItems } from "@/app/components/today/groupItems";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
@@ -229,308 +232,6 @@ function FloatingLeaves({ active }: { active: boolean }) {
           {item.emoji}
         </span>
       ))}
-    </div>
-  );
-}
-
-// ─── Today Lesson Card ────────────────────────────────────────────────────────
-
-type Particle = { id: number; x: number; y: number; color: string; delay: number };
-
-function TodayLessonCard({
-  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, onSkip, onStartEditingNote, onMinutesUpdate, isPartner,
-  editingNoteId, editingNoteText, noteSaveState, noteTextareaRef, onNoteTextChange, onSaveNote, onCancelEditingNote,
-}: {
-  lesson:    Lesson;
-  childObj:  Child | undefined;
-  onToggle:  (id: string, current: boolean) => void;
-  onEdit:    (lesson: Lesson) => void;
-  onDelete:  (id: string) => void;
-  onReschedule: (lesson: Lesson) => void;
-  onSkip:    (lesson: Lesson) => void;
-  onStartEditingNote: (lessonId: string, currentNotes: string | null | undefined) => void;
-  onMinutesUpdate: (id: string, minutes: number) => void;
-  isPartner: boolean;
-  editingNoteId: string | null;
-  editingNoteText: string;
-  noteSaveState: "idle" | "saving" | "saved" | "error";
-  noteTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
-  onNoteTextChange: (text: string) => void;
-  onSaveNote: (lessonId: string) => void;
-  onCancelEditingNote: () => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [showLeaf, setShowLeaf] = useState(false);
-  const [particles, setParticles] = useState<Particle[]>([]);
-  const prevCompleted = useRef(lesson.completed);
-
-  useEffect(() => {
-    if (!prevCompleted.current && lesson.completed) {
-      setShowLeaf(true);
-      const t = setTimeout(() => setShowLeaf(false), 1300);
-      prevCompleted.current = true;
-
-      // Tier 1: particle burst from checkbox
-      const colors = ['#5c7f63', '#7a9e7e', '#a8d4aa', '#f0d090', '#d4b896'];
-      const newParticles: Particle[] = Array.from({ length: 10 }, (_, i) => {
-        const angle = (i * 36 + Math.random() * 20 - 10) * (Math.PI / 180);
-        const dist  = 60 + Math.random() * 20;
-        return {
-          id:    i,
-          x:     Math.cos(angle) * dist,
-          y:     Math.sin(angle) * dist,
-          color: colors[i % colors.length],
-          delay: Math.round(Math.random() * 40),
-        };
-      });
-      setParticles(newParticles);
-      const pt = setTimeout(() => setParticles([]), 500);
-
-      return () => { clearTimeout(t); clearTimeout(pt); };
-    }
-    prevCompleted.current = lesson.completed;
-  }, [lesson.completed]);
-
-  const subStyle    = getSubjectStyle(lesson.subjects?.name);
-  const borderColor = childObj?.color ?? subStyle.text;
-
-  function handleClick(e: React.MouseEvent) {
-    if ((e.target as Element).closest("[data-no-toggle]")) return;
-    onToggle(lesson.id, lesson.completed);
-  }
-
-  const isEditingNote = editingNoteId === lesson.id;
-
-  return (
-    <div>
-    <div
-      className={`relative flex items-center gap-3 px-4 border transition-all cursor-pointer select-none ${
-        isEditingNote ? "rounded-t-2xl border-b-0" : "rounded-2xl"
-      } ${
-        lesson.completed
-          ? "bg-[#f0f7f1] border-[#c2dbc5]"
-          : "bg-[#fefcf9] border-[#e8e2d9] active:bg-[#f0f7f1]"
-      }`}
-      style={{ minHeight: "56px", borderLeftWidth: "4px", borderLeftColor: borderColor }}
-      onClick={handleClick}
-    >
-      {/* Circular checkbox */}
-      <div
-        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
-          lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5]"
-        }`}
-      >
-        {lesson.completed && (
-          <svg viewBox="0 0 10 8" className="w-3.5 h-2.5 fill-none">
-            <path d="M1 4l2.5 2.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )}
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0 py-3.5">
-        {lesson.subjects && (
-          <span
-            className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full mb-1"
-            style={{ backgroundColor: subStyle.bg, color: subStyle.text }}
-          >
-            {lesson.subjects.name}
-          </span>
-        )}
-        <div className="flex items-baseline gap-1.5">
-          <p className={`text-sm font-medium leading-snug ${
-            lesson.completed ? "line-through text-[#9a948e]" : "text-[#2d2926]"
-          }`}>
-            {lesson.title || (lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "Untitled")}
-          </p>
-          {lesson.completed && (() => {
-            const mins = lesson.minutes_spent ?? (lesson.hours != null && lesson.hours > 0 ? Math.round(lesson.hours * 60) : null);
-            return (
-              <button
-                type="button"
-                data-no-toggle
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const input = e.currentTarget.nextElementSibling as HTMLInputElement | null;
-                  if (input) { input.style.display = "inline-block"; input.focus(); e.currentTarget.style.display = "none"; }
-                }}
-                className="text-[11px] text-[#b5aca4] hover:text-[#5c7f63] transition-colors shrink-0"
-              >
-                · {mins != null ? `${mins} min` : "add time"}
-              </button>
-            );
-          })()}
-          {lesson.completed && (
-            <input
-              type="number"
-              data-no-toggle
-              defaultValue={lesson.minutes_spent ?? (lesson.hours != null && lesson.hours > 0 ? Math.round(lesson.hours * 60) : "")}
-              placeholder="min"
-              min="0"
-              max="480"
-              style={{ display: "none" }}
-              className="w-14 text-[11px] text-[#2d2926] bg-[#f0ede8] border border-[#e8e2d9] rounded-lg px-1.5 py-0.5 text-center focus:outline-none focus:border-[#5c7f63] shrink-0"
-              onClick={(e) => e.stopPropagation()}
-              onBlur={async (e) => {
-                const val = parseInt(e.target.value) || 0;
-                e.target.style.display = "none";
-                const btn = e.target.previousElementSibling as HTMLElement | null;
-                if (btn) btn.style.display = "";
-                if (val > 0) {
-                  await supabase.from("lessons").update({ minutes_spent: val }).eq("id", lesson.id);
-                  onMinutesUpdate(lesson.id, val);
-                }
-              }}
-              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-            />
-          )}
-        </div>
-        {/* Note preview (collapsed) */}
-        {!isEditingNote && lesson.notes && (
-          <p className="text-[11px] text-[#6b6560] italic mt-1 line-clamp-1">{lesson.notes}</p>
-        )}
-      </div>
-
-      {/* Child bubble */}
-      {childObj && (
-        <div
-          className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white"
-          style={{ backgroundColor: childObj.color ?? "#5c7f63" }}
-          data-no-toggle
-        >
-          {childObj.name.charAt(0).toUpperCase()}
-        </div>
-      )}
-
-      {/* Leaf pop animation */}
-      {showLeaf && (
-        <span
-          className="leaf-card-pop absolute text-xl"
-          style={{ right: "48px", top: "4px" }}
-        >
-          🍃
-        </span>
-      )}
-
-      {/* Tier 1: Particle burst */}
-      {particles.map(p => (
-        <span
-          key={p.id}
-          className="particle-burst absolute rounded-full"
-          style={{
-            width: 7,
-            height: 7,
-            left: 29,
-            top: 25,
-            backgroundColor: p.color,
-            animationDelay: `${p.delay}ms`,
-            '--px': `${p.x}px`,
-            '--py': `${p.y}px`,
-          } as React.CSSProperties}
-        />
-      ))}
-
-      {/* 3-dot menu */}
-      {!isPartner && (
-        <div className="relative shrink-0" data-no-toggle>
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-[#c8bfb5] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
-            aria-label="Lesson options"
-            data-no-toggle
-          >
-            <span className="text-base leading-none">···</span>
-          </button>
-          {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
-              <div className="absolute right-0 top-9 bg-white border border-[#e8e2d9] rounded-xl shadow-lg z-30 overflow-hidden min-w-[140px]">
-                <button
-                  onClick={(e) => { e.stopPropagation(); onStartEditingNote(lesson.id, lesson.notes); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                  data-no-toggle
-                >
-                  {lesson.notes ? "📝 Edit note" : "➕ Add a note"}
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onEdit(lesson); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                  data-no-toggle
-                >
-                  ✏️ Edit
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onReschedule(lesson); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                  data-no-toggle
-                >
-                  ⏭ Reschedule
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onSkip(lesson); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
-                  data-no-toggle
-                >
-                  ⏩ Skip
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(lesson.id); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
-                  data-no-toggle
-                >
-                  🗑 Delete
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-    {/* Inline note editor (parity with Plan page) */}
-    {isEditingNote && (
-      <div
-        className={`px-4 pb-3 pt-1 border border-t-0 rounded-b-2xl ${
-          lesson.completed ? "bg-[#f0f7f1] border-[#c2dbc5]" : "bg-[#fefcf9] border-[#e8e2d9]"
-        }`}
-        style={{ borderLeftWidth: "4px", borderLeftColor: borderColor }}
-      >
-        <textarea
-          ref={noteTextareaRef}
-          value={editingNoteText}
-          onChange={(e) => onNoteTextChange(e.target.value)}
-          placeholder="Prep items, extra activities, reminders..."
-          className="w-full min-h-[52px] max-h-[100px] rounded-lg border border-[#e8e2d9] bg-white p-2 text-[12px] text-[#3c3a37] resize-none focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/30"
-        />
-        <div className="flex items-center gap-2 mt-1">
-          <button
-            onClick={() => onSaveNote(lesson.id)}
-            disabled={noteSaveState === "saving" || noteSaveState === "saved"}
-            aria-live="polite"
-            className={`min-h-[44px] min-w-[88px] text-white text-[13px] font-semibold px-4 py-2 rounded-lg transition-colors ${
-              noteSaveState === "saved" ? "bg-[#5c7f63]" :
-              noteSaveState === "error" ? "bg-[#b91c1c]" :
-              noteSaveState === "saving" ? "bg-[#2D5A3D] opacity-70" :
-              "bg-[#2D5A3D] hover:bg-[var(--g-deep)]"
-            }`}
-          >
-            {noteSaveState === "saving" ? "Saving…" :
-             noteSaveState === "saved" ? "Saved ✓" :
-             noteSaveState === "error" ? "Try again" :
-             "Save"}
-          </button>
-          <button
-            onClick={onCancelEditingNote}
-            disabled={noteSaveState === "saving"}
-            className="min-h-[44px] text-[13px] text-[#8a8580] font-medium px-3 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          {noteSaveState === "error" && (
-            <span className="text-[11px] text-[#b91c1c]">Couldn&apos;t save — try again</span>
-          )}
-        </div>
-      </div>
-    )}
     </div>
   );
 }
@@ -2492,15 +2193,6 @@ export default function TodayPage() {
   const pendingLessons = totalToday > 0 && !allDone;
   const showUpcoming   = !activeVacation && isSchoolDay && subjects.length > 0 && !pendingLessons && !!upcomingDay;
 
-  const childrenWithLessons = children.filter(c => lessons.some(l => l.child_id === c.id));
-
-  // Detect timeline mode: any item today has a scheduled_start_time
-  const hasAnyStartTime = todayActivities.some(a => a.scheduled_start_time != null);
-  // We check curriculum_goals for lessons too — but we don't have that joined here.
-  // For simplicity, use activities' start times as the trigger (curriculum_goals.scheduled_start_time
-  // would require an extra join). Timeline mode activates if ANY activity has a start time.
-  const useTimeline = hasAnyStartTime;
-
   // Combined total for progress bar
   const totalItems = lessons.length + todayActivities.length;
   const doneItems = lessons.filter(l => l.completed).length + todayActivities.filter(a => a.completed).length;
@@ -2521,9 +2213,6 @@ export default function TodayPage() {
     }
     prevUnifiedDoneRef.current = unifiedDone;
   }, [unifiedAllDone, unifiedDone, unifiedTotal, loading, today]);
-
-  // Expanded child panel for lesson swipe
-  const [expandedChild, setExpandedChild] = useState<string | null>(null);
 
   if (loading) {
     return (
@@ -2691,401 +2380,138 @@ export default function TodayPage() {
           to do with them: mark complete, skip, reschedule individually,
           or open the bulk reschedule sheet. Nothing moves silently.
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && missedLessons.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between px-0.5 -mb-1">
-            <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">From earlier</p>
-            <span className="text-[12px] text-[#b5aca4]">
-              {missedLessons.length} lesson{missedLessons.length !== 1 ? "s" : ""}
-            </span>
-          </div>
-          <div className="bg-white rounded-2xl overflow-hidden mt-2" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}>
-            <div className="px-[14px] py-3">
-              {missedLessons.map((lesson, idx) => {
-                const child = children.find(c => c.id === lesson.child_id);
-                const subj = lesson.subjects?.name ?? null;
-                const dateStr = lesson.scheduled_date ?? lesson.date;
-                const dateLabel = dateStr
-                  ? new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
-                  : "";
-                const sub = [subj, child?.name].filter(Boolean).join(" · ");
-                return (
-                  <div
-                    key={lesson.id}
-                    className={`flex items-center gap-3 py-2.5 ${idx < missedLessons.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
-                  >
+      {!loading && missedLessons.length > 0 && (() => {
+        // Reuse the Today grouping for missed lessons. Each missed row
+        // always carries a single child_id, so the Everyone bucket stays
+        // empty. Restricted handlers: only Reschedule + Skip + mark-done
+        // (no Edit/Delete on missed cards — preserves prior scope).
+        const missedItems = missedLessons.map((l) => ({
+          id: l.id,
+          kind: "lesson" as const,
+          child_ids: [l.child_id],
+          time: null,
+          duration_minutes: l.minutes_spent,
+          title: l.title,
+          subject_label: l.subjects?.name ?? null,
+          lesson_number: l.lesson_number ?? null,
+          completed: l.completed,
+          raw: l,
+        }));
+        const grouped = groupItems(missedItems, children);
+        const childrenLookup = new Map(children.map((c) => [c.id, { id: c.id, name: c.name, color: c.color }]));
+        const onlyKid = children.length === 1;
+
+        return (
+          <div>
+            <div className="flex items-center justify-between px-0.5 -mb-1">
+              <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">From earlier</p>
+              <span className="text-[12px] text-[#b5aca4]">
+                {missedLessons.length} lesson{missedLessons.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="bg-white rounded-2xl overflow-hidden mt-2" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}>
+              <div className="px-3 py-3">
+                {grouped.kids.map((kidSection) => (
+                  <TodayKidSection
+                    key={kidSection.child.id}
+                    section={kidSection}
+                    onlyKid={onlyKid}
+                    isPartner={isPartner}
+                    childrenLookup={childrenLookup}
+                    noteEditor={{
+                      editingNoteId,
+                      editingNoteText,
+                      noteSaveState,
+                      onNoteTextChange: setEditingNoteText,
+                      onSaveNote: saveNote,
+                      onCancelEditingNote: cancelEditingNote,
+                    }}
+                    handlers={{
+                      onToggleLesson: (id) => {
+                        if (isPartner) return;
+                        const m = missedLessons.find((x) => x.id === id);
+                        if (m) markMissedComplete(m);
+                      },
+                      onRescheduleLesson: (id) => {
+                        const m = missedLessons.find((x) => x.id === id);
+                        if (m) openReschedule(m);
+                      },
+                      onSkipLesson: (id) => {
+                        const m = missedLessons.find((x) => x.id === id);
+                        if (m) skipMissedLesson(m);
+                      },
+                      onStartEditingNote: (lessonId, currentNotes) => startEditingNote(lessonId, currentNotes),
+                    }}
+                  />
+                ))}
+                {!isPartner && (
+                  <div className="pt-2 mt-1 border-t border-[#f0ece6]">
                     <button
                       type="button"
-                      onClick={() => { if (!isPartner) markMissedComplete(lesson); }}
-                      aria-label="Mark complete"
-                      className="w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0"
-                      style={{ border: "2px solid #2D5A3D", background: "white" }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[14px] font-medium text-[#2a2520] truncate" style={{ letterSpacing: "-0.2px" }}>
-                        {lesson.title}
-                      </p>
-                      <p className="text-[12px] text-[#8a8580] truncate mt-0.5">
-                        {dateLabel}{sub ? ` · ${sub}` : ""}
-                      </p>
-                    </div>
-                    {!isPartner && (
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => openReschedule(lesson)}
-                          aria-label="Reschedule this lesson"
-                          className="px-2 py-1 text-[12px] font-medium text-[#2D5A3D] hover:text-[var(--g-deep)] transition-colors"
-                        >
-                          Reschedule
-                        </button>
-                        <span aria-hidden="true" className="text-[#cfc9c0]">·</span>
-                        <button
-                          type="button"
-                          onClick={() => skipMissedLesson(lesson)}
-                          aria-label="Skip this lesson"
-                          className="px-2 py-1 text-[12px] font-medium text-[#8a8580] hover:text-[#2d2926] transition-colors"
-                        >
-                          Skip
-                        </button>
-                      </div>
-                    )}
+                      onClick={() => setShowMissedSheet(true)}
+                      className="w-full text-left text-[13px] font-medium text-[#2D5A3D] hover:text-[var(--g-deep)] transition-colors py-1.5"
+                    >
+                      Reschedule these →
+                    </button>
                   </div>
-                );
-              })}
-              {!isPartner && (
-                <div className="pt-2 mt-1 border-t border-[#f0ece6]">
-                  <button
-                    type="button"
-                    onClick={() => setShowMissedSheet(true)}
-                    className="w-full text-left text-[13px] font-medium text-[#2D5A3D] hover:text-[var(--g-deep)] transition-colors py-1.5"
-                  >
-                    Reschedule these →
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
+          </div>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TODAY SCHEDULE — grouped by kid + subject, kid color tints
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && (
+        <div>
+          <TodaySchedule
+            lessons={lessons as never}
+            activities={todayActivities as never}
+            appointments={todayAppointments as never}
+            children={children}
+            isPartner={isPartner}
+            isSchoolDay={isSchoolDay}
+            handlers={{
+              onToggleLesson: (id, completed) => { if (!isPartner) openCheckOffModal(id, completed); },
+              onToggleActivity: (raw) => { if (!isPartner) toggleActivity(raw as TodayActivity); },
+              onToggleAppointment: async (id, completed) => {
+                if (isPartner) return;
+                const token = await getToken();
+                if (!token) return;
+                await fetch("/api/appointments", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ id, completed: !completed }) });
+                loadData();
+              },
+              onEditLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) openEdit(l); },
+              onRescheduleLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) openReschedule(l); },
+              onSkipLesson: (id) => { const l = lessons.find(x => x.id === id); if (l) skipLesson(l); },
+              onDeleteLesson: deleteLesson,
+              onStartEditingNote: (lessonId, currentNotes) => startEditingNote(lessonId, currentNotes),
+              onManageAppointment: () => setShowManageSchedule(true),
+              onLogExtra: openExtraLessons,
+              onManage: () => setShowManageSchedule(true),
+              onAddAppt: () => setShowApptWizard(true),
+            }}
+            noteEditor={{
+              editingNoteId,
+              editingNoteText,
+              noteSaveState,
+              onNoteTextChange: setEditingNoteText,
+              onSaveNote: saveNote,
+              onCancelEditingNote: cancelEditingNote,
+            }}
+          />
+          <div className="bg-white rounded-2xl overflow-hidden mt-2" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}>
+            <InlineScheduleTabs
+              children={children}
+              onManage={() => setShowManageSchedule(true)}
+              isPartner={isPartner}
+            />
           </div>
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════
-          UNIFIED TIMELINE — lessons + activities + appointments
-         ═══════════════════════════════════════════════════════════ */}
-      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && (
-        <UnifiedTimeline
-          lessons={lessons as { id: string; title: string; completed: boolean; child_id: string; subjects: { name: string; color: string | null } | null; icon_emoji?: string | null }[]}
-          activities={todayActivities}
-          appointments={todayAppointments}
-          children={children}
-          onToggleLesson={(id, completed) => { if (!isPartner) openCheckOffModal(id, completed); }}
-          onToggleActivity={(a) => { if (!isPartner) toggleActivity(a); }}
-          onToggleAppointment={async (id, completed) => {
-            const token = await getToken();
-            if (!token) return;
-            await fetch("/api/appointments", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ id, completed: !completed }) });
-            loadData();
-          }}
-          onLogExtra={openExtraLessons}
-          onManage={() => setShowManageSchedule(true)}
-          onAddAppt={() => setShowApptWizard(true)}
-          onEditLesson={(id) => { const l = lessons.find(x => x.id === id); if (l) openEdit(l); }}
-          onRescheduleLesson={(id) => { const l = lessons.find(x => x.id === id); if (l) openReschedule(l); }}
-          onSkipLesson={(id) => { const l = lessons.find(x => x.id === id); if (l) skipLesson(l); }}
-          onDeleteLesson={deleteLesson}
-          isPartner={isPartner}
-          upcomingDays={upcomingDays}
-          isSchoolDay={isSchoolDay}
-        />
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════
-          SCHEDULE CARD — detailed lesson management (child tabs, check-off, reschedule)
-         ═══════════════════════════════════════════════════════════ */}
-      {(hasAnyLessons || todayActivities.length > 0) && (() => {
-        const totalLessons = lessons.length;
-        const doneLessons = lessons.filter(l => l.completed).length;
-        const doneActivities = todayActivities.filter(a => a.completed).length;
-        const combinedTotal = totalLessons + todayActivities.length;
-        const combinedDone = doneLessons + doneActivities;
-        const combinedAllDone = combinedTotal > 0 && combinedDone === combinedTotal;
-        const combinedPct = combinedTotal > 0 ? (combinedDone / combinedTotal) * 100 : 0;
-        const uniqueChildIds = new Set([
-          ...lessons.map(l => l.child_id).filter(Boolean),
-          ...todayActivities.flatMap(a => a.child_ids),
-        ]);
-
-        // Build unified item list for both views
-        type ScheduleItem = (
-          | { kind: "lesson"; lesson: Lesson; startTime: number | null }
-          | { kind: "activity"; activity: TodayActivity; startTime: number | null }
-        );
-        const items: ScheduleItem[] = [
-          ...lessons.map(l => ({ kind: "lesson" as const, lesson: l, startTime: null as number | null })),
-          ...todayActivities.map(a => ({ kind: "activity" as const, activity: a, startTime: parseTimeToMinutes(a.scheduled_start_time) })),
-        ];
-
-        // Sort: completed at bottom, then by start time (nulls last), then lessons before activities
-        items.sort((a, b) => {
-          const aDone = a.kind === "lesson" ? a.lesson.completed : a.activity.completed;
-          const bDone = b.kind === "lesson" ? b.lesson.completed : b.activity.completed;
-          if (aDone !== bDone) return aDone ? 1 : -1;
-          const aTime = a.startTime ?? 9999;
-          const bTime = b.startTime ?? 9999;
-          if (aTime !== bTime) return aTime - bTime;
-          return a.kind === "lesson" ? -1 : 1;
-        });
-
-        // For timeline view: separate timed vs flexible items
-        const timedItems = items.filter(i => i.startTime != null);
-        const flexibleItems = items.filter(i => i.startTime == null);
-
-        // Apply shift offset for "Running late?" in timeline
-        const getDisplayTime = (mins: number | null) => {
-          if (mins == null) return null;
-          const shifted = mins + timeShiftOffset;
-          return shifted >= 1440 ? null : shifted; // past midnight → flexible
-        };
-
-        // Only render this card for timeline view (activities with scheduled start times).
-        // The checklist view is fully covered by UnifiedTimeline above.
-        const hasTimelineContent = useTimeline && combinedTotal > 0 && !combinedAllDone;
-        if (!hasTimelineContent) return null;
-
-        return (
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
-            {/* Header — only shown in timeline mode */}
-            {useTimeline && !isPartner && (
-              <div className="flex items-center justify-end px-5 pt-3 pb-2">
-                <button
-                  type="button"
-                  onClick={() => setShowRunningLate(true)}
-                  className="text-xs text-[#5c7f63] font-semibold bg-[#eef3ef] border-none px-2.5 py-1.5 rounded-lg"
-                >
-                  ⏩ Running late?
-                </button>
-              </div>
-            )}
-
-            {/* ── TIMELINE VIEW ──────────────────────────────────── */}
-            {useTimeline && combinedTotal > 0 && !combinedAllDone && (
-              <div className="px-4 pb-3">
-                {/* Timed items */}
-                {timedItems.length > 0 && (
-                  <div className="relative">
-                    {/* Vertical connecting line */}
-                    <div className="absolute left-[33px] top-[14px] bottom-[14px] w-[2px] bg-[#e8e5e0]" />
-                    {timedItems.map((item, idx) => {
-                      const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
-                      const isFirst = !isDone && !timedItems.slice(0, idx).some(i =>
-                        !(i.kind === "lesson" ? i.lesson.completed : i.activity.completed)
-                      );
-                      const displayMins = getDisplayTime(item.startTime);
-                      if (displayMins == null) return null; // shifted past midnight
-
-                      return (
-                        <button
-                          key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
-                          type="button"
-                          onClick={() => {
-                            if (isPartner) return;
-                            if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
-                            else toggleActivity(item.activity);
-                          }}
-                          className="relative w-full flex items-center gap-3 py-2.5 text-left"
-                        >
-                          {/* Time */}
-                          <span className="text-xs font-semibold text-[#b5aca4] w-12 text-right shrink-0">
-                            {formatTime(displayMins)}
-                          </span>
-                          {/* Dot */}
-                          <div className={`relative z-10 flex items-center justify-center shrink-0 ${
-                            isDone
-                              ? "w-[18px] h-[18px] rounded-full bg-[#2D5A3D]"
-                              : isFirst
-                                ? "w-[18px] h-[18px] rounded-full border-2 border-[#2D5A3D] bg-[#e8f0e9] shadow-[0_0_0_3px_rgba(45,90,61,0.15)]"
-                                : "w-[18px] h-[18px] rounded-full border-2 border-[#e0ddd8] bg-white"
-                          }`}>
-                            {isDone && (
-                              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                                <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            )}
-                          </div>
-                          {/* Content */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                                {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
-                                {item.kind === "lesson" ? item.lesson.title : item.activity.name}
-                              </p>
-                              {item.kind === "activity" && (
-                                <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-[#7a6f65] truncate">
-                              {item.kind === "lesson"
-                                ? [item.lesson.subjects?.name, children.find(c => c.id === item.lesson.child_id)?.name].filter(Boolean).join(" · ")
-                                : [formatDuration(item.activity.duration_minutes), ...item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean)].join(" · ")
-                              }
-                            </p>
-                          </div>
-                          {/* Child tag */}
-                          {item.kind === "lesson" && (() => {
-                            const child = children.find(c => c.id === item.lesson.child_id);
-                            return child && uniqueChildIds.size > 1 ? (
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-[#f0ede8] text-[#7a6f65] shrink-0">{child.name}</span>
-                            ) : null;
-                          })()}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Flexible section (no times) */}
-                {flexibleItems.length > 0 && (
-                  <>
-                    {timedItems.length > 0 && (
-                      <div className="flex items-center gap-2 my-2 px-1">
-                        <div className="flex-1 h-px bg-[#e8e5e0]" />
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#b5aca4]">Flexible</span>
-                        <div className="flex-1 h-px bg-[#e8e5e0]" />
-                      </div>
-                    )}
-                    {flexibleItems.map((item, idx) => {
-                      const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
-                      return (
-                        <button
-                          key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
-                          type="button"
-                          onClick={() => {
-                            if (isPartner) return;
-                            if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
-                            else toggleActivity(item.activity);
-                          }}
-                          className={`w-full flex items-center gap-3 py-3 px-1 text-left transition-colors ${idx < flexibleItems.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
-                        >
-                          <div className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                            isDone ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
-                          }`}>
-                            {isDone && (
-                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                                <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                                {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
-                                {item.kind === "lesson" ? item.lesson.title : item.activity.name}
-                              </p>
-                              {item.kind === "activity" && (
-                                <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-[#7a6f65] truncate">
-                              {item.kind === "lesson"
-                                ? item.lesson.subjects?.name || ""
-                                : [formatDuration(item.activity.duration_minutes), ...item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean)].join(" · ")
-                              }
-                            </p>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* ── CHECKLIST VIEW ─────────────────────────────────── */}
-            {!useTimeline && combinedTotal > 0 && !combinedAllDone && (() => {
-              // Auto-flow times when school_start_time is set
-              const showTimes = !!schoolStartTime;
-              let runningMins = 0;
-              if (showTimes && schoolStartTime) {
-                const [hh, mm] = schoolStartTime.split(":").map(Number);
-                runningMins = (hh || 0) * 60 + (mm || 0);
-              }
-              const fmtTime = (mins: number) => {
-                const h = Math.floor(mins / 60) % 12 || 12;
-                const m = mins % 60;
-                const ap = mins < 720 ? "am" : "pm";
-                return m > 0 ? `${h}:${String(m).padStart(2, "0")} ${ap}` : `${h} ${ap}`;
-              };
-
-              return (
-                <div className="px-4 pb-3">
-                  {items.map((item, idx) => {
-                    const isDone = item.kind === "lesson" ? item.lesson.completed : item.activity.completed;
-                    const durMins = item.kind === "lesson"
-                      ? (item.lesson.minutes_spent ?? 30)
-                      : (item.activity.duration_minutes ?? 60);
-                    const itemTime = showTimes ? fmtTime(runningMins) : null;
-                    if (showTimes) runningMins += durMins;
-
-                    return (
-                      <button
-                        key={item.kind === "lesson" ? `l-${item.lesson.id}` : `a-${item.activity.id}`}
-                        type="button"
-                        onClick={() => {
-                          if (isPartner) return;
-                          if (item.kind === "lesson") openCheckOffModal(item.lesson.id, item.lesson.completed);
-                          else toggleActivity(item.activity);
-                        }}
-                        className={`w-full flex items-center gap-2 py-3 px-1 text-left transition-colors ${idx < items.length - 1 ? "border-b border-[#f5f3ef]" : ""}`}
-                      >
-                        {/* Time column */}
-                        {showTimes && (
-                          <span className="text-[#8B7E74] text-xs w-12 text-right shrink-0">{itemTime}</span>
-                        )}
-                        {/* Checkbox */}
-                        <div
-                          className={`w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-                            isDone ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#d4d0ca]"
-                          }`}
-                        >
-                          {isDone && (
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                              <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          )}
-                        </div>
-                        {/* Item info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className={`text-[14px] font-medium truncate ${isDone ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                              {item.kind === "activity" && <span className="mr-1">{item.activity.emoji}</span>}
-                              {item.kind === "lesson" ? item.lesson.title : item.activity.name}
-                            </p>
-                            {item.kind === "activity" && (
-                              <span className="bg-[#ede8f5] text-[#6b4f9e] text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0">Activity</span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-[#7a6f65] truncate">
-                            {item.kind === "lesson"
-                              ? (item.lesson.subjects?.name || "")
-                              : item.activity.child_ids.map(cid => children.find(c => c.id === cid)?.name).filter(Boolean).join(", ")
-                            }
-                          </p>
-                        </div>
-                        {/* Duration right-aligned */}
-                        <span className="text-[11px] text-[#8B7E74] shrink-0">
-                          {durMins >= 60 ? `${Math.floor(durMins / 60)} hr${durMins % 60 > 0 ? ` ${durMins % 60}m` : ""}` : `${durMins} min`}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-
-            {/* Redundant sections removed — covered by UnifiedTimeline status line + header counter */}
-          </div>
-        );
-      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           CAPTURE BUTTON — compact for returning users, big for new
