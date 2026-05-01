@@ -12,6 +12,15 @@ const AUDIENCE_RANGES = [
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const PAYMENT_METHODS = ["PayPal", "Venmo", "Zelle", "Mercury (ACH)", "Other"] as const;
+type PaymentMethod = typeof PAYMENT_METHODS[number];
+
+function placeholderFor(method: PaymentMethod): string {
+  if (method === "PayPal" || method === "Zelle") return "your@email.com";
+  if (method === "Venmo") return "@your-venmo or your phone";
+  return "Your contact for payment instructions";
+}
+
 export default function PartnersPage() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -24,6 +33,11 @@ export default function PartnersPage() {
   const [email, setEmail] = useState("");
   const [hasRootedAccount, setHasRootedAccount] = useState<boolean | null>(null);
   const [rootedAccountEmail, setRootedAccountEmail] = useState("");
+  // Default to Venmo: most new partners choose it. PayPal kept as an
+  // option for legacy applicants. The destination address still ships
+  // to the API as paypalEmail (the underlying column name predates the
+  // multi-channel support; renaming is more churn than it's worth).
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Venmo");
   const [paypalEmail, setPaypalEmail] = useState("");
   const [socialHandle, setSocialHandle] = useState("");
   const [audienceSize, setAudienceSize] = useState("");
@@ -48,8 +62,14 @@ export default function PartnersPage() {
       if (!rootedAccountEmail.trim()) errs.rootedAccountEmail = "Required";
       else if (!EMAIL_RE.test(rootedAccountEmail.trim())) errs.rootedAccountEmail = "Enter a valid email";
     }
-    if (!paypalEmail.trim()) errs.paypalEmail = "Required for commission payouts";
-    else if (!EMAIL_RE.test(paypalEmail.trim())) errs.paypalEmail = "Enter a valid email";
+    // Email format validation only kicks in for channels that actually
+    // require an email address (PayPal/Zelle). Venmo handles, Mercury
+    // ACH info, and Other are free-form.
+    if (paymentMethod === "PayPal" || paymentMethod === "Zelle") {
+      if (paypalEmail.trim() && !EMAIL_RE.test(paypalEmail.trim())) {
+        errs.paypalEmail = "Enter a valid email";
+      }
+    }
     if (!socialHandle.trim()) errs.socialHandle = "Required";
     return errs;
   }
@@ -76,6 +96,8 @@ export default function PartnersPage() {
           email,
           hasRootedAccount,
           rootedAccountEmail: hasRootedAccount ? rootedAccountEmail : null,
+          paymentMethod,
+          paymentAccount: paypalEmail,
           paypalEmail,
           socialHandle,
           audienceSize,
@@ -568,17 +590,26 @@ export default function PartnersPage() {
                 )}
               </div>
 
-              {/* PayPal email */}
+              {/* Commission destination: channel + address pair */}
               <div>
                 <label className="block text-xs font-semibold text-[#7a6f65] uppercase tracking-widest mb-1.5">
-                  PayPal email (for commission payouts) *
+                  Where should we send your commission?
                 </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-[#f8f7f4] text-sm text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent"
+                >
+                  {PAYMENT_METHODS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
                 <input
-                  type="email"
+                  type={paymentMethod === "PayPal" || paymentMethod === "Zelle" ? "email" : "text"}
                   value={paypalEmail}
                   onChange={(e) => setPaypalEmail(e.target.value)}
-                  placeholder="your@paypal.com"
-                  className={`w-full px-4 py-3 rounded-xl border bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent ${fieldErrors.paypalEmail ? "border-red-400" : "border-[#e8e2d9]"}`}
+                  placeholder={placeholderFor(paymentMethod)}
+                  className={`w-full mt-3 px-4 py-3 rounded-xl border bg-[#f8f7f4] text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:ring-2 focus:ring-[#5c7f63] focus:border-transparent ${fieldErrors.paypalEmail ? "border-red-400" : "border-[#e8e2d9]"}`}
                 />
                 {fieldErrors.paypalEmail && <p className="text-xs text-red-600 mt-1">{fieldErrors.paypalEmail}</p>}
               </div>

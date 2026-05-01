@@ -11,6 +11,7 @@ import { useProfile } from "@/lib/profile-context";
 import { canShareFamily, getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { posthog } from "@/lib/posthog";
 import { capitalizeName, capitalizeChildNames } from "@/lib/utils";
+import { formatMonthKey, currentMonthKey } from "@/lib/commission-month";
 
 function getCurrentSchoolYearLabel(): string {
   const now = new Date();
@@ -2170,8 +2171,10 @@ export default function SettingsPage() {
                       </div>
                     )}
                     {(() => {
-                      const monthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
-                      const monthPaid = previewPayments.filter(p => p.month === monthLabel).reduce((s, p) => s + Number(p.amount), 0);
+                      // commission_payments.month is stored as YYYY-MM, not "May 2026".
+                      // Compare against currentMonthKey() so the filter actually matches.
+                      const monthKey = currentMonthKey();
+                      const monthPaid = previewPayments.filter(p => p.month === monthKey).reduce((s, p) => s + Number(p.amount), 0);
                       const allTimePaid = previewPayments.reduce((s, p) => s + Number(p.amount), 0);
                       return (
                         <div className="grid grid-cols-2 gap-3">
@@ -2489,9 +2492,9 @@ export default function SettingsPage() {
             {/* Earnings */}
             {(() => {
               const allTimePaid = affiliatePayments.reduce((s, p) => s + Number(p.amount), 0);
-              const thisMonthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+              const thisMonthKey = currentMonthKey();
               const thisMonthPaid = affiliatePayments
-                .filter((p) => p.month === thisMonthLabel)
+                .filter((p) => p.month === thisMonthKey)
                 .reduce((s, p) => s + Number(p.amount), 0);
               const estimatedCommission = (affiliateStats?.revenueDriven ?? 0) * 0.20;
               return (
@@ -2528,7 +2531,7 @@ export default function SettingsPage() {
                         <tbody>
                           {affiliatePayments.map((p) => (
                             <tr key={p.id} className="border-b border-[#eee] last:border-0">
-                              <td className="px-3 py-2 text-xs text-[#2d2926]">{p.month}</td>
+                              <td className="px-3 py-2 text-xs text-[#2d2926]">{formatMonthKey(p.month)}</td>
                               <td className="px-3 py-2 text-xs font-medium text-[#2d2926]">${Number(p.amount).toFixed(2)}</td>
                               <td className="px-3 py-2 text-xs text-[#7a6f65]">{new Date(p.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
                               <td className="px-3 py-2"><span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#e8f0e9] text-[var(--g-brand)]">Paid</span></td>
