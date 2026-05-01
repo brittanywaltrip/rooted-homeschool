@@ -56,23 +56,50 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Idempotency key: same user + plan + day = same session
-    const idempotencyKey = `checkout-${user.id}-${priceId}-${new Date().toDateString()}`
-
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      line_items: [{ price: priceId, quantity: 1 }],
-      allow_promotion_codes: !discounts,
-      ...(discounts ? { discounts } : {}),
-      success_url: 'https://www.rootedhomeschoolapp.com/dashboard/welcome',
-      cancel_url: 'https://www.rootedhomeschoolapp.com/upgrade',
-      customer_email: user.email,
-      metadata: { userId: user.id, referral: ref ?? '' },
-    }, { idempotencyKey })
+    let session
+    try {
+      session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        line_items: [{ price: priceId, quantity: 1 }],
+        allow_promotion_codes: !discounts,
+        ...(discounts ? { discounts } : {}),
+        success_url: 'https://www.rootedhomeschoolapp.com/dashboard/welcome',
+        cancel_url: 'https://www.rootedhomeschoolapp.com/upgrade',
+        customer_email: user.email,
+        metadata: { userId: user.id, referral: ref ?? '' },
+      })
+    } catch (firstErr) {
+      console.error('[checkout] Stripe error:', JSON.stringify({
+        message: (firstErr as any)?.message,
+        code: (firstErr as any)?.code,
+        type: (firstErr as any)?.type,
+        statusCode: (firstErr as any)?.statusCode,
+        raw: (firstErr as any)?.raw,
+      }))
+      if (!discounts) throw firstErr
+      session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        line_items: [{ price: priceId, quantity: 1 }],
+        allow_promotion_codes: true,
+        success_url: 'https://www.rootedhomeschoolapp.com/dashboard/welcome',
+        cancel_url: 'https://www.rootedhomeschoolapp.com/upgrade',
+        customer_email: user.email,
+        metadata: { userId: user.id, referral: ref ?? '' },
+      })
+    }
     console.log('[checkout] session created:', session.id)
     return NextResponse.json({ url: session.url })
   } catch (err) {
-    console.error('[checkout] Stripe error:', err)
-    return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 })
+    console.error('[checkout] Stripe error:', JSON.stringify({
+      message: (err as any)?.message,
+      code: (err as any)?.code,
+      type: (err as any)?.type,
+      statusCode: (err as any)?.statusCode,
+      raw: (err as any)?.raw,
+    }))
+    return NextResponse.json({
+      error: 'Failed to create checkout session',
+      code: (err as any)?.code,
+    }, { status: 500 })
   }
 }
