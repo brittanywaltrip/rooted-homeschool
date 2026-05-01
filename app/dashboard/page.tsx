@@ -402,7 +402,7 @@ export default function TodayPage() {
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [showExtraLessons, setShowExtraLessons] = useState(false);
-  type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
+  type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; lesson_number?: number | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
   const [upcomingLessons, setUpcomingLessons] = useState<UpcomingLesson[]>([]);
   const [extraChecked, setExtraChecked] = useState<Set<string>>(new Set());
   const [savingExtra, setSavingExtra] = useState(false);
@@ -1404,12 +1404,13 @@ export default function TodayPage() {
     const futureStr = `${futureDate.getFullYear()}-${String(futureDate.getMonth() + 1).padStart(2, "0")}-${String(futureDate.getDate()).padStart(2, "0")}`;
     const { data } = await supabase
       .from("lessons")
-      .select("id, title, child_id, scheduled_date, curriculum_goal_id, subjects(name, color), curriculum_goals(subject_label)")
+      .select("id, title, child_id, scheduled_date, curriculum_goal_id, lesson_number, subjects(name, color), curriculum_goals(subject_label)")
       .eq("user_id", effectiveUserId)
       .eq("completed", false)
       .gt("scheduled_date", today)
       .lte("scheduled_date", futureStr)
-      .order("scheduled_date");
+      .order("scheduled_date")
+      .order("lesson_number", { ascending: true, nullsFirst: false });
     setUpcomingLessons((data as unknown as UpcomingLesson[]) ?? []);
     setExtraChecked(new Set());
     setShowExtraLessons(true);
