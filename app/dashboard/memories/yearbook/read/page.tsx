@@ -148,7 +148,7 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
   if (photos.length === 1) {
     return (
       <div className="w-full rounded-md overflow-hidden bg-[#f5f0e8]" style={{ aspectRatio: "4/3" }}>
-        <SignedImage src={photos[0].photo_url!} bucket="memory-photos" className="w-full h-full object-contain" />
+        <SignedImage src={photos[0].photo_url!} bucket="memory-photos" className="w-full h-full object-cover" />
       </div>
     );
   }
@@ -158,7 +158,7 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
       <div className="grid grid-cols-2 gap-1.5">
         {photos.map((p) => (
           <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
-            <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-contain" />
+            <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-cover" />
           </div>
         ))}
       </div>
@@ -169,12 +169,12 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
     return (
       <div className="space-y-1.5">
         <div className="w-full rounded-md overflow-hidden bg-[#f5f0e8]" style={{ aspectRatio: "16/9" }}>
-          <SignedImage src={photos[0].photo_url!} bucket="memory-photos" className="w-full h-full object-contain" />
+          <SignedImage src={photos[0].photo_url!} bucket="memory-photos" className="w-full h-full object-cover" />
         </div>
         <div className="grid grid-cols-2 gap-1.5">
           {photos.slice(1).map((p) => (
             <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
-              <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-contain" />
+              <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-cover" />
             </div>
           ))}
         </div>
@@ -186,7 +186,7 @@ function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
     <div className="grid grid-cols-2 gap-1.5">
       {photos.slice(0, 4).map((p) => (
         <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
-          <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-contain" />
+          <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-cover" />
         </div>
       ))}
     </div>
