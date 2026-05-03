@@ -1,10 +1,10 @@
 # Curriculum Scheduling — Invariants & Tests
 
-*The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts` or `app/components/CurriculumWizard.tsx`.*
+*The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: April 28, 2026 — after the date-cramming bug hotfix (commit `cee0048` → main `6f06f02`).*
+*Last updated: May 3, 2026 — after the queue-based scheduling regression (Path A, migration `20260501064729`). Adds Invariants 8–10.*
 
-**Where this doc lives:** `~/Desktop/CURRICULUM-SCHEDULING-INVARIANTS.md`. Copy a version into the repo at `docs/CURRICULUM-SCHEDULING.md` so it lives next to the code (so future CC sessions read it).
+**This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
 ---
 
@@ -80,11 +80,6 @@ Once a `curriculum_goals.completed_at` is set, it must NOT be cleared by any sub
 
 **Enforced by:** `recomputeCurrentLesson` in `app/lib/scheduler.ts` — only sets `completed_at` when transitioning from null to a valid value, never clears it.
 
-> ⚠️ NOT YET IMPLEMENTED — `completed_at` column does not exist on
-> `curriculum_goals` and `recomputeCurrentLesson` does not write it.
-> This invariant is forward-looking for the completion-celebration feature.
-> Do not reference `completed_at` in any code until that feature ships.
-
 **Test case:** "completed_at preserved on edit-back" — given a goal with completed_at set, marking the last lesson incomplete does NOT clear completed_at.
 
 ### Invariant 7 — Lesson completion never triggers rescheduling
@@ -96,6 +91,41 @@ Marking a lesson `completed = true` must NEVER reschedule any other lessons. Onl
 **Enforced by:** the toggle-lesson code path calls `recomputeCurrentLesson(goal)` only — never bulk-update on lessons table.
 
 **Test case:** "marking complete touches only one lesson" — given a goal with N lessons, mark lesson K complete, all other lessons' dates are unchanged.
+
+### Invariant 8 — One shared `pickNextAvailableDate` helper
+
+Every code path that picks a date for an incomplete lesson must call the same helper. There must be exactly one definition of "next school day with capacity" in the codebase.
+
+**Why:** the May 3 regression was caused by a second copy of the cursor-walk logic ("Path A: queue-based scheduling") that disagreed with the first. Two copies will always drift.
+
+**Enforced by:** `pickNextAvailableDate(args)` in `app/lib/scheduler.ts` is the only function in the codebase that walks days. Wizard create, wizard saveEdit, vacation-block insert, and catch-up accept all call it. Search the repo for any direct day-walk loop and delete it.
+
+**Test case:** grep test in CI — the only file allowed to contain a day-walk loop is `app/lib/scheduler.ts`. Any other file matching the pattern fails CI.
+
+### Invariant 9 — Every "today" is in the user's timezone
+
+The scheduler may NEVER use the server's clock to compute "today." Every place that asks "what is today" must take a timezone argument and use it.
+
+**Why:** a user in Pacific time at 11:30pm sees the next day's date if the server (UTC) thinks it's tomorrow. That bunches lessons onto the wrong dates.
+
+**Enforced by:** `profiles.timezone` (IANA string, e.g. `America/Los_Angeles`). Default `America/New_York` for existing users; backfill new users from the browser via `Intl.DateTimeFormat().resolvedOptions().timeZone` on first save. `pickNextAvailableDate` accepts a `timezone` argument and uses it when computing `today`.
+
+**Test case:** "TZ-aware today" — same scheduler call from a user in Pacific and a user in Eastern at the same UTC instant produces different "today" dates if it's late evening Pacific.
+
+### Invariant 10 — `scheduled_source` is set on every lesson write
+
+Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to one of:
+- `'wizard_create'` — initial curriculum creation
+- `'wizard_edit'` — user edits goal in wizard
+- `'vacation_resched'` — vacation block insert/edit
+- `'catchup_resched'` — catch-up modal accepted
+- `'cleanup_sql'` — manual cleanup via SQL
+
+**Why:** the May 3 investigation took 90 minutes because every affected lesson row had `scheduled_source = NULL`. Future bugs will be identified in 5 minutes if this is populated.
+
+**Enforced by:** every code path that writes `lessons.date` must also write `lessons.scheduled_source`. CI grep test enforces this — any UPDATE or INSERT statement in app code that targets `lessons.date` without also setting `lessons.scheduled_source` fails CI.
+
+**Test case:** integration test — wizard create writes lessons with `scheduled_source = 'wizard_create'`; vacation-block insert writes `'vacation_resched'`; catch-up accept writes `'catchup_resched'`.
 
 ---
 
@@ -123,15 +153,23 @@ If anything other than the curriculum creation flow writes multiple rows to `les
 
 If user input arrives as empty, the wizard must apply the Mon-Fri fallback BEFORE generating dates. An empty array passed to the day-walker creates an infinite loop.
 
+### Anti-pattern F — A new "scheduling path" parallel to the existing one
+
+The May 3 regression was caused by a second scheduling implementation ("Path A: queue-based scheduling") shipped via migration `20260501064729`. Don't do this. There is one scheduler. If you need different behavior for a new feature, modify the existing code path; do not fork it.
+
+### Anti-pattern G — Server clock used for "today"
+
+`new Date()` and `now()` (in SQL) return the server's UTC time. Using either to compute a user-facing date violates Invariant 9. Always pass a timezone in.
+
+### Anti-pattern H — Bulk lesson UPDATE in a SQL migration
+
+Migrations are environment-shared. A migration that bulk-updates `lessons` will run against every environment (staging AND production) at deploy time and rewrite real users' schedules without warning. If you need to fix data, write a one-off script with a backup table, dry run, and explicit Brittany sign-off — not a migration.
+
 ---
 
 ## Required test cases (`app/lib/scheduler.test.ts`)
 
 These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new ones whenever a new bug is found.
-
-> ⚠️ CURRENT COVERAGE: 5 tests written (cases #1, #2, #5, #7, plus a
-> past-pick variant), covering invariants 1, 2, and 4. Cases #3, #6, #8,
-> #9, #10 are planned but not yet written.
 
 | # | Test name | Asserts |
 |---|-----------|---------|
@@ -145,6 +183,12 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 8 | completed_at preserved | After clearing a completion flag, goal.completed_at stays set. |
 | 9 | Toggle lesson complete is local | Other lessons' dates unchanged. |
 | 10 | Bulk Mark all done | Updates current_lesson + completed_at across all lessons in one call. |
+| 11 | Queue scheduler honors lessons_per_day with future start_date | total_lessons=160, lpd=1, school_days=Mon-Thu, start_date=2026-08-05, today=2026-05-01 → first lesson lands on the start_date (or next school day on/after), max(per-date) = 1. |
+| 12 | Vacation block insert re-spreads without bunching | 30 incomplete forward lessons, lpd=2, school_days=[Mon,Wed], insert vacation covering 4 weeks → max(per-date) = 2, no lessons inside vacation, completed lessons untouched. |
+| 13 | Catch-up accept handles 5 missed days | lpd=1, school_days=Mon-Fri, today=Mon, 5 missed lessons last week → land on this week's school days, max(per-date) = 1, future lessons untouched. |
+| 14 | Catch-up DISMISS does not write to lessons | Dismissing the catch-up modal updates `last_catchup_dismissed_at` only. Zero rows touched in `lessons` table. |
+| 15 | TZ-aware today | Same call from Pacific user and Eastern user at the same UTC instant late-evening Pacific produces different "today" dates. |
+| 16 | scheduled_source populated | After any code path runs, the lessons it touched have a non-NULL `scheduled_source` matching the originating action. |
 
 ---
 

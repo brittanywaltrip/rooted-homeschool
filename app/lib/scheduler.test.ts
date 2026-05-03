@@ -33,6 +33,8 @@ import {
   type VacationBlock,
 } from './scheduler.ts'
 
+import { todayInTz, isoDowFromYmd, addDays } from './timezone.ts'
+
 test('forwardScheduleStart bumps today to tomorrow', () => {
   const today = new Date(2026, 3, 28)              // Tue Apr 28 2026
   const userPicked = new Date(2026, 3, 28)         // user kept default = today
@@ -1155,3 +1157,64 @@ test('vacation: catch-up gap mixing school days and break days only checkboxes t
     { goal_id: 'g1', lesson_number: 9, date: '2026-05-01' },
   ])
 })
+
+// ---------------------------------------------------------------------------
+// Timezone helpers (Invariant 9). These exercise app/lib/timezone.ts directly
+// and pass without any scheduler-internal changes. They are the early signal
+// that the test runner is wired up correctly for the new module.
+// ---------------------------------------------------------------------------
+
+test('todayInTz returns YYYY-MM-DD for valid IANA tz', () => {
+  assert.match(todayInTz('America/New_York'), /^\d{4}-\d{2}-\d{2}$/)
+})
+
+test('todayInTz falls back to America/New_York for null', () => {
+  assert.strictEqual(todayInTz(null), todayInTz('America/New_York'))
+})
+
+test('isoDowFromYmd returns 1=Mon..7=Sun', () => {
+  assert.strictEqual(isoDowFromYmd('2026-05-04'), 1)
+  assert.strictEqual(isoDowFromYmd('2026-05-10'), 7)
+})
+
+test('addDays handles month rollover', () => {
+  assert.strictEqual(addDays('2026-05-31', 1), '2026-06-01')
+})
+
+// ===========================================================================
+// Invariant placeholders — implementations land in CC #2.
+//
+// Each test.todo below corresponds to a gap between the current 47 implemented
+// tests and Invariants 1-10 in docs/CURRICULUM-SCHEDULING.md. Invariant 8 is
+// structural (one shared pickNextAvailableDate helper) and is enforced by the
+// CI grep step in .github/workflows/scheduler-tests.yml — no unit test
+// placeholder is needed for it.
+// ===========================================================================
+
+// Invariant 2 — queue scheduler ceiling (May 3 regression)
+test.todo('Invariant 2 — queue scheduler honors lessons_per_day with future start_date (160 lessons, lpd=1, school_days=Mon-Thu, start_date=2026-08-05, today=2026-05-01)')
+test.todo('Invariant 2 — vacation block insert re-spreads incomplete forwards without bunching (max per-date stays <= lessons_per_day)')
+test.todo('Invariant 2 — catch-up modal accept handles 5 missed school days without bunching (max per-date = lpd)')
+
+// Invariant 3 — backfill stays put through queue rescheduler
+test.todo('Invariant 3 — backfilled lessons unchanged after vacation block insert')
+test.todo('Invariant 3 — backfilled lessons unchanged after catch-up accept')
+
+// Invariant 6 — completed_at monotonic
+test.todo('Invariant 6 — goal.completed_at preserved when last lesson is later marked incomplete')
+
+// Invariant 7 — completion / dismiss is local
+test.todo('Invariant 7 — catch-up modal DISMISS does not write to lessons table (only updates profiles.last_catchup_dismissed_at)')
+test.todo('Invariant 7 — marking a single lesson complete leaves all other lesson dates unchanged')
+
+// Invariant 9 — TZ-aware today
+test.todo('Invariant 9 — todayInTz returns user-local date, never server UTC clock')
+test.todo('Invariant 9 — Pacific user and Eastern user at same UTC instant (late-evening Pacific) produce different "today" dates')
+test.todo('Invariant 9 — null/missing profiles.timezone falls back to America/New_York with no crash')
+
+// Invariant 10 — scheduled_source populated everywhere
+test.todo("Invariant 10 — wizard create writes scheduled_source='wizard_create' on every new lesson row")
+test.todo("Invariant 10 — wizard saveEdit writes scheduled_source='wizard_edit' on touched rows")
+test.todo("Invariant 10 — vacation block insert writes scheduled_source='vacation_resched' on touched rows")
+test.todo("Invariant 10 — catch-up accept writes scheduled_source='catchup_resched' on touched rows")
+test.todo('Invariant 10 — no code path leaves scheduled_source NULL after writing lessons.date')
