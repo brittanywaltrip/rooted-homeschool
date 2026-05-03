@@ -26,6 +26,51 @@ function safeParseDateStr(d: string | null | undefined): Date | null {
   return isNaN(dt.getTime()) ? null : dt;
 }
 
+// Strips bucket prefix off both /object/public/memory-photos/<path> and
+// /object/sign/memory-photos/<path>?token=... shapes.
+function extractMemoryPhotoPath(url: string): string | null {
+  const markers = [
+    "/object/public/memory-photos/",
+    "/object/sign/memory-photos/",
+  ];
+  for (const m of markers) {
+    const i = url.indexOf(m);
+    if (i !== -1) {
+      const rest = url.slice(i + m.length);
+      const q = rest.indexOf("?");
+      return q === -1 ? rest : rest.slice(0, q);
+    }
+  }
+  return null;
+}
+
+function decodeBase64Url(s: string): string {
+  let out = s.replace(/-/g, "+").replace(/_/g, "/");
+  while (out.length % 4) out += "=";
+  return atob(out);
+}
+
+// Old public URLs no longer resolve (bucket is private). Signed URLs are
+// usually 1h. Either case needs a fresh sign before <img> can render.
+function needsResign(url: string): boolean {
+  if (url.includes("/object/public/memory-photos/")) return true;
+  if (url.includes("/object/sign/memory-photos/")) {
+    const tokenMatch = url.match(/[?&]token=([^&]+)/);
+    if (!tokenMatch) return true;
+    try {
+      const parts = tokenMatch[1].split(".");
+      if (parts.length < 2) return true;
+      const payload = JSON.parse(decodeBase64Url(parts[1]));
+      const exp = typeof payload.exp === "number" ? payload.exp : 0;
+      // 60s grace so we don't hand out a URL that expires mid-render.
+      return Date.now() / 1000 >= exp - 60;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Child = { id: string; name: string; color: string | null };
@@ -278,7 +323,39 @@ export default function YearbookReadPage() {
           .eq("user_id", effectiveUserId).eq("yearbook_key", key),
       ]);
 
-      setMemories((mems ?? []) as MemoryRow[]);
+      const rawMems = (mems ?? []) as MemoryRow[];
+      const stalePaths: string[] = [];
+      const staleByMemId = new Map<string, string>();
+      for (const m of rawMems) {
+        if (m.photo_url && needsResign(m.photo_url)) {
+          const path = extractMemoryPhotoPath(m.photo_url);
+          if (path) {
+            stalePaths.push(path);
+            staleByMemId.set(m.id, path);
+          }
+        }
+      }
+      let refreshedMems = rawMems;
+      if (stalePaths.length > 0) {
+        const { data: signed } = await supabase
+          .storage
+          .from("memory-photos")
+          .createSignedUrls(Array.from(new Set(stalePaths)), 3600);
+        if (signed) {
+          const byPath = new Map<string, string>();
+          for (const row of signed) {
+            if (row.path && row.signedUrl) byPath.set(row.path, row.signedUrl);
+          }
+          refreshedMems = rawMems.map((m) => {
+            const p = staleByMemId.get(m.id);
+            if (!p) return m;
+            const fresh = byPath.get(p);
+            return fresh ? { ...m, photo_url: fresh } : m;
+          });
+        }
+      }
+
+      setMemories(refreshedMems);
       setChildren(capitalizeChildNames((kids ?? []) as Child[]));
 
       const cMap: Record<string, string> = {};

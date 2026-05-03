@@ -258,7 +258,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       const path = `${user.id}/${Date.now()}-${fileToUpload.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
       const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, fileToUpload, { contentType: "image/jpeg", upsert: false });
       if (upErr) { setFabSaving(false); setFabToast("Upload failed — check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
-      const signed = await signedPhotoUrl(supabase, "memory-photos", path);
+      // 10-year signed URL so photo_url stays accessible long after upload.
+      // Bucket is private; signed URLs are the only way to read.
+      const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
+      const signed = await signedPhotoUrl(supabase, "memory-photos", path, TEN_YEARS_SECONDS);
       const photoUrl = signed ?? path;
       const now = new Date();
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
