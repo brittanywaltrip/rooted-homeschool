@@ -11,8 +11,10 @@
 
 const DEFAULT_TZ = 'America/New_York';
 
-/** Returns the wall-clock date (YYYY-MM-DD) in the given timezone. */
-export function todayInTz(timezone: string | null | undefined): string {
+/** Returns the YYYY-MM-DD that the given Date instant maps to in the given
+ * timezone. Pure: no `new Date()` inside, so tests can pass a fixed instant
+ * (e.g., late-evening Pacific) and assert the expected wall-clock date. */
+export function ymdInTz(date: Date, timezone: string | null | undefined): string {
   const tz = timezone || DEFAULT_TZ;
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: tz,
@@ -21,7 +23,12 @@ export function todayInTz(timezone: string | null | undefined): string {
     day: '2-digit',
   });
   // en-CA gives YYYY-MM-DD reliably.
-  return fmt.format(new Date());
+  return fmt.format(date);
+}
+
+/** Returns the wall-clock date (YYYY-MM-DD) in the given timezone, "now". */
+export function todayInTz(timezone: string | null | undefined): string {
+  return ymdInTz(new Date(), timezone);
 }
 
 /** Returns ISO day-of-week (1=Mon..7=Sun) for a YYYY-MM-DD string. */

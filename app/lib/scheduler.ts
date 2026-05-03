@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { addDays, isoDowFromYmd } from "./timezone.ts";
 
 // Day index conventions: Mon=0..Sun=6 for school_days / school_days bool arrays
 // (matches the wizard and plan page). getDay() → Sun=0..Sat=6, so translate with
@@ -8,6 +9,26 @@ const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 const DAY_LABEL_TO_IDX: Record<string, number> = {
   Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6,
 };
+
+// ISO day-of-week: Mon=1..Sun=7 (matches isoDowFromYmd in ./timezone).
+const DAY_LABEL_TO_ISO: Record<string, number> = {
+  Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7,
+};
+
+/**
+ * Convert the wizard/DB string-label school_days array (["Mon","Wed"...])
+ * to the ISO numeric form (1=Mon..7=Sun) used by `pickNextAvailableDate`.
+ * Falls back to Mon-Fri when the input is null/empty (Invariant 5).
+ */
+export function schoolDayLabelsToIso(labels: string[] | null | undefined): number[] {
+  const list = labels && labels.length > 0 ? labels : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+  const out: number[] = [];
+  for (const l of list) {
+    const n = DAY_LABEL_TO_ISO[l];
+    if (n) out.push(n);
+  }
+  return out.length > 0 ? out : [1, 2, 3, 4, 5];
+}
 
 export function schoolDaysToBool(days: string[] | null | undefined): boolean[] {
   const list = days && days.length > 0 ? days : ["Mon", "Tue", "Wed", "Thu", "Fri"];
@@ -771,4 +792,165 @@ export function computeGapLessonsForGoal(
   const days = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 86400000));
   if (days === 0) return [];
   return computeNextLessonsForGoal(goal, start, days, vacationBlocks);
+}
+
+// ─── Single shared "pick next available date" (Invariant 8) ───────────────
+//
+// The May 3 regression was caused by saveVacationBlock and skipRestOfToday
+// each running their own per-row cursor walk with no occupancy tracking.
+// Going forward, every place that picks a date for an incomplete lesson
+// goes through `pickNextAvailableDate`. There is one definition of "next
+// school day with capacity" in this codebase. Drift = bug.
+//
+// `fromDate` is exclusive — the helper returns the first valid date strictly
+// after it. Callers that want to stack additional lessons onto the returned
+// date should pass `addDays(returned, -1)` as the next `fromDate` so the
+// occupancy check (not the cursor) decides whether the same day is reused.
+
+export interface VacationRange {
+  start: string; // YYYY-MM-DD
+  end: string;   // YYYY-MM-DD inclusive
+}
+
+export interface PickArgs {
+  fromDate: string;                  // strict-greater-than starting point (YYYY-MM-DD)
+  schoolDays: number[];              // ISO dows: 1=Mon..7=Sun
+  lessonsPerDay: number;             // 1..10
+  vacations: VacationRange[];
+  occupancy: Map<string, number>;    // mutated as we allocate
+}
+
+/**
+ * Returns YYYY-MM-DD for the next school day strictly after `fromDate`
+ * with capacity remaining (per `lessonsPerDay`) and not inside any
+ * vacation block. Mutates `occupancy` to reflect the allocation.
+ *
+ * Source of truth for "next school day with capacity" — see
+ * docs/CURRICULUM-SCHEDULING.md Invariant 8.
+ */
+export function pickNextAvailableDate(args: PickArgs): string {
+  const lpd = Math.max(1, Math.min(10, args.lessonsPerDay || 1));
+  let cursor = addDays(args.fromDate, 1);
+
+  for (let i = 0; i < 10_000; i++) {
+    const dow = isoDowFromYmd(cursor);
+    const inSchoolDay = args.schoolDays.includes(dow);
+    const inVacation = args.vacations.some((v) => cursor >= v.start && cursor <= v.end);
+    if (inSchoolDay && !inVacation) {
+      const used = args.occupancy.get(cursor) ?? 0;
+      if (used < lpd) {
+        args.occupancy.set(cursor, used + 1);
+        return cursor;
+      }
+    }
+    cursor = addDays(cursor, 1);
+  }
+  throw new Error(
+    `pickNextAvailableDate ran past 10000 iterations from ${args.fromDate}. Bad input (likely empty schoolDays or lpd<=0).`,
+  );
+}
+
+/**
+ * Plan a re-spread for a list of incomplete lessons being moved.
+ *
+ * Used by:
+ *   - vacation_blocks insert "shift" mode (saveVacationBlock)
+ *   - "Skip rest of today" (skipRestOfToday)
+ *   - Wizard saveEdit reshuffle when schedule fields changed
+ *
+ * Pure: no DB access. Caller writes `updates` and attaches the appropriate
+ * `scheduled_source` (Invariant 10). Input order within each goal is preserved.
+ *
+ * Per-goal occupancy seeded from `staying` (lessons of that goal that are
+ * NOT being moved) so the planner never bunches a moved lesson onto a date
+ * already at capacity. Backfill rows must NOT appear in `toReshuffle`;
+ * caller filters them out (Invariant 3).
+ */
+export interface PlanRescheduleArgs {
+  /** Lessons being moved. Order within each goal is preserved in updates. */
+  toReshuffle: { id: string; curriculum_goal_id: string }[];
+  /** Lessons of any goal that stay where they are; seeds per-goal occupancy. */
+  staying: { curriculum_goal_id: string; date: string }[];
+  /** Per-goal config keyed by curriculum_goal_id. */
+  goalConfigs: Map<string, { school_days: string[] | null; lessons_per_day: number }>;
+  /** Exclusive starting point for the cursor walk (YYYY-MM-DD). */
+  startAfterDate: string;
+  /** All of the user's vacation blocks. Moves never land inside one. */
+  vacations: VacationRange[];
+}
+
+export interface PlanRescheduleResult {
+  updates: { id: string; newDate: string }[];
+}
+
+export function planRescheduleLessons(args: PlanRescheduleArgs): PlanRescheduleResult {
+  const updates: { id: string; newDate: string }[] = [];
+
+  // Group `toReshuffle` by goal preserving input order per group.
+  const byGoal = new Map<string, { id: string }[]>();
+  for (const l of args.toReshuffle) {
+    const list = byGoal.get(l.curriculum_goal_id) ?? [];
+    list.push({ id: l.id });
+    byGoal.set(l.curriculum_goal_id, list);
+  }
+
+  for (const [goalId, lessons] of byGoal) {
+    const config = args.goalConfigs.get(goalId);
+    if (!config) continue; // can't place without config; caller's bug
+    const isoSchoolDays = schoolDayLabelsToIso(config.school_days);
+    const lpd = Math.max(1, config.lessons_per_day || 1);
+
+    // Per-goal occupancy: count `staying` lessons of this goal at each date.
+    const occupancy = new Map<string, number>();
+    for (const s of args.staying) {
+      if (s.curriculum_goal_id !== goalId) continue;
+      occupancy.set(s.date, (occupancy.get(s.date) ?? 0) + 1);
+    }
+
+    let cursor = args.startAfterDate;
+    for (const lesson of lessons) {
+      const newDate = pickNextAvailableDate({
+        fromDate: cursor,
+        schoolDays: isoSchoolDays,
+        lessonsPerDay: lpd,
+        vacations: args.vacations,
+        occupancy,
+      });
+      updates.push({ id: lesson.id, newDate });
+      // Allow stacking on the same day until lpd is hit. pickNextAvailableDate's
+      // internal cursor begins at fromDate+1, so passing `newDate-1` lets the
+      // occupancy check (not the cursor) decide reuse.
+      cursor = addDays(newDate, -1);
+    }
+  }
+
+  return { updates };
+}
+
+/**
+ * Invariant 6 enforcement helper. `curriculum_goals.completed_at` is
+ * monotonic — once set, it stays set. Returns the value to write given
+ * the current persisted value and a candidate "would set this if null"
+ * value. Use whenever code computes a new completed_at.
+ */
+export function monotonicCompletedAt(
+  prev: string | null | undefined,
+  candidate: string | null | undefined,
+): string | null {
+  if (prev) return prev;
+  return candidate ?? null;
+}
+
+/**
+ * Vercel-toggleable kill switch for the queue rescheduler. When this returns
+ * false, the trigger sites (saveVacationBlock, skipRestOfToday, wizard
+ * saveEdit reshuffle) short-circuit the lesson re-spread but still perform
+ * their primary action (insert the vacation row, save the wizard form).
+ *
+ * Set NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED=false in Vercel env vars to
+ * disable. Default 'true'. The NEXT_PUBLIC_ prefix is required because the
+ * trigger sites are client components.
+ */
+export function isQueueEnabled(): boolean {
+  return (process.env.NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED ?? "true") !== "false";
 }

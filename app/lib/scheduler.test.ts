@@ -33,7 +33,17 @@ import {
   type VacationBlock,
 } from './scheduler.ts'
 
-import { todayInTz, isoDowFromYmd, addDays } from './timezone.ts'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+import { todayInTz, isoDowFromYmd, addDays, ymdInTz } from './timezone.ts'
+import {
+  pickNextAvailableDate,
+  planRescheduleLessons,
+  monotonicCompletedAt,
+  schoolDayLabelsToIso,
+  isQueueEnabled,
+} from './scheduler.ts'
 
 test('forwardScheduleStart bumps today to tomorrow', () => {
   const today = new Date(2026, 3, 28)              // Tue Apr 28 2026
@@ -1182,39 +1192,407 @@ test('addDays handles month rollover', () => {
 })
 
 // ===========================================================================
-// Invariant placeholders — implementations land in CC #2.
-//
-// Each test.todo below corresponds to a gap between the current 47 implemented
-// tests and Invariants 1-10 in docs/CURRICULUM-SCHEDULING.md. Invariant 8 is
-// structural (one shared pickNextAvailableDate helper) and is enforced by the
-// CI grep step in .github/workflows/scheduler-tests.yml — no unit test
-// placeholder is needed for it.
+// Invariant tests (CC #2). Each test below corresponds to one of Invariants
+// 1-10 in docs/CURRICULUM-SCHEDULING.md. Invariant 8 is structural ("one
+// shared pickNextAvailableDate helper") and is verified by the targeted
+// grep tests at the very bottom of this file plus reading scheduler.ts.
 // ===========================================================================
 
-// Invariant 2 — queue scheduler ceiling (May 3 regression)
-test.todo('Invariant 2 — queue scheduler honors lessons_per_day with future start_date (160 lessons, lpd=1, school_days=Mon-Thu, start_date=2026-08-05, today=2026-05-01)')
-test.todo('Invariant 2 — vacation block insert re-spreads incomplete forwards without bunching (max per-date stays <= lessons_per_day)')
-test.todo('Invariant 2 — catch-up modal accept handles 5 missed school days without bunching (max per-date = lpd)')
+// Helper: load a source file from the repo root for static-analysis tests.
+// `npm test` and `node --test` both run from repo root so process.cwd() is
+// the right anchor.
+function loadRepoFile(relPath: string): string {
+  return readFileSync(resolve(process.cwd(), relPath), 'utf-8')
+}
 
-// Invariant 3 — backfill stays put through queue rescheduler
-test.todo('Invariant 3 — backfilled lessons unchanged after vacation block insert')
-test.todo('Invariant 3 — backfilled lessons unchanged after catch-up accept')
+// Helper: extract the body of a function declaration by name. Uses a
+// brace-depth scan so nested braces (object literals, etc.) are handled.
+function extractFunctionBody(src: string, signaturePattern: RegExp): string {
+  const m = src.match(signaturePattern)
+  if (!m) throw new Error(`function not found: ${signaturePattern}`)
+  const start = src.indexOf('{', m.index! + m[0].length - 1)
+  if (start < 0) throw new Error(`opening brace not found for ${signaturePattern}`)
+  let depth = 0
+  for (let i = start; i < src.length; i++) {
+    const ch = src[i]
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) return src.slice(start + 1, i)
+    }
+  }
+  throw new Error(`closing brace not found for ${signaturePattern}`)
+}
 
-// Invariant 6 — completed_at monotonic
-test.todo('Invariant 6 — goal.completed_at preserved when last lesson is later marked incomplete')
+// ── Invariant 2 — queue scheduler ceiling (May 3 regression) ──────────────
 
-// Invariant 7 — completion / dismiss is local
-test.todo('Invariant 7 — catch-up modal DISMISS does not write to lessons table (only updates profiles.last_catchup_dismissed_at)')
-test.todo('Invariant 7 — marking a single lesson complete leaves all other lesson dates unchanged')
+test('Invariant 2 — queue scheduler honors lessons_per_day with future start_date (160 lessons, lpd=1, school_days=Mon-Thu, start_date=2026-08-05, today=2026-05-01)', () => {
+  // Project forward from the future start_date and assert max-per-date == 1.
+  // computeNextLessonsForGoal projects from `fromDate`, which the wizard
+  // generate path seeds with `forwardScheduleStart(start_date, today)` —
+  // when start_date is in the future, that returns start_date.
+  const goal: CurriculumGoalConfig = {
+    id: 'wild-math',
+    total_lessons: 160,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu'],
+    current_lesson: 0,
+  }
+  const startDate = new Date(2026, 7, 5) // Wed Aug 5 2026
+  const projected = computeNextLessonsForGoal(goal, startDate, 365)
+  assert.ok(projected.length > 0, 'expected projection to produce lessons')
+  // First lesson lands ON the start_date (which is a Wed = school day).
+  assert.strictEqual(projected[0].date, '2026-08-05')
+  assert.strictEqual(projected[0].lesson_number, 1)
+  // No date holds more than 1 lesson.
+  const counts = new Map<string, number>()
+  for (const p of projected) counts.set(p.date, (counts.get(p.date) ?? 0) + 1)
+  for (const [d, c] of counts) assert.ok(c <= 1, `${d} has ${c} lessons (lpd=1)`)
+  // Every date is Mon-Thu.
+  for (const p of projected) {
+    const dow = isoDowFromYmd(p.date)
+    assert.ok([1, 2, 3, 4].includes(dow), `${p.date} is dow ${dow}, not Mon-Thu`)
+  }
+})
 
-// Invariant 9 — TZ-aware today
-test.todo('Invariant 9 — todayInTz returns user-local date, never server UTC clock')
-test.todo('Invariant 9 — Pacific user and Eastern user at same UTC instant (late-evening Pacific) produce different "today" dates')
-test.todo('Invariant 9 — null/missing profiles.timezone falls back to America/New_York with no crash')
+test('Invariant 2 — vacation block insert re-spreads incomplete forwards without bunching (max per-date stays <= lessons_per_day)', () => {
+  // Simulate ann13mchale's repro: 30 incomplete forward lessons, lpd=2,
+  // school_days=[Mon,Wed], a 4-week vacation that overlaps half of them.
+  // planRescheduleLessons should re-spread the in-vacation subset onto
+  // post-vacation Mon/Wed slots with max-per-date == 2.
+  const goalId = 'g1'
+  const allForward = Array.from({ length: 30 }, (_, i) => ({
+    id: `l${i + 1}`,
+    curriculum_goal_id: goalId,
+    // Every lesson dated 2026-06-01 onward, packed Mon/Wed at lpd=2.
+    // 30 lessons / 2 per day = 15 school days = 7.5 weeks.
+    date: '', // filled below
+  }))
+  // Pre-compute Mon/Wed dates and stack two lessons per date.
+  const monWed: string[] = []
+  for (let i = 0; monWed.length < 15; i++) {
+    const d = addDays('2026-05-31', i) // 2026-05-31 is Sun, walk forward
+    const dow = isoDowFromYmd(d)
+    if (dow === 1 || dow === 3) monWed.push(d)
+  }
+  for (let i = 0; i < 30; i++) allForward[i].date = monWed[Math.floor(i / 2)]
 
-// Invariant 10 — scheduled_source populated everywhere
-test.todo("Invariant 10 — wizard create writes scheduled_source='wizard_create' on every new lesson row")
-test.todo("Invariant 10 — wizard saveEdit writes scheduled_source='wizard_edit' on touched rows")
-test.todo("Invariant 10 — vacation block insert writes scheduled_source='vacation_resched' on touched rows")
-test.todo("Invariant 10 — catch-up accept writes scheduled_source='catchup_resched' on touched rows")
-test.todo('Invariant 10 — no code path leaves scheduled_source NULL after writing lessons.date')
+  // Vacation: 2026-06-15 → 2026-07-12 (4 weeks). Covers Mon/Wed in that range.
+  const vacStart = '2026-06-15'
+  const vacEnd = '2026-07-12'
+  const inVac = allForward.filter(l => l.date >= vacStart && l.date <= vacEnd)
+  const staying = allForward.filter(l => !(l.date >= vacStart && l.date <= vacEnd))
+  assert.ok(inVac.length > 0, 'expected some lessons inside the vacation')
+
+  const result = planRescheduleLessons({
+    toReshuffle: inVac.map(l => ({ id: l.id, curriculum_goal_id: l.curriculum_goal_id })),
+    staying: staying.map(s => ({ curriculum_goal_id: s.curriculum_goal_id, date: s.date })),
+    goalConfigs: new Map([[goalId, { school_days: ['Mon', 'Wed'], lessons_per_day: 2 }]]),
+    startAfterDate: vacEnd,
+    vacations: [{ start: vacStart, end: vacEnd }],
+  })
+
+  // Combine staying + new placements, count per date.
+  const after = new Map<string, number>()
+  for (const s of staying) after.set(s.date, (after.get(s.date) ?? 0) + 1)
+  for (const u of result.updates) after.set(u.newDate, (after.get(u.newDate) ?? 0) + 1)
+
+  // Max per date <= lpd = 2.
+  for (const [d, c] of after) assert.ok(c <= 2, `${d} has ${c} lessons (lpd=2)`)
+  // No new placement lands inside the vacation.
+  for (const u of result.updates) {
+    assert.ok(u.newDate > vacEnd, `${u.id} placed at ${u.newDate}, not strictly after ${vacEnd}`)
+    assert.ok(u.newDate < vacStart || u.newDate > vacEnd, `${u.id} placed inside vacation`)
+  }
+  // Every new placement is Mon or Wed (ISO 1 or 3).
+  for (const u of result.updates) {
+    const dow = isoDowFromYmd(u.newDate)
+    assert.ok([1, 3].includes(dow), `${u.newDate} is dow ${dow}, not Mon/Wed`)
+  }
+  // Every original in-vacation lesson got moved.
+  assert.strictEqual(result.updates.length, inVac.length)
+})
+
+test('Invariant 2 — catch-up modal accept handles 5 missed school days without bunching (max per-date = lpd)', () => {
+  // computeGapLessonsForGoal must list one lesson per missed school day at
+  // lpd=1, never doubling up. This is the data the catch-up modal renders
+  // and writes back via handleCatchUpSubmit (one row per checked entry).
+  const goal: CurriculumGoalConfig = {
+    id: 'g1',
+    total_lessons: 100,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 10, // mom's at lesson 10 going into the gap
+  }
+  // Gap = Mon Apr 27 .. Mon May 4 = 5 missed school days (Mon-Fri Apr 27-May 1).
+  const gapStart = new Date(2026, 3, 27) // Mon Apr 27
+  const today = new Date(2026, 4, 4)     // Mon May 4
+  const gap = computeGapLessonsForGoal(goal, gapStart, today)
+  assert.strictEqual(gap.length, 5, `expected 5 missed lessons, got ${gap.length}`)
+  // Each entry on its own date — max per-date = 1.
+  const counts = new Map<string, number>()
+  for (const g of gap) counts.set(g.date, (counts.get(g.date) ?? 0) + 1)
+  for (const [d, c] of counts) assert.strictEqual(c, 1, `${d} has ${c} entries (lpd=1)`)
+  // Lesson numbers are 11..15 in order.
+  assert.deepStrictEqual(gap.map(g => g.lesson_number), [11, 12, 13, 14, 15])
+})
+
+// ── Invariant 3 — historical backfill stays put ────────────────────────────
+
+test('Invariant 3 — backfilled lessons unchanged after vacation block insert', () => {
+  // Static analysis: saveVacationBlock must filter out is_backfill rows
+  // before passing lessons to planRescheduleLessons. The actual filter is
+  // `r.is_backfill !== true` in the client-side reducer.
+  const src = loadRepoFile('app/dashboard/plan/page.tsx')
+  const body = extractFunctionBody(src, /async function saveVacationBlock\s*\(/)
+  assert.ok(
+    body.includes('is_backfill !== true'),
+    'saveVacationBlock must filter out is_backfill rows from the re-spread',
+  )
+  // And it must operate on planRescheduleLessons (Invariant 8) so backfill
+  // exclusion logic is centralized at the input filter, not the planner.
+  assert.ok(
+    body.includes('planRescheduleLessons('),
+    'saveVacationBlock must route through planRescheduleLessons',
+  )
+})
+
+test('Invariant 3 — backfilled lessons unchanged after catch-up accept', () => {
+  // Static analysis: handleCatchUpSubmit only writes to rows it identifies
+  // by (goal_id, lesson_number) for entries the user explicitly checked.
+  // It must NOT bulk-update forward-dated lessons or scan by is_backfill,
+  // so backfilled rows are safe by construction.
+  const src = loadRepoFile('app/dashboard/page.tsx')
+  const body = extractFunctionBody(src, /async function handleCatchUpSubmit\s*\(/)
+  // Sanity: the function does call from("lessons").update — but only inside
+  // the per-entry loop, with .eq("id", ...). It does not run a bulk UPDATE.
+  assert.ok(body.includes('for (const entry of submission.done)'), 'catch-up submit must iterate per entry')
+  // And it must scope each write by id (not by goal_id + completed=false).
+  assert.ok(
+    !/\.update\([\s\S]*?\)\.eq\("curriculum_goal_id"/.test(body),
+    'catch-up submit must not run a bulk update by curriculum_goal_id',
+  )
+})
+
+// ── Invariant 6 — completed_at on goals is monotonic ──────────────────────
+
+test('Invariant 6 — goal.completed_at preserved when last lesson is later marked incomplete', () => {
+  // monotonicCompletedAt is the canonical helper enforcing this invariant.
+  // Once a value is set, it stays set even if the candidate is null.
+  const t = '2026-04-30T18:00:00Z'
+  assert.strictEqual(monotonicCompletedAt(t, null), t)
+  assert.strictEqual(monotonicCompletedAt(t, undefined), t)
+  assert.strictEqual(monotonicCompletedAt(t, '2026-05-01T18:00:00Z'), t)
+  // Null prev + valid candidate → write the candidate.
+  assert.strictEqual(monotonicCompletedAt(null, t), t)
+  // Null prev + null candidate → null.
+  assert.strictEqual(monotonicCompletedAt(null, null), null)
+})
+
+// ── Invariant 7 — completion / dismiss is local ───────────────────────────
+
+test('Invariant 7 — catch-up modal DISMISS does not write to lessons table (only updates profiles.last_catchup_dismissed_at)', () => {
+  const src = loadRepoFile('app/dashboard/page.tsx')
+  const body = extractFunctionBody(src, /async function handleCatchUpDismiss\s*\(/)
+  assert.ok(
+    !body.includes('from("lessons")'),
+    'handleCatchUpDismiss must not write to the lessons table',
+  )
+  assert.ok(
+    body.includes('last_catchup_dismissed_at'),
+    'handleCatchUpDismiss must update profiles.last_catchup_dismissed_at',
+  )
+})
+
+test('Invariant 7 — marking a single lesson complete leaves all other lesson dates unchanged', () => {
+  // confirmCheckOff is the lesson-completion handler. Its UPDATE must touch
+  // completion-related columns only — never scheduled_date or date.
+  const src = loadRepoFile('app/dashboard/page.tsx')
+  const body = extractFunctionBody(src, /async function confirmCheckOff\s*\(/)
+  // Find the lessons.update payload object literal in confirmCheckOff.
+  const updateMatch = body.match(/from\("lessons"\)\.update\(\s*\{([\s\S]*?)\}\s*\)/)
+  assert.ok(updateMatch, 'confirmCheckOff must call from("lessons").update')
+  const payload = updateMatch[1]
+  assert.ok(!/\bscheduled_date\b/.test(payload), 'confirmCheckOff payload must not include scheduled_date')
+  assert.ok(!/\bdate\b\s*:/.test(payload), 'confirmCheckOff payload must not include date')
+})
+
+// ── Invariant 9 — every "today" is in the user's timezone ─────────────────
+
+test('Invariant 9 — todayInTz returns user-local date, never server UTC clock', () => {
+  // todayInTz delegates to ymdInTz with `new Date()`. Asserting the format
+  // and the supported timezones round-trip is sufficient — the explicit
+  // pacific-vs-eastern test below covers the cross-timezone divergence.
+  const v = todayInTz('America/Los_Angeles')
+  assert.match(v, /^\d{4}-\d{2}-\d{2}$/)
+  // ymdInTz with a fixed instant must produce the same shape.
+  const ny = ymdInTz(new Date('2026-05-15T16:30:00Z'), 'America/New_York')
+  assert.strictEqual(ny, '2026-05-15')
+})
+
+test('Invariant 9 — Pacific user and Eastern user at same UTC instant (late-evening Pacific) produce different "today" dates', () => {
+  // 2026-05-04 06:30 UTC = 2026-05-03 23:30 PT (still Sun for Pacific) and
+  // 2026-05-04 02:30 ET (already Mon for Eastern). Same UTC instant, two
+  // different "today" dates depending on tz — exactly the bug Invariant 9
+  // prevents.
+  const utcInstant = new Date('2026-05-04T06:30:00Z')
+  const pacific = ymdInTz(utcInstant, 'America/Los_Angeles')
+  const eastern = ymdInTz(utcInstant, 'America/New_York')
+  assert.strictEqual(pacific, '2026-05-03')
+  assert.strictEqual(eastern, '2026-05-04')
+  assert.notStrictEqual(pacific, eastern)
+})
+
+test('Invariant 9 — null/missing profiles.timezone falls back to America/New_York with no crash', () => {
+  // Null and undefined and "" all fall back. The fallback must not crash.
+  const ref = todayInTz('America/New_York')
+  assert.strictEqual(todayInTz(null), ref)
+  assert.strictEqual(todayInTz(undefined), ref)
+  assert.strictEqual(todayInTz(''), ref)
+  // Same with the pure helper.
+  const fixed = new Date('2026-05-15T12:00:00Z')
+  assert.strictEqual(ymdInTz(fixed, null), ymdInTz(fixed, 'America/New_York'))
+  assert.strictEqual(ymdInTz(fixed, undefined), ymdInTz(fixed, 'America/New_York'))
+})
+
+// ── Invariant 10 — scheduled_source is set on every lesson date write ─────
+
+test("Invariant 10 — wizard create writes scheduled_source='wizard_create' on every new lesson row", () => {
+  const src = loadRepoFile('app/components/CurriculumWizard.tsx')
+  const body = extractFunctionBody(src, /async function generate\s*\(/)
+  // generate() has two insert paths: the main schedule rows and the
+  // backfill rows. Both must tag scheduled_source='wizard_create'.
+  const matches = (body.match(/scheduled_source:\s*"wizard_create"/g) || []).length
+  assert.ok(matches >= 2, `expected scheduled_source='wizard_create' at least twice (main + backfill); found ${matches}`)
+  // No other source label leaks into wizard create.
+  assert.ok(!body.includes('scheduled_source: "wizard_edit"'), 'generate() must not write wizard_edit')
+})
+
+test("Invariant 10 — wizard saveEdit writes scheduled_source='wizard_edit' on touched rows", () => {
+  const src = loadRepoFile('app/components/CurriculumWizard.tsx')
+  const body = extractFunctionBody(src, /async function saveEdit\s*\(/)
+  // saveEdit has three write paths that touch lesson dates: regenerate
+  // inserts, reshuffle updates, and backfill inserts. All must tag wizard_edit.
+  const matches = (body.match(/scheduled_source:\s*"wizard_edit"/g) || []).length
+  assert.ok(matches >= 3, `expected scheduled_source='wizard_edit' at least three times (regen + reshuffle + backfill); found ${matches}`)
+})
+
+test("Invariant 10 — vacation block insert writes scheduled_source='vacation_resched' on touched rows", () => {
+  const src = loadRepoFile('app/dashboard/plan/page.tsx')
+  const body = extractFunctionBody(src, /async function saveVacationBlock\s*\(/)
+  assert.ok(
+    body.includes('scheduled_source: "vacation_resched"'),
+    'saveVacationBlock must tag scheduled_source=vacation_resched on the re-spread update',
+  )
+})
+
+test("Invariant 10 — catch-up accept writes scheduled_source='catchup_resched' on touched rows", () => {
+  const src = loadRepoFile('app/dashboard/page.tsx')
+  const body = extractFunctionBody(src, /async function handleCatchUpSubmit\s*\(/)
+  // handleCatchUpSubmit writes both via UPDATE (existing row) and INSERT
+  // (fallback when the row is missing). Both must tag catchup_resched.
+  const matches = (body.match(/scheduled_source:\s*"catchup_resched"/g) || []).length
+  assert.ok(matches >= 2, `expected scheduled_source='catchup_resched' at least twice (update + insert); found ${matches}`)
+})
+
+test('Invariant 10 — no code path leaves scheduled_source NULL after writing lessons.date', () => {
+  // For each of the four post-CC#2 trigger sites, confirm that every
+  // lessons.update / lessons.insert that touches scheduled_date or date
+  // also names scheduled_source somewhere in the same payload.
+  const sites: { file: string; fn: RegExp }[] = [
+    { file: 'app/components/CurriculumWizard.tsx', fn: /async function generate\s*\(/ },
+    { file: 'app/components/CurriculumWizard.tsx', fn: /async function saveEdit\s*\(/ },
+    { file: 'app/dashboard/plan/page.tsx',          fn: /async function saveVacationBlock\s*\(/ },
+    { file: 'app/dashboard/page.tsx',               fn: /async function handleCatchUpSubmit\s*\(/ },
+    { file: 'app/dashboard/page.tsx',               fn: /async function skipRestOfToday\s*\(/ },
+  ]
+  for (const site of sites) {
+    const src = loadRepoFile(site.file)
+    const body = extractFunctionBody(src, site.fn)
+    // Find every object literal containing scheduled_date or date as a key
+    // and assert it ALSO contains scheduled_source. This is a coarse check
+    // (object-literal-aware), good enough to catch a forgotten tag.
+    const objLiterals = body.match(/\{[^{}]*\bscheduled_date\s*:[^{}]*\}/g) || []
+    for (const lit of objLiterals) {
+      // Skip TS type-annotation literals (use `: type | type` shape). These
+      // appear in `let foo: { id: string; scheduled_date: string | null; ... }`.
+      if (/:\s*(string|number|boolean|Date|null|undefined)(\s*\|\s*\w+)+/.test(lit)) continue
+      // Skip explicit clears (scheduled_date: null) — those are un-scheduling
+      // actions, not date writes that need a source label.
+      if (/scheduled_date:\s*null/.test(lit)) continue
+      assert.ok(
+        /\bscheduled_source\b/.test(lit),
+        `${site.file} ${site.fn} payload writes scheduled_date without scheduled_source: ${lit.slice(0, 200)}`,
+      )
+    }
+  }
+})
+
+// ── skipRestOfToday — explicit coverage (May 3 second buggy path) ─────────
+
+test("Invariant 10 — skipRestOfToday writes scheduled_source='skip_today' on every UPDATE", () => {
+  const src = loadRepoFile('app/dashboard/page.tsx')
+  const body = extractFunctionBody(src, /async function skipRestOfToday\s*\(/)
+  assert.ok(
+    body.includes('scheduled_source: "skip_today"'),
+    'skipRestOfToday must tag scheduled_source=skip_today on the re-spread update',
+  )
+  // And it must NOT contain a per-lesson cursor reset (the May 3 bug shape).
+  assert.ok(
+    !body.includes('const cur = new Date(today + "T12:00:00")'),
+    'skipRestOfToday must not contain the per-lesson cursor reset that caused bunching',
+  )
+})
+
+test('Invariant 8 — saveVacationBlock and skipRestOfToday route through planRescheduleLessons (no direct day-walk loops)', () => {
+  // Both pre-May-3 buggy sites must now go through the shared planner.
+  const planSrc = loadRepoFile('app/dashboard/plan/page.tsx')
+  const dashSrc = loadRepoFile('app/dashboard/page.tsx')
+  const vacBody = extractFunctionBody(planSrc, /async function saveVacationBlock\s*\(/)
+  const skipBody = extractFunctionBody(dashSrc, /async function skipRestOfToday\s*\(/)
+  assert.ok(vacBody.includes('planRescheduleLessons('), 'saveVacationBlock must call planRescheduleLessons')
+  assert.ok(skipBody.includes('planRescheduleLessons('), 'skipRestOfToday must call planRescheduleLessons')
+  // And both must honor the kill switch.
+  assert.ok(vacBody.includes('isQueueEnabled()'), 'saveVacationBlock must honor isQueueEnabled()')
+  assert.ok(skipBody.includes('isQueueEnabled()'), 'skipRestOfToday must honor isQueueEnabled()')
+})
+
+// ── pickNextAvailableDate / planRescheduleLessons unit tests ──────────────
+
+test('pickNextAvailableDate respects capacity, vacations, and school days', () => {
+  const occupancy = new Map<string, number>()
+  // Mon-Thu, lpd=2, vacation 2026-05-04 to 2026-05-08, fromDate exclusive 2026-05-01 (Fri).
+  const args = {
+    schoolDays: [1, 2, 3, 4],
+    lessonsPerDay: 2,
+    vacations: [{ start: '2026-05-04', end: '2026-05-08' }],
+    occupancy,
+  }
+  // First pick from 2026-05-01: skip Sat-Sun + the full vac week + Fri,
+  // first valid is Mon 2026-05-11.
+  assert.strictEqual(pickNextAvailableDate({ ...args, fromDate: '2026-05-01' }), '2026-05-11')
+  // Second pick from same fromDate: lpd=2 lets us stack on May 11.
+  assert.strictEqual(pickNextAvailableDate({ ...args, fromDate: '2026-05-01' }), '2026-05-11')
+  // Third pick: May 11 full, advance to next valid (Tue May 12).
+  assert.strictEqual(pickNextAvailableDate({ ...args, fromDate: '2026-05-01' }), '2026-05-12')
+})
+
+test('schoolDayLabelsToIso converts labels and falls back to Mon-Fri on empty/null', () => {
+  assert.deepStrictEqual(schoolDayLabelsToIso(['Mon', 'Wed', 'Fri']), [1, 3, 5])
+  assert.deepStrictEqual(schoolDayLabelsToIso(['Sun', 'Sat']), [7, 6])
+  assert.deepStrictEqual(schoolDayLabelsToIso(null), [1, 2, 3, 4, 5])
+  assert.deepStrictEqual(schoolDayLabelsToIso([]), [1, 2, 3, 4, 5])
+  assert.deepStrictEqual(schoolDayLabelsToIso(undefined), [1, 2, 3, 4, 5])
+})
+
+test('isQueueEnabled defaults to true when env var is unset', () => {
+  // The env var is intentionally NOT set during local test runs. The kill
+  // switch must default to true so production behavior is unaffected.
+  delete process.env.NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED
+  assert.strictEqual(isQueueEnabled(), true)
+  process.env.NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED = 'false'
+  assert.strictEqual(isQueueEnabled(), false)
+  process.env.NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED = 'true'
+  assert.strictEqual(isQueueEnabled(), true)
+  delete process.env.NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED
+})

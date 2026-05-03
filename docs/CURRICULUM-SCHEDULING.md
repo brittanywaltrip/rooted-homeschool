@@ -115,10 +115,11 @@ The scheduler may NEVER use the server's clock to compute "today." Every place t
 ### Invariant 10 — `scheduled_source` is set on every lesson write
 
 Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to one of:
-- `'wizard_create'` — initial curriculum creation
-- `'wizard_edit'` — user edits goal in wizard
+- `'wizard_create'` — initial curriculum creation (including its backfill rows)
+- `'wizard_edit'` — user edits goal in wizard (regenerate, reshuffle, or backfill)
 - `'vacation_resched'` — vacation block insert/edit
 - `'catchup_resched'` — catch-up modal accepted
+- `'skip_today'` — "skip rest of today" pushed today's incompletes forward
 - `'cleanup_sql'` — manual cleanup via SQL
 
 **Why:** the May 3 investigation took 90 minutes because every affected lesson row had `scheduled_source = NULL`. Future bugs will be identified in 5 minutes if this is populated.

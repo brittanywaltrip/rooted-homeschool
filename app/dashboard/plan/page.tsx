@@ -15,7 +15,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, computeNextLessonsForGoal, computeFinishDate, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 
@@ -300,20 +300,6 @@ function formatWeekRange(monday: Date): string {
   const start = monday.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const end   = sunday.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   return `${start} – ${end}`;
-}
-
-function countWeekdays(start: Date, end: Date): number {
-  let count = 0;
-  const cursor = new Date(start);
-  cursor.setHours(0, 0, 0, 0);
-  const endMs = new Date(end);
-  endMs.setHours(0, 0, 0, 0);
-  while (cursor <= endMs) {
-    const d = cursor.getDay();
-    if (d !== 0 && d !== 6) count++;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return count;
 }
 
 function addWeekdays(date: Date, days: number): Date {
@@ -866,42 +852,77 @@ export default function PlanPage() {
     if (error || !block) { setSavingVac(false); return; }
     setVacationBlocks((p) => [...p, block as VacationBlock]);
 
-    if (vacReschedule === "shift") {
-      const startD = new Date(vacStart + "T00:00:00");
-      const endD   = new Date(vacEnd   + "T00:00:00");
-      const shiftDays = countWeekdays(startD, endD);
-      if (shiftDays > 0) {
-        const { data: affected } = await supabase
-          .from("lessons")
-          .select("id, scheduled_date, date, curriculum_goal_id")
-          .eq("user_id", user.id)
-          .eq("completed", false)
-          .gte("scheduled_date", vacStart);
-        if (affected && affected.length > 0) {
-          // Shift each lesson forward by `shiftDays` school days, honoring
-          // the goal's own school_days rather than the Mon-Fri default (Bug 4).
-          const rows = affected as { id: string; scheduled_date: string | null; date: string | null; curriculum_goal_id: string | null }[];
-          const updates = rows.map((l) => {
-            const goal = l.curriculum_goal_id
-              ? curriculumGoals.find(g => g.id === l.curriculum_goal_id)
-              : null;
-            const schoolDays = goal?.school_days?.length
-              ? goal.school_days
-              : (profileSchoolDays.length > 0 ? profileSchoolDays : ["Mon", "Tue", "Wed", "Thu", "Fri"]);
-            const orig = l.scheduled_date ?? l.date ?? vacStart;
-            const newDate = nthSchoolDay(orig, schoolDays, shiftDays);
-            return { id: l.id, date: newDate };
+    // Re-spread incomplete forward lessons that fall INSIDE the new vacation.
+    // Lessons before vacStart, lessons after vacEnd, and backfilled rows are
+    // never touched. The kill switch (NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED=false)
+    // skips this re-spread but still keeps the vacation row above. See
+    // docs/CURRICULUM-SCHEDULING.md, May 3 regression notes.
+    if (vacReschedule === "shift" && isQueueEnabled()) {
+      // Forward-dated incomplete lessons (>= today). is_backfill rows are
+      // excluded explicitly so Invariant 3 holds even if a backfilled row
+      // ever ended up dated >= today by mistake.
+      const { data: forwardRows } = await supabase
+        .from("lessons")
+        .select("id, scheduled_date, curriculum_goal_id, lesson_number, is_backfill")
+        .eq("user_id", user.id)
+        .eq("completed", false)
+        .gte("scheduled_date", todayStr);
+      const forward = (forwardRows ?? []).filter(
+        (r) => r.curriculum_goal_id && r.scheduled_date && r.is_backfill !== true,
+      ) as { id: string; scheduled_date: string; curriculum_goal_id: string; lesson_number: number | null }[];
+
+      const inVac = forward
+        .filter((r) => r.scheduled_date >= vacStart && r.scheduled_date <= vacEnd)
+        .sort((a, b) => (a.lesson_number ?? 0) - (b.lesson_number ?? 0));
+      const staying = forward.filter(
+        (r) => !(r.scheduled_date >= vacStart && r.scheduled_date <= vacEnd),
+      );
+
+      if (inVac.length > 0) {
+        // Pull every vacation block (including the one we just inserted) so
+        // the planner never lands a moved lesson inside another break.
+        const { data: allVacs } = await supabase
+          .from("vacation_blocks")
+          .select("start_date, end_date")
+          .eq("user_id", user.id);
+        const vacRanges = (allVacs ?? []).map(
+          (v: { start_date: string; end_date: string }) => ({ start: v.start_date, end: v.end_date }),
+        );
+
+        const goalIds = new Set(inVac.map((r) => r.curriculum_goal_id));
+        const goalConfigs = new Map<string, { school_days: string[] | null; lessons_per_day: number }>();
+        for (const g of curriculumGoals) {
+          if (!goalIds.has(g.id)) continue;
+          const sd = g.school_days && g.school_days.length > 0
+            ? g.school_days
+            : (profileSchoolDays.length > 0 ? profileSchoolDays : null);
+          goalConfigs.set(g.id, {
+            school_days: sd,
+            lessons_per_day: g.lessons_per_day ?? 1,
           });
-          for (let i = 0; i < updates.length; i += 20) {
-            await Promise.all(
-              updates.slice(i, i + 20).map(({ id, date }) =>
-                supabase.from("lessons").update({ scheduled_date: date, date }).eq("id", id)
-              )
-            );
-          }
-          loadData();
-          loadAllLessons();
         }
+
+        const { updates } = planRescheduleLessons({
+          toReshuffle: inVac.map((r) => ({ id: r.id, curriculum_goal_id: r.curriculum_goal_id })),
+          staying: staying.map((r) => ({ curriculum_goal_id: r.curriculum_goal_id, date: r.scheduled_date })),
+          goalConfigs,
+          startAfterDate: vacEnd,
+          vacations: vacRanges,
+        });
+
+        for (let i = 0; i < updates.length; i += 20) {
+          await Promise.all(
+            updates.slice(i, i + 20).map(({ id, newDate }) =>
+              supabase.from("lessons").update({
+                scheduled_date: newDate,
+                date: newDate,
+                scheduled_source: "vacation_resched",
+              }).eq("id", id)
+            )
+          );
+        }
+        loadData();
+        loadAllLessons();
       }
     }
 

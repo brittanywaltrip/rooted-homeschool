@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
 import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
@@ -1261,6 +1261,7 @@ export default function TodayPage() {
           completed_at: completedAtIso,
           date: entry.date,
           scheduled_date: entry.date,
+          scheduled_source: "catchup_resched",
         }).eq("id", (existing as { id: string }).id);
       } else {
         // Fall back to insert. Title/subject hydrated from the goal so
@@ -1280,6 +1281,7 @@ export default function TodayPage() {
           completed_at: completedAtIso,
           date: entry.date,
           scheduled_date: entry.date,
+          scheduled_source: "catchup_resched",
           child_id: childId,
           subject_id: subjectId,
           minutes_spent: defaultMinutes,
@@ -1360,51 +1362,91 @@ export default function TodayPage() {
 
   async function skipRestOfToday() {
     return runReschedule(async () => {
-    // Push uncompleted lessons to next school day
-    const uncompleted = lessons.filter(l => !l.completed);
-    if (uncompleted.length === 0) return;
+      // Push today's uncompleted lessons to the next available school day.
+      // Routes through the shared `planRescheduleLessons` helper (Invariant 8)
+      // and writes `scheduled_source='skip_today'` (Invariant 10). Honors
+      // user vacation blocks and per-goal lessons_per_day capacity, fixing
+      // the pre-May-3 per-row cursor reset that bunched every uncompleted
+      // lesson onto the same next-school-day.
+      const uncompleted = lessons.filter(l => !l.completed);
+      if (uncompleted.length === 0) return;
+      if (!effectiveUserId) return;
 
-    const goalIds = [...new Set(uncompleted.map(l => l.curriculum_goal_id).filter(Boolean))] as string[];
-    const goalSchoolDays = new Map<string, Set<number>>();
-    if (goalIds.length > 0) {
-      const { data: goals } = await supabase.from("curriculum_goals")
-        .select("id, school_days").in("id", goalIds);
-      const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-      for (const g of (goals ?? [])) {
-        const days = (g as { school_days?: string[] }).school_days ?? [];
-        goalSchoolDays.set(g.id, days.length > 0 ? new Set(days.map((d: string) => dayMap[d] ?? -1)) : new Set([0, 1, 2, 3, 4]));
+      // Kill switch: skip the re-spread without touching the lessons table.
+      if (!isQueueEnabled()) return;
+
+      // Snapshot the rows BEFORE writing so undo restores precise prior state.
+      const { data: priorRows } = await supabase
+        .from("lessons")
+        .select("id, date, scheduled_date")
+        .in("id", uncompleted.map(l => l.id));
+      const snapshot = buildLessonDateSnapshot(
+        (priorRows ?? []) as { id: string; date: string | null; scheduled_date: string | null }[],
+      );
+
+      // Per-goal config (school_days + lessons_per_day) for the planner.
+      const goalIds = [...new Set(uncompleted.map(l => l.curriculum_goal_id).filter(Boolean))] as string[];
+      const { data: goalsData } = goalIds.length > 0
+        ? await supabase.from("curriculum_goals").select("id, school_days, lessons_per_day").in("id", goalIds)
+        : { data: [] };
+      const goalConfigs = new Map<string, { school_days: string[] | null; lessons_per_day: number }>();
+      for (const g of (goalsData ?? []) as { id: string; school_days: string[] | null; lessons_per_day: number | null }[]) {
+        goalConfigs.set(g.id, { school_days: g.school_days, lessons_per_day: g.lessons_per_day ?? 1 });
       }
-    }
-    const defaultDays = new Set([0, 1, 2, 3, 4]);
+      // Synthetic bucket for one-off lessons (no curriculum_goal_id) so they
+      // route through the same planner. school_days=null falls back to
+      // Mon-Fri inside the planner — matches the original `defaultDays`.
+      const NO_GOAL_KEY = "__no_goal__";
+      goalConfigs.set(NO_GOAL_KEY, { school_days: null, lessons_per_day: 1 });
 
-    // Snapshot the rows BEFORE writing so undo restores precise prior state.
-    // Today's lessons in the local `lessons` state don't carry the date
-    // columns, so fetch them.
-    const { data: priorRows } = await supabase
-      .from("lessons")
-      .select("id, date, scheduled_date")
-      .in("id", uncompleted.map(l => l.id));
-    const snapshot = buildLessonDateSnapshot((priorRows ?? []) as { id: string; date: string | null; scheduled_date: string | null }[]);
+      // User's vacation blocks — never push a moved lesson onto a break.
+      const { data: vacRaw } = await supabase
+        .from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", effectiveUserId);
+      const vacRanges = ((vacRaw ?? []) as { start_date: string; end_date: string }[])
+        .map(v => ({ start: v.start_date, end: v.end_date }));
 
-    for (const lesson of uncompleted) {
-      const activeDays = (lesson.curriculum_goal_id && goalSchoolDays.has(lesson.curriculum_goal_id))
-        ? goalSchoolDays.get(lesson.curriculum_goal_id)!
-        : defaultDays;
-      const cur = new Date(today + "T12:00:00");
-      let safety = 0;
-      while (safety < 365) {
-        cur.setDate(cur.getDate() + 1);
-        const dayIdx = (cur.getDay() + 6) % 7;
-        if (activeDays.has(dayIdx)) {
-          const newDate = localDateStr(cur);
-          await supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", lesson.id);
-          break;
-        }
-        safety++;
+      // Forward-dated incompletes that AREN'T being skipped — seeds occupancy
+      // so we don't bunch a moved lesson onto a date already at capacity.
+      const skippedIds = new Set(uncompleted.map(l => l.id));
+      const { data: stayingRows } = await supabase
+        .from("lessons")
+        .select("id, scheduled_date, curriculum_goal_id, is_backfill")
+        .eq("user_id", effectiveUserId)
+        .eq("completed", false)
+        .gt("scheduled_date", today);
+      const staying = ((stayingRows ?? []) as { id: string; scheduled_date: string | null; curriculum_goal_id: string | null; is_backfill: boolean | null }[])
+        .filter(r => r.scheduled_date && r.is_backfill !== true && !skippedIds.has(r.id))
+        .map(r => ({
+          curriculum_goal_id: r.curriculum_goal_id ?? NO_GOAL_KEY,
+          date: r.scheduled_date!,
+        }));
+
+      const { updates } = planRescheduleLessons({
+        toReshuffle: uncompleted.map(l => ({
+          id: l.id,
+          curriculum_goal_id: l.curriculum_goal_id ?? NO_GOAL_KEY,
+        })),
+        staying,
+        goalConfigs,
+        startAfterDate: today,
+        vacations: vacRanges,
+      });
+
+      for (let i = 0; i < updates.length; i += 20) {
+        await Promise.all(
+          updates.slice(i, i + 20).map(({ id, newDate }) =>
+            supabase.from("lessons").update({
+              scheduled_date: newDate,
+              date: newDate,
+              scheduled_source: "skip_today",
+            }).eq("id", id)
+          )
+        );
       }
-    }
-    setLessons(prev => prev.filter(l => l.completed));
-    showRescheduleUndo(`${uncompleted.length} lesson${uncompleted.length !== 1 ? "s" : ""} moved to next school day! Undo?`, snapshot);
+      setLessons(prev => prev.filter(l => l.completed));
+      showRescheduleUndo(`${uncompleted.length} lesson${uncompleted.length !== 1 ? "s" : ""} moved to next school day! Undo?`, snapshot);
     });
   }
 
