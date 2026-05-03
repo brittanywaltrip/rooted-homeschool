@@ -171,7 +171,9 @@ export default function LogTodayModal({
           setSaving(false);
           return;
         }
-        const signed = await signedPhotoUrl(supabase, "memory-photos", path);
+        // 10-year signed URL. Bucket is private; signed URLs are the only way to read.
+        const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
+        const signed = await signedPhotoUrl(supabase, "memory-photos", path, TEN_YEARS_SECONDS);
         photoUrl = signed ?? path;
       }
 

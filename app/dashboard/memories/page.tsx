@@ -532,7 +532,9 @@ export default function MemoriesPage() {
       const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
       const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
       if (!upErr) {
-        const signed = await signedPhotoUrl(supabase, "memory-photos", path);
+        // 10-year signed URL. Bucket is private; signed URLs are the only way to read.
+        const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
+        const signed = await signedPhotoUrl(supabase, "memory-photos", path, TEN_YEARS_SECONDS);
         photoUrl = signed ?? path;
       }
     } else if (editPhotoRemoved) {
