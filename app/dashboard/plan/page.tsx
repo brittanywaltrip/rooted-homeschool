@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar, RotateCcw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -3136,6 +3137,32 @@ export default function PlanPage() {
               />
               <span className="text-[11px] text-[#7a6f65]">Include activity hours</span>
             </label>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          PREVIOUS YEARS
+      ══════════════════════════════════════════════════ */}
+      {schoolYears.archived.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Previous Years</p>
+          <div className="flex flex-col gap-3">
+            {schoolYears.archived.map((year) => {
+              const startLabel = new Date(year.start_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+              const endLabel = new Date(year.end_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+              return (
+                <Link key={year.id} href={`/dashboard/year-end/${year.id}`}>
+                  <div className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow cursor-pointer">
+                    <div>
+                      <p className="font-medium text-gray-900">{year.name}</p>
+                      <p className="text-sm text-[#8B7E74]">{startLabel} – {endLabel}</p>
+                    </div>
+                    <span className="text-sm font-medium text-[#2D5A3D]">View Year Summary →</span>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </div>
       )}
