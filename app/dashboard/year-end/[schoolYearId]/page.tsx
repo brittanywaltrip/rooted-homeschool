@@ -466,7 +466,7 @@ export default function YearEndSummaryPage() {
                 We&apos;ll copy your subjects as a starting point. Just update the lesson count for each one and adjust anything that&apos;s changed.
               </p>
               <Link
-                href={`/dashboard/plan/new-year?from=${schoolYearId}`}
+                href="/dashboard/plan"
                 className="block w-full bg-[#2D5A3D] text-white rounded-xl py-3 font-medium text-center"
               >
                 Set Up Next Year →
