@@ -453,6 +453,9 @@ export default function PlanPage() {
   const schoolYears = useSchoolYears(effectiveUserId || null);
   const [yearView, setYearView] = useState<"this" | "next">("this");
   const [showCreateYear, setShowCreateYear] = useState(false);
+  const [showCloseYearModal, setShowCloseYearModal] = useState(false);
+  const [closingYear, setClosingYear] = useState(false);
+  const [closeYearError, setCloseYearError] = useState<string | null>(null);
   const activeYearId = schoolYears.active?.id ?? null;
   const upcomingYearId = schoolYears.upcoming?.id ?? null;
   const viewingYearId = yearView === "next" ? upcomingYearId : activeYearId;
@@ -1813,6 +1816,18 @@ export default function PlanPage() {
             }}
           >
             Next Year
+          </button>
+        </div>
+      )}
+
+      {/* ── Close This School Year (subtle text button) ──────── */}
+      {!schoolYears.loading && schoolYears.active && yearView === "this" && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => { setCloseYearError(null); setShowCloseYearModal(true); }}
+            className="text-xs text-[#8B7E74] hover:text-[#2D5A3D] underline underline-offset-2 transition-colors"
+          >
+            Close This School Year
           </button>
         </div>
       )}
@@ -3321,6 +3336,66 @@ export default function PlanPage() {
           onClose={() => setShowCreateYear(false)}
           onCreated={() => { schoolYears.reload(); setYearView("next"); }}
         />
+      )}
+      {showCloseYearModal && schoolYears.active && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-semibold text-[#2d2926]">
+              Close {schoolYears.active.name}?
+            </h3>
+            <p className="text-sm text-[#7a6f65] leading-relaxed">
+              This will archive your {schoolYears.active.name} and create your year-end summary. Your garden will reset to seeds when you start next year. This cannot be undone.
+            </p>
+            {closeYearError && (
+              <p className="text-xs text-red-600">{closeYearError}</p>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCloseYearModal(false)}
+                disabled={closingYear}
+                className="px-4 py-2 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#2d2926] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
+              >
+                Not Yet
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!schoolYears.active) return;
+                  setClosingYear(true);
+                  setCloseYearError(null);
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const tk = session?.access_token;
+                    if (!tk) throw new Error("Not signed in.");
+                    const targetId = schoolYears.active.id;
+                    const res = await fetch("/api/close-school-year", {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${tk}`,
+                      },
+                      body: JSON.stringify({ schoolYearId: targetId }),
+                    });
+                    if (!res.ok) {
+                      const j = await res.json().catch(() => ({}));
+                      throw new Error(j.error || "Failed to close school year.");
+                    }
+                    router.push(`/dashboard/year-end/${targetId}`);
+                  } catch (e) {
+                    setCloseYearError(e instanceof Error ? e.message : "Failed to close school year.");
+                    setClosingYear(false);
+                  }
+                }}
+                disabled={closingYear}
+                className="px-4 py-2 rounded-xl text-white text-sm font-medium disabled:opacity-50 transition-colors"
+                style={{ background: "var(--g-brand)" }}
+              >
+                {closingYear ? "Closing…" : "Close School Year"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {showActivityModal && (
         <ActivitySetupModal

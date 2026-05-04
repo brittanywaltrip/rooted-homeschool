@@ -282,6 +282,10 @@ export default function SettingsPage() {
   const [yearError,        setYearError]        = useState("");
   const [yearSuccessToast, setYearSuccessToast] = useState(false);
 
+  // School year history (archived years)
+  type ArchivedYear = { id: string; name: string; start_date: string; end_date: string };
+  const [archivedYears, setArchivedYears] = useState<ArchivedYear[]>([]);
+
   // Share with Family
   type FamilyInvite = {
     id: string; token: string; email: string; viewer_name: string | null;
@@ -380,6 +384,15 @@ export default function SettingsPage() {
     if (invites) {
       setFamilyInvites(invites as FamilyInvite[]);
     }
+
+    // Load archived school years
+    const { data: archived } = await supabase
+      .from("school_years")
+      .select("id, name, start_date, end_date")
+      .eq("user_id", user.id)
+      .eq("status", "archived")
+      .order("end_date", { ascending: false });
+    setArchivedYears((archived ?? []) as ArchivedYear[]);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -1969,6 +1982,37 @@ export default function SettingsPage() {
           </button>
           {passwordSuccess && <p className="text-sm font-medium text-[var(--g-brand)]">Password updated ✓</p>}
         </form>
+      </section>}
+
+      {/* ── School Year History ──────────────────────────────── */}
+      {activeTab === "account" && archivedYears.length > 0 && <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-[#2d2926]">School Year History</h2>
+          <span className="h-px flex-1 bg-[#e8e2d9]" />
+        </div>
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl divide-y divide-[#e8e2d9]">
+          {archivedYears.map((y) => {
+            const fmt = (iso: string) =>
+              new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" });
+            return (
+              <div key={y.id} className="p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[#2d2926] truncate">{y.name}</p>
+                  <p className="text-xs text-[#7a6f65] mt-0.5">
+                    {fmt(y.start_date)} – {fmt(y.end_date)}
+                  </p>
+                </div>
+                <Link
+                  href={`/dashboard/year-end/${y.id}`}
+                  className="text-sm font-medium shrink-0"
+                  style={{ color: "var(--g-accent)" }}
+                >
+                  View Year Summary →
+                </Link>
+              </div>
+            );
+          })}
+        </div>
       </section>}
 
       {/* ── Danger zone ──────────────────────────────────────── */}
