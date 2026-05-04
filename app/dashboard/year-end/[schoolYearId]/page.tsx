@@ -182,13 +182,8 @@ export default function YearEndSummaryPage() {
   }
 
   return (
-    <>
-      <style dangerouslySetInnerHTML={{ __html: `
-        @media print { .no-print { display: none !important; } body { background: white !important; } }
-      `}} />
-
-      <div className="print-page" style={{ background: "#F8F7F4", minHeight: "100vh" }}>
-        <div className="max-w-4xl mx-auto px-6 py-10">
+    <div className="print-page year-end-print-page" style={{ background: "#F8F7F4", minHeight: "100vh" }}>
+      <div className="max-w-4xl mx-auto px-6 py-10">
           <div className="flex justify-end mb-6">
             <button
               type="button"
@@ -377,6 +372,5 @@ export default function YearEndSummaryPage() {
           </section>
         </div>
       </div>
-    </>
   );
 }
