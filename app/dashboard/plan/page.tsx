@@ -3368,20 +3368,15 @@ export default function PlanPage() {
                     const { data: { session } } = await supabase.auth.getSession();
                     const tk = session?.access_token;
                     if (!tk) throw new Error("Not signed in.");
-                    const targetId = schoolYears.active.id;
-                    const res = await fetch("/api/close-school-year", {
+                    const res = await fetch("/api/school-year/new", {
                       method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${tk}`,
-                      },
-                      body: JSON.stringify({ schoolYearId: targetId }),
+                      headers: { Authorization: `Bearer ${tk}` },
                     });
-                    if (!res.ok) {
-                      const j = await res.json().catch(() => ({}));
+                    const j = await res.json().catch(() => ({}));
+                    if (!res.ok || !j.ok) {
                       throw new Error(j.error || "Failed to close school year.");
                     }
-                    router.push(`/dashboard/year-end/${targetId}`);
+                    router.push(`/dashboard/year-end/${j.schoolYearId}`);
                   } catch (e) {
                     setCloseYearError(e instanceof Error ? e.message : "Failed to close school year.");
                     setClosingYear(false);
