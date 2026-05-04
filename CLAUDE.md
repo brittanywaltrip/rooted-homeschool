@@ -38,6 +38,32 @@ The Google OAuth flow broke multiple times because these rules weren't documente
 5. Confirm you land on /dashboard (Today page)
 If any step fails, DO NOT MERGE. Diagnose, fix, re-test.
 
+## Curriculum scheduler — REQUIRED READING
+
+Before touching ANY of the following:
+- `app/lib/scheduler.ts`
+- `app/lib/scheduler.test.ts`
+- `app/components/CurriculumWizard.tsx`
+- The catch-up modal (anything referencing `last_catchup_dismissed_at`)
+- `app/api/vacation-blocks/**`
+- `app/api/lessons/**`
+- Any file with `scheduler`, `respread`, `reschedule`, `catchup` in the name
+- Any code that writes to `lessons.date` or `lessons.scheduled_date`
+- Any Supabase migration that touches `lessons` or `curriculum_goals`
+
+You MUST read `docs/CURRICULUM-SCHEDULING.md` IN FULL first. That doc is
+the single source of truth for the 10 invariants the scheduler must obey.
+The scheduler tests in `app/lib/scheduler.test.ts` enforce those invariants.
+The CI workflow `.github/workflows/scheduler-tests.yml` blocks any merge
+that breaks them.
+
+Two production regressions happened in 2026 (April 28 and May 3) because
+this rule wasn't followed. If your change touches scheduling, expect to:
+1. Read `docs/CURRICULUM-SCHEDULING.md`.
+2. Identify which invariant(s) your change affects.
+3. Run `node --test app/lib/scheduler.test.ts` locally before commit.
+4. Add a new test case if you introduce a new invariant.
+
 ## Positioning
 Memory book FIRST. Planner second. Memories lead emotionally.
 

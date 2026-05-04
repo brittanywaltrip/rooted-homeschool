@@ -1,0 +1,70 @@
+name: scheduler-tests
+
+# Runs every push that touches scheduler-related code. The job blocks
+# any merge to main if the scheduler invariants are not honored.
+#
+# DO NOT remove this workflow without updating docs/CURRICULUM-SCHEDULING.md
+# AND notifying Brittany. The bug history (April 28 + May 3, 2026) is the
+# justification for keeping it.
+
+on:
+  push:
+    paths:
+      - 'app/lib/scheduler.ts'
+      - 'app/lib/scheduler.test.ts'
+      - 'app/lib/scheduler/**'
+      - 'app/lib/timezone.ts'
+      - 'app/components/CurriculumWizard.tsx'
+      - 'app/api/vacation-blocks/**'
+      - 'app/api/lessons/**'
+      - 'docs/CURRICULUM-SCHEDULING.md'
+      - '.github/workflows/scheduler-tests.yml'
+  pull_request:
+    paths:
+      - 'app/lib/scheduler.ts'
+      - 'app/lib/scheduler.test.ts'
+      - 'app/lib/scheduler/**'
+      - 'app/lib/timezone.ts'
+      - 'app/components/CurriculumWizard.tsx'
+      - 'app/api/vacation-blocks/**'
+      - 'app/api/lessons/**'
+      - 'docs/CURRICULUM-SCHEDULING.md'
+
+jobs:
+  scheduler-tests:
+    name: Scheduler invariant tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run scheduler tests
+        # Repo uses node:test with native TypeScript support (Node 22+).
+        # If the test runner changes, update this command and the regex
+        # in the next step.
+        run: node --test app/lib/scheduler.test.ts
+
+      - name: Confirm no .todo() remain in scheduler tests
+        # Once the queue-scheduler fix is in, every test in scheduler.test.ts
+        # should be implemented. it.todo() / test.todo() entries are
+        # placeholders only and must not survive into a release. This step
+        # fails the build if any remain. node:test uses test.todo, vitest
+        # uses it.todo; the regex catches both.
+        run: |
+          if grep -nE "(it|test)\.todo" app/lib/scheduler.test.ts; then
+            echo "::error file=app/lib/scheduler.test.ts::it.todo() / test.todo() entries are not allowed in release. Implement the test or delete it."
+            exit 1
+          fi

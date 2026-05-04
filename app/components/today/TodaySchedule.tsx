@@ -77,6 +77,12 @@ type Props = {
     onLogExtra: () => void;
     onAddAppt: () => void;
     onManage: () => void;
+    // Optional. When provided AND there's at least one incomplete lesson
+    // today, render a "Running late?" pill that opens the page-owned
+    // Running Late modal. The modal exposes the "Skip the rest of today"
+    // button that pushes incomplete lessons to the next school day —
+    // dead code on staging until this trigger landed (Bug C, 2026-05-03).
+    onRunningLate?: () => void;
   };
   isPartner: boolean;
   isSchoolDay?: boolean;
@@ -162,6 +168,7 @@ export default function TodaySchedule({
   const grouped = groupItems(items, children);
   const totalItems = items.length;
   const doneItems = items.filter((i) => i.completed).length;
+  const hasIncompleteLessonToday = lessons.some((l) => !l.completed);
 
   const childrenLookup = new Map<string, { id: string; name: string; color: string | null }>(
     children.map((c) => [c.id, { id: c.id, name: c.name, color: c.color }]),
@@ -178,6 +185,16 @@ export default function TodaySchedule({
             <span className="text-[12px] text-[#b5aca4]">
               {doneItems} of {totalItems} done
             </span>
+          )}
+          {!isPartner && handlers.onRunningLate && hasIncompleteLessonToday && (
+            <button
+              type="button"
+              onClick={handlers.onRunningLate}
+              className="text-[12px] font-medium rounded-full px-3 py-1.5 transition-colors hover:bg-[#f0ede8]"
+              style={{ background: "transparent", color: "#7a6f65", border: "1px solid #e8e3dc" }}
+            >
+              Running late?
+            </button>
           )}
           <button
             type="button"

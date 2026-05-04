@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, healGoalIntegrity, forwardScheduleStart, hasScheduleFieldsChanged } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, healGoalIntegrity, forwardScheduleStart, hasScheduleFieldsChanged, planRescheduleLessons, isQueueEnabled } from "@/app/lib/scheduler";
 
 function titleCase(str: string): string {
   return str.trim().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -557,6 +557,7 @@ export default function CurriculumWizard({
       title: `${saveName} — Lesson ${n}`,
       date,
       scheduled_date: date,
+      scheduled_source: "wizard_create",
       completed: false,
       hours: 0,
       curriculum_goal_id: goalId,
@@ -673,6 +674,7 @@ export default function CurriculumWizard({
               title: `${saveName} — Lesson ${i + 1}`,
               date: dateStr,
               scheduled_date: dateStr,
+              scheduled_source: "wizard_create",
               completed: true,
               completed_at: `${dateStr}T12:00:00Z`,
               is_backfill: true,
@@ -695,6 +697,7 @@ export default function CurriculumWizard({
                 title: `${saveName} — Lesson ${lessonIdx + 1}`,
                 date: dateStr,
                 scheduled_date: dateStr,
+                scheduled_source: "wizard_create",
                 completed: true,
                 completed_at: `${dateStr}T12:00:00Z`,
                 is_backfill: true,
@@ -1037,6 +1040,7 @@ export default function CurriculumWizard({
         title: `${saveName} — Lesson ${n}`,
         date,
         scheduled_date: date,
+        scheduled_source: "wizard_edit",
         completed: false,
         hours: 0,
         curriculum_goal_id: activeGoalId,
@@ -1083,13 +1087,13 @@ export default function CurriculumWizard({
       },
     );
 
-    if (!regeneratedLessons && scheduleFieldsChanged) {
-      let futureLessons: { id: string; scheduled_date: string | null; date: string | null }[] = [];
+    if (!regeneratedLessons && scheduleFieldsChanged && isQueueEnabled()) {
+      let futureLessons: { id: string; scheduled_date: string | null; date: string | null; lesson_number: number | null }[] = [];
 
       if (activeGoalId) {
         const { data } = await supabase
           .from("lessons")
-          .select("id, scheduled_date, date")
+          .select("id, scheduled_date, date, lesson_number")
           .eq("curriculum_goal_id", activeGoalId)
           .eq("completed", false)
           .gte("scheduled_date", todayStr);
@@ -1100,7 +1104,7 @@ export default function CurriculumWizard({
       if (futureLessons.length === 0) {
         let q = supabase
           .from("lessons")
-          .select("id, scheduled_date, date")
+          .select("id, scheduled_date, date, lesson_number")
           .eq("user_id", user.id)
           .eq("completed", false)
           .ilike("title", `${editData.curricName} — Lesson%`)
@@ -1110,44 +1114,50 @@ export default function CurriculumWizard({
         futureLessons = (data ?? []) as typeof futureLessons;
       }
 
-      futureLessons.sort((a, b) =>
-        (a.scheduled_date ?? a.date ?? "").localeCompare(b.scheduled_date ?? b.date ?? "")
-      );
+      // Sort by lesson_number for stable re-spread (more reliable than
+      // scheduled_date since pre-bug rows may share dates).
+      futureLessons.sort((a, b) => (a.lesson_number ?? 0) - (b.lesson_number ?? 0));
 
-      if (futureLessons.length > 0) {
-        // Pack `perDayNumFromGoal` lessons onto each school day. The old
-        // version advanced the cursor after a single lesson regardless of
-        // perDay, producing 1-per-day density and triggering Bug 6. Also
-        // honor vacation blocks and the goal's actual school_days (Bug 4).
+      if (futureLessons.length > 0 && activeGoalId) {
+        // Route through the shared planner (Invariant 8). The cursor walk
+        // and capacity check live in scheduler.ts; this site just supplies
+        // the goal config and the lessons being moved.
         const { data: vacBlocksForReschedule } = await supabase
           .from("vacation_blocks")
           .select("start_date, end_date")
           .eq("user_id", user.id);
-        const vacList = (vacBlocksForReschedule ?? []) as { start_date: string; end_date: string }[];
+        const vacRanges = ((vacBlocksForReschedule ?? []) as { start_date: string; end_date: string }[])
+          .map(v => ({ start: v.start_date, end: v.end_date }));
 
-        const updates: { id: string; date: string }[] = [];
-        const cursor = forwardScheduleStart(startDateObj, todayMidnight);
-        let placedToday = 0;
-        let safety = 0;
-        for (const lesson of futureLessons) {
-          while (safety < 3650) {
-            const dayIdx = (cursor.getDay() + 6) % 7;
-            const dateStr = toDateStr(cursor);
-            const inVac = vacList.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
-            if (schoolDays[dayIdx] && !inVac && placedToday < perDayNumFromGoal) {
-              updates.push({ id: lesson.id, date: dateStr });
-              placedToday++;
-              break;
-            }
-            cursor.setDate(cursor.getDate() + 1);
-            placedToday = 0;
-            safety++;
-          }
-        }
+        const goalConfigs = new Map<string, { school_days: string[] | null; lessons_per_day: number }>();
+        goalConfigs.set(activeGoalId, {
+          school_days: booleanToDays(schoolDays),
+          lessons_per_day: perDayNumFromGoal,
+        });
+
+        // Compute the exclusive start cursor as one day before the first
+        // valid forward date so the planner's first placement lands on it.
+        const firstForwardDate = forwardScheduleStart(startDateObj, todayMidnight);
+        const startAfterDateObj = new Date(firstForwardDate);
+        startAfterDateObj.setDate(startAfterDateObj.getDate() - 1);
+        const startAfterDate = toDateStr(startAfterDateObj);
+
+        const { updates } = planRescheduleLessons({
+          toReshuffle: futureLessons.map(l => ({ id: l.id, curriculum_goal_id: activeGoalId! })),
+          staying: [], // saveEdit re-spreads ALL of this goal's future lessons
+          goalConfigs,
+          startAfterDate,
+          vacations: vacRanges,
+        });
+
         for (let i = 0; i < updates.length; i += 20) {
           await Promise.all(
-            updates.slice(i, i + 20).map(({ id, date }) =>
-              supabase.from("lessons").update({ scheduled_date: date, date }).eq("id", id)
+            updates.slice(i, i + 20).map(({ id, newDate }) =>
+              supabase.from("lessons").update({
+                scheduled_date: newDate,
+                date: newDate,
+                scheduled_source: "wizard_edit",
+              }).eq("id", id)
             )
           );
         }
@@ -1195,6 +1205,7 @@ export default function CurriculumWizard({
             bfInserts.push({
               user_id: user.id, child_id: editData.childId || null, subject_id: bfSubjectId,
               title: `${saveName} — Lesson ${i + 1}`, date: dateStr, scheduled_date: dateStr,
+              scheduled_source: "wizard_edit",
               completed: true, completed_at: `${dateStr}T12:00:00Z`, is_backfill: true,
               hours: perDayHours, minutes_spent: perDayMinutes,
               curriculum_goal_id: activeGoalId, lesson_number: i + 1,
@@ -1208,6 +1219,7 @@ export default function CurriculumWizard({
               bfInserts.push({
                 user_id: user.id, child_id: editData.childId || null, subject_id: bfSubjectId,
                 title: `${saveName} — Lesson ${lessonIdx + 1}`, date: dateStr, scheduled_date: dateStr,
+                scheduled_source: "wizard_edit",
                 completed: true, completed_at: `${dateStr}T12:00:00Z`, is_backfill: true,
                 hours: perDayHours, minutes_spent: perDayMinutes,
                 curriculum_goal_id: activeGoalId, lesson_number: lessonIdx + 1,
