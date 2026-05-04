@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Pencil, Trash2, Check, X, Plus, GripVertical, Camera, Sprout } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -151,6 +151,7 @@ function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string 
 export default function SettingsPage() {
   const { refreshProfile } = useProfile();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
     const tab = searchParams.get("tab");
     if (tab && ["family", "kids", "account", "partners"].includes(tab)) return tab as SettingsTab;
@@ -1090,10 +1091,10 @@ export default function SettingsPage() {
       return;
     }
 
+    const data = await res.json();
     setYearTransitioning(false);
     setShowYearModal(false);
-    setYearSuccessToast(true);
-    setTimeout(() => setYearSuccessToast(false), 6000);
+    router.push(`/dashboard/year-end/${data.schoolYearId}`);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
