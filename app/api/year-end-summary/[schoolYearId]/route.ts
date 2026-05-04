@@ -3,6 +3,24 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
+const SIGNED_URL_TTL_SECONDS = 604800; // 7 days
+
+async function refreshSignedUrl(rawUrl: string | null): Promise<string | null> {
+  if (!rawUrl) return rawUrl;
+  const marker = "/sign/memory-photos/";
+  const markerIdx = rawUrl.indexOf(marker);
+  if (markerIdx === -1) return rawUrl;
+  const start = markerIdx + marker.length;
+  const end = rawUrl.indexOf("?token=");
+  const storagePath = rawUrl.substring(start, end > -1 ? end : undefined);
+  if (!storagePath) return rawUrl;
+  const { data: signedData } = await supabaseAdmin
+    .storage
+    .from("memory-photos")
+    .createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
+  return signedData?.signedUrl ?? rawUrl;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ schoolYearId: string }> }
@@ -101,7 +119,7 @@ export async function GET(
     return NextResponse.json({ error: profileErr.message }, { status: 500 });
   }
 
-  const { data: photos, error: photosErr } = await supabaseAdmin
+  const { data: photosRaw, error: photosErr } = await supabaseAdmin
     .from("memories")
     .select("id, photo_url, title, caption, date")
     .eq("user_id", userId)
@@ -114,7 +132,14 @@ export async function GET(
     return NextResponse.json({ error: photosErr.message }, { status: 500 });
   }
 
-  const { data: curriculumGoals, error: cgErr } = await supabaseAdmin
+  const photos = await Promise.all(
+    (photosRaw ?? []).map(async (p) => ({
+      ...p,
+      photo_url: await refreshSignedUrl(p.photo_url),
+    }))
+  );
+
+  const { data: curriculumGoalsRaw, error: cgErr } = await supabaseAdmin
     .from("curriculum_goals")
     .select("id, subject_label, curriculum_name, icon_emoji")
     .eq("school_year_id", schoolYearId)
@@ -123,6 +148,13 @@ export async function GET(
   if (cgErr) {
     return NextResponse.json({ error: cgErr.message }, { status: 500 });
   }
+
+  const seenSubjects = new Set<string | null>();
+  const curriculumGoals = (curriculumGoalsRaw ?? []).filter((g) => {
+    if (seenSubjects.has(g.subject_label)) return false;
+    seenSubjects.add(g.subject_label);
+    return true;
+  });
 
   const memoryIds = (memoryRows ?? []).map((m) => m.id);
   let totalReactions = 0;
@@ -178,7 +210,7 @@ export async function GET(
       if (mem) {
         mostLovedMemory = {
           id: mem.id,
-          photo_url: mem.photo_url ?? null,
+          photo_url: await refreshSignedUrl(mem.photo_url ?? null),
           type: mem.type,
           title: mem.title ?? null,
           reaction_count: topMemoryCount,
