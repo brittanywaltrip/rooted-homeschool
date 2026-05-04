@@ -596,6 +596,12 @@ export interface CurriculumGoalConfig {
   lessons_per_day: number;
   school_days: string[] | null;
   current_lesson: number;
+  // YYYY-MM-DD. When set and strictly after `fromDate` at projection time,
+  // the projector waits for it before laying lesson 1. Goals with a future
+  // start_date were silently bypassing this gate before the May 3 hotfix —
+  // lessons would land on today and bleed into the visible range filter,
+  // showing a half-empty calendar (Bug B, 2026-05-03).
+  start_date?: string | null;
 }
 
 export interface ProjectedLesson {
@@ -677,14 +683,29 @@ export function computeNextLessonsForGoal(
   const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
   const perDay = Math.max(1, goal.lessons_per_day);
   const out: ProjectedLesson[] = [];
+
   const cursor = new Date(fromDate);
   cursor.setHours(0, 0, 0, 0);
+  const endDate = new Date(cursor);
+  endDate.setDate(endDate.getDate() + daysAhead);
+
+  // Honor goal.start_date (Bug B, 2026-05-03). If the goal hasn't begun yet,
+  // jump the cursor to start_date so lesson 1 lands on the chosen first day,
+  // not on today. The visible-range filter then keeps only the lessons that
+  // fall inside the rendered window.
+  if (goal.start_date) {
+    const startMid = new Date(goal.start_date + "T00:00:00");
+    if (startMid.getTime() > cursor.getTime()) {
+      cursor.setTime(startMid.getTime());
+    }
+  }
 
   // The "next" lesson_number is current_lesson + 1 (current_lesson is the
   // count of completed lessons; lesson_number is 1-indexed in the row).
   let nextLesson = goal.current_lesson + 1;
 
-  for (let i = 0; i < daysAhead && nextLesson <= goal.total_lessons; i++) {
+  let safety = 0;
+  while (cursor < endDate && nextLesson <= goal.total_lessons && safety < 3650) {
     if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
       const dateStr = toDateStr(cursor);
       for (let s = 0; s < perDay && nextLesson <= goal.total_lessons; s++) {
@@ -693,6 +714,7 @@ export function computeNextLessonsForGoal(
       }
     }
     cursor.setDate(cursor.getDate() + 1);
+    safety++;
   }
 
   return out;
@@ -867,8 +889,15 @@ export function pickNextAvailableDate(args: PickArgs): string {
  * caller filters them out (Invariant 3).
  */
 export interface PlanRescheduleArgs {
-  /** Lessons being moved. Order within each goal is preserved in updates. */
-  toReshuffle: { id: string; curriculum_goal_id: string }[];
+  /**
+   * Lessons being moved. Within each goal, the planner sorts by
+   * `lesson_number` ascending before placing — so calendar-date order
+   * always matches lesson_number order (Invariant 1, "Lessons NEVER appear
+   * out of order"). Entries without a lesson_number fall to the end and
+   * keep their input order; one-off lessons (no curriculum_goal_id) won't
+   * have one and route through the synthetic NO_GOAL_KEY bucket.
+   */
+  toReshuffle: { id: string; curriculum_goal_id: string; lesson_number?: number | null }[];
   /** Lessons of any goal that stay where they are; seeds per-goal occupancy. */
   staying: { curriculum_goal_id: string; date: string }[];
   /** Per-goal config keyed by curriculum_goal_id. */
@@ -886,19 +915,35 @@ export interface PlanRescheduleResult {
 export function planRescheduleLessons(args: PlanRescheduleArgs): PlanRescheduleResult {
   const updates: { id: string; newDate: string }[] = [];
 
-  // Group `toReshuffle` by goal preserving input order per group.
-  const byGoal = new Map<string, { id: string }[]>();
-  for (const l of args.toReshuffle) {
+  // Group `toReshuffle` by goal, capturing original input index so entries
+  // missing a lesson_number remain in their input order after the sort.
+  type Entry = { id: string; lesson_number: number | null; idx: number };
+  const byGoal = new Map<string, Entry[]>();
+  args.toReshuffle.forEach((l, idx) => {
     const list = byGoal.get(l.curriculum_goal_id) ?? [];
-    list.push({ id: l.id });
+    list.push({ id: l.id, lesson_number: l.lesson_number ?? null, idx });
     byGoal.set(l.curriculum_goal_id, list);
-  }
+  });
 
   for (const [goalId, lessons] of byGoal) {
     const config = args.goalConfigs.get(goalId);
     if (!config) continue; // can't place without config; caller's bug
     const isoSchoolDays = schoolDayLabelsToIso(config.school_days);
     const lpd = Math.max(1, config.lessons_per_day || 1);
+
+    // Sort by lesson_number ASC (nulls last in input order). Without this,
+    // a caller that handed in lessons in arbitrary order could place
+    // lesson 6 onto June 15 and lesson 7 onto June 16... but if lesson 7
+    // came first in the input it would land on June 15 instead, breaking
+    // Invariant 1.
+    lessons.sort((a, b) => {
+      const aHas = a.lesson_number != null;
+      const bHas = b.lesson_number != null;
+      if (aHas && bHas) return (a.lesson_number as number) - (b.lesson_number as number);
+      if (aHas) return -1;
+      if (bHas) return 1;
+      return a.idx - b.idx;
+    });
 
     // Per-goal occupancy: count `staying` lessons of this goal at each date.
     const occupancy = new Map<string, number>();

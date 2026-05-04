@@ -29,8 +29,10 @@ function LoginContent() {
 
   // OTP fallback for the recovery email — Microsoft Defender Safe Links
   // and similar scanners pre-click the magic link and consume the token,
-  // so we expose the 6-digit code Supabase emits via {{.Token}} as a
-  // scanner-immune alternative.
+  // so we expose the numeric code Supabase emits via {{.Token}} as a
+  // scanner-immune alternative. Supabase token length is configurable
+  // per project (6-10 digits); current setting emits 8. Keep maxLength
+  // generous so a future config change doesn't silently break input.
   const [otp, setOtp] = useState("");
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [otpError, setOtpError] = useState("");
@@ -304,16 +306,16 @@ function LoginContent() {
                 <div className="flex-1 h-px bg-[#e8e2d9]" />
               </div>
               <p className="text-xs text-[#7a6f65] mb-2">
-                Enter the 6-digit code from the email
+                Enter the code from the email
               </p>
               <form onSubmit={handleVerifyOtp} className="flex gap-2">
                 <input
                   type="text"
                   inputMode="numeric"
-                  maxLength={6}
+                  maxLength={10}
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-                  placeholder="123456"
+                  placeholder="12345678"
                   autoComplete="one-time-code"
                   className="flex-1 px-3 py-2.5 text-center font-mono text-base tracking-widest rounded-xl border border-[#e8e2d9] bg-white text-[#2d2926] placeholder-[#b5aca4] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition"
                 />

@@ -671,7 +671,7 @@ export default function TodayPage() {
       // Curriculum goals — full config for queue-based scheduling. The same
       // query also feeds the icon emoji + per-goal school_days lookups that
       // used to be its only purpose.
-      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time").eq("user_id", effectiveUserId),
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date").eq("user_id", effectiveUserId),
     ]);
 
     // TODO: remove after queue scheduling verified in production. The
@@ -804,6 +804,7 @@ export default function TodayPage() {
       curriculum_name: string;
       default_minutes: number;
       scheduled_start_time: string | null;
+      start_date: string | null;
     };
     const goalRows = (curriculumGoalsResult.data ?? []) as GoalRow[];
     const emojiMap = new Map<string, string>();
@@ -831,6 +832,7 @@ export default function TodayPage() {
       lessons_per_day: g.lessons_per_day,
       school_days: g.school_days,
       current_lesson: g.current_lesson,
+      start_date: g.start_date,
     }));
     const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks);
 
@@ -959,6 +961,7 @@ export default function TodayPage() {
           lessons_per_day: goal.lessons_per_day,
           school_days: goal.school_days,
           current_lesson: goal.current_lesson,
+          start_date: goal.start_date,
         };
         const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
         if (entries.length > 0) entriesByGoal.set(goal.id, entries);
@@ -1721,14 +1724,14 @@ export default function TodayPage() {
     const [{ data: goalsRaw }, { data: vacsRaw }] = await Promise.all([
       supabase
         .from("curriculum_goals")
-        .select("id, total_lessons, lessons_per_day, school_days, current_lesson, child_id, subject_label")
+        .select("id, total_lessons, lessons_per_day, school_days, current_lesson, child_id, subject_label, start_date")
         .eq("user_id", effectiveUserId),
       supabase
         .from("vacation_blocks")
         .select("start_date, end_date")
         .eq("user_id", effectiveUserId),
     ]);
-    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null; child_id: string | null; subject_label: string | null }[];
+    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null; child_id: string | null; subject_label: string | null; start_date: string | null }[];
     const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
       .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
 
@@ -1759,6 +1762,7 @@ export default function TodayPage() {
         lessons_per_day: perDay,
         school_days: g.school_days,
         current_lesson: cur,
+        start_date: g.start_date,
       };
       // 22 days ahead = today + 21 forward. Drop today's slots (those
       // are the current allocation already on the Today schedule).
@@ -2924,6 +2928,7 @@ export default function TodayPage() {
               onLogExtra: openExtraLessons,
               onManage: () => setShowManageSchedule(true),
               onAddAppt: () => setShowApptWizard(true),
+              onRunningLate: () => setShowRunningLate(true),
             }}
             noteEditor={{
               editingNoteId,

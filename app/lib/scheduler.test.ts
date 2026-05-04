@@ -1596,3 +1596,237 @@ test('isQueueEnabled defaults to true when env var is unset', () => {
   assert.strictEqual(isQueueEnabled(), true)
   delete process.env.NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED
 })
+
+// ── CC #2.5 — May 3 smoke-run regressions ─────────────────────────────────
+
+test('Invariant 1 — vacation re-spread shifts ALL future lessons of affected goals forward, not just the in-vacation lessons', () => {
+  // Repro of the SMOKE TEST goal Brittany hit on 2026-05-03:
+  //   30 lessons cached June 1 → July 10 (M-F, 1/day). Vacation June 8-14
+  //   with "Shift everything forward". Old impl reshuffled only lessons 6-10
+  //   (in-vacation) and parked them on July 13-17, AFTER lessons 11-30 that
+  //   stayed put. Lesson 6 on July 13 came AFTER lesson 30 on July 10 —
+  //   broken Invariant 1.
+  // New contract: every incomplete lesson on/after vacStart of an affected
+  // goal moves together, lesson_number order preserved.
+  const goalId = 'smoke-test'
+  // Build the cached-by-wizard date for each lesson 1..30 (Mon-Fri starting
+  // Mon 2026-06-01).
+  const cachedDates: string[] = []
+  for (let i = 0; cachedDates.length < 30; i++) {
+    const d = addDays('2026-06-01', i)
+    const dow = isoDowFromYmd(d)
+    if (dow >= 1 && dow <= 5) cachedDates.push(d)
+  }
+  const allForward = cachedDates.map((d, i) => ({
+    id: `L${i + 1}`,
+    curriculum_goal_id: goalId,
+    lesson_number: i + 1,
+    scheduled_date: d,
+  }))
+  // Sanity: lesson 6 cached on Mon 2026-06-08, lesson 30 cached on Fri 2026-07-10.
+  assert.strictEqual(allForward[5].scheduled_date, '2026-06-08')
+  assert.strictEqual(allForward[29].scheduled_date, '2026-07-10')
+
+  const vacStart = '2026-06-08'
+  const vacEnd = '2026-06-14'
+
+  // Replicate the saveVacationBlock partition under the new semantic.
+  const affectedGoalIds = new Set(
+    allForward.filter(r => r.scheduled_date >= vacStart && r.scheduled_date <= vacEnd).map(r => r.curriculum_goal_id),
+  )
+  const inVac = allForward.filter(
+    r => affectedGoalIds.has(r.curriculum_goal_id) && r.scheduled_date >= vacStart,
+  )
+  const inVacIds = new Set(inVac.map(r => r.id))
+  const staying = allForward.filter(r => !inVacIds.has(r.id))
+
+  // Sanity: 25 lessons (6..30) move; 5 lessons (1..5) stay.
+  assert.strictEqual(inVac.length, 25)
+  assert.strictEqual(staying.length, 5)
+
+  const result = planRescheduleLessons({
+    toReshuffle: inVac.map(r => ({
+      id: r.id,
+      curriculum_goal_id: r.curriculum_goal_id,
+      lesson_number: r.lesson_number,
+    })),
+    staying: staying.map(s => ({ curriculum_goal_id: s.curriculum_goal_id, date: s.scheduled_date })),
+    goalConfigs: new Map([[goalId, { school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], lessons_per_day: 1 }]]),
+    startAfterDate: addDays(vacStart, -1),
+    vacations: [{ start: vacStart, end: vacEnd }],
+  })
+
+  // Build a lookup keyed by lesson id → new date.
+  const newDateById = new Map(result.updates.map(u => [u.id, u.newDate]))
+
+  // Calendar-date order must match lesson_number order (Invariant 1).
+  // Lesson 6 → first school day strictly after vacation = Mon June 15.
+  assert.strictEqual(newDateById.get('L6'), '2026-06-15')
+  // Lesson 11 → second post-break week starts Mon June 22.
+  assert.strictEqual(newDateById.get('L11'), '2026-06-22')
+  // Lesson 30 → last lesson lands on Fri July 17 (5-school-day shift from
+  // the cached July 10).
+  assert.strictEqual(newDateById.get('L30'), '2026-07-17')
+
+  // Lessons 1-5 stay put (they were before vacStart).
+  assert.deepStrictEqual(
+    staying.map(s => s.scheduled_date),
+    ['2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04', '2026-06-05'],
+  )
+
+  // No moved lesson lands inside the break.
+  for (const u of result.updates) {
+    assert.ok(
+      u.newDate < vacStart || u.newDate > vacEnd,
+      `${u.id} placed at ${u.newDate}, inside vacation ${vacStart}..${vacEnd}`,
+    )
+  }
+  // Max-per-date <= 1 (lessons_per_day).
+  const counts = new Map<string, number>()
+  for (const u of result.updates) counts.set(u.newDate, (counts.get(u.newDate) ?? 0) + 1)
+  for (const [d, c] of counts) assert.ok(c <= 1, `${d} has ${c} lessons (lpd=1)`)
+})
+
+test('planRescheduleLessons sorts by lesson_number even when input order is shuffled', () => {
+  // The vacation re-spread sends a goal's lessons through the planner.
+  // If the caller forgot to sort by lesson_number, the planner must do it
+  // anyway — Invariant 1 cannot depend on caller hygiene.
+  const goalId = 'g1'
+  const result = planRescheduleLessons({
+    toReshuffle: [
+      // Deliberately scrambled: 30, 6, 15, 7, 20.
+      { id: 'L30', curriculum_goal_id: goalId, lesson_number: 30 },
+      { id: 'L6',  curriculum_goal_id: goalId, lesson_number: 6 },
+      { id: 'L15', curriculum_goal_id: goalId, lesson_number: 15 },
+      { id: 'L7',  curriculum_goal_id: goalId, lesson_number: 7 },
+      { id: 'L20', curriculum_goal_id: goalId, lesson_number: 20 },
+    ],
+    staying: [],
+    goalConfigs: new Map([[goalId, { school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], lessons_per_day: 1 }]]),
+    startAfterDate: addDays('2026-06-08', -1), // start at 2026-06-08
+    vacations: [],
+  })
+  // Output order should follow lesson_number ASC: L6, L7, L15, L20, L30.
+  assert.deepStrictEqual(result.updates.map(u => u.id), ['L6', 'L7', 'L15', 'L20', 'L30'])
+  // Dates climb monotonically.
+  for (let i = 1; i < result.updates.length; i++) {
+    assert.ok(
+      result.updates[i].newDate > result.updates[i - 1].newDate,
+      `${result.updates[i].id} on ${result.updates[i].newDate} should be after ${result.updates[i - 1].id} on ${result.updates[i - 1].newDate}`,
+    )
+  }
+})
+
+test('Bug B — projector respects goal.start_date for future-dated goals', () => {
+  // Repro: SMOKE TEST goal with start_date = 2026-06-01 (future), today =
+  // 2026-05-03. lessons_per_day=1, school_days=Mon-Fri, total=30.
+  // Old behavior: cursor = today → lesson 1 lands on Mon 2026-05-04, the
+  // visible Plan calendar then shows fewer June lessons than expected
+  // because lessons 1-19 are placed before start_date.
+  // New behavior: cursor jumps to start_date when start_date > fromDate.
+  const today = new Date(2026, 4, 3) // Sun May 3 2026
+  const goal: CurriculumGoalConfig = {
+    id: 'smoke-test',
+    total_lessons: 30,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 0,
+    start_date: '2026-06-01',
+  }
+  // Project 90 days from today — covers May, June, July.
+  const projected = computeNextLessonsForGoal(goal, today, 90)
+
+  // First lesson lands on the start_date (Mon June 1), NOT on May 4.
+  assert.strictEqual(projected[0].lesson_number, 1)
+  assert.strictEqual(projected[0].date, '2026-06-01')
+  // Lesson 5 → Fri June 5.
+  assert.strictEqual(projected[4].lesson_number, 5)
+  assert.strictEqual(projected[4].date, '2026-06-05')
+  // No lesson placed before start_date.
+  for (const p of projected) {
+    assert.ok(p.date >= '2026-06-01', `lesson ${p.lesson_number} on ${p.date} placed before start_date`)
+  }
+})
+
+test('Bug B — projector ignores start_date when start_date is null/undefined (legacy goals)', () => {
+  // Backward compat: goals from before the start_date column lacked it
+  // and the projector behavior must be unchanged for them.
+  const today = new Date(2026, 4, 3) // Sun May 3 2026
+  const goal: CurriculumGoalConfig = {
+    id: 'legacy',
+    total_lessons: 5,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 0,
+    start_date: null,
+  }
+  const projected = computeNextLessonsForGoal(goal, today, 14)
+  // First school day on/after Sun May 3 is Mon May 4.
+  assert.strictEqual(projected[0].date, '2026-05-04')
+})
+
+test('Bug B — projector ignores start_date when start_date is in the past (already-started goal)', () => {
+  // start_date in the past means "the family began this curriculum on that
+  // day". We don't want to rewind the cursor to the past; current_lesson
+  // is the live position.
+  const today = new Date(2026, 4, 3) // Sun May 3 2026
+  const goal: CurriculumGoalConfig = {
+    id: 'started',
+    total_lessons: 50,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 10,
+    start_date: '2026-04-01', // started a month ago
+  }
+  const projected = computeNextLessonsForGoal(goal, today, 14)
+  // First lesson is current_lesson + 1 = 11, dated on the next school day
+  // on/after today (Mon May 4).
+  assert.strictEqual(projected[0].lesson_number, 11)
+  assert.strictEqual(projected[0].date, '2026-05-04')
+})
+
+test('Bug A end-to-end — verification dates from the prompt match', () => {
+  // The four spot checks from the CC #2.5 prompt:
+  //   lesson 1 → June 1, lesson 5 → June 5,
+  //   lesson 6 → June 15 (first school day after vacation),
+  //   lesson 11 → June 22, lesson 30 → July 17.
+  // This test combines Bug B (projector start_date) and Bug A (vacation
+  // re-spread of all future lessons). Build the cache as if the wizard had
+  // already laid lessons 1-30 on June 1-July 10 with no vacation, then
+  // simulate inserting the vacation block.
+  const goalId = 'smoke-test'
+  const cachedDates: string[] = []
+  for (let i = 0; cachedDates.length < 30; i++) {
+    const d = addDays('2026-06-01', i)
+    const dow = isoDowFromYmd(d)
+    if (dow >= 1 && dow <= 5) cachedDates.push(d)
+  }
+  const allForward = cachedDates.map((d, i) => ({
+    id: `L${i + 1}`,
+    curriculum_goal_id: goalId,
+    lesson_number: i + 1,
+    scheduled_date: d,
+  }))
+  // Pre-vacation expectations (cache only).
+  assert.strictEqual(allForward[0].scheduled_date,  '2026-06-01') // lesson 1
+  assert.strictEqual(allForward[4].scheduled_date,  '2026-06-05') // lesson 5
+
+  const vacStart = '2026-06-08'
+  const vacEnd = '2026-06-14'
+  const inVac = allForward.filter(r => r.scheduled_date >= vacStart) // affected goal: all >= vacStart move
+  const staying = allForward.filter(r => r.scheduled_date < vacStart)
+
+  const result = planRescheduleLessons({
+    toReshuffle: inVac.map(r => ({ id: r.id, curriculum_goal_id: r.curriculum_goal_id, lesson_number: r.lesson_number })),
+    staying: staying.map(s => ({ curriculum_goal_id: s.curriculum_goal_id, date: s.scheduled_date })),
+    goalConfigs: new Map([[goalId, { school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], lessons_per_day: 1 }]]),
+    startAfterDate: addDays(vacStart, -1),
+    vacations: [{ start: vacStart, end: vacEnd }],
+  })
+  const newDateById = new Map(result.updates.map(u => [u.id, u.newDate]))
+
+  // Post-vacation expectations.
+  assert.strictEqual(newDateById.get('L6'),  '2026-06-15')
+  assert.strictEqual(newDateById.get('L11'), '2026-06-22')
+  assert.strictEqual(newDateById.get('L30'), '2026-07-17')
+})
