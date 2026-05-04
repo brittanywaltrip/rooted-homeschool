@@ -60,9 +60,32 @@ const BADGE_LABELS: Record<string, string> = {
   "memory-keeper": "Memory Keeper",
   "bookworm": "Bookworm",
   "rhythm": "Rhythm",
+  "flame": "On Fire",
+  "explorer": "Explorer",
 };
 
 const TIER_RANK: Record<string, number> = { gold: 3, silver: 2, bronze: 1 };
+
+function badgeDisplayName(type: string): string {
+  if (BADGE_LABELS[type]) return BADGE_LABELS[type];
+  return type
+    .split("-")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+function subjectIcon(label: string | null, icon: string | null): string {
+  if (icon && icon.trim()) return icon;
+  const l = (label || "").toLowerCase();
+  if (l.includes("math")) return "🔢";
+  if (l.includes("science")) return "🔬";
+  if (l.includes("history")) return "📖";
+  if (l.includes("art")) return "🎨";
+  if (l.includes("language") || l.includes("english") || l.includes("reading") || l.includes("writing")) return "✏️";
+  if (l.includes("music")) return "🎵";
+  if (l.includes("pe") || l.includes("physical")) return "🏃";
+  return "📚";
+}
 
 function formatRange(startISO: string, endISO: string) {
   const fmt = (iso: string) => {
@@ -160,12 +183,9 @@ export default function YearEndSummaryPage() {
 
   return (
     <>
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          body { background: white !important; }
-        }
-      `}</style>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print { .no-print { display: none !important; } body { background: white !important; } }
+      `}} />
 
       <div className="print-page" style={{ background: "#F8F7F4", minHeight: "100vh" }}>
         <div className="max-w-4xl mx-auto px-6 py-10">
@@ -252,7 +272,7 @@ export default function YearEndSummaryPage() {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        {s.icon_emoji && <span className="text-lg">{s.icon_emoji}</span>}
+                        <span className="text-lg">{subjectIcon(s.subject_label, s.icon_emoji)}</span>
                         <span style={{ color: "var(--g-deep)", fontWeight: 500 }}>
                           {s.subject_label || "Untitled subject"}
                         </span>
@@ -336,7 +356,7 @@ export default function YearEndSummaryPage() {
                     style={{ borderColor: "#e8e2d9" }}
                   >
                     <p style={{ color: "var(--g-deep)", fontWeight: 500 }}>
-                      {BADGE_LABELS[b.badge_type] || b.badge_type}
+                      {badgeDisplayName(b.badge_type)}
                     </p>
                     <p className="text-sm mt-1 capitalize" style={{ color: "#7a6f65" }}>
                       {b.tier}
