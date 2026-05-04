@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 type SchoolYear = {
@@ -17,25 +18,12 @@ type Profile = {
   last_name: string | null;
 };
 
-type Subject = {
-  id: string;
-  subject_label: string | null;
-  icon_emoji: string | null;
-  total_lessons: number;
-  default_minutes: number;
-  credits_value: number | null;
-  course_level: string | null;
-  completed_lessons: number;
-  total_minutes: number;
-};
-
 type MemoryCount = { type: string; count: number };
 type Badge = { badge_type: string; tier: string; earned_at: string | null };
 
 type SummaryData = {
   schoolYear: SchoolYear;
   profile: Profile;
-  subjects: Subject[];
   totalLessonsCompleted: number;
   totalLessonsPlanned: number;
   totalMinutes: number;
@@ -72,19 +60,6 @@ function badgeDisplayName(type: string): string {
     .split("-")
     .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
     .join(" ");
-}
-
-function subjectIcon(label: string | null, icon: string | null): string {
-  if (icon && icon.trim()) return icon;
-  const l = (label || "").toLowerCase();
-  if (l.includes("math")) return "🔢";
-  if (l.includes("science")) return "🔬";
-  if (l.includes("history")) return "📖";
-  if (l.includes("art")) return "🎨";
-  if (l.includes("language") || l.includes("english") || l.includes("reading") || l.includes("writing")) return "✏️";
-  if (l.includes("music")) return "🎵";
-  if (l.includes("pe") || l.includes("physical")) return "🏃";
-  return "📚";
 }
 
 function formatRange(startISO: string, endISO: string) {
@@ -247,62 +222,6 @@ export default function YearEndSummaryPage() {
               className="text-xl mb-4"
               style={{ fontFamily: "Lora, serif", color: "var(--g-deep)", fontWeight: 500 }}
             >
-              Subjects
-            </h2>
-            <div className="space-y-3">
-              {data.subjects.length === 0 && (
-                <p className="text-sm" style={{ color: "#7a6f65" }}>
-                  No curriculum tracked this year.
-                </p>
-              )}
-              {data.subjects.map((s) => {
-                const pct = s.total_lessons > 0
-                  ? Math.min(100, Math.round((s.completed_lessons / s.total_lessons) * 100))
-                  : 0;
-                return (
-                  <div
-                    key={s.id}
-                    className="bg-white rounded-lg p-4 border"
-                    style={{ borderColor: "#e8e2d9" }}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">{subjectIcon(s.subject_label, s.icon_emoji)}</span>
-                        <span style={{ color: "var(--g-deep)", fontWeight: 500 }}>
-                          {s.subject_label || "Untitled subject"}
-                        </span>
-                      </div>
-                      <span className="text-sm" style={{ color: "#7a6f65" }}>
-                        {s.completed_lessons} of {s.total_lessons} lessons
-                      </span>
-                    </div>
-                    {(s.credits_value != null || s.course_level) && (
-                      <div className="text-xs mb-2" style={{ color: "#7a6f65" }}>
-                        {s.credits_value != null && <span>{s.credits_value} credits</span>}
-                        {s.credits_value != null && s.course_level && <span> · </span>}
-                        {s.course_level && <span>{s.course_level}</span>}
-                      </div>
-                    )}
-                    <div
-                      className="h-2 rounded-full overflow-hidden"
-                      style={{ background: "#e8e2d9" }}
-                    >
-                      <div
-                        className="h-full"
-                        style={{ width: `${pct}%`, background: "var(--g-accent)" }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="mb-8">
-            <h2
-              className="text-xl mb-4"
-              style={{ fontFamily: "Lora, serif", color: "var(--g-deep)", fontWeight: 500 }}
-            >
               Memories captured
             </h2>
             {data.memories.filter((m) => m.count > 0).length === 0 ? (
@@ -360,6 +279,37 @@ export default function YearEndSummaryPage() {
                 ))}
               </div>
             )}
+          </section>
+
+          <section className="mb-10">
+            <h2
+              className="text-xl mb-4"
+              style={{ fontFamily: "Lora, serif", color: "var(--g-deep)", fontWeight: 500 }}
+            >
+              Your records
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Link
+                href="/dashboard/plan"
+                className="bg-white rounded-lg p-4 border block"
+                style={{ borderColor: "#e8e2d9", color: "var(--g-accent)" }}
+              >
+                <p style={{ fontWeight: 500 }}>📊 Progress Report</p>
+                <p className="text-sm mt-1" style={{ color: "#7a6f65" }}>
+                  Detailed lessons and hours by child
+                </p>
+              </Link>
+              <Link
+                href="/dashboard/transcript"
+                className="bg-white rounded-lg p-4 border block"
+                style={{ borderColor: "#e8e2d9", color: "var(--g-accent)" }}
+              >
+                <p style={{ fontWeight: 500 }}>🎓 Transcripts</p>
+                <p className="text-sm mt-1" style={{ color: "#7a6f65" }}>
+                  Courses, credits, and GPA
+                </p>
+              </Link>
+            </div>
           </section>
 
           <section className="text-center py-8">

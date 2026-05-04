@@ -3,18 +3,6 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
-type SubjectStat = {
-  id: string;
-  subject_label: string | null;
-  icon_emoji: string | null;
-  total_lessons: number;
-  default_minutes: number;
-  credits_value: number | null;
-  course_level: string | null;
-  completed_lessons: number;
-  total_minutes: number;
-};
-
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ schoolYearId: string }> }
@@ -39,58 +27,37 @@ export async function GET(
     return NextResponse.json({ error: "School year not found" }, { status: 404 });
   }
 
+  const { data: completedLessons, error: lessonsErr } = await supabaseAdmin
+    .from("lessons")
+    .select("minutes_spent")
+    .eq("user_id", userId)
+    .eq("school_year_id", schoolYearId)
+    .eq("completed", true);
+
+  if (lessonsErr) {
+    return NextResponse.json({ error: lessonsErr.message }, { status: 500 });
+  }
+
+  const totalLessonsCompleted = completedLessons?.length ?? 0;
+  const totalMinutes = (completedLessons ?? []).reduce(
+    (sum, l) => sum + (l.minutes_spent ?? 0),
+    0
+  );
+
   const { data: goals, error: goalsErr } = await supabaseAdmin
     .from("curriculum_goals")
-    .select("id, subject_label, icon_emoji, total_lessons, default_minutes, credits_value, course_level")
-    .eq("school_year_id", schoolYearId)
+    .select("total_lessons")
     .eq("user_id", userId)
-    .order("subject_label", { ascending: true });
+    .eq("school_year_id", schoolYearId);
 
   if (goalsErr) {
     return NextResponse.json({ error: goalsErr.message }, { status: 500 });
   }
 
-  const goalIds = (goals ?? []).map((g) => g.id);
-  let lessonsByGoal = new Map<string, { completed: number; minutes: number }>();
-
-  if (goalIds.length > 0) {
-    const { data: lessons, error: lessonsErr } = await supabaseAdmin
-      .from("lessons")
-      .select("curriculum_goal_id, completed, minutes_spent")
-      .in("curriculum_goal_id", goalIds)
-      .eq("user_id", userId);
-
-    if (lessonsErr) {
-      return NextResponse.json({ error: lessonsErr.message }, { status: 500 });
-    }
-
-    for (const l of lessons ?? []) {
-      if (!l.completed || !l.curriculum_goal_id) continue;
-      const cur = lessonsByGoal.get(l.curriculum_goal_id) ?? { completed: 0, minutes: 0 };
-      cur.completed += 1;
-      cur.minutes += l.minutes_spent ?? 0;
-      lessonsByGoal.set(l.curriculum_goal_id, cur);
-    }
-  }
-
-  const subjects: SubjectStat[] = (goals ?? []).map((g) => {
-    const stats = lessonsByGoal.get(g.id) ?? { completed: 0, minutes: 0 };
-    return {
-      id: g.id,
-      subject_label: g.subject_label,
-      icon_emoji: g.icon_emoji,
-      total_lessons: g.total_lessons ?? 0,
-      default_minutes: g.default_minutes ?? 0,
-      credits_value: (g as { credits_value?: number | null }).credits_value ?? null,
-      course_level: (g as { course_level?: string | null }).course_level ?? null,
-      completed_lessons: stats.completed,
-      total_minutes: stats.minutes,
-    };
-  });
-
-  const totalLessonsCompleted = subjects.reduce((sum, s) => sum + s.completed_lessons, 0);
-  const totalLessonsPlanned = subjects.reduce((sum, s) => sum + s.total_lessons, 0);
-  const totalMinutes = subjects.reduce((sum, s) => sum + s.total_minutes, 0);
+  const totalLessonsPlanned = (goals ?? []).reduce(
+    (sum, g) => sum + (g.total_lessons ?? 0),
+    0
+  );
 
   const { data: memoryRows, error: memErr } = await supabaseAdmin
     .from("memories")
@@ -137,7 +104,6 @@ export async function GET(
   return NextResponse.json({
     schoolYear,
     profile,
-    subjects,
     totalLessonsCompleted,
     totalLessonsPlanned,
     totalMinutes,
