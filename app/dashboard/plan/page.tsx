@@ -1347,7 +1347,12 @@ export default function PlanPage() {
       const goal = curriculumGoals.find(g => g.id === lesson.curriculum_goal_id);
       if (goal?.school_days && goal.school_days.length > 0) return goal.school_days;
     }
-    return profileSchoolDays.length > 0 ? profileSchoolDays : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+    const NORMALIZE_DAY: Record<string, string> = {
+      mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun",
+    };
+    const normalize = (d: string) => NORMALIZE_DAY[d.slice(0, 3).toLowerCase()] ?? d;
+    if (profileSchoolDays.length > 0) return profileSchoolDays.map(normalize);
+    return ["Mon", "Tue", "Wed", "Thu", "Fri"];
   }
 
   /** Local alias of the shared lib helper. */
