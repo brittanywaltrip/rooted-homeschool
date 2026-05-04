@@ -1410,7 +1410,8 @@ export default function PlanPage() {
 
   /** OPTION 2 — Push schedule back N school days, fit missed lessons into vacated slots. */
   async function planPushBackNDays() {
-    const n = missedLessons.length;
+    const target = missedLessons.length > 0 ? missedLessons : (planRescheduleLesson ? [planRescheduleLesson] : []);
+    const n = target.length;
     if (n === 0) return;
 
     // Collect all future uncompleted lessons across all curricula from today forward
@@ -1421,10 +1422,12 @@ export default function PlanPage() {
       .gte("scheduled_date", todayStr)
       .order("scheduled_date", { ascending: true });
     const futureLessons = (futureRows ?? []) as { id: string; scheduled_date: string; curriculum_goal_id: string | null }[];
+    const targetIds = new Set(target.map(l => l.id));
+    const filteredFutureLessons = futureLessons.filter(l => !targetIds.has(l.id));
 
     const { updates, undoData } = libPlanPushBackNDays(
-      missedLessons,
-      futureLessons,
+      target,
+      filteredFutureLessons,
       getSchoolDaysForLesson,
       todayStr,
     );
@@ -3446,7 +3449,7 @@ export default function PlanPage() {
                         <span className="text-lg shrink-0">🗓</span>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-[#2d3a2e]">Pick a day myself</p>
-                          <p className="text-xs text-[#9a8e84] mt-0.5">Choose a school day from the calendar</p>
+                          <p className="text-xs text-[#9a8e84] mt-0.5">Choose any date, adds regardless of other lessons</p>
                         </div>
                         <span className="text-[#c8bfb5] text-base shrink-0">{planReschedulePicker ? "⌄" : "›"}</span>
                       </button>
@@ -3461,7 +3464,7 @@ export default function PlanPage() {
                           <button
                             onClick={() => {
                               if (!planReschedulePickerDate || planReschedulePickerDate < todayStr) return;
-                              planRescheduleMoveTo(planReschedulePickerDate);
+                              planRescheduleMoveTo(planReschedulePickerDate, true);
                             }}
                             disabled={!planReschedulePickerDate || planReschedulePickerDate < todayStr}
                             className="px-5 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-[var(--g-deep)] transition-colors"
