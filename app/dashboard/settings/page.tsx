@@ -279,6 +279,7 @@ export default function SettingsPage() {
 
   // School year transition
   const [showYearModal,    setShowYearModal]    = useState(false);
+  const [yearConfirmInput, setYearConfirmInput] = useState("");
   const [yearTransitioning, setYearTransitioning] = useState(false);
   const [yearError,        setYearError]        = useState("");
   const [yearSuccessToast, setYearSuccessToast] = useState(false);
@@ -1094,6 +1095,7 @@ export default function SettingsPage() {
     const data = await res.json();
     setYearTransitioning(false);
     setShowYearModal(false);
+    setYearConfirmInput("");
     router.push(`/dashboard/year-end/${data.schoolYearId}`);
   }
 
@@ -1811,7 +1813,7 @@ export default function SettingsPage() {
 
           <button
             type="button"
-            onClick={() => { setShowYearModal(true); setYearError(""); }}
+            onClick={() => { setShowYearModal(true); setYearConfirmInput(""); setYearError(""); }}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#c8ddb8] bg-[#f0f8f0] hover:bg-[#e4f2e4] text-[var(--g-deep)] text-sm font-medium transition-colors"
           >
             <span>🌱</span>
@@ -2757,18 +2759,34 @@ export default function SettingsPage() {
                 🌱
               </div>
               <h2 className="text-lg font-bold text-[#2d2926] leading-snug">
-                Ready for a fresh start?
+                Close This School Year?
               </h2>
             </div>
 
             <p className="text-sm text-[#5c5248] leading-relaxed">
-              Your current lessons, curriculum goals, and schedule will be archived as{" "}
+              Your{" "}
               <span className="font-semibold text-[#2d2926]">
-                School Year {getCurrentSchoolYearLabel()}
-              </span>
-              . Your garden, memories, children, and family info stay exactly as they are.{" "}
-              <span className="font-medium text-[#7a6f65]">This cannot be undone.</span>
+                {getCurrentSchoolYearLabel()}
+              </span>{" "}
+              school year will be saved and closed. Your lessons, garden, memories, and family info are all kept. You can set up next year&apos;s curriculum on the next screen.
             </p>
+
+            <p className="text-xs text-[#7a6f65] leading-relaxed">
+              If you close your year by accident, contact support and we can restore it.
+            </p>
+
+            <div>
+              <label className="text-xs font-semibold text-[#7a6f65] block mb-1">
+                Type <span className="font-mono font-bold text-[#2d2926]">{getCurrentSchoolYearLabel()}</span> to confirm
+              </label>
+              <input
+                type="text"
+                value={yearConfirmInput}
+                onChange={e => setYearConfirmInput(e.target.value)}
+                placeholder={getCurrentSchoolYearLabel()}
+                className="w-full border border-[#d4cfc9] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#5c7f63]"
+              />
+            </div>
 
             {yearError && (
               <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
@@ -2778,7 +2796,7 @@ export default function SettingsPage() {
 
             <div className="flex gap-3 pt-1">
               <button
-                onClick={() => { setShowYearModal(false); setYearError(""); }}
+                onClick={() => { setShowYearModal(false); setYearConfirmInput(""); setYearError(""); }}
                 disabled={yearTransitioning}
                 className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
               >
@@ -2786,10 +2804,12 @@ export default function SettingsPage() {
               </button>
               <button
                 onClick={startNewSchoolYear}
-                disabled={yearTransitioning}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                disabled={yearTransitioning || yearConfirmInput.trim() !== getCurrentSchoolYearLabel()}
+                className={`flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors ${
+                  yearConfirmInput.trim() !== getCurrentSchoolYearLabel() ? "opacity-50 cursor-not-allowed" : ""
+                }`}
               >
-                {yearTransitioning ? "Archiving…" : "Archive & Start Fresh →"}
+                {yearTransitioning ? "Closing…" : `Close ${getCurrentSchoolYearLabel()} →`}
               </button>
             </div>
           </div>
