@@ -18,6 +18,7 @@ on:
       - 'app/api/vacation-blocks/**'
       - 'app/api/lessons/**'
       - 'docs/CURRICULUM-SCHEDULING.md'
+      - 'scripts/cleanup-bunched-lessons*.ts'
       - '.github/workflows/scheduler-tests.yml'
   pull_request:
     paths:
@@ -29,6 +30,7 @@ on:
       - 'app/api/vacation-blocks/**'
       - 'app/api/lessons/**'
       - 'docs/CURRICULUM-SCHEDULING.md'
+      - 'scripts/cleanup-bunched-lessons*.ts'
 
 jobs:
   scheduler-tests:
@@ -56,6 +58,11 @@ jobs:
         # If the test runner changes, update this command and the regex
         # in the next step.
         run: node --test app/lib/scheduler.test.ts
+
+      - name: Run cleanup-bunched-lessons tests
+        # The cleanup script mirrors planRescheduleLessons; its tests guard
+        # against the cleanup re-bunching the same dates the live code would.
+        run: node --test scripts/cleanup-bunched-lessons.test.ts
 
       - name: Confirm no .todo() remain in scheduler tests
         # Once the queue-scheduler fix is in, every test in scheduler.test.ts
