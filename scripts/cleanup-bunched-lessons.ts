@@ -153,16 +153,33 @@ async function fetchAffectedGoalIds(): Promise<string[]> {
 }
 
 async function fetchAffectedGoalIdsFallback(): Promise<string[]> {
-  const { data: goals, error: gErr } = await supabase
-    .from('curriculum_goals')
-    .select('id, lessons_per_day')
-  if (gErr) throw gErr
+  // Paginate curriculum_goals — there are >1000 in production and PostgREST's
+  // default cap silently drops the tail, leaving lpdByGoal.get(id) undefined
+  // and falling back to lpd=1, which falsely flagged every lpd>=2 goal as
+  // bunched on the 2026-05-04 cleanup run.
   const lpdByGoal = new Map<string, number>()
-  for (const g of (goals ?? []) as { id: string; lessons_per_day: number | null }[]) {
-    lpdByGoal.set(g.id, g.lessons_per_day ?? 1)
+  const GPAGE = 1000
+  let gFrom = 0
+  for (;;) {
+    const { data: goals, error: gErr } = await supabase
+      .from('curriculum_goals')
+      .select('id, lessons_per_day')
+      .order('id', { ascending: true })
+      .range(gFrom, gFrom + GPAGE - 1)
+    if (gErr) throw gErr
+    const grows = (goals ?? []) as { id: string; lessons_per_day: number | null }[]
+    if (grows.length === 0) break
+    for (const g of grows) lpdByGoal.set(g.id, g.lessons_per_day ?? 1)
+    if (grows.length < GPAGE) break
+    gFrom += GPAGE
   }
 
   // Page through lessons in chunks to avoid the 1000-row default cap.
+  // ORDER BY id is REQUIRED for deterministic pagination -- without it,
+  // Postgres can return overlapping or skipped rows between pages, which
+  // double-counts lessons-per-date and produces false-positive bunching.
+  // (Hit 2026-05-04: post-cleanup audit reported 10 dirty goals where SQL
+  // truth said 0, all of them lpd>=2 with max_n exactly equal to lpd.)
   const PAGE = 1000
   let from = 0
   const counts = new Map<string, Map<string, number>>() // goal_id -> date -> n
@@ -173,6 +190,7 @@ async function fetchAffectedGoalIdsFallback(): Promise<string[]> {
       .eq('completed', false)
       .not('scheduled_date', 'is', null)
       .not('curriculum_goal_id', 'is', null)
+      .order('id', { ascending: true })
       .range(from, from + PAGE - 1)
     if (lErr) throw lErr
     const rows = (lessons ?? []) as Pick<LessonRow, 'curriculum_goal_id' | 'scheduled_date' | 'completed' | 'is_backfill'>[]
@@ -249,46 +267,40 @@ async function fetchIncompleteLessons(goalId: string): Promise<LessonRow[]> {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Backup table (auto-created on first non-dry-run write).
+// Backup. The table lessons_cleanup_backup_20260503 is a full schema mirror
+// of `lessons` (23 columns) and was created out-of-band before this script
+// ran. We INSERT each touched lesson's full row before its UPDATE, preserving
+// the original `id` so recovery is one statement:
+//   UPDATE lessons l SET scheduled_date = b.scheduled_date,
+//                        date           = b.date,
+//                        scheduled_source = b.scheduled_source
+//     FROM lessons_cleanup_backup_20260503 b
+//    WHERE l.id = b.id;
 // ──────────────────────────────────────────────────────────────────────────
 
-let backupTableEnsured = false
-
-async function ensureBackupTable(): Promise<void> {
-  if (backupTableEnsured) return
-  const sql = `
-    CREATE TABLE IF NOT EXISTS ${BACKUP_TABLE} (
-      backup_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-      backed_up_at timestamptz DEFAULT now(),
-      lesson_id uuid NOT NULL,
-      curriculum_goal_id uuid,
-      user_id uuid,
-      lesson_number integer,
-      date date,
-      scheduled_date date,
-      scheduled_source text
-    );
-  `
-  await rpcSql(sql)
-  backupTableEnsured = true
-}
-
-async function backupLessons(lessons: LessonRow[], userId: string): Promise<void> {
-  await ensureBackupTable()
-  const rows = lessons.map((l) => ({
-    lesson_id: l.id,
-    curriculum_goal_id: l.curriculum_goal_id,
-    user_id: userId,
-    lesson_number: l.lesson_number,
-    date: l.date,
-    scheduled_date: l.scheduled_date,
-    scheduled_source: null,
-  }))
-  const { error } = await supabase.from(BACKUP_TABLE).insert(rows)
-  if (error) {
-    throw new Error(
-      `[cleanup-bunched-lessons] backup insert failed: ${error.message}. Aborting before any UPDATE writes.`,
-    )
+async function backupLessonsByIds(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  // Fetch full rows. Page in chunks so we don't trip the URL/IN-list limit.
+  const PAGE = 100
+  for (let i = 0; i < ids.length; i += PAGE) {
+    const slice = ids.slice(i, i + PAGE)
+    const { data, error: readErr } = await supabase
+      .from('lessons')
+      .select('*')
+      .in('id', slice)
+    if (readErr) {
+      throw new Error(
+        `[cleanup-bunched-lessons] backup READ failed: ${readErr.message}. Aborting before any UPDATE writes.`,
+      )
+    }
+    const rows = data ?? []
+    if (rows.length === 0) continue
+    const { error: insErr } = await supabase.from(BACKUP_TABLE).insert(rows)
+    if (insErr) {
+      throw new Error(
+        `[cleanup-bunched-lessons] backup INSERT failed: ${insErr.message}. Aborting before any UPDATE writes.`,
+      )
+    }
   }
 }
 
@@ -367,11 +379,13 @@ async function planCleanupForGoal(goal: GoalRow): Promise<ProposedUpdate[]> {
   })
 }
 
-async function applyUpdates(updates: ProposedUpdate[], lessons: LessonRow[], userId: string): Promise<void> {
+async function applyUpdates(updates: ProposedUpdate[]): Promise<void> {
   if (updates.length === 0) return
-  await backupLessons(lessons, userId)
-  // PostgREST has no "begin/commit" exposed, so we batch UPDATEs by id.
-  // The backup write above is the rollback source if any UPDATE fails.
+  // Backup all touched lessons FIRST (full row, original id preserved).
+  // PostgREST has no "begin/commit" exposed, so we treat the backup write
+  // as the rollback source if any UPDATE fails.
+  const ids = updates.map((u) => u.lesson_id)
+  await backupLessonsByIds(ids)
   for (const u of updates) {
     const { error } = await supabase
       .from('lessons')
@@ -383,7 +397,7 @@ async function applyUpdates(updates: ProposedUpdate[], lessons: LessonRow[], use
       .eq('id', u.lesson_id)
     if (error) {
       throw new Error(
-        `[cleanup-bunched-lessons] UPDATE failed for lesson ${u.lesson_id}: ${error.message}. Backup rows are in ${BACKUP_TABLE}; recover with:\n  UPDATE lessons l SET scheduled_date = b.scheduled_date, date = b.date FROM ${BACKUP_TABLE} b WHERE l.id = b.lesson_id;`,
+        `[cleanup-bunched-lessons] UPDATE failed for lesson ${u.lesson_id}: ${error.message}. Backup rows are in ${BACKUP_TABLE}; recover with:\n  UPDATE lessons l SET date = b.date, scheduled_date = b.scheduled_date, scheduled_source = b.scheduled_source FROM ${BACKUP_TABLE} b WHERE l.id = b.id;`,
       )
     }
   }
@@ -572,8 +586,7 @@ async function main(): Promise<void> {
     console.log(fmtTable(proposed))
 
     if (!DRY_RUN) {
-      const lessons = await fetchIncompleteLessons(goal.id)
-      await applyUpdates(proposed, lessons, goal.user_id)
+      await applyUpdates(proposed)
       totalGoalsWritten++
     }
     totalUpdates += proposed.length
