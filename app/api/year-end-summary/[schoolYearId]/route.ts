@@ -61,7 +61,7 @@ export async function GET(
 
   const { data: memoryRows, error: memErr } = await supabaseAdmin
     .from("memories")
-    .select("type")
+    .select("id, type, photo_url, title")
     .eq("user_id", userId)
     .gte("date", schoolYear.start_date)
     .lte("date", schoolYear.end_date);
@@ -101,6 +101,119 @@ export async function GET(
     return NextResponse.json({ error: profileErr.message }, { status: 500 });
   }
 
+  const { data: photos, error: photosErr } = await supabaseAdmin
+    .from("memories")
+    .select("id, photo_url, title, caption, date")
+    .eq("user_id", userId)
+    .eq("type", "photo")
+    .gte("date", schoolYear.start_date)
+    .lte("date", schoolYear.end_date)
+    .order("date", { ascending: false });
+
+  if (photosErr) {
+    return NextResponse.json({ error: photosErr.message }, { status: 500 });
+  }
+
+  const { data: curriculumGoals, error: cgErr } = await supabaseAdmin
+    .from("curriculum_goals")
+    .select("id, subject_label, curriculum_name, icon_emoji")
+    .eq("school_year_id", schoolYearId)
+    .order("created_at", { ascending: true });
+
+  if (cgErr) {
+    return NextResponse.json({ error: cgErr.message }, { status: 500 });
+  }
+
+  const memoryIds = (memoryRows ?? []).map((m) => m.id);
+  let totalReactions = 0;
+  let totalComments = 0;
+  let mostLovedMemory: {
+    id: string;
+    photo_url: string | null;
+    type: string;
+    title: string | null;
+    reaction_count: number;
+  } | null = null;
+  let topComment: { body: string; commenter_name: string; created_at: string | null } | null = null;
+
+  if (memoryIds.length > 0) {
+    const [reactionsRes, commentsCountRes] = await Promise.all([
+      supabaseAdmin
+        .from("memory_reactions")
+        .select("memory_id")
+        .in("memory_id", memoryIds),
+      supabaseAdmin
+        .from("memory_comments")
+        .select("memory_id", { count: "exact", head: true })
+        .in("memory_id", memoryIds),
+    ]);
+
+    if (reactionsRes.error) {
+      return NextResponse.json({ error: reactionsRes.error.message }, { status: 500 });
+    }
+    if (commentsCountRes.error) {
+      return NextResponse.json({ error: commentsCountRes.error.message }, { status: 500 });
+    }
+
+    const reactions = reactionsRes.data ?? [];
+    totalReactions = reactions.length;
+    totalComments = commentsCountRes.count ?? 0;
+
+    const reactionCountByMemory = new Map<string, number>();
+    for (const r of reactions) {
+      reactionCountByMemory.set(r.memory_id, (reactionCountByMemory.get(r.memory_id) ?? 0) + 1);
+    }
+
+    let topMemoryId: string | null = null;
+    let topMemoryCount = 0;
+    for (const [id, count] of reactionCountByMemory.entries()) {
+      if (count > topMemoryCount) {
+        topMemoryCount = count;
+        topMemoryId = id;
+      }
+    }
+
+    if (topMemoryId) {
+      const mem = (memoryRows ?? []).find((m) => m.id === topMemoryId);
+      if (mem) {
+        mostLovedMemory = {
+          id: mem.id,
+          photo_url: mem.photo_url ?? null,
+          type: mem.type,
+          title: mem.title ?? null,
+          reaction_count: topMemoryCount,
+        };
+
+        const { data: firstComment, error: firstCommentErr } = await supabaseAdmin
+          .from("memory_comments")
+          .select("body, commenter_name, created_at")
+          .eq("memory_id", topMemoryId)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (firstCommentErr) {
+          return NextResponse.json({ error: firstCommentErr.message }, { status: 500 });
+        }
+
+        if (firstComment) {
+          topComment = {
+            body: firstComment.body,
+            commenter_name: firstComment.commenter_name,
+            created_at: firstComment.created_at,
+          };
+        }
+      }
+    }
+  }
+
+  const familyStats = {
+    total_reactions: totalReactions,
+    total_comments: totalComments,
+    most_loved_memory: mostLovedMemory,
+    top_comment: topComment,
+  };
+
   return NextResponse.json({
     schoolYear,
     profile,
@@ -109,5 +222,8 @@ export async function GET(
     totalMinutes,
     memories,
     badges: badges ?? [],
+    photos: photos ?? [],
+    curriculumGoals: curriculumGoals ?? [],
+    familyStats,
   });
 }
