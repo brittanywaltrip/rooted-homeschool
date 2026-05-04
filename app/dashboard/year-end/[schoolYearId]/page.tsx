@@ -312,6 +312,28 @@ export default function YearEndSummaryPage() {
             </div>
           </section>
 
+          {data.schoolYear.status === "archived" && (
+            <div className="no-print mb-10">
+              <div className="border border-[var(--g-accent)] rounded-2xl p-6 bg-white">
+                <h2
+                  className="text-xl mb-2"
+                  style={{ fontFamily: "Lora, serif", color: "var(--g-deep)", fontWeight: 500 }}
+                >
+                  Ready for next year?
+                </h2>
+                <p className="text-sm mb-4" style={{ color: "#7a6f65" }}>
+                  We&apos;ll copy your subjects as a starting point. Just update the lesson count for each one and adjust anything that&apos;s changed.
+                </p>
+                <Link
+                  href={`/dashboard/plan/new-year?from=${schoolYearId}`}
+                  className="block w-full bg-[var(--g-brand)] text-white rounded-xl py-3 font-medium text-center"
+                >
+                  Set Up Next Year →
+                </Link>
+              </div>
+            </div>
+          )}
+
           <section className="text-center py-8">
             <p
               className="text-base max-w-xl mx-auto"
