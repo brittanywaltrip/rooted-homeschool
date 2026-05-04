@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
@@ -21,6 +21,38 @@ type Profile = {
 type MemoryCount = { type: string; count: number };
 type Badge = { badge_type: string; tier: string; earned_at: string | null };
 
+type Photo = {
+  id: string;
+  photo_url: string | null;
+  title: string | null;
+  caption: string | null;
+  date: string | null;
+};
+
+type CurriculumGoalLite = {
+  id: string;
+  subject_label: string | null;
+  curriculum_name: string | null;
+  icon_emoji: string | null;
+};
+
+type FamilyStats = {
+  total_reactions: number;
+  total_comments: number;
+  most_loved_memory: {
+    id: string;
+    photo_url: string | null;
+    type: string;
+    title: string | null;
+    reaction_count: number;
+  } | null;
+  top_comment: {
+    body: string;
+    commenter_name: string;
+    created_at: string | null;
+  } | null;
+};
+
 type SummaryData = {
   schoolYear: SchoolYear;
   profile: Profile;
@@ -29,17 +61,20 @@ type SummaryData = {
   totalMinutes: number;
   memories: MemoryCount[];
   badges: Badge[];
+  photos?: Photo[];
+  curriculumGoals?: CurriculumGoalLite[];
+  familyStats?: FamilyStats;
 };
 
-const MEMORY_LABELS: Record<string, string> = {
-  photo: "Photos",
-  book: "Books Read",
-  field_trip: "Field Trips",
-  drawing: "Drawings",
-  project: "Projects",
-  win: "Wins",
-  quote: "Quotes",
-  activity: "Activities",
+const MEMORY_CHIP: Record<string, { emoji: string; label: string }> = {
+  photo: { emoji: "📷", label: "Photos" },
+  win: { emoji: "🏆", label: "Wins" },
+  book: { emoji: "📚", label: "Books Read" },
+  field_trip: { emoji: "🗺️", label: "Field Trips" },
+  project: { emoji: "🔨", label: "Projects" },
+  quote: { emoji: "💬", label: "Quotes" },
+  drawing: { emoji: "🎨", label: "Drawings" },
+  activity: { emoji: "⚡", label: "Activities" },
 };
 
 const BADGE_LABELS: Record<string, string> = {
@@ -65,10 +100,22 @@ function badgeDisplayName(type: string): string {
 function formatRange(startISO: string, endISO: string) {
   const fmt = (iso: string) => {
     const d = new Date(`${iso}T00:00:00`);
-    return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    return d.toLocaleDateString("en-US", { year: "numeric", month: "short" });
   };
   return `${fmt(startISO)} – ${fmt(endISO)}`;
 }
+
+const SECTION_LABEL = "text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2";
+const CHIP = "bg-[#f0f4f1] text-[#2D5A3D] rounded-full px-3 py-1 text-sm font-medium";
+
+const PRINT_CSS = `
+@media print {
+  nav, aside, [data-sidebar], .no-print { display: none !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  img { page-break-inside: avoid; }
+  body { background: white !important; }
+}
+`;
 
 export default function YearEndSummaryPage() {
   const params = useParams<{ schoolYearId: string }>();
@@ -77,6 +124,13 @@ export default function YearEndSummaryPage() {
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Rename year state
+  const [editingName, setEditingName] = useState(false);
+  const [yearName, setYearName] = useState("");
+  const [savedFlash, setSavedFlash] = useState(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,7 +154,10 @@ export default function YearEndSummaryPage() {
           return;
         }
         const json: SummaryData = await res.json();
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          setData(json);
+          setYearName(json.schoolYear.name);
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load summary.");
       } finally {
@@ -111,21 +168,30 @@ export default function YearEndSummaryPage() {
     return () => { cancelled = true; };
   }, [schoolYearId, supabase]);
 
-  const familyName = useMemo(() => {
-    if (!data) return "";
-    const first = data.profile.first_name?.trim() || "";
-    const last = data.profile.last_name?.trim() || "";
-    return `${first} ${last}`.trim();
-  }, [data]);
+  useEffect(() => {
+    if (editingName) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [editingName]);
 
-  const completionRate = useMemo(() => {
-    if (!data || data.totalLessonsPlanned === 0) return 0;
-    return Math.round((data.totalLessonsCompleted / data.totalLessonsPlanned) * 100);
+  useEffect(() => () => {
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+  }, []);
+
+  const familyFirstName = useMemo(() => {
+    if (!data) return "";
+    return data.profile.first_name?.trim() || "";
   }, [data]);
 
   const hoursLogged = useMemo(() => {
     if (!data) return "0.0";
     return (data.totalMinutes / 60).toFixed(1);
+  }, [data]);
+
+  const memoriesTotal = useMemo(() => {
+    if (!data) return 0;
+    return data.memories.reduce((sum, m) => sum + (m.count ?? 0), 0);
   }, [data]);
 
   const topBadges = useMemo(() => {
@@ -140,10 +206,31 @@ export default function YearEndSummaryPage() {
     return Array.from(byType.values());
   }, [data]);
 
+  async function saveYearName() {
+    if (!schoolYearId) { setEditingName(false); return; }
+    const trimmed = yearName.trim();
+    if (!trimmed || (data && trimmed === data.schoolYear.name)) {
+      setEditingName(false);
+      if (data && !trimmed) setYearName(data.schoolYear.name);
+      return;
+    }
+    const { error: upErr } = await supabase
+      .from("school_years")
+      .update({ name: trimmed })
+      .eq("id", schoolYearId);
+    setEditingName(false);
+    if (!upErr) {
+      setData((prev) => prev ? { ...prev, schoolYear: { ...prev.schoolYear, name: trimmed } } : prev);
+      setSavedFlash(true);
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setSavedFlash(false), 2000);
+    }
+  }
+
   if (loading) {
     return (
       <div style={{ background: "#F8F7F4", minHeight: "100vh" }} className="flex items-center justify-center">
-        <p style={{ color: "var(--g-deep)" }}>Loading your year...</p>
+        <p style={{ color: "#1a2c22" }}>Loading your year…</p>
       </div>
     );
   }
@@ -151,198 +238,266 @@ export default function YearEndSummaryPage() {
   if (error || !data) {
     return (
       <div style={{ background: "#F8F7F4", minHeight: "100vh" }} className="flex items-center justify-center">
-        <p style={{ color: "var(--g-deep)" }}>{error || "No summary available."}</p>
+        <p style={{ color: "#1a2c22" }}>{error || "No summary available."}</p>
       </div>
     );
   }
 
+  const photos = data.photos ?? [];
+  const curriculumGoals = data.curriculumGoals ?? [];
+  const familyStats = data.familyStats;
+  const memoryChips = data.memories.filter((m) => m.count > 0);
+
   return (
     <div className="print-page year-end-print-page" style={{ background: "#F8F7F4", minHeight: "100vh" }}>
-      <div className="max-w-4xl mx-auto px-6 py-10">
-          <div className="flex justify-end mb-6">
+      <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
+
+      <section className="bg-[#1a2c22] py-16 px-6">
+        <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-3">
+              Your School Year
+            </p>
+            {editingName ? (
+              <input
+                ref={renameInputRef}
+                type="text"
+                value={yearName}
+                onChange={(e) => setYearName(e.target.value)}
+                onBlur={saveYearName}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); saveYearName(); }
+                  if (e.key === "Escape") { setYearName(data.schoolYear.name); setEditingName(false); }
+                }}
+                className="text-4xl md:text-5xl bg-transparent border-b border-[#8B7E74] text-[#F8F7F4] outline-none focus:border-[#F8F7F4] mb-2 w-full"
+                style={{ fontFamily: "Georgia, serif" }}
+              />
+            ) : (
+              <h1
+                className="text-4xl md:text-5xl text-[#F8F7F4] mb-2"
+                style={{ fontFamily: "Georgia, serif" }}
+              >
+                {data.schoolYear.name}
+              </h1>
+            )}
+            {savedFlash && (
+              <p className="text-sm mb-2" style={{ color: "#9bd1a4" }}>Saved ✓</p>
+            )}
+            {familyFirstName && (
+              <p className="text-base text-[#a89e8f]">{familyFirstName} Family</p>
+            )}
+            <p className="text-sm text-[#8B7E74] mt-1">
+              {formatRange(data.schoolYear.start_date, data.schoolYear.end_date)}
+            </p>
+          </div>
+
+          <div className="no-print flex flex-wrap items-center gap-3 shrink-0">
             <button
               type="button"
               onClick={() => window.print()}
-              className="no-print px-4 py-2 rounded-md text-white text-sm"
-              style={{ background: "var(--g-brand)" }}
+              className="border border-white text-white rounded-lg px-4 py-2 text-sm hover:bg-white hover:text-[#1a2c22] transition-colors"
             >
-              Download as PDF
+              Download PDF
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditingName(true)}
+              className="text-[#a89e8f] hover:text-white text-sm transition-colors"
+            >
+              Rename Year
             </button>
           </div>
+        </div>
+      </section>
 
-          <section
-            className="rounded-lg p-8 mb-8 text-white"
-            style={{ background: "var(--g-deep)" }}
-          >
-            <img src="/rooted-logo-white.png" alt="Rooted" className="h-8 mb-6" />
-            <h1 className="text-3xl mb-2" style={{ fontFamily: "Lora, serif", fontWeight: 500 }}>
-              {data.schoolYear.name} School Year
-            </h1>
-            {familyName && (
-              <p className="text-lg mb-1" style={{ fontWeight: 400 }}>
-                {familyName} Family
-              </p>
-            )}
-            <p className="text-sm opacity-90">
-              {formatRange(data.schoolYear.start_date, data.schoolYear.end_date)}
-            </p>
-          </section>
+      <div className="max-w-5xl mx-auto px-6 py-10 space-y-12">
 
-          <section className="mb-8">
-            <h2
-              className="text-xl mb-4"
-              style={{ fontFamily: "Lora, serif", color: "var(--g-deep)", fontWeight: 500 }}
-            >
-              Year at a glance
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white rounded-lg p-6 border" style={{ borderColor: "#e8e2d9" }}>
-                <p className="text-sm" style={{ color: "#7a6f65" }}>Lessons Completed</p>
-                <p className="text-2xl mt-2" style={{ color: "var(--g-deep)", fontWeight: 500 }}>
-                  {data.totalLessonsCompleted} / {data.totalLessonsPlanned}
-                </p>
+        <section>
+          <div className="flex flex-col sm:flex-row gap-4">
+            {[
+              { value: data.totalLessonsCompleted.toLocaleString(), label: "Lessons Completed" },
+              { value: hoursLogged, label: "Hours Learning" },
+              { value: memoriesTotal.toLocaleString(), label: "Memories Captured" },
+            ].map((s) => (
+              <div key={s.label} className="flex-1 bg-[#2D5A3D] rounded-lg text-[#F8F7F4] p-6">
+                <p className="text-5xl font-bold leading-none">{s.value}</p>
+                <p className="text-sm mt-2 text-[#c8d6cb]">{s.label}</p>
               </div>
-              <div className="bg-white rounded-lg p-6 border" style={{ borderColor: "#e8e2d9" }}>
-                <p className="text-sm" style={{ color: "#7a6f65" }}>Completion Rate</p>
-                <p className="text-2xl mt-2" style={{ color: "var(--g-deep)", fontWeight: 500 }}>
-                  {completionRate}%
-                </p>
-              </div>
-              <div className="bg-white rounded-lg p-6 border" style={{ borderColor: "#e8e2d9" }}>
-                <p className="text-sm" style={{ color: "#7a6f65" }}>Hours Logged</p>
-                <p className="text-2xl mt-2" style={{ color: "var(--g-deep)", fontWeight: 500 }}>
-                  {hoursLogged}
-                </p>
-              </div>
-            </div>
-          </section>
+            ))}
+          </div>
+        </section>
 
-          <section className="mb-8">
-            <h2
-              className="text-xl mb-4"
-              style={{ fontFamily: "Lora, serif", color: "var(--g-deep)", fontWeight: 500 }}
-            >
-              Memories captured
-            </h2>
-            {data.memories.filter((m) => m.count > 0).length === 0 ? (
-              <p className="text-sm" style={{ color: "#7a6f65" }}>
-                No memories captured this year yet.
-              </p>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {data.memories
-                  .filter((m) => m.count > 0)
-                  .map((m) => (
-                    <div
-                      key={m.type}
-                      className="bg-white rounded-lg p-4 border text-center"
-                      style={{ borderColor: "#e8e2d9" }}
-                    >
-                      <p className="text-2xl" style={{ color: "var(--g-deep)", fontWeight: 500 }}>
-                        {m.count}
-                      </p>
-                      <p className="text-sm mt-1" style={{ color: "#7a6f65" }}>
-                        {MEMORY_LABELS[m.type] || m.type}
-                      </p>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </section>
-
-          <section className="mb-10">
-            <h2
-              className="text-xl mb-4"
-              style={{ fontFamily: "Lora, serif", color: "var(--g-deep)", fontWeight: 500 }}
-            >
-              Badges earned
-            </h2>
-            {topBadges.length === 0 ? (
-              <p className="text-sm" style={{ color: "#7a6f65" }}>
-                Keep going. Badges are earned through consistent learning!
-              </p>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {topBadges.map((b) => (
-                  <div
-                    key={b.badge_type}
-                    className="bg-white rounded-lg p-4 border"
-                    style={{ borderColor: "#e8e2d9" }}
-                  >
-                    <p style={{ color: "var(--g-deep)", fontWeight: 500 }}>
-                      {badgeDisplayName(b.badge_type)}
-                    </p>
-                    <p className="text-sm mt-1 capitalize" style={{ color: "#7a6f65" }}>
-                      {b.tier}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="mb-10">
-            <h2
-              className="text-xl mb-4"
-              style={{ fontFamily: "Lora, serif", color: "var(--g-deep)", fontWeight: 500 }}
-            >
-              Your records
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Link
-                href="/dashboard/plan"
-                className="bg-white rounded-lg p-4 border block"
-                style={{ borderColor: "#e8e2d9", color: "var(--g-accent)" }}
-              >
-                <p style={{ fontWeight: 500 }}>📊 Progress Report</p>
-                <p className="text-sm mt-1" style={{ color: "#7a6f65" }}>
-                  Detailed lessons and hours by child
-                </p>
-              </Link>
-              <Link
-                href="/dashboard/transcript"
-                className="bg-white rounded-lg p-4 border block"
-                style={{ borderColor: "#e8e2d9", color: "var(--g-accent)" }}
-              >
-                <p style={{ fontWeight: 500 }}>🎓 Transcripts</p>
-                <p className="text-sm mt-1" style={{ color: "#7a6f65" }}>
-                  Courses, credits, and GPA
-                </p>
-              </Link>
-            </div>
-          </section>
-
-          {data.schoolYear.status === "archived" && (
-            <div className="no-print mb-10">
-              <div className="border border-[var(--g-accent)] rounded-2xl p-6 bg-white">
-                <h2
-                  className="text-xl mb-2"
-                  style={{ fontFamily: "Lora, serif", color: "var(--g-deep)", fontWeight: 500 }}
-                >
-                  Ready for next year?
-                </h2>
-                <p className="text-sm mb-4" style={{ color: "#7a6f65" }}>
-                  We&apos;ll copy your subjects as a starting point. Just update the lesson count for each one and adjust anything that&apos;s changed.
-                </p>
-                <Link
-                  href={`/dashboard/plan/new-year?from=${schoolYearId}`}
-                  className="block w-full bg-[var(--g-brand)] text-white rounded-xl py-3 font-medium text-center"
-                >
-                  Set Up Next Year →
-                </Link>
-              </div>
+        <section>
+          <p className={SECTION_LABEL}>Photos from this year</p>
+          {photos.length === 0 ? (
+            <p className="text-sm text-[#8B7E74]">No photos captured this year yet.</p>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+              {photos.map((p) => (
+                p.photo_url ? (
+                  <img
+                    key={p.id}
+                    src={p.photo_url}
+                    alt={p.title ?? p.caption ?? ""}
+                    className="aspect-square object-cover rounded-lg w-full"
+                  />
+                ) : null
+              ))}
             </div>
           )}
+        </section>
 
-          <section className="text-center py-8">
-            <p
-              className="text-base max-w-xl mx-auto"
-              style={{ color: "#7a6f65", fontFamily: "Lora, serif", fontStyle: "italic" }}
-            >
-              Congratulations on completing your school year! We&apos;re so glad Rooted got to be part of it. We can&apos;t wait to see what next year brings for your family.
-            </p>
+        {familyStats?.most_loved_memory && familyStats.most_loved_memory.photo_url && (
+          <section>
+            <p className={SECTION_LABEL}>Your family&apos;s most loved moment</p>
+            <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-col md:flex-row gap-5">
+              <img
+                src={familyStats.most_loved_memory.photo_url}
+                alt={familyStats.most_loved_memory.title ?? ""}
+                className="rounded-lg max-w-[280px] w-full object-cover"
+              />
+              <div className="flex-1 min-w-0 flex flex-col justify-center gap-3">
+                <div className="flex flex-wrap gap-2">
+                  <span className={CHIP}>❤️ {familyStats.total_reactions} reactions</span>
+                  <span className={CHIP}>💬 {familyStats.total_comments} comments</span>
+                </div>
+                {familyStats.top_comment && (
+                  <blockquote
+                    className="text-base text-[#1a2c22] italic"
+                    style={{ fontFamily: "Georgia, serif" }}
+                  >
+                    “{familyStats.top_comment.body}”
+                    <footer className="not-italic text-sm text-[#8B7E74] mt-2" style={{ fontFamily: "inherit" }}>
+                      — {familyStats.top_comment.commenter_name}
+                    </footer>
+                  </blockquote>
+                )}
+              </div>
+            </div>
           </section>
-        </div>
+        )}
+
+        <section>
+          <p className={SECTION_LABEL}>A year in moments</p>
+          {memoryChips.length === 0 ? (
+            <p className="text-sm text-[#8B7E74]">No memories captured this year yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {memoryChips.map((m) => {
+                const meta = MEMORY_CHIP[m.type] ?? { emoji: "✨", label: m.type };
+                return (
+                  <span key={m.type} className={CHIP}>
+                    {meta.emoji} {m.count} {meta.label}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {curriculumGoals.length > 0 && (
+          <section>
+            <p className={SECTION_LABEL}>What they studied</p>
+            <div className="flex flex-wrap gap-2">
+              {curriculumGoals.map((g) => (
+                <span key={g.id} className={CHIP}>
+                  {g.icon_emoji ?? "📚"} {g.subject_label ?? g.curriculum_name ?? "Subject"}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section>
+          <p className={SECTION_LABEL}>Badges earned</p>
+          {topBadges.length === 0 ? (
+            <p className="text-sm text-[#8B7E74]">
+              Keep going. Badges are earned through consistent learning!
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {topBadges.map((b) => (
+                <div
+                  key={b.badge_type}
+                  className="bg-white rounded-lg border border-gray-200 p-4"
+                >
+                  <p className="text-[#1a2c22] font-medium">
+                    {badgeDisplayName(b.badge_type)}
+                  </p>
+                  <p className="text-sm mt-1 capitalize text-[#8B7E74]">
+                    {b.tier}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section>
+          <p className={SECTION_LABEL}>Your records</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              { href: "/dashboard/plan", label: "Progress Report" },
+              { href: "/dashboard/transcript", label: "Transcripts" },
+              { href: "/dashboard/memories/yearbook/edit", label: "Yearbook" },
+            ].map((r) => (
+              <Link
+                key={r.href}
+                href={r.href}
+                className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-sm flex items-center justify-between transition-shadow"
+              >
+                <span className="text-[#1a2c22] font-medium">{r.label}</span>
+                <span className="text-[#8B7E74]">→</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {data.schoolYear.status === "archived" && (
+          <section className="no-print">
+            <div className="border border-[#5c7f63] rounded-2xl p-6 bg-white">
+              <h2
+                className="text-xl mb-2 text-[#1a2c22]"
+                style={{ fontFamily: "Georgia, serif", fontWeight: 500 }}
+              >
+                Ready for next year?
+              </h2>
+              <p className="text-sm mb-4 text-[#8B7E74]">
+                We&apos;ll copy your subjects as a starting point. Just update the lesson count for each one and adjust anything that&apos;s changed.
+              </p>
+              <Link
+                href={`/dashboard/plan/new-year?from=${schoolYearId}`}
+                className="block w-full bg-[#2D5A3D] text-white rounded-xl py-3 font-medium text-center"
+              >
+                Set Up Next Year →
+              </Link>
+            </div>
+          </section>
+        )}
+
+        <section className="text-center py-12">
+          <p
+            className="text-base max-w-xl mx-auto italic text-[#1a2c22]"
+            style={{ fontFamily: "Georgia, serif" }}
+          >
+            Every lesson, every memory, every moment. This was your year.
+          </p>
+          <p className="text-sm text-[#8B7E74] mt-3">
+            Rooted. Capturing the life you&apos;re already living.
+          </p>
+        </section>
       </div>
+
+      <div className="no-print bg-[#1a2c22] py-4 px-6 flex items-center justify-between">
+        <p className="text-[#F8F7F4] text-sm">Save this year forever</p>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="border border-white text-white rounded-lg px-4 py-2 text-sm hover:bg-white hover:text-[#1a2c22] transition-colors"
+        >
+          Download PDF
+        </button>
+      </div>
+    </div>
   );
 }
