@@ -153,7 +153,6 @@ export default function YearEndPrintPage() {
   const [erroredPhotos, setErroredPhotos] = useState<Set<string>>(new Set());
   const [mostLovedImageErrored, setMostLovedImageErrored] = useState(false);
   const [familyPhotoErrored, setFamilyPhotoErrored] = useState(false);
-  const [showLoadingMessage, setShowLoadingMessage] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -193,13 +192,6 @@ export default function YearEndPrintPage() {
     return () => { cancelled = true; };
   }, [schoolYearId, supabase]);
 
-  useEffect(() => {
-    if (!data || loading) return;
-    setShowLoadingMessage(false);
-    const timer = setTimeout(() => window.print(), 800);
-    return () => clearTimeout(timer);
-  }, [data, loading]);
-
   if (loading || error || !data) {
     return (
       <>
@@ -235,6 +227,8 @@ export default function YearEndPrintPage() {
             top: "1rem",
             right: "1rem",
             zIndex: 50,
+            display: "flex",
+            alignItems: "center",
           }}
         >
           <Link
@@ -252,29 +246,13 @@ export default function YearEndPrintPage() {
           >
             ← Back to Summary
           </Link>
-        </div>
-
-        {showLoadingMessage && (
-          <div
-            className="no-print"
-            style={{
-              position: "fixed",
-              top: "1rem",
-              left: "50%",
-              transform: "translateX(-50%)",
-              background: "#fefcf9",
-              border: "1px solid #e8e2d9",
-              color: "#7a6f65",
-              padding: "0.5rem 0.875rem",
-              borderRadius: "0.75rem",
-              fontSize: "0.75rem",
-              zIndex: 50,
-              transition: "opacity 0.3s",
-            }}
+          <button
+            onClick={() => window.print()}
+            style={{ background: '#2D5A3D', color: 'white', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '15px', fontWeight: '600', cursor: 'pointer', marginLeft: '12px' }}
           >
-            Preparing your keepsake…
-          </div>
-        )}
+            Save as PDF
+          </button>
+        </div>
 
         <div className="keepsake-page" style={{ color: "#1a2c22" }}>
           {/* Header bar */}
