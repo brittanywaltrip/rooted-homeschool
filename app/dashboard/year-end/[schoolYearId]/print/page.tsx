@@ -106,8 +106,23 @@ const PRINT_CSS = `
   @page { size: letter; margin: 0.75in; }
 }
 @media screen {
-  .keepsake-wrapper { background: #f8f7f4; min-height: 100vh; padding: 2rem; display: flex; justify-content: center; }
-  .keepsake-page { background: white; max-width: 780px; width: 100%; padding: 2.5rem; border-radius: 12px; }
+  nav, aside, button[class*="fixed"], [class*="ml-52"] {
+    display: none !important;
+  }
+  body { background: #f8f7f4; }
+  .keepsake-wrapper {
+    min-height: 100vh;
+    padding: 2rem;
+    display: flex;
+    justify-content: center;
+  }
+  .keepsake-page {
+    background: white;
+    max-width: 780px;
+    width: 100%;
+    padding: 2.5rem;
+    border-radius: 12px;
+  }
 }
 `;
 
@@ -163,11 +178,11 @@ export default function YearEndPrintPage() {
   }, [schoolYearId, supabase]);
 
   useEffect(() => {
-    if (!data) return;
-    const fadeTimer = setTimeout(() => setShowLoadingMessage(false), 1500);
-    const printTimer = setTimeout(() => window.print(), 1500);
-    return () => { clearTimeout(fadeTimer); clearTimeout(printTimer); };
-  }, [data]);
+    if (!data || loading) return;
+    setShowLoadingMessage(false);
+    const timer = setTimeout(() => window.print(), 800);
+    return () => clearTimeout(timer);
+  }, [data, loading]);
 
   if (loading || error || !data) {
     return (
