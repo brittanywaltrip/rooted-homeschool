@@ -100,39 +100,30 @@ function tagline(familyName: string, lessons: number, memoriesCount: number): st
 
 const PRINT_CSS = `
 @media print {
-  .no-print { display: none !important; }
-  body { background: white !important; }
-  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color: inherit !important; }
   @page { size: letter; margin: 0.75in; }
+  body { background: white !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  /* Hide everything — then reveal only the keepsake */
+  body * { visibility: hidden !important; }
+  .no-print { display: none !important; }
+  .keepsake-wrapper, .keepsake-wrapper * { visibility: visible !important; }
   .keepsake-wrapper {
-    position: static !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
     overflow: visible !important;
+    background: white !important;
     z-index: auto !important;
     padding: 0 !important;
-    background: white !important;
     display: block !important;
   }
   .keepsake-page {
     max-width: 100% !important;
+    width: 100% !important;
     padding: 0 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
-  }
-  /* Hide dashboard chrome that would print as overlays */
-  aside, nav { display: none !important; }
-  /* Remove fixed-height constraints so keepsake content flows across pages */
-  html, body { height: auto !important; overflow: visible !important; }
-  main {
-    margin-left: 0 !important;
-    height: auto !important;
-    min-height: 0 !important;
-    display: block !important;
-    overflow: visible !important;
-  }
-  main > div {
-    height: auto !important;
-    padding-bottom: 0 !important;
-    overflow: visible !important;
   }
 }
 @media screen {
