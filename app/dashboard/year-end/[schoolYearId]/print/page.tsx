@@ -106,15 +106,16 @@ const PRINT_CSS = `
   @page { size: letter; margin: 0.75in; }
 }
 @media screen {
-  nav, aside, button[class*="fixed"], [class*="ml-52"] {
-    display: none !important;
-  }
   body { background: #f8f7f4; }
   .keepsake-wrapper {
-    min-height: 100vh;
-    padding: 2rem;
+    position: fixed;
+    inset: 0;
+    overflow-y: auto;
+    background: #f8f7f4;
+    z-index: 9999;
     display: flex;
     justify-content: center;
+    padding: 2rem;
   }
   .keepsake-page {
     background: white;
@@ -122,6 +123,7 @@ const PRINT_CSS = `
     width: 100%;
     padding: 2.5rem;
     border-radius: 12px;
+    height: fit-content;
   }
 }
 `;
