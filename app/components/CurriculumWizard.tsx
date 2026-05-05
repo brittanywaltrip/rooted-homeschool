@@ -773,7 +773,15 @@ export default function CurriculumWizard({
       }
     }
 
-    posthog.capture('curriculum_created', { lessons: actual, backfilled: backfillInserted, curriculum: saveName });
+    posthog.capture('curriculum_created', {
+      lessons: actual,
+      backfilled: backfillInserted,
+      curriculum: saveName,
+      subject_label: effectiveSub || null,
+      school_days: booleanToDays(schoolDays),
+      total_lessons: totalNum,
+      start_at_lesson: startNum,
+    });
     setGenCount(actual + backfillInserted);
 
     // Fire streak + badge check once for the whole batch (fire-and-forget)
