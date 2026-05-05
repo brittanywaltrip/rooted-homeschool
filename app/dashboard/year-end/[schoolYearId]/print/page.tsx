@@ -118,6 +118,22 @@ const PRINT_CSS = `
     border-radius: 0 !important;
     box-shadow: none !important;
   }
+  /* Hide dashboard chrome that would print as overlays */
+  aside, nav { display: none !important; }
+  /* Remove fixed-height constraints so keepsake content flows across pages */
+  html, body { height: auto !important; overflow: visible !important; }
+  main {
+    margin-left: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    display: block !important;
+    overflow: visible !important;
+  }
+  main > div {
+    height: auto !important;
+    padding-bottom: 0 !important;
+    overflow: visible !important;
+  }
 }
 @media screen {
   body { background: #f8f7f4; }
