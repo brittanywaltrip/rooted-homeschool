@@ -609,14 +609,13 @@ export default function YearEndSummaryPage() {
 
       <div className="no-print bg-[#1a2c22] py-4 px-6 flex items-center justify-between">
         <p className="text-[#F8F7F4] text-sm">Save this year forever</p>
-        <a
-          href={`/dashboard/year-end/${schoolYearId}/print`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="border border-white text-white rounded-lg px-4 py-2 text-sm hover:bg-white hover:text-[#1a2c22] transition-colors"
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="no-print border border-white text-white rounded-lg px-4 py-2 text-sm hover:bg-white hover:text-[#1a2c22] transition-colors"
         >
           Download PDF
-        </a>
+        </button>
       </div>
     </div>
     </>
