@@ -533,13 +533,20 @@ export default function CurriculumWizard({
       return;
     }
 
-    // Dedup guard — remove uncompleted lessons with same name pattern
+    // Dedup guard for LEGACY orphan rows only. Originally this swept any
+    // uncompleted lesson whose title matched the new goal's pattern under
+    // the same child. That swept the FIRST goal's forward rows whenever
+    // the user created a same-named curriculum twice for the same child,
+    // leaving the prior goal with backfill but no future lessons (audited
+    // 2026-05-05, goal 44ae4668). Scope to `curriculum_goal_id IS NULL` so
+    // we only ever clean up rows that were never linked to any goal.
     let dedupQ = supabase
       .from("lessons")
       .delete()
       .eq("user_id", user.id)
       .ilike("title", `${saveName} — Lesson%`)
-      .eq("completed", false);
+      .eq("completed", false)
+      .is("curriculum_goal_id", null);
     if (childId) dedupQ = dedupQ.eq("child_id", childId);
     else dedupQ = dedupQ.is("child_id", null);
     const { error: dedupErr } = await dedupQ;
@@ -735,6 +742,36 @@ export default function CurriculumWizard({
     // progress counter can never drift above the real max(lesson_number) of
     // completed rows (Bug 3).
     if (goalId) await recomputeCurrentLesson(supabase, goalId);
+
+    // Final guard. Confirm the goal still has the forward incomplete rows
+    // we expected. The earlier verify (around the rollback above) only
+    // checks immediately after the initial insert. This re-checks after
+    // backfill + recompute so we catch any sweep that happened in between
+    // (legacy bug audited 2026-05-05). If the count is 0, retry the insert
+    // once. If the retry also fails, surface a clear error rather than
+    // report success on an empty schedule.
+    if (goalId && rows.length > 0) {
+      const { count: forwardCount } = await supabase
+        .from("lessons")
+        .select("id", { count: "exact", head: true })
+        .eq("curriculum_goal_id", goalId)
+        .eq("completed", false);
+      if ((forwardCount ?? 0) === 0) {
+        console.error(`[CurriculumWizard] post-create verify: 0 incomplete forward rows for goal ${goalId} despite ${rows.length} planned. Retrying insert.`);
+        for (let i = 0; i < inserts.length; i += 100) {
+          const batch = inserts.slice(i, i + 100);
+          const { error: retryErr } = await supabase.from("lessons").insert(batch);
+          if (retryErr) {
+            console.error(`[CurriculumWizard] retry insert batch ${i} failed:`, retryErr);
+            setGenerating(false);
+            setError("Forward lessons could not be saved. Please contact hello@rootedhomeschoolapp.com to recover.");
+            return;
+          }
+        }
+        await recomputeCurrentLesson(supabase, goalId);
+        console.log(`[CurriculumWizard] retry restored ${inserts.length} forward lessons for goal ${goalId}.`);
+      }
+    }
 
     posthog.capture('curriculum_created', { lessons: actual, backfilled: backfillInserted, curriculum: saveName });
     setGenCount(actual + backfillInserted);
@@ -942,18 +979,26 @@ export default function CurriculumWizard({
         .limit(1)
         .maybeSingle();
       const completedFloor = (maxCompletedRow?.lesson_number ?? 0);
-      const { error: delErr } = await supabase
+
+      // Capture (don't delete yet) the IDs of the future-incomplete rows we
+      // intend to replace. Delete-after-insert: if the new rows fail to
+      // insert, the user keeps their pre-edit state instead of an empty
+      // schedule (audited 2026-05-05, goal f313e183). The actual DELETE
+      // runs after the regenerate INSERT succeeds, near the bottom of this
+      // branch.
+      const { data: oldFutureRows, error: oldSelErr } = await supabase
         .from("lessons")
-        .delete()
+        .select("id")
         .eq("curriculum_goal_id", activeGoalId)
         .eq("completed", false)
         .gt("lesson_number", completedFloor);
-      if (delErr) {
-        console.error("[CurriculumWizard] future-lesson delete failed:", delErr);
+      if (oldSelErr) {
+        console.error("[CurriculumWizard] capture old-future-rows failed:", oldSelErr);
         setGenerating(false);
-        setError(`Could not clear old lessons: ${delErr.message}`);
+        setError(`Could not load old lessons: ${oldSelErr.message}`);
         return;
       }
+      const oldFutureIds = ((oldFutureRows ?? []) as { id: string }[]).map(r => r.id);
 
       const nextLessonNum = completedFloor + 1;
 
@@ -1049,13 +1094,56 @@ export default function CurriculumWizard({
         notes: trimmedNotes,
       }));
 
+      // INSERT new rows BEFORE deleting old ones. With no UNIQUE constraint
+      // on (curriculum_goal_id, lesson_number) the duplicates coexist
+      // briefly. If the insert fails, we roll back any new rows already
+      // written and leave the old rows alone, so the user keeps their
+      // pre-edit schedule rather than an empty one.
+      const insertedIds: string[] = [];
       for (let i = 0; i < regenInserts.length; i += 100) {
         const batch = regenInserts.slice(i, i + 100);
-        const { error: insErr } = await supabase.from("lessons").insert(batch);
+        const { data: insertedBatch, error: insErr } = await supabase
+          .from("lessons")
+          .insert(batch)
+          .select("id");
         if (insErr) {
           console.error("[CurriculumWizard] regenerate lesson insert failed:", insErr);
+          if (insertedIds.length > 0) {
+            for (let j = 0; j < insertedIds.length; j += 100) {
+              await supabase.from("lessons").delete().in("id", insertedIds.slice(j, j + 100));
+            }
+          }
           setGenerating(false);
           setError(`Could not regenerate lessons: ${insErr.message}`);
+          return;
+        }
+        for (const r of (insertedBatch ?? []) as { id: string }[]) insertedIds.push(r.id);
+      }
+
+      // INSERT succeeded. Now delete the old rows by ID. If THIS fails,
+      // roll back the new rows so we end up at the pre-edit state. Without
+      // that rollback, healGoalIntegrity (called later) would collapse the
+      // incomplete duplicates by keeping the EARLIEST created_at, which is
+      // always the OLD row, undoing our regenerate work.
+      if (oldFutureIds.length > 0) {
+        let oldDeleteFailed = false;
+        for (let i = 0; i < oldFutureIds.length; i += 100) {
+          const { error: oldDelErr } = await supabase
+            .from("lessons")
+            .delete()
+            .in("id", oldFutureIds.slice(i, i + 100));
+          if (oldDelErr) {
+            console.error("[CurriculumWizard] post-insert old-row delete failed:", oldDelErr);
+            oldDeleteFailed = true;
+            break;
+          }
+        }
+        if (oldDeleteFailed) {
+          for (let j = 0; j < insertedIds.length; j += 100) {
+            await supabase.from("lessons").delete().in("id", insertedIds.slice(j, j + 100));
+          }
+          setGenerating(false);
+          setError("Could not finish updating lessons. Please try again.");
           return;
         }
       }
