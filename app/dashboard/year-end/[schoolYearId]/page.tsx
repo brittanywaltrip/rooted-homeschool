@@ -116,15 +116,6 @@ function formatRange(startISO: string, endISO: string) {
 const SECTION_LABEL = "text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2";
 const CHIP = "bg-[#f0f4f1] text-[#2D5A3D] rounded-full px-3 py-1 text-sm font-medium";
 
-const PRINT_CSS = `
-@media print {
-  nav, aside, [data-sidebar], .no-print { display: none !important; }
-  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  img { page-break-inside: avoid; }
-  body { background: white !important; }
-}
-`;
-
 export default function YearEndSummaryPage() {
   const params = useParams<{ schoolYearId: string }>();
   const schoolYearId = params?.schoolYearId;
@@ -274,19 +265,24 @@ export default function YearEndSummaryPage() {
           /* Hide dashboard chrome */
           aside, nav, .no-print, button { display: none !important; }
 
-          /* Reset layout so keepsake fills the page */
+          /* Reset layout */
           main { margin-left: 0 !important; height: auto !important; min-height: 0 !important; display: block !important; overflow: visible !important; }
           main > div { height: auto !important; padding-bottom: 0 !important; overflow: visible !important; }
-
-          /* Ensure printable content flows correctly */
           .year-end-printable { position: static !important; width: 100% !important; overflow: visible !important; }
 
-          /* Images */
-          img { max-width: 100% !important; break-inside: avoid; }
+          /* Fix images — override aspect-ratio and object-fit which can collapse image height in Chrome's PDF renderer */
+          .year-end-printable img {
+            aspect-ratio: auto !important;
+            height: auto !important;
+            width: 100% !important;
+            object-fit: contain !important;
+            display: block !important;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
         }
       `}</style>
     <div className="print-page year-end-print-page year-end-printable" style={{ background: "#F8F7F4", minHeight: "100vh" }}>
-      <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
 
       <section className="bg-[#2D5A3D] rounded-b-[24px] py-16 px-6">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-end md:justify-between gap-6">
