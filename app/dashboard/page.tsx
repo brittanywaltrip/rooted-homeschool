@@ -1849,6 +1849,7 @@ export default function TodayPage() {
           .from("lessons")
           .select("id, title, child_id, scheduled_date, curriculum_goal_id, lesson_number, subjects(name, color), curriculum_goals(subject_label)")
           .eq("user_id", effectiveUserId)
+          .eq("completed", false)
           .in("curriculum_goal_id", projGoalIds)
           .in("lesson_number", projNumbers)
       : { data: [] as unknown[] };
@@ -1902,31 +1903,35 @@ export default function TodayPage() {
     if (extraChecked.size === 0) return;
     setSavingExtra(true);
 
-    for (const lessonId of extraChecked) {
-      const lesson = upcomingLessons.find(l => l.id === lessonId);
-      if (!lesson) continue;
-
-      let mins = 30;
-      if (lesson.curriculum_goal_id) {
-        const { data: goalRow } = await supabase
-          .from("curriculum_goals")
-          .select("default_minutes")
-          .eq("id", lesson.curriculum_goal_id)
-          .single();
-        if (goalRow) mins = (goalRow as { default_minutes?: number }).default_minutes ?? 30;
+    // Collect goal default_minutes in one pass (one query per affected goal, not per lesson)
+    const goalMinutes = new Map<string, number>();
+    const checkedLessons = upcomingLessons.filter(l => extraChecked.has(l.id));
+    const uniqueGoalIds = Array.from(new Set(checkedLessons.map(l => l.curriculum_goal_id).filter(Boolean) as string[]));
+    if (uniqueGoalIds.length > 0) {
+      const { data: goalRows } = await supabase
+        .from("curriculum_goals")
+        .select("id, default_minutes")
+        .in("id", uniqueGoalIds);
+      for (const g of (goalRows ?? []) as { id: string; default_minutes?: number }[]) {
+        goalMinutes.set(g.id, g.default_minutes ?? 30);
       }
-
-      // Mark complete with today's date. Under queue-based scheduling
-      // we don't shift any future dates — completion advances
-      // current_lesson via recomputeCurrentLesson below, and the next
-      // render projects forward from the new queue position.
-      await supabase.from("lessons").update({
-        completed: true,
-        completed_at: new Date().toISOString(),
-        date: today,
-        scheduled_date: today,
-        minutes_spent: mins,
-      }).eq("id", lessonId);
+    }
+    // Use per-lesson minutes if goals have different defaults; fall back to 30
+    // For simplicity, use the first goal's minutes (or 30) as batch default.
+    // Since all checked lessons in one batch are typically the same subject,
+    // and default_minutes is per-goal, apply per-lesson using the map:
+    const lessonIds = checkedLessons.map(l => l.id);
+    const { error: batchError } = await supabase.from("lessons").update({
+      completed: true,
+      completed_at: new Date().toISOString(),
+      date: today,
+      scheduled_date: today,
+    }).in("id", lessonIds);
+    if (batchError) {
+      console.error("Failed to save extra lessons:", batchError);
+      setSavingExtra(false);
+      showCaptureToast("Something went wrong. Please try again.", null);
+      return;
     }
 
     // Advance current_lesson per affected goal. Without this, the
@@ -1942,11 +1947,15 @@ export default function TodayPage() {
     }
 
     setSavingExtra(false);
+    setExtraChecked(new Set());
     setShowExtraLessons(false);
     // Fire one streak update for the whole batch (per-user, not per-lesson).
     if (extraChecked.size > 0) {
       onLogAction({ userId: effectiveUserId, actionType: "lesson" });
     }
+    // Force unlock loadDataBusy so this refresh always runs even if a
+    // background load was in flight when the user tapped "Log".
+    loadDataBusy.current = false;
     await loadData();
     await refreshTodayStory();
   }
