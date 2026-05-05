@@ -1545,7 +1545,12 @@ export default function TodayPage() {
     // Update local state
     setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, completed: true, minutes_spent: minutes, hours: minutes / 60.0 } : l));
     // Run all the post-completion effects (celebrations, toasts, goal advancement)
-    posthog.capture('lesson_completed');
+    posthog.capture('lesson_completed', {
+      lesson_number: lesson.lesson_number ?? null,
+      lesson_date: today,
+      subject_label: lesson.curriculum_goals?.subject_label ?? null,
+      days_late: 0,
+    });
     setCelebrating(true);
     setTimeout(() => setCelebrating(false), 1600);
     triggerGardenAnimation(lesson.child_id ?? undefined);
@@ -1678,7 +1683,12 @@ export default function TodayPage() {
     }
 
     if (!current) {
-      posthog.capture('lesson_completed');
+      posthog.capture('lesson_completed', {
+        lesson_number: lesson?.lesson_number ?? null,
+        lesson_date: today,
+        subject_label: lesson?.curriculum_goals?.subject_label ?? null,
+        days_late: 0,
+      });
       setCelebrating(true);
       setTimeout(() => setCelebrating(false), 1600);
       triggerGardenAnimation(lesson?.child_id ?? undefined);
@@ -2146,7 +2156,16 @@ export default function TodayPage() {
     if (lesson.curriculum_goal_id) {
       await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
     }
-    posthog.capture('lesson_completed_missed');
+    const missedLessonDate = lesson.scheduled_date ?? lesson.date;
+    const missedDaysLate = missedLessonDate
+      ? Math.max(0, Math.floor((new Date(today + "T00:00:00").getTime() - new Date(missedLessonDate + "T00:00:00").getTime()) / 86400000))
+      : null;
+    posthog.capture('lesson_completed_missed', {
+      lesson_number: lesson.lesson_number ?? null,
+      lesson_date: missedLessonDate,
+      subject_label: lesson.curriculum_goals?.subject_label ?? null,
+      days_late: missedDaysLate,
+    });
     triggerGardenAnimation(lesson.child_id ?? undefined);
     earnLeaf();
     await refreshLeafCounts();
@@ -2345,7 +2364,14 @@ export default function TodayPage() {
       setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setMissedLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setRescheduleLesson(null);
-      posthog.capture('lesson_rescheduled', { user_plan: isPro ? 'paid' : 'free' });
+      const priorDates = priorRow as { scheduled_date: string | null; date: string | null } | null;
+      posthog.capture('lesson_rescheduled', {
+        user_plan: isPro ? 'paid' : 'free',
+        lesson_number: rescheduleLesson.lesson_number ?? null,
+        old_date: priorDates?.scheduled_date ?? priorDates?.date ?? null,
+        new_date: targetDate,
+        curriculum_goal_id: rescheduleLesson.curriculum_goal_id ?? null,
+      });
       const label = targetDate === localDateStr(new Date(new Date().setDate(new Date().getDate() + 1))) ? "Moved to tomorrow" : "Lesson rescheduled";
       showRescheduleUndo(`${label}! Undo?`, snapshot);
     });
