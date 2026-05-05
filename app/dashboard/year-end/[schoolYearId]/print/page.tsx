@@ -90,7 +90,7 @@ function familyNameFor(profile: SummaryData["profile"]): string {
 
 function tagline(familyName: string, lessons: number, memoriesCount: number): string {
   if (lessons >= 50) {
-    return `The ${familyName} showed up ${lessons} times this year. That's what homeschooling looks like.`;
+    return `${familyName} showed up ${lessons} times this year. That's what homeschooling looks like.`;
   }
   if (lessons >= 20) {
     return `${lessons} lessons. ${memoriesCount} memories. One whole year of choosing your kids.`;
