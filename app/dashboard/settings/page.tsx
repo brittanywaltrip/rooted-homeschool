@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Pencil, Trash2, Check, X, Plus, GripVertical, Camera, Sprout } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -31,6 +31,7 @@ type Child = {
   archived: boolean;
   graduated_at: string | null;
   birthday: string | null;
+  grade_level: string | null;
 };
 
 // ─── Color palette ────────────────────────────────────────────────────────────
@@ -151,6 +152,7 @@ function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string 
 export default function SettingsPage() {
   const { refreshProfile } = useProfile();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
     const tab = searchParams.get("tab");
     if (tab && ["family", "kids", "account", "partners"].includes(tab)) return tab as SettingsTab;
@@ -205,6 +207,8 @@ export default function SettingsPage() {
   const [editError,    setEditError]    = useState("");
   const [birthdayText, setBirthdayText] = useState("");
   const [birthdayInvalid, setBirthdayInvalid] = useState(false);
+  const [editGradeLevel, setEditGradeLevel] = useState("");
+  const [gradeLevelSaved, setGradeLevelSaved] = useState(false);
 
   // Delete confirm
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
@@ -278,9 +282,14 @@ export default function SettingsPage() {
 
   // School year transition
   const [showYearModal,    setShowYearModal]    = useState(false);
+  const [yearConfirmInput, setYearConfirmInput] = useState("");
   const [yearTransitioning, setYearTransitioning] = useState(false);
   const [yearError,        setYearError]        = useState("");
   const [yearSuccessToast, setYearSuccessToast] = useState(false);
+
+  // School year history (archived years)
+  type ArchivedYear = { id: string; name: string; start_date: string; end_date: string };
+  const [archivedYears, setArchivedYears] = useState<ArchivedYear[]>([]);
 
   // Share with Family
   type FamilyInvite = {
@@ -335,7 +344,7 @@ export default function SettingsPage() {
 
     const { data: kids } = await supabase
       .from("children")
-      .select("id, name, color, sort_order, archived, graduated_at, birthday")
+      .select("id, name, color, sort_order, archived, graduated_at, birthday, grade_level")
       .eq("user_id", user.id)
       .eq("archived", false)
       .order("sort_order");
@@ -380,6 +389,15 @@ export default function SettingsPage() {
     if (invites) {
       setFamilyInvites(invites as FamilyInvite[]);
     }
+
+    // Load archived school years
+    const { data: archived } = await supabase
+      .from("school_years")
+      .select("id, name, start_date, end_date")
+      .eq("user_id", user.id)
+      .eq("status", "archived")
+      .order("end_date", { ascending: false });
+    setArchivedYears((archived ?? []) as ArchivedYear[]);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -855,7 +873,7 @@ export default function SettingsPage() {
         sort_order: maxOrder + 1,
         name_key:   nameKey,
       })
-      .select("id, name, color, sort_order, archived, graduated_at, birthday")
+      .select("id, name, color, sort_order, archived, graduated_at, birthday, grade_level")
       .single();
 
     if (error) {
@@ -909,6 +927,8 @@ export default function SettingsPage() {
     setEditColor(child.color ?? COLORS[0].value);
     setBirthdayText(isoToDisplayDate(child.birthday));
     setBirthdayInvalid(false);
+    setEditGradeLevel(child.grade_level ?? "");
+    setGradeLevelSaved(false);
     setEditError("");
     setDeleteId(null);
   }
@@ -919,6 +939,8 @@ export default function SettingsPage() {
     setEditColor("");
     setBirthdayText("");
     setBirthdayInvalid(false);
+    setEditGradeLevel("");
+    setGradeLevelSaved(false);
     setEditError("");
   }
 
@@ -1077,10 +1099,11 @@ export default function SettingsPage() {
       return;
     }
 
+    const data = await res.json();
     setYearTransitioning(false);
     setShowYearModal(false);
-    setYearSuccessToast(true);
-    setTimeout(() => setYearSuccessToast(false), 6000);
+    setYearConfirmInput("");
+    router.push(`/dashboard/year-end/${data.schoolYearId}`);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1374,6 +1397,33 @@ export default function SettingsPage() {
                         autoFocus
                         onKeyDown={(e) => { if (e.key === "Enter") saveEdit(child.id); if (e.key === "Escape") cancelEdit(); }}
                         className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-medium text-[#7a6f65]">
+                          Grade Level
+                        </label>
+                        {gradeLevelSaved && (
+                          <span className="text-xs font-medium text-[var(--g-deep)]">Saved ✓</span>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={editGradeLevel}
+                        onChange={(e) => setEditGradeLevel(e.target.value)}
+                        onBlur={async () => {
+                          const trimmed = editGradeLevel.trim();
+                          const next = trimmed ? trimmed : null;
+                          const current = children.find((c) => c.id === child.id)?.grade_level ?? null;
+                          if (next === current) return;
+                          await supabase.from("children").update({ grade_level: next }).eq("id", child.id);
+                          setChildren((prev) => prev.map((c) => c.id === child.id ? { ...c, grade_level: next } : c));
+                          setGradeLevelSaved(true);
+                          setTimeout(() => setGradeLevelSaved(false), 2000);
+                        }}
+                        placeholder="e.g. 2nd grade, 9th grade"
+                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
                       />
                     </div>
                     <div>
@@ -1797,7 +1847,7 @@ export default function SettingsPage() {
 
           <button
             type="button"
-            onClick={() => { setShowYearModal(true); setYearError(""); }}
+            onClick={() => { setShowYearModal(true); setYearConfirmInput(""); setYearError(""); }}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#c8ddb8] bg-[#f0f8f0] hover:bg-[#e4f2e4] text-[var(--g-deep)] text-sm font-medium transition-colors"
           >
             <span>🌱</span>
@@ -1969,6 +2019,37 @@ export default function SettingsPage() {
           </button>
           {passwordSuccess && <p className="text-sm font-medium text-[var(--g-brand)]">Password updated ✓</p>}
         </form>
+      </section>}
+
+      {/* ── School Year History ──────────────────────────────── */}
+      {activeTab === "account" && archivedYears.length > 0 && <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-[#2d2926]">School Year History</h2>
+          <span className="h-px flex-1 bg-[#e8e2d9]" />
+        </div>
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl divide-y divide-[#e8e2d9]">
+          {archivedYears.map((y) => {
+            const fmt = (iso: string) =>
+              new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" });
+            return (
+              <div key={y.id} className="p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[#2d2926] truncate">{y.name}</p>
+                  <p className="text-xs text-[#7a6f65] mt-0.5">
+                    {fmt(y.start_date)} – {fmt(y.end_date)}
+                  </p>
+                </div>
+                <Link
+                  href={`/dashboard/year-end/${y.id}`}
+                  className="text-sm font-medium shrink-0"
+                  style={{ color: "var(--g-accent)" }}
+                >
+                  View Year Summary →
+                </Link>
+              </div>
+            );
+          })}
+        </div>
       </section>}
 
       {/* ── Danger zone ──────────────────────────────────────── */}
@@ -2712,18 +2793,34 @@ export default function SettingsPage() {
                 🌱
               </div>
               <h2 className="text-lg font-bold text-[#2d2926] leading-snug">
-                Ready for a fresh start?
+                Close This School Year?
               </h2>
             </div>
 
             <p className="text-sm text-[#5c5248] leading-relaxed">
-              Your current lessons, curriculum goals, and schedule will be archived as{" "}
+              Your{" "}
               <span className="font-semibold text-[#2d2926]">
-                School Year {getCurrentSchoolYearLabel()}
-              </span>
-              . Your garden, memories, children, and family info stay exactly as they are.{" "}
-              <span className="font-medium text-[#7a6f65]">This cannot be undone.</span>
+                {getCurrentSchoolYearLabel()}
+              </span>{" "}
+              school year will be saved and closed. Your lessons, garden, memories, and family info are all kept. You can set up next year&apos;s curriculum on the next screen.
             </p>
+
+            <p className="text-xs text-[#7a6f65] leading-relaxed">
+              If you close your year by accident, contact support and we can restore it.
+            </p>
+
+            <div>
+              <label className="text-xs font-semibold text-[#7a6f65] block mb-1">
+                Type <span className="font-mono font-bold text-[#2d2926]">{getCurrentSchoolYearLabel()}</span> to confirm
+              </label>
+              <input
+                type="text"
+                value={yearConfirmInput}
+                onChange={e => setYearConfirmInput(e.target.value)}
+                placeholder={getCurrentSchoolYearLabel()}
+                className="w-full border border-[#d4cfc9] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#5c7f63]"
+              />
+            </div>
 
             {yearError && (
               <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
@@ -2733,7 +2830,7 @@ export default function SettingsPage() {
 
             <div className="flex gap-3 pt-1">
               <button
-                onClick={() => { setShowYearModal(false); setYearError(""); }}
+                onClick={() => { setShowYearModal(false); setYearConfirmInput(""); setYearError(""); }}
                 disabled={yearTransitioning}
                 className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-40 transition-colors"
               >
@@ -2741,10 +2838,12 @@ export default function SettingsPage() {
               </button>
               <button
                 onClick={startNewSchoolYear}
-                disabled={yearTransitioning}
-                className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                disabled={yearTransitioning || yearConfirmInput.trim() !== getCurrentSchoolYearLabel()}
+                className={`flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors ${
+                  yearConfirmInput.trim() !== getCurrentSchoolYearLabel() ? "opacity-50 cursor-not-allowed" : ""
+                }`}
               >
-                {yearTransitioning ? "Archiving…" : "Archive & Start Fresh →"}
+                {yearTransitioning ? "Closing…" : `Close ${getCurrentSchoolYearLabel()} →`}
               </button>
             </div>
           </div>

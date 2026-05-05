@@ -7,9 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test 'lib/**/*.test.ts' 'app/lib/**/*.test.ts' 'app/components/**/*.test.ts'",
+    "test": "node --test 'lib/**/*.test.ts' 'app/lib/**/*.test.ts' 'app/components/**/*.test.ts' 'scripts/**/*.test.ts'",
     "audit:stripe-linkage": "node --env-file=.env.local scripts/audit-stripe-linkage.ts",
     "backfill:commission-amounts": "node --env-file=.env.local scripts/backfill-commission-amounts.ts",
+    "cleanup:bunched": "node --env-file=.env.local scripts/cleanup-bunched-lessons.ts",
     "cap:sync": "npx cap sync",
     "cap:ios": "npx cap open ios",
     "cap:android": "npx cap open android"

@@ -369,3 +369,8 @@ input:-webkit-autofill:focus {
     display: none !important;
   }
 }
+
+@media print {
+  .no-print { display: none !important; }
+  .year-end-print-page { background: white !important; }
+}

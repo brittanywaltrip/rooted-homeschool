@@ -212,6 +212,24 @@ Baseline: Blair Torres (`blairkernwi@gmail.com`, code `BLAIR`) — first partner
 - ~214 auth.users with no profile row (likely Google auth bug victims)
 - No handle_new_user trigger — profile creation is in app code (auth callback)
 
+## Security Rules
+
+### get_user_id_by_email — anon access is INTENTIONALLY revoked
+The function `public.get_user_id_by_email(text)` is a SECURITY DEFINER function that queries auth.users. It must NEVER be callable by the `anon` role — that would allow unauthenticated users to enumerate whether an email address has a Rooted account (user enumeration vulnerability).
+
+The correct permissions are:
+- anon: NO EXECUTE
+- authenticated: EXECUTE
+- service_role: EXECUTE
+
+If this function is ever dropped and recreated, run this immediately after:
+```sql
+REVOKE EXECUTE ON FUNCTION public.get_user_id_by_email(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_user_id_by_email(text) TO authenticated, service_role;
+```
+
+This was patched May 4, 2026. Do not undo it.
+
 ## Known issues
 - Google auth button hidden on main — SUPABASE_URL env var fix deployed, needs testing with fresh Gmail
 - CAN-SPAM: rooted-family-digest, rooted-weekly-summary, rooted-trial-warning missing unsubscribe links

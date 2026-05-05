@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar, RotateCcw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
@@ -1347,7 +1348,12 @@ export default function PlanPage() {
       const goal = curriculumGoals.find(g => g.id === lesson.curriculum_goal_id);
       if (goal?.school_days && goal.school_days.length > 0) return goal.school_days;
     }
-    return profileSchoolDays.length > 0 ? profileSchoolDays : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+    const NORMALIZE_DAY: Record<string, string> = {
+      mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun",
+    };
+    const normalize = (d: string) => NORMALIZE_DAY[d.slice(0, 3).toLowerCase()] ?? d;
+    if (profileSchoolDays.length > 0) return profileSchoolDays.map(normalize);
+    return ["Mon", "Tue", "Wed", "Thu", "Fri"];
   }
 
   /** Local alias of the shared lib helper. */
@@ -1410,7 +1416,8 @@ export default function PlanPage() {
 
   /** OPTION 2 — Push schedule back N school days, fit missed lessons into vacated slots. */
   async function planPushBackNDays() {
-    const n = missedLessons.length;
+    const target = missedLessons.length > 0 ? missedLessons : (planRescheduleLesson ? [planRescheduleLesson] : []);
+    const n = target.length;
     if (n === 0) return;
 
     // Collect all future uncompleted lessons across all curricula from today forward
@@ -1421,10 +1428,12 @@ export default function PlanPage() {
       .gte("scheduled_date", todayStr)
       .order("scheduled_date", { ascending: true });
     const futureLessons = (futureRows ?? []) as { id: string; scheduled_date: string; curriculum_goal_id: string | null }[];
+    const targetIds = new Set(target.map(l => l.id));
+    const filteredFutureLessons = futureLessons.filter(l => !targetIds.has(l.id));
 
     const { updates, undoData } = libPlanPushBackNDays(
-      missedLessons,
-      futureLessons,
+      target,
+      filteredFutureLessons,
       getSchoolDaysForLesson,
       todayStr,
     );
@@ -3133,6 +3142,32 @@ export default function PlanPage() {
       )}
 
       {/* ══════════════════════════════════════════════════
+          PREVIOUS YEARS
+      ══════════════════════════════════════════════════ */}
+      {schoolYears.archived.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Previous Years</p>
+          <div className="flex flex-col gap-3">
+            {schoolYears.archived.map((year) => {
+              const startLabel = new Date(year.start_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+              const endLabel = new Date(year.end_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+              return (
+                <Link key={year.id} href={`/dashboard/year-end/${year.id}`}>
+                  <div className="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow cursor-pointer">
+                    <div>
+                      <p className="font-medium text-gray-900">{year.name}</p>
+                      <p className="text-sm text-[#8B7E74]">{startLabel} – {endLabel}</p>
+                    </div>
+                    <span className="text-sm font-medium text-[#2D5A3D]">View Year Summary →</span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
           EDIT LESSON MODAL
       ══════════════════════════════════════════════════ */}
       {editingLesson && (
@@ -3446,7 +3481,7 @@ export default function PlanPage() {
                         <span className="text-lg shrink-0">🗓</span>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-[#2d3a2e]">Pick a day myself</p>
-                          <p className="text-xs text-[#9a8e84] mt-0.5">Choose a school day from the calendar</p>
+                          <p className="text-xs text-[#9a8e84] mt-0.5">Choose any date, adds regardless of other lessons</p>
                         </div>
                         <span className="text-[#c8bfb5] text-base shrink-0">{planReschedulePicker ? "⌄" : "›"}</span>
                       </button>
@@ -3461,7 +3496,7 @@ export default function PlanPage() {
                           <button
                             onClick={() => {
                               if (!planReschedulePickerDate || planReschedulePickerDate < todayStr) return;
-                              planRescheduleMoveTo(planReschedulePickerDate);
+                              planRescheduleMoveTo(planReschedulePickerDate, true);
                             }}
                             disabled={!planReschedulePickerDate || planReschedulePickerDate < todayStr}
                             className="px-5 py-2.5 bg-[#5c7f63] text-white text-sm font-medium rounded-xl disabled:opacity-40 hover:bg-[var(--g-deep)] transition-colors"
