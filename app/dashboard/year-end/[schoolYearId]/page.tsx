@@ -268,18 +268,21 @@ export default function YearEndSummaryPage() {
       <style>{`
         @media print {
           @page { size: letter; margin: 0.5in; }
-          body { background: white !important; }
+          body, html { background: white !important; height: auto !important; overflow: visible !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          body * { visibility: hidden !important; }
-          .no-print { display: none !important; }
-          .year-end-printable, .year-end-printable * { visibility: visible !important; }
-          .year-end-printable {
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100% !important;
-            overflow: visible !important;
-          }
+
+          /* Hide dashboard chrome */
+          aside, nav, .no-print, button { display: none !important; }
+
+          /* Reset layout so keepsake fills the page */
+          main { margin-left: 0 !important; height: auto !important; min-height: 0 !important; display: block !important; overflow: visible !important; }
+          main > div { height: auto !important; padding-bottom: 0 !important; overflow: visible !important; }
+
+          /* Ensure printable content flows correctly */
+          .year-end-printable { position: static !important; width: 100% !important; overflow: visible !important; }
+
+          /* Images */
+          img { max-width: 100% !important; break-inside: avoid; }
         }
       `}</style>
     <div className="print-page year-end-print-page year-end-printable" style={{ background: "#F8F7F4", minHeight: "100vh" }}>
