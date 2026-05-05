@@ -259,27 +259,49 @@ export default function YearEndSummaryPage() {
       <style>{`
         @media print {
           @page { size: letter; margin: 0.5in; }
-          body, html { background: white !important; height: auto !important; overflow: visible !important; }
+
+          /* Color fidelity */
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 
-          /* Hide dashboard chrome */
-          aside, nav, .no-print, button { display: none !important; }
+          /* Step 1: Make all body content invisible but keep it in the document flow */
+          body * { visibility: hidden !important; }
 
-          /* Reset layout */
-          main { margin-left: 0 !important; height: auto !important; min-height: 0 !important; display: block !important; overflow: visible !important; }
-          main > div { height: auto !important; padding-bottom: 0 !important; overflow: visible !important; }
-          .year-end-printable { position: static !important; width: 100% !important; overflow: visible !important; }
+          /* Step 2: Make only the year-end summary and its children visible */
+          .year-end-printable,
+          .year-end-printable * { visibility: visible !important; }
 
-          /* Fix images — override aspect-ratio and object-fit which can collapse image height in Chrome's PDF renderer */
+          /* Step 3: Pull the year-end content to the top-left of the print page.
+             position: absolute here is relative to the initial containing block (html),
+             which is the page itself — not any ancestor — because no ancestor has
+             position set. */
+          .year-end-printable {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
+          /* Step 4: Fix images — aspect-square + object-cover collapses height to 0
+             in Chrome's PDF renderer. Override both. */
           .year-end-printable img {
             aspect-ratio: auto !important;
             height: auto !important;
             width: 100% !important;
+            max-width: 100% !important;
             object-fit: contain !important;
             display: block !important;
             break-inside: avoid;
             page-break-inside: avoid;
           }
+
+          /* Step 5: Hide the no-print toolbar buttons */
+          .no-print { display: none !important; }
         }
       `}</style>
     <div className="print-page year-end-print-page year-end-printable" style={{ background: "#F8F7F4", minHeight: "100vh" }}>
