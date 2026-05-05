@@ -307,13 +307,14 @@ export default function YearEndSummaryPage() {
           </div>
 
           <div className="no-print flex flex-wrap items-center gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={() => window.print()}
+            <a
+              href={`/dashboard/year-end/${schoolYearId}/print`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="border border-white text-white rounded-lg px-4 py-2 text-sm hover:bg-white hover:text-[#1a2c22] transition-colors"
             >
               Download PDF
-            </button>
+            </a>
             <button
               type="button"
               onClick={() => setEditingName(true)}
@@ -476,21 +477,62 @@ export default function YearEndSummaryPage() {
         </section>
 
         <section>
-          <p className={SECTION_LABEL}>Your records</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <p className={SECTION_LABEL}>Your year-end package</p>
+          <div className="space-y-3">
             {[
-              { href: "/dashboard/reports", label: "Progress Report" },
-              { href: "/dashboard/transcript", label: "Transcripts" },
-              { href: "/dashboard/memories/yearbook/edit", label: "Yearbook" },
+              {
+                href: `/dashboard/year-end/${schoolYearId}/print`,
+                label: "Year Summary",
+                description: "Stats, photos, badges & your best moments",
+                emoji: "🌿",
+                iconBg: "bg-[#e8f0e9]",
+                button: "Open",
+              },
+              {
+                href: "/dashboard/reports",
+                label: "Progress Report",
+                description: "Hours, attendance & what you covered",
+                emoji: "📊",
+                iconBg: "bg-[#fef3e2]",
+                button: "Open",
+              },
+              {
+                href: "/dashboard/transcript",
+                label: "Transcript",
+                description: "Courses & academic record",
+                emoji: "🎓",
+                iconBg: "bg-[#e8f0e9]",
+                button: "Open",
+              },
+              {
+                href: "/dashboard/memories/yearbook/edit",
+                label: "Yearbook",
+                description: "Your photo book from this year",
+                emoji: "📔",
+                iconBg: "bg-[#f0eafa]",
+                button: "Open",
+              },
             ].map((r) => (
-              <Link
+              <div
                 key={r.href}
-                href={r.href}
-                className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-sm flex items-center justify-between transition-shadow"
+                className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4 flex items-center gap-4"
               >
-                <span className="text-[#1a2c22] font-medium">{r.label}</span>
-                <span className="text-[#8B7E74]">→</span>
-              </Link>
+                <div className={`w-12 h-12 rounded-xl ${r.iconBg} flex items-center justify-center text-xl shrink-0`}>
+                  {r.emoji}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[#1a2c22] font-medium">{r.label}</p>
+                  <p className="text-sm text-[#8B7E74] mt-0.5">{r.description}</p>
+                </div>
+                <a
+                  href={r.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#2D5A3D] border border-[#2D5A3D] rounded-xl px-4 py-2 text-sm font-medium hover:bg-[#e8f0e9] transition-colors shrink-0"
+                >
+                  {r.button}
+                </a>
+              </div>
             ))}
           </div>
         </section>
@@ -532,13 +574,14 @@ export default function YearEndSummaryPage() {
 
       <div className="no-print bg-[#1a2c22] py-4 px-6 flex items-center justify-between">
         <p className="text-[#F8F7F4] text-sm">Save this year forever</p>
-        <button
-          type="button"
-          onClick={() => window.print()}
+        <a
+          href={`/dashboard/year-end/${schoolYearId}/print`}
+          target="_blank"
+          rel="noopener noreferrer"
           className="border border-white text-white rounded-lg px-4 py-2 text-sm hover:bg-white hover:text-[#1a2c22] transition-colors"
         >
           Download PDF
-        </button>
+        </a>
       </div>
     </div>
   );

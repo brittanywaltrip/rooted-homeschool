@@ -114,13 +114,15 @@ export async function GET(
 
   const { data: profile, error: profileErr } = await supabaseAdmin
     .from("profiles")
-    .select("first_name, last_name")
+    .select("first_name, last_name, family_photo_url, display_name")
     .eq("id", userId)
     .single();
 
   if (profileErr) {
     return NextResponse.json({ error: profileErr.message }, { status: 500 });
   }
+
+  const familyPhotoUrl = (profile as { family_photo_url?: string | null } | null)?.family_photo_url ?? null;
 
   const { data: photosRaw, error: photosErr } = await supabaseAdmin
     .from("memories")
@@ -137,7 +139,7 @@ export async function GET(
 
   const { data: curriculumGoalsRaw, error: cgErr } = await supabaseAdmin
     .from("curriculum_goals")
-    .select("id, subject_label, curriculum_name, icon_emoji")
+    .select("id, subject_label, curriculum_name, icon_emoji, child_id")
     .eq("school_year_id", schoolYearId)
     .order("created_at", { ascending: true });
 
@@ -151,6 +153,55 @@ export async function GET(
     seenSubjects.add(g.subject_label);
     return true;
   });
+
+  // Per-child rollup: subjects taken this year + badges earned tied to this
+  // school year. The badges table has a child_id column so we can scope
+  // badges per kid; rows with null child_id stay on the family-level
+  // "Badges earned" section above.
+  const [childrenRes, childBadgesRes] = await Promise.all([
+    supabaseAdmin
+      .from("children")
+      .select("id, name, sort_order")
+      .eq("user_id", userId)
+      .eq("archived", false)
+      .order("sort_order", { ascending: true }),
+    supabaseAdmin
+      .from("badges")
+      .select("badge_type, tier, child_id")
+      .eq("user_id", userId)
+      .eq("school_year_id", schoolYearId),
+  ]);
+
+  if (childrenRes.error) {
+    return NextResponse.json({ error: childrenRes.error.message }, { status: 500 });
+  }
+  if (childBadgesRes.error) {
+    return NextResponse.json({ error: childBadgesRes.error.message }, { status: 500 });
+  }
+
+  const childrenRows = (childrenRes.data ?? []) as { id: string; name: string }[];
+  const childBadges = (childBadgesRes.data ?? []) as { badge_type: string; tier: string; child_id: string | null }[];
+
+  const subjectsByChild = new Map<string, Set<string>>();
+  for (const g of curriculumGoalsRaw ?? []) {
+    if (!g.child_id || !g.subject_label) continue;
+    if (!subjectsByChild.has(g.child_id)) subjectsByChild.set(g.child_id, new Set());
+    subjectsByChild.get(g.child_id)!.add(g.subject_label);
+  }
+
+  const badgesByChild = new Map<string, { badge_type: string; tier: string }[]>();
+  for (const b of childBadges) {
+    if (!b.child_id) continue;
+    if (!badgesByChild.has(b.child_id)) badgesByChild.set(b.child_id, []);
+    badgesByChild.get(b.child_id)!.push({ badge_type: b.badge_type, tier: b.tier });
+  }
+
+  const childrenData = childrenRows.map((c) => ({
+    id: c.id,
+    name: c.name,
+    subjects: Array.from(subjectsByChild.get(c.id) ?? []).sort(),
+    badges: badgesByChild.get(c.id) ?? [],
+  }));
 
   const memoryIds = (memoryRows ?? []).map((m) => m.id);
   let totalReactions = 0;
@@ -289,5 +340,7 @@ export async function GET(
     photos: photos ?? [],
     curriculumGoals: curriculumGoals ?? [],
     familyStats,
+    familyPhotoUrl,
+    childrenData,
   });
 }
