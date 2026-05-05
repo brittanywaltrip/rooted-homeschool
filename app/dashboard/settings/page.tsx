@@ -31,6 +31,7 @@ type Child = {
   archived: boolean;
   graduated_at: string | null;
   birthday: string | null;
+  grade_level: string | null;
 };
 
 // ─── Color palette ────────────────────────────────────────────────────────────
@@ -206,6 +207,8 @@ export default function SettingsPage() {
   const [editError,    setEditError]    = useState("");
   const [birthdayText, setBirthdayText] = useState("");
   const [birthdayInvalid, setBirthdayInvalid] = useState(false);
+  const [editGradeLevel, setEditGradeLevel] = useState("");
+  const [gradeLevelSaved, setGradeLevelSaved] = useState(false);
 
   // Delete confirm
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
@@ -341,7 +344,7 @@ export default function SettingsPage() {
 
     const { data: kids } = await supabase
       .from("children")
-      .select("id, name, color, sort_order, archived, graduated_at, birthday")
+      .select("id, name, color, sort_order, archived, graduated_at, birthday, grade_level")
       .eq("user_id", user.id)
       .eq("archived", false)
       .order("sort_order");
@@ -870,7 +873,7 @@ export default function SettingsPage() {
         sort_order: maxOrder + 1,
         name_key:   nameKey,
       })
-      .select("id, name, color, sort_order, archived, graduated_at, birthday")
+      .select("id, name, color, sort_order, archived, graduated_at, birthday, grade_level")
       .single();
 
     if (error) {
@@ -924,6 +927,8 @@ export default function SettingsPage() {
     setEditColor(child.color ?? COLORS[0].value);
     setBirthdayText(isoToDisplayDate(child.birthday));
     setBirthdayInvalid(false);
+    setEditGradeLevel(child.grade_level ?? "");
+    setGradeLevelSaved(false);
     setEditError("");
     setDeleteId(null);
   }
@@ -934,6 +939,8 @@ export default function SettingsPage() {
     setEditColor("");
     setBirthdayText("");
     setBirthdayInvalid(false);
+    setEditGradeLevel("");
+    setGradeLevelSaved(false);
     setEditError("");
   }
 
@@ -1390,6 +1397,33 @@ export default function SettingsPage() {
                         autoFocus
                         onKeyDown={(e) => { if (e.key === "Enter") saveEdit(child.id); if (e.key === "Escape") cancelEdit(); }}
                         className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-medium text-[#7a6f65]">
+                          Grade Level
+                        </label>
+                        {gradeLevelSaved && (
+                          <span className="text-xs font-medium text-[var(--g-deep)]">Saved ✓</span>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={editGradeLevel}
+                        onChange={(e) => setEditGradeLevel(e.target.value)}
+                        onBlur={async () => {
+                          const trimmed = editGradeLevel.trim();
+                          const next = trimmed ? trimmed : null;
+                          const current = children.find((c) => c.id === child.id)?.grade_level ?? null;
+                          if (next === current) return;
+                          await supabase.from("children").update({ grade_level: next }).eq("id", child.id);
+                          setChildren((prev) => prev.map((c) => c.id === child.id ? { ...c, grade_level: next } : c));
+                          setGradeLevelSaved(true);
+                          setTimeout(() => setGradeLevelSaved(false), 2000);
+                        }}
+                        placeholder="e.g. 2nd grade, 9th grade"
+                        className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/15 transition"
                       />
                     </div>
                     <div>
