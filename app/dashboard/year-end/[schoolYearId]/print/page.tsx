@@ -104,6 +104,20 @@ const PRINT_CSS = `
   body { background: white !important; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color: inherit !important; }
   @page { size: letter; margin: 0.75in; }
+  .keepsake-wrapper {
+    position: static !important;
+    overflow: visible !important;
+    z-index: auto !important;
+    padding: 0 !important;
+    background: white !important;
+    display: block !important;
+  }
+  .keepsake-page {
+    max-width: 100% !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
 }
 @media screen {
   body { background: #f8f7f4; }
