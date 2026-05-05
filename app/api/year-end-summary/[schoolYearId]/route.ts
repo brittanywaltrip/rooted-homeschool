@@ -7,13 +7,21 @@ const SIGNED_URL_TTL_SECONDS = 604800; // 7 days
 
 function extractStoragePath(rawUrl: string | null | undefined): string | null {
   if (!rawUrl) return null;
-  const marker = "/sign/memory-photos/";
-  const markerIdx = rawUrl.indexOf(marker);
-  if (markerIdx === -1) return null;
-  const start = markerIdx + marker.length;
-  const end = rawUrl.indexOf("?token=");
-  const path = rawUrl.substring(start, end > -1 ? end : undefined);
-  return path || null;
+  // Storage URLs come in two shapes:
+  //   .../storage/v1/object/sign/memory-photos/<path>?token=...   (signed)
+  //   .../storage/v1/object/public/memory-photos/<path>           (public)
+  // Both encode the same storage path; we just need to peel off the prefix
+  // and any trailing query string before re-signing.
+  const markers = ["/object/sign/memory-photos/", "/object/public/memory-photos/"];
+  for (const marker of markers) {
+    const idx = rawUrl.indexOf(marker);
+    if (idx === -1) continue;
+    const start = idx + marker.length;
+    const qIdx = rawUrl.indexOf("?", start);
+    const path = rawUrl.substring(start, qIdx > -1 ? qIdx : undefined);
+    return path || null;
+  }
+  return null;
 }
 
 export async function GET(

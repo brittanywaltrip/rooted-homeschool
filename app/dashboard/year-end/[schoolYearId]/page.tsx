@@ -140,6 +140,11 @@ export default function YearEndSummaryPage() {
   const renameInputRef = useRef<HTMLInputElement>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Photo image error state — tracked in React so re-renders with fresh
+  // signed URLs aren't blocked by a stale style.display=none mutation.
+  const [erroredPhotos, setErroredPhotos] = useState<Set<string>>(new Set());
+  const [mostLovedImageErrored, setMostLovedImageErrored] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -165,6 +170,8 @@ export default function YearEndSummaryPage() {
         if (!cancelled) {
           setData(json);
           setYearName(json.schoolYear.name);
+          setErroredPhotos(new Set());
+          setMostLovedImageErrored(false);
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load summary.");
@@ -264,7 +271,7 @@ export default function YearEndSummaryPage() {
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-end md:justify-between gap-6">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-3">
-              Your School Year
+              🌿 Your School Year
             </p>
             {editingName ? (
               <input
@@ -337,26 +344,33 @@ export default function YearEndSummaryPage() {
 
         <section>
           <p className={SECTION_LABEL}>Photos from this year</p>
-          {photos.length === 0 ? (
-            <p className="text-sm text-[#8B7E74]">No photos captured this year yet.</p>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-              {photos.map((p) => (
-                p.photo_url ? (
+          {(() => {
+            const visiblePhotos = photos.filter((p) => p.photo_url && !erroredPhotos.has(p.id));
+            if (visiblePhotos.length === 0) {
+              return <p className="text-sm text-[#8B7E74]">No photos captured this year yet.</p>;
+            }
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                {visiblePhotos.map((p) => (
                   <img
                     key={p.id}
-                    src={p.photo_url}
+                    src={p.photo_url ?? undefined}
                     alt={p.title ?? p.caption ?? ""}
                     className="aspect-square object-cover rounded-lg w-full"
-                    onError={(e) => { (e.target as HTMLImageElement).parentElement?.style.setProperty('display', 'none') }}
+                    onError={() => setErroredPhotos((prev) => {
+                      if (prev.has(p.id)) return prev;
+                      const next = new Set(prev);
+                      next.add(p.id);
+                      return next;
+                    })}
                   />
-                ) : null
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            );
+          })()}
         </section>
 
-        {familyStats?.most_loved_memory && familyStats.most_loved_memory.photo_url && (
+        {familyStats?.most_loved_memory && familyStats.most_loved_memory.photo_url && !mostLovedImageErrored && (
           <section>
             <p className={SECTION_LABEL}>Your family&apos;s most loved moment</p>
             <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-col md:flex-row gap-5">
@@ -364,7 +378,7 @@ export default function YearEndSummaryPage() {
                 src={familyStats.most_loved_memory.photo_url}
                 alt={familyStats.most_loved_memory.title ?? ""}
                 className="rounded-lg max-w-[280px] w-full object-cover"
-                onError={(e) => { (e.target as HTMLImageElement).parentElement?.style.setProperty('display', 'none') }}
+                onError={() => setMostLovedImageErrored(true)}
               />
               <div className="flex-1 min-w-0 flex flex-col justify-center gap-3">
                 <div className="flex flex-wrap gap-2">
@@ -425,23 +439,32 @@ export default function YearEndSummaryPage() {
               Keep going. Badges are earned through consistent learning!
             </p>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {topBadges.map((b) => {
                 const name = badgeDisplayName(b.badge_type);
                 const info = BADGE_INFO[name];
+                const tier = (b.tier ?? "").toLowerCase();
+                const tierClass =
+                  tier === "gold"   ? "bg-yellow-100 text-yellow-800 border border-yellow-300" :
+                  tier === "silver" ? "bg-slate-100 text-slate-700 border border-slate-300" :
+                  tier === "bronze" ? "bg-amber-100 text-amber-800 border border-amber-300" :
+                                      "bg-[#f0ede8] text-[#7a6f65] border border-[#e8e2d9]";
                 return (
                   <div
                     key={b.badge_type}
-                    className="bg-white rounded-lg border border-gray-200 p-4"
+                    className="bg-[#fefcf9] rounded-2xl border-2 border-[#e8e2d9] p-6 flex flex-col items-center text-center"
                   >
-                    <p className="text-[#1a2c22] font-medium">
-                      {info ? `${info.emoji} ${name}` : name}
+                    <div className="text-5xl mb-3" aria-hidden="true">
+                      {info?.emoji ?? "🏅"}
+                    </div>
+                    <p className="text-base font-bold text-[#1a2c22] mb-2">
+                      {name}
                     </p>
-                    <p className="text-sm mt-1 capitalize text-[#8B7E74]">
+                    <span className={`inline-block text-[10px] font-bold uppercase tracking-wider rounded-full px-3 py-1 mb-3 ${tierClass}`}>
                       {b.tier}
-                    </p>
+                    </span>
                     {info && (
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-gray-500 leading-relaxed">
                         {info.description}
                       </p>
                     )}
@@ -456,7 +479,7 @@ export default function YearEndSummaryPage() {
           <p className={SECTION_LABEL}>Your records</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[
-              { href: "/dashboard/plan", label: "Progress Report" },
+              { href: "/dashboard/reports", label: "Progress Report" },
               { href: "/dashboard/transcript", label: "Transcripts" },
               { href: "/dashboard/memories/yearbook/edit", label: "Yearbook" },
             ].map((r) => (
