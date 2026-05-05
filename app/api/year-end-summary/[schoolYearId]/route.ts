@@ -5,20 +5,15 @@ export const dynamic = "force-dynamic";
 
 const SIGNED_URL_TTL_SECONDS = 604800; // 7 days
 
-async function refreshSignedUrl(rawUrl: string | null): Promise<string | null> {
-  if (!rawUrl) return rawUrl;
+function extractStoragePath(rawUrl: string | null | undefined): string | null {
+  if (!rawUrl) return null;
   const marker = "/sign/memory-photos/";
   const markerIdx = rawUrl.indexOf(marker);
-  if (markerIdx === -1) return rawUrl;
+  if (markerIdx === -1) return null;
   const start = markerIdx + marker.length;
   const end = rawUrl.indexOf("?token=");
-  const storagePath = rawUrl.substring(start, end > -1 ? end : undefined);
-  if (!storagePath) return rawUrl;
-  const { data: signedData } = await supabaseAdmin
-    .storage
-    .from("memory-photos")
-    .createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
-  return signedData?.signedUrl ?? rawUrl;
+  const path = rawUrl.substring(start, end > -1 ? end : undefined);
+  return path || null;
 }
 
 export async function GET(
@@ -132,13 +127,6 @@ export async function GET(
     return NextResponse.json({ error: photosErr.message }, { status: 500 });
   }
 
-  const photos = await Promise.all(
-    (photosRaw ?? []).map(async (p) => ({
-      ...p,
-      photo_url: await refreshSignedUrl(p.photo_url),
-    }))
-  );
-
   const { data: curriculumGoalsRaw, error: cgErr } = await supabaseAdmin
     .from("curriculum_goals")
     .select("id, subject_label, curriculum_name, icon_emoji")
@@ -210,7 +198,7 @@ export async function GET(
       if (mem) {
         mostLovedMemory = {
           id: mem.id,
-          photo_url: await refreshSignedUrl(mem.photo_url ?? null),
+          photo_url: mem.photo_url ?? null,
           type: mem.type,
           title: mem.title ?? null,
           reaction_count: topMemoryCount,
@@ -236,6 +224,42 @@ export async function GET(
           };
         }
       }
+    }
+  }
+
+  // Batch-refresh all photo URLs (photo grid + most-loved memory) in a single
+  // storage call. Stored URLs are 1-hour signed URLs that expire fast; we
+  // re-sign with a 7-day TTL so the rendered page survives until the user
+  // refreshes. One round-trip instead of N.
+  const photoPaths = (photosRaw ?? []).map((p) => extractStoragePath(p.photo_url));
+  const mostLovedPath = mostLovedMemory ? extractStoragePath(mostLovedMemory.photo_url) : null;
+  const allPaths = Array.from(
+    new Set([...photoPaths.filter((p): p is string => !!p), ...(mostLovedPath ? [mostLovedPath] : [])])
+  );
+
+  const signedByPath = new Map<string, string>();
+  if (allPaths.length > 0) {
+    const { data: signedList } = await supabaseAdmin
+      .storage
+      .from("memory-photos")
+      .createSignedUrls(allPaths, SIGNED_URL_TTL_SECONDS);
+    for (const item of signedList ?? []) {
+      if (item.path && item.signedUrl && !item.error) {
+        signedByPath.set(item.path, item.signedUrl);
+      }
+    }
+  }
+
+  const photos = (photosRaw ?? []).map((p, i) => {
+    const path = photoPaths[i];
+    const refreshed = path ? signedByPath.get(path) : undefined;
+    return { ...p, photo_url: refreshed ?? p.photo_url };
+  });
+
+  if (mostLovedMemory && mostLovedPath) {
+    const refreshed = signedByPath.get(mostLovedPath);
+    if (refreshed) {
+      mostLovedMemory = { ...mostLovedMemory, photo_url: refreshed };
     }
   }
 

@@ -87,6 +87,14 @@ const BADGE_LABELS: Record<string, string> = {
   "explorer": "Explorer",
 };
 
+const BADGE_INFO: Record<string, { emoji: string; description: string }> = {
+  "On Fire":       { emoji: "🔥", description: "Showed up consistently, day after day" },
+  "Memory Keeper": { emoji: "📸", description: "Captured the moments that matter most" },
+  "Rhythm":        { emoji: "🎵", description: "Found a school flow and kept it going" },
+  "Deep Roots":    { emoji: "🌱", description: "Went deep on a subject all year long" },
+  "Growth":        { emoji: "📈", description: "Made measurable progress start to finish" },
+};
+
 const TIER_RANK: Record<string, number> = { gold: 3, silver: 2, bronze: 1 };
 
 function badgeDisplayName(type: string): string {
@@ -252,7 +260,7 @@ export default function YearEndSummaryPage() {
     <div className="print-page year-end-print-page" style={{ background: "#F8F7F4", minHeight: "100vh" }}>
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
 
-      <section className="bg-[#1a2c22] py-16 px-6">
+      <section className="bg-[#2D5A3D] rounded-b-[24px] py-16 px-6">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-end md:justify-between gap-6">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-3">
@@ -320,7 +328,7 @@ export default function YearEndSummaryPage() {
               { value: memoriesTotal.toLocaleString(), label: "Memories Captured" },
             ].map((s) => (
               <div key={s.label} className="flex-1 bg-[#2D5A3D] rounded-lg text-[#F8F7F4] p-6">
-                <p className="text-5xl font-bold leading-none">{s.value}</p>
+                <p className="text-3xl font-bold leading-none">{s.value}</p>
                 <p className="text-sm mt-2 text-[#c8d6cb]">{s.label}</p>
               </div>
             ))}
@@ -340,6 +348,7 @@ export default function YearEndSummaryPage() {
                     src={p.photo_url}
                     alt={p.title ?? p.caption ?? ""}
                     className="aspect-square object-cover rounded-lg w-full"
+                    onError={(e) => { (e.target as HTMLImageElement).parentElement?.style.setProperty('display', 'none') }}
                   />
                 ) : null
               ))}
@@ -355,6 +364,7 @@ export default function YearEndSummaryPage() {
                 src={familyStats.most_loved_memory.photo_url}
                 alt={familyStats.most_loved_memory.title ?? ""}
                 className="rounded-lg max-w-[280px] w-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).parentElement?.style.setProperty('display', 'none') }}
               />
               <div className="flex-1 min-w-0 flex flex-col justify-center gap-3">
                 <div className="flex flex-wrap gap-2">
@@ -416,19 +426,28 @@ export default function YearEndSummaryPage() {
             </p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {topBadges.map((b) => (
-                <div
-                  key={b.badge_type}
-                  className="bg-white rounded-lg border border-gray-200 p-4"
-                >
-                  <p className="text-[#1a2c22] font-medium">
-                    {badgeDisplayName(b.badge_type)}
-                  </p>
-                  <p className="text-sm mt-1 capitalize text-[#8B7E74]">
-                    {b.tier}
-                  </p>
-                </div>
-              ))}
+              {topBadges.map((b) => {
+                const name = badgeDisplayName(b.badge_type);
+                const info = BADGE_INFO[name];
+                return (
+                  <div
+                    key={b.badge_type}
+                    className="bg-white rounded-lg border border-gray-200 p-4"
+                  >
+                    <p className="text-[#1a2c22] font-medium">
+                      {info ? `${info.emoji} ${name}` : name}
+                    </p>
+                    <p className="text-sm mt-1 capitalize text-[#8B7E74]">
+                      {b.tier}
+                    </p>
+                    {info && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {info.description}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
