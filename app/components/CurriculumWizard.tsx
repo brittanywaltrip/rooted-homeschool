@@ -247,6 +247,14 @@ export default function CurriculumWizard({
       : [true, true, true, true, true, false, false]
   );
 
+  // Snapshot of school_days at wizard-open time. Used by saveEdit to emit
+  // school_days_changed in the curriculum_updated telemetry event without
+  // relying on the form state (which the user mutates) or the DB (which a
+  // second tab could mutate between open and save).
+  const [originalSchoolDaysOnOpen] = useState<string[] | null>(() =>
+    mode === "edit" ? (editData?.schoolDays ?? null) : null,
+  );
+
   const [lessonsPerDay, setLessonsPerDay] = useState(
     editData?.lessonsPerDay ? String(editData.lessonsPerDay) : "1"
   );
@@ -1350,6 +1358,24 @@ export default function CurriculumWizard({
       await healGoalIntegrity(supabase, activeGoalId);
       await recomputeCurrentLesson(supabase, activeGoalId);
     }
+
+    // Audit telemetry. school_days_changed compares the saved value to
+    // the snapshot captured at wizard-open time so a user who toggles a
+    // day and toggles back is not reported as changed. Matches the
+    // curriculum_created shape so create / edit funnels read consistently.
+    const updatedSchoolDays = booleanToDays(schoolDays);
+    const origDaysKey = (originalSchoolDaysOnOpen ?? []).slice().sort().join(",");
+    const nextDaysKey = updatedSchoolDays.slice().sort().join(",");
+    posthog.capture('curriculum_updated', {
+      curriculum_goal_id: activeGoalId ?? null,
+      subject_label: effectiveSub || null,
+      curriculum_name: saveName,
+      school_days: updatedSchoolDays,
+      total_lessons: totalNum,
+      lessons_per_day: parseInt(lessonsPerDay) || 1,
+      start_date: startDate || null,
+      school_days_changed: origDaysKey !== nextDaysKey,
+    });
 
     refreshPastCurriculumNames(user.id);
     setGenerating(false);
