@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { X, BookOpen } from "lucide-react";
-import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import { onLogAction } from "@/app/lib/onLogAction";
@@ -45,6 +45,11 @@ interface Props {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const CHILD_COLORS = [
+  "#5c7f63", "#7a9e7e", "#4a7a8a",
+  "#5a5c8a", "#c4956a", "#c4697a",
+];
 
 function guessEmoji(name: string): string {
   const n = name.toLowerCase();
@@ -148,6 +153,8 @@ export default function CurriculumWizard({
 
   // ── Children ──────────────────────────────────────────────────────────────
   const [children, setChildren] = useState<Child[]>([]);
+  const [newChildName, setNewChildName] = useState("");
+  const [addingChild, setAddingChild] = useState(false);
   const [pastCurriculumNames, setPastCurriculumNames] = useState<string[]>([]);
   // ── Vacation blocks (preview math) ────────────────────────────────────────
   // Loaded once at mount. The Step 3 finish-date / required-per-day previews
@@ -177,6 +184,45 @@ export default function CurriculumWizard({
         }
       });
   }, [effectiveUserId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleAddChildAndContinue() {
+    const trimmed = newChildName.trim();
+    if (!trimmed || addingChild || !effectiveUserId) return;
+    setAddingChild(true);
+    try {
+      const usedColors = children.map((c) => c.color).filter(Boolean) as string[];
+      const color = CHILD_COLORS.find((c) => !usedColors.includes(c)) ?? CHILD_COLORS[0];
+      const { data: inserted, error: insErr } = await supabase
+        .from("children")
+        .insert({
+          user_id: effectiveUserId,
+          name: capitalizeName(trimmed),
+          color,
+          sort_order: 0,
+          archived: false,
+          name_key: trimmed.toLowerCase().replace(/\s+/g, "_"),
+        })
+        .select("id, name, color")
+        .single();
+      if (insErr || !inserted) {
+        showToast?.("Couldn't add child. Please try again.");
+        return;
+      }
+      const { data: refreshed } = await supabase
+        .from("children")
+        .select("id, name, color")
+        .eq("user_id", effectiveUserId)
+        .eq("archived", false)
+        .order("sort_order");
+      const kids = ((refreshed as Child[]) ?? [inserted as Child]);
+      setChildren(kids);
+      setChildId((inserted as Child).id);
+      setNewChildName("");
+      setStep(2);
+    } finally {
+      setAddingChild(false);
+    }
+  }
 
   async function refreshPastCurriculumNames(uid: string) {
     const { data: rows } = await supabase
@@ -1513,13 +1559,33 @@ export default function CurriculumWizard({
                 <div>
                   <p className="text-base font-semibold text-[#2d2926] mb-1">No children added yet</p>
                   <p className="text-sm text-[#7a6f65] leading-relaxed">
-                    Head to Settings to add your children first, then come back to set up your curriculum.
+                    Add your child to get started.
                   </p>
                 </div>
-                <Link href="/dashboard/settings?section=children" onClick={onClose}
-                  className="inline-block px-5 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors">
-                  Go to Settings →
-                </Link>
+                <div className="space-y-2 text-left">
+                  <input
+                    type="text"
+                    value={newChildName}
+                    onChange={(e) => setNewChildName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newChildName.trim() && !addingChild) {
+                        e.preventDefault();
+                        handleAddChildAndContinue();
+                      }
+                    }}
+                    placeholder="Child's name"
+                    autoFocus
+                    style={{ textTransform: "capitalize" }}
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                  />
+                  <button
+                    onClick={handleAddChildAndContinue}
+                    disabled={!newChildName.trim() || addingChild}
+                    className="w-full py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-40 text-white text-sm font-semibold transition-colors"
+                  >
+                    {addingChild ? "Adding…" : "Add child & continue →"}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-2">
@@ -1600,12 +1666,13 @@ export default function CurriculumWizard({
             )}
 
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">Curriculum name *</label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">What are you studying? *</label>
               <input type="text" list="curriculum-name-suggestions" value={curricName} onChange={(e) => setCurricName(e.target.value)}
-                placeholder="e.g. Saxon Math 5/4, All About Reading Level 3"
+                placeholder="e.g. The Good and the Beautiful Language Arts Level 3"
                 autoFocus={mode === "create"}
                 style={{ textTransform: "capitalize" }}
                 className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              <p className="text-xs text-[#b5aca4] mt-1">This is the name of your book or program.</p>
               <datalist id="curriculum-name-suggestions">
                 {pastCurriculumNames.map((n) => <option key={n} value={n} />)}
               </datalist>
@@ -1672,10 +1739,11 @@ export default function CurriculumWizard({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">Total lessons *</label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">How many lessons are in this book? *</label>
                 <input value={totalLessons} onChange={(e) => setTotalLessons(e.target.value)}
-                  type="number" min="1" max="999" placeholder="e.g. 170"
+                  type="number" min="1" max="999" placeholder="e.g. 120"
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+                <p className="text-xs text-[#b5aca4] mt-1">Check your table of contents. Count the lesson numbers, not the pages.</p>
               </div>
               <div>
                 <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">
