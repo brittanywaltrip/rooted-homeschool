@@ -46,6 +46,9 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'Rooted',
   },
+  other: {
+    'google-site-verification': 'cDzAlZ7R9GExF4LyE2aFbSb1eGl8FlSHvnWyaNiuLCg',
+  },
 };
 
 export default function RootLayout({
