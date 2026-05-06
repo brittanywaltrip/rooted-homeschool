@@ -635,6 +635,128 @@ export function isBreakDay(date: Date, vacationBlocks: VacationBlock[] | null | 
 }
 
 /**
+ * Canonical "is this date a vacation day?" check. Accepts either a
+ * YYYY-MM-DD string or a Date so callers don't have to normalize before
+ * asking. Inclusive on both block endpoints.
+ *
+ * Use this anywhere code asks "should this calendar day be excluded
+ * from the schedule?" — including the missed/overdue lesson banner,
+ * the catch-up gap calculator, calendar cell rendering, and any code
+ * that walks days forward to land on the next school day. There must
+ * be exactly one definition of "is this day in a vacation" in the
+ * codebase (the same rule of thumb as Invariant 8 for date picking).
+ */
+export function isVacationDay(
+  date: string | Date,
+  vacationBlocks: VacationBlock[] | null | undefined,
+): boolean {
+  if (!vacationBlocks || vacationBlocks.length === 0) return false;
+  const dateStr = typeof date === "string" ? date : toDateStr(date);
+  for (const b of vacationBlocks) {
+    if (dateStr >= b.start_date && dateStr <= b.end_date) return true;
+  }
+  return false;
+}
+
+/**
+ * Is work "due" on this date for this curriculum? True iff the date's
+ * weekday is in the curriculum's `school_days` AND the date is not
+ * inside any vacation block. Empty/null `school_days` falls back to
+ * Mon-Fri so the check never silently treats every day as off.
+ *
+ * Use this whenever you need to ask "should there have been a lesson
+ * on this calendar day?" — most importantly when computing whether a
+ * past-dated lesson is missed/overdue. A lesson scheduled on a
+ * vacation day is not missed; vacation pushes it forward (see
+ * `effectiveDueDate`).
+ */
+export function isDueDate(
+  date: string | Date,
+  curriculum: { school_days?: string[] | null },
+  vacationBlocks: VacationBlock[] | null | undefined,
+): boolean {
+  if (isVacationDay(date, vacationBlocks)) return false;
+  const dateStr = typeof date === "string" ? date : toDateStr(date);
+  // Anchor at noon to avoid DST/timezone edge cases when JS reads the wall date.
+  const d = new Date(dateStr + "T12:00:00");
+  return isSchoolDay(d, curriculum.school_days);
+}
+
+/**
+ * Walk forward from `originalDate` (YYYY-MM-DD) until landing on a
+ * date that is BOTH a school day for the curriculum AND not inside a
+ * vacation block. Returns YYYY-MM-DD.
+ *
+ * Used to answer "when is this lesson actually due, given the user's
+ * current vacation blocks?" The originally stored `scheduled_date`
+ * may now fall inside a vacation block (e.g. mom added the vacation
+ * after the wizard pre-generated the lesson rows), in which case the
+ * lesson is effectively pushed forward to the next valid school day
+ * after the block ends.
+ *
+ * Cascades: if the day after a vacation is a weekend or another
+ * vacation block, keep walking until a real school day is found.
+ *
+ * If `originalDate` is already a valid school day with no vacation
+ * conflict, returns it unchanged.
+ *
+ * `school_days` falls back to Mon-Fri when null/empty (Invariant 5).
+ */
+export function effectiveDueDate(
+  originalDate: string,
+  schoolDays: string[] | null | undefined,
+  vacationBlocks: VacationBlock[] | null | undefined,
+): string {
+  let cursor = originalDate;
+  for (let i = 0; i < 3650; i++) {
+    if (
+      !isVacationDay(cursor, vacationBlocks) &&
+      isSchoolDay(new Date(cursor + "T12:00:00"), schoolDays)
+    ) {
+      return cursor;
+    }
+    cursor = addDays(cursor, 1);
+  }
+  return cursor;
+}
+
+/**
+ * Convenience wrapper used by every "is this lesson missed?" call site
+ * in the app. A lesson is missed iff:
+ *
+ *   1. it is incomplete, AND
+ *   2. it has a stored scheduled_date (or date), AND
+ *   3. its EFFECTIVE due date — i.e. the originally scheduled date
+ *      pushed forward through any intervening vacation blocks /
+ *      non-school days — is strictly before `todayStr`.
+ *
+ * Why effective-date instead of raw scheduled_date: if mom added a
+ * vacation block AFTER the wizard pre-generated lesson rows, those
+ * rows still carry their original scheduled_date — which may now sit
+ * inside the vacation. Treating those as missed would be wrong; the
+ * lesson is effectively pushed past the vacation and isn't missed
+ * unless that pushed-forward date is also already in the past.
+ */
+export interface MissedLessonInput {
+  scheduled_date?: string | null;
+  date?: string | null;
+  completed: boolean;
+}
+
+export function isLessonMissed(
+  lesson: MissedLessonInput,
+  todayStr: string,
+  schoolDays: string[] | null | undefined,
+  vacationBlocks: VacationBlock[] | null | undefined,
+): boolean {
+  if (lesson.completed) return false;
+  const d = lesson.scheduled_date ?? lesson.date ?? null;
+  if (!d) return false;
+  const effective = effectiveDueDate(d, schoolDays, vacationBlocks);
+  return effective < todayStr;
+}
+
+/**
  * Normalize a goal's school_days. The DB column defaults to Mon-Fri at
  * insert, but legacy rows or hand-edits can land here as null or [], in
  * which case we fall back to the same Mon-Fri default rather than

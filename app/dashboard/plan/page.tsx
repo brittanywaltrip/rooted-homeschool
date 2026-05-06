@@ -16,7 +16,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { addDays as addDaysYmd } from "@/app/lib/timezone";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -340,8 +340,13 @@ function addWeekdays(date: Date, days: number): Date {
   return result;
 }
 
+// Thin wrapper around the canonical isVacationDay helper so existing
+// callers in this file keep their (dateStr, blocks) signature. The
+// scheduler.ts helper is the single source of truth for "is this day
+// inside a vacation block" — do not reintroduce a parallel
+// implementation here.
 function isDateInBlocks(dateStr: string, blocks: { start_date: string; end_date: string }[]): boolean {
-  return blocks.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
+  return isVacationDay(dateStr, blocks as SchedVacationBlock[]);
 }
 
 function getVacationName(dateStr: string, blocks: VacationBlock[]): string | null {
@@ -1015,10 +1020,19 @@ export default function PlanPage() {
   }
 
   // ── Missed lessons (needed by reschedule functions) ─────────────────────
+  // A lesson is missed iff its EFFECTIVE due date (the stored
+  // scheduled_date pushed forward through any intervening vacation
+  // blocks and non-school days) is strictly before today. Lessons
+  // whose stored date sits inside a vacation block are NOT missed —
+  // vacation pushes them past the break to the next valid school day,
+  // exactly the same way `computeNextLessonsForGoal` projects forward.
   const missedLessons = allLessons
     .filter(l => {
-      const d = l.scheduled_date ?? l.date;
-      return d && d < todayStr && !l.completed;
+      const goal = l.curriculum_goal_id
+        ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) ?? null
+        : null;
+      const schoolDays = goal?.school_days ?? null;
+      return isLessonMissed(l, todayStr, schoolDays, vacationBlocks as SchedVacationBlock[]);
     })
     .sort((a, b) => ((a.scheduled_date ?? a.date) ?? "").localeCompare((b.scheduled_date ?? b.date) ?? ""));
 
@@ -1532,10 +1546,16 @@ export default function PlanPage() {
     }
   }, [curricGroups]);
 
-  // Catch-up: uncompleted lessons before today this week
+  // Catch-up: uncompleted lessons before today this week. Same vacation-aware
+  // rule as `missedLessons` above — a lesson sitting on a vacation day was
+  // pushed forward past the break and is not "from earlier" until the
+  // pushed-forward date is also in the past.
   const pastIncompleteLessons = lessons.filter(l => {
-    const d = l.scheduled_date ?? l.date;
-    return d && d < todayStr && !l.completed;
+    const goal = l.curriculum_goal_id
+      ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) ?? null
+      : null;
+    const schoolDays = goal?.school_days ?? null;
+    return isLessonMissed(l, todayStr, schoolDays, vacationBlocks as SchedVacationBlock[]);
   });
   const hasCatchUp = pastIncompleteLessons.length > 0;
 

@@ -43,6 +43,10 @@ import {
   monotonicCompletedAt,
   schoolDayLabelsToIso,
   isQueueEnabled,
+  isVacationDay,
+  isDueDate,
+  effectiveDueDate,
+  isLessonMissed,
 } from './scheduler.ts'
 
 test('forwardScheduleStart bumps today to tomorrow', () => {
@@ -2084,4 +2088,155 @@ test('Bug A end-to-end — verification dates from the prompt match', () => {
   assert.strictEqual(newDateById.get('L6'),  '2026-06-15')
   assert.strictEqual(newDateById.get('L11'), '2026-06-22')
   assert.strictEqual(newDateById.get('L30'), '2026-07-17')
+})
+
+// ─── Vacation-aware "missed lesson" calculations ───────────────────────────
+//
+// Production bug: lessons sitting on a date that falls inside a
+// vacation_block were appearing in the Plan page's "missed lessons"
+// banner. Vacation should EXCLUDE those days from the schedule, not
+// flag them as missed. The lesson is effectively pushed forward to
+// the next school day after the vacation ends.
+//
+// `isVacationDay`, `isDueDate`, `effectiveDueDate`, and
+// `isLessonMissed` exist so the same vacation rule applies everywhere
+// — Today page, Plan page, progress reports — without each call site
+// rolling its own.
+
+test('isVacationDay: accepts string or Date and is inclusive on both ends', () => {
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  assert.equal(isVacationDay('2026-05-03', blocks), false, 'string: day before')
+  assert.equal(isVacationDay('2026-05-04', blocks), true,  'string: first break day')
+  assert.equal(isVacationDay('2026-05-08', blocks), true,  'string: last break day')
+  assert.equal(isVacationDay('2026-05-09', blocks), false, 'string: day after')
+  assert.equal(isVacationDay(new Date(2026, 4, 6), blocks), true, 'Date: middle of break')
+  assert.equal(isVacationDay('2026-05-06', null),  false, 'null blocks')
+  assert.equal(isVacationDay('2026-05-06', []),    false, 'empty blocks')
+})
+
+test('isDueDate: a vacation day is not a due date even if school_days includes that weekday', () => {
+  // Wed May 6 2026 is a Wednesday — a school day for Mon-Fri families —
+  // but it is inside the vacation block, so no work is "due" that day.
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  const monFri = { school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] }
+  assert.equal(isDueDate('2026-05-06', monFri, blocks), false, 'Wed inside vacation')
+  assert.equal(isDueDate('2026-05-13', monFri, blocks), true,  'Wed outside vacation')
+  assert.equal(isDueDate('2026-05-09', monFri, blocks), false, 'Sat — not a school day')
+  assert.equal(isDueDate('2026-05-13', monFri, []),     true,  'Wed with no vacations')
+  assert.equal(isDueDate('2026-05-13', monFri, null),   true,  'Wed with null vacations')
+})
+
+test('isDueDate: empty/null school_days falls back to Mon-Fri', () => {
+  // Empty school_days must NEVER be treated as "no day is a school day"
+  // — that would make every past lesson permanently "not due" and
+  // mask real missed work. Fall back to Mon-Fri (Invariant 5).
+  const monFriFallback = { school_days: [] as string[] }
+  const nullFallback = { school_days: null as string[] | null }
+  assert.equal(isDueDate('2026-05-04', monFriFallback, []), true,  'Mon under empty fallback')
+  assert.equal(isDueDate('2026-05-09', monFriFallback, []), false, 'Sat under empty fallback')
+  assert.equal(isDueDate('2026-05-04', nullFallback, []),   true,  'Mon under null fallback')
+})
+
+test('effectiveDueDate: a vacation day pushes forward to the next school day after the block', () => {
+  // Lesson originally scheduled on Wed May 6 2026 (a school day, but
+  // inside a Mon May 4 - Fri May 8 vacation). The next school day
+  // after the vacation ends is Mon May 11.
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  const monFri = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  assert.equal(effectiveDueDate('2026-05-06', monFri, blocks), '2026-05-11', 'mid-vacation pushes past block')
+  assert.equal(effectiveDueDate('2026-05-04', monFri, blocks), '2026-05-11', 'first day of vacation pushes past block')
+  assert.equal(effectiveDueDate('2026-05-08', monFri, blocks), '2026-05-11', 'last day of vacation pushes past block')
+  assert.equal(effectiveDueDate('2026-05-13', monFri, blocks), '2026-05-13', 'date outside vacation unchanged')
+})
+
+test('effectiveDueDate: cascades through weekend after vacation', () => {
+  // Vacation ends Fri May 8. The next calendar day is Sat May 9 — not
+  // a school day for a Mon-Fri family. Push must cascade to Mon May 11.
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  const monFri = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  assert.equal(effectiveDueDate('2026-05-06', monFri, blocks), '2026-05-11', 'walks through Sat+Sun to Mon')
+})
+
+test('effectiveDueDate: cascades through back-to-back vacation blocks', () => {
+  // Two adjacent vacation blocks with one weekend between them. Push
+  // must walk over both blocks AND the weekend until landing on a real
+  // school day.
+  const blocks: VacationBlock[] = [
+    { start_date: '2026-05-04', end_date: '2026-05-08' },
+    { start_date: '2026-05-11', end_date: '2026-05-15' },
+  ]
+  const monFri = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  assert.equal(effectiveDueDate('2026-05-06', monFri, blocks), '2026-05-18', 'walks over both blocks to next Mon')
+})
+
+test('effectiveDueDate: empty/null school_days falls back to Mon-Fri before pushing', () => {
+  // Lesson on Sun May 3 with no vacation; null school_days must use
+  // Mon-Fri so the push lands on Mon May 4, not the same Sunday.
+  assert.equal(effectiveDueDate('2026-05-03', null, []),  '2026-05-04', 'null school_days → Mon-Fri')
+  assert.equal(effectiveDueDate('2026-05-03', [],   []),  '2026-05-04', 'empty school_days → Mon-Fri')
+})
+
+test('isLessonMissed: lesson scheduled inside a vacation is NOT missed when vacation has not pushed past today', () => {
+  // Today = Wed May 6 2026. Lesson originally scheduled for Mon May 4
+  // (inside the vacation Mon May 4 - Fri May 8). Effective date is
+  // Mon May 11 — in the future — so the lesson is NOT missed even
+  // though its stored scheduled_date is in the past. This is the bug
+  // the helper fixes: previously the Plan page flagged this as missed.
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  const monFri = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const lesson = { scheduled_date: '2026-05-04', date: null, completed: false }
+  assert.equal(isLessonMissed(lesson, '2026-05-06', monFri, blocks), false)
+})
+
+test('isLessonMissed: lesson on a past school day with no vacation IS missed', () => {
+  // Mon May 4 with no vacation, today is Wed May 6, lesson incomplete
+  // → genuinely missed. The helper must not over-correct and hide
+  // real missed lessons.
+  const monFri = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const lesson = { scheduled_date: '2026-05-04', date: null, completed: false }
+  assert.equal(isLessonMissed(lesson, '2026-05-06', monFri, []), true)
+})
+
+test('isLessonMissed: lesson inside a vacation that ALREADY ENDED is missed (effective date is in the past)', () => {
+  // Vacation Mon May 4 - Fri May 8. Today = Tue May 19. Lesson on Wed
+  // May 6 pushes forward to Mon May 11 — which is now also in the
+  // past, so the lesson is correctly missed. Vacation push doesn't
+  // grant permanent immunity.
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  const monFri = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const lesson = { scheduled_date: '2026-05-06', date: null, completed: false }
+  assert.equal(isLessonMissed(lesson, '2026-05-19', monFri, blocks), true)
+})
+
+test('isLessonMissed: completed lessons are never missed', () => {
+  const monFri = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const lesson = { scheduled_date: '2026-05-04', date: null, completed: true }
+  assert.equal(isLessonMissed(lesson, '2026-05-06', monFri, []), false)
+})
+
+test('isLessonMissed: lessons with no scheduled_date or date are never missed', () => {
+  const monFri = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const lesson = { scheduled_date: null, date: null, completed: false }
+  assert.equal(isLessonMissed(lesson, '2026-05-06', monFri, []), false)
+})
+
+test('isLessonMissed: empty school_days falls back to Mon-Fri (no false negatives on weekday lessons)', () => {
+  // The Plan page passes the goal's school_days through unchanged. If
+  // a goal row has school_days = [] (legacy data or hand-edit), the
+  // missed check must still flag a Monday lesson as missed — never
+  // treat "no school days" as "every day is off" (Invariant 5).
+  const lesson = { scheduled_date: '2026-05-04', date: null, completed: false }
+  assert.equal(isLessonMissed(lesson, '2026-05-06', [], []),   true,  'empty school_days falls back to Mon-Fri')
+  assert.equal(isLessonMissed(lesson, '2026-05-06', null, []), true,  'null school_days falls back to Mon-Fri')
+})
+
+test('isLessonMissed: lesson on a vacation day where the original date is a non-school day still pushes correctly', () => {
+  // Lesson stored on Sun May 3 (already a non-school day for Mon-Fri).
+  // The "push" should walk to Mon May 4 — but Mon May 4 is inside a
+  // vacation, so it must keep walking to Mon May 11. Today = Wed May 6.
+  // Effective date May 11 is in the future → not missed.
+  const blocks: VacationBlock[] = [{ start_date: '2026-05-04', end_date: '2026-05-08' }]
+  const monFri = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const lesson = { scheduled_date: '2026-05-03', date: null, completed: false }
+  assert.equal(isLessonMissed(lesson, '2026-05-06', monFri, blocks), false)
 })
