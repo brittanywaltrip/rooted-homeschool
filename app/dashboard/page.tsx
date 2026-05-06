@@ -2865,7 +2865,7 @@ export default function TodayPage() {
             className="rounded-2xl px-4 py-3.5 flex items-start gap-3"
             style={{
               background: "#faf6f0",
-              borderLeft: "4px solid var(--g-accent)",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.07)",
             }}
           >
             <span className="text-xl shrink-0 leading-none mt-0.5" aria-hidden>☀️</span>
