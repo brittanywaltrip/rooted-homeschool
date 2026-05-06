@@ -2843,6 +2843,47 @@ export default function TodayPage() {
 
       <div className="max-w-2xl mx-auto px-5 pt-4 pb-7 space-y-5">
 
+      {/* ═══════════════════════════════════════════════════════════
+          VACATION BANNER — when today is inside an active vacation
+          block. Lessons still render below; this just sets the tone.
+          STEP 1 (vacation_blocks fetch) and STEP 2 (activeVacation
+          state) live in loadData; banner only reads activeVacation.
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && activeVacation && (() => {
+        // Resume date = end_date + 1 calendar day. We don't try to
+        // walk to the next school_days entry — Brittany's spec
+        // explicitly allowed the simple +1 approximation.
+        const resumeDate = new Date(activeVacation.end_date + "T00:00:00");
+        resumeDate.setDate(resumeDate.getDate() + 1);
+        const resumeLabel = resumeDate.toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        });
+        return (
+          <div
+            className="rounded-2xl px-4 py-3.5 flex items-start gap-3"
+            style={{
+              background: "#faf6f0",
+              borderLeft: "4px solid var(--g-accent)",
+            }}
+          >
+            <span className="text-xl shrink-0 leading-none mt-0.5" aria-hidden>☀️</span>
+            <div className="flex-1 min-w-0">
+              <p
+                className="text-[15px] font-medium text-[#2d2926] leading-snug"
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                {activeVacation.name}
+              </p>
+              <p className="text-[12px] text-[#7a6f65] mt-0.5 leading-snug">
+                Enjoy your break — school resumes {resumeLabel}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Getting Started — first 30 days, until both curriculum + memory exist */}
       {!loading && (() => {
         const hasCurriculum = curriculumGoalsCount > 0;
@@ -2993,6 +3034,11 @@ export default function TodayPage() {
          ═══════════════════════════════════════════════════════════ */}
       {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && (
         <div>
+          {activeVacation && (
+            <p className="text-[11px] text-[#9a8f85] mb-2 px-0.5">
+              Logging is optional today
+            </p>
+          )}
           <TodaySchedule
             lessons={lessons as never}
             activities={todayActivities as never}
