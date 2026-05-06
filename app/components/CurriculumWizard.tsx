@@ -190,15 +190,25 @@ export default function CurriculumWizard({
     if (!trimmed || addingChild || !effectiveUserId) return;
     setAddingChild(true);
     try {
-      const usedColors = children.map((c) => c.color).filter(Boolean) as string[];
-      const color = CHILD_COLORS.find((c) => !usedColors.includes(c)) ?? CHILD_COLORS[0];
+      const { data: activeRows } = await supabase
+        .from("children")
+        .select("color, sort_order")
+        .eq("user_id", effectiveUserId)
+        .eq("archived", false);
+      const rows = (activeRows ?? []) as { color: string | null; sort_order: number | null }[];
+      const usedColors = rows.map((r) => r.color).filter(Boolean) as string[];
+      const color =
+        CHILD_COLORS.find((c) => !usedColors.includes(c)) ??
+        CHILD_COLORS[rows.length % CHILD_COLORS.length];
+      const maxSort = rows.reduce((m, r) => Math.max(m, r.sort_order ?? 0), 0);
+      const nextSortOrder = maxSort + 1;
       const { data: inserted, error: insErr } = await supabase
         .from("children")
         .insert({
           user_id: effectiveUserId,
           name: capitalizeName(trimmed),
           color,
-          sort_order: 0,
+          sort_order: nextSortOrder,
           archived: false,
           name_key: trimmed.toLowerCase().replace(/\s+/g, "_"),
         })
