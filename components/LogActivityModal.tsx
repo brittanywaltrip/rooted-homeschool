@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { signedPhotoUrl } from "@/lib/photo-url";
 import { onLogAction } from "@/app/lib/onLogAction";
+import { rescheduleLessonsInVacationBlock, isQueueEnabled, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 
 type Child = { id: string; name: string; color: string | null };
 type Subject = { id: string; name: string; color: string | null };
@@ -175,6 +176,25 @@ export default function LogActivityModal({
           end_date:   breakEnd,
         });
         if (err) throw err;
+
+        // Move any incomplete lessons stranded inside the new break to the
+        // first valid school day after it ends. Mirrors the Plan page
+        // saveVacationBlock contract — without this, lessons scheduled
+        // during the break stay pinned to those dates and the missed-lesson
+        // logic ignores them (since they sit inside a vacation).
+        if (isQueueEnabled()) {
+          const { data: allVacRows } = await supabase
+            .from("vacation_blocks")
+            .select("start_date, end_date")
+            .eq("user_id", user.id);
+          await rescheduleLessonsInVacationBlock(
+            supabase,
+            user.id,
+            breakStart,
+            breakEnd,
+            (allVacRows ?? []) as SchedVacationBlock[],
+          );
+        }
       }
 
       // Fire streak + badge check (fire-and-forget, skip for breaks/reflections)

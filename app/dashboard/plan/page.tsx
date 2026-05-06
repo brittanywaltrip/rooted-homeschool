@@ -16,7 +16,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, rescheduleLessonsInVacationBlock, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { addDays as addDaysYmd } from "@/app/lib/timezone";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -912,6 +912,15 @@ export default function PlanPage() {
     if (error || !block) { setSavingVac(false); return; }
     setVacationBlocks((p) => [...p, block as VacationBlock]);
 
+    // Pull every vacation block (including the one we just inserted) once;
+    // both branches below need this so post-block placement cascades over
+    // back-to-back breaks.
+    const { data: allVacRows } = await supabase
+      .from("vacation_blocks")
+      .select("start_date, end_date")
+      .eq("user_id", user.id);
+    const allVacBlocks = (allVacRows ?? []) as SchedVacationBlock[];
+
     // Re-spread incomplete forward lessons that fall INSIDE the new vacation
     // AND every later incomplete lesson of an affected goal — so calendar
     // order matches lesson_number order (Invariant 1, "Lessons NEVER appear
@@ -950,14 +959,10 @@ export default function PlanPage() {
       const staying = forward.filter((r) => !inVacIds.has(r.id));
 
       if (inVac.length > 0) {
-        // Pull every vacation block (including the one we just inserted) so
-        // the planner never lands a moved lesson inside another break.
-        const { data: allVacs } = await supabase
-          .from("vacation_blocks")
-          .select("start_date, end_date")
-          .eq("user_id", user.id);
-        const vacRanges = (allVacs ?? []).map(
-          (v: { start_date: string; end_date: string }) => ({ start: v.start_date, end: v.end_date }),
+        // Use the already-fetched allVacBlocks so the planner never lands
+        // a moved lesson inside another break (back-to-back vacations).
+        const vacRanges = allVacBlocks.map(
+          (v) => ({ start: v.start_date, end: v.end_date }),
         );
 
         const goalConfigs = new Map<string, { school_days: string[] | null; lessons_per_day: number }>();
@@ -998,6 +1003,24 @@ export default function PlanPage() {
             )
           );
         }
+        loadData();
+        loadAllLessons();
+      }
+    } else if (isQueueEnabled()) {
+      // "Leave my schedule as is" mode still must move any incomplete
+      // lessons that landed inside the new vacation block — leaving them
+      // there strands the lesson on a break day, which the missed-lesson
+      // banner ignores (per `isLessonMissed`) and the queue projector
+      // treats as already in the past. The minimal helper moves only the
+      // in-vacation rows; later upcoming lessons stay where they are.
+      const moved = await rescheduleLessonsInVacationBlock(
+        supabase,
+        user.id,
+        vacStart,
+        vacEnd,
+        allVacBlocks,
+      );
+      if (moved.length > 0) {
         loadData();
         loadAllLessons();
       }

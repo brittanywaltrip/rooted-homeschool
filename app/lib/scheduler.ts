@@ -1168,3 +1168,111 @@ export function monotonicCompletedAt(
 export function isQueueEnabled(): boolean {
   return (process.env.NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED ?? "true") !== "false";
 }
+
+/**
+ * Move every incomplete lesson whose scheduled_date sits inside the
+ * given vacation block to the first available school day after the
+ * block ends. Cascades through back-to-back vacation blocks and
+ * non-school weekdays via `pickNextAvailableDate`.
+ *
+ * Use this anywhere a vacation block is created or its dates are
+ * widened. The wider "shift everything forward" behavior on the Plan
+ * page modal is a superset of this and remains its own code path; this
+ * helper is the minimum guarantee that no lesson is left stranded on
+ * a break day.
+ *
+ * Rules enforced:
+ *   - Only `completed_at IS NULL` rows move (Invariant 3 — never touch
+ *     completed lessons).
+ *   - Only rows whose stored `scheduled_date` falls inside [blockStart,
+ *     blockEnd] (inclusive) move; lessons outside the range are not
+ *     touched.
+ *   - The destination date is the first day strictly after `blockEnd`
+ *     that is BOTH a school day for the lesson's goal AND not inside
+ *     ANY of the user's vacation blocks (the freshly saved block must
+ *     already be in `allVacations`).
+ *   - school_days null/empty falls back to Mon-Fri (Invariant 5).
+ *   - Multiple lessons in the block can land on the same destination
+ *     date; per-call occupancy is intentionally fresh per lesson.
+ *
+ * Pure-ish: all DB I/O is internal. Returns the list of updates that
+ * were issued so callers can refresh local state without re-fetching.
+ */
+export async function rescheduleLessonsInVacationBlock(
+  supabase: SupabaseClient,
+  userId: string,
+  blockStart: string,
+  blockEnd: string,
+  allVacations: VacationBlock[],
+): Promise<{ id: string; newDate: string }[]> {
+  const { data: stranded } = await supabase
+    .from("lessons")
+    .select("id, scheduled_date, curriculum_goal_id")
+    .eq("user_id", userId)
+    .is("completed_at", null)
+    .gte("scheduled_date", blockStart)
+    .lte("scheduled_date", blockEnd);
+
+  const rows = (stranded ?? []) as {
+    id: string;
+    scheduled_date: string | null;
+    curriculum_goal_id: string | null;
+  }[];
+  if (rows.length === 0) return [];
+
+  const goalIds = Array.from(
+    new Set(rows.map((r) => r.curriculum_goal_id).filter((g): g is string => !!g)),
+  );
+  const goalSchoolDays = new Map<string, string[] | null>();
+  if (goalIds.length > 0) {
+    const { data: goals } = await supabase
+      .from("curriculum_goals")
+      .select("id, school_days")
+      .in("id", goalIds);
+    for (const g of (goals ?? []) as { id: string; school_days: string[] | null }[]) {
+      goalSchoolDays.set(g.id, g.school_days);
+    }
+  }
+
+  const vacRanges: VacationRange[] = allVacations.map((v) => ({
+    start: v.start_date,
+    end: v.end_date,
+  }));
+
+  const updates: { id: string; newDate: string }[] = [];
+  for (const r of rows) {
+    if (!r.scheduled_date) continue;
+    const schoolDays = r.curriculum_goal_id
+      ? goalSchoolDays.get(r.curriculum_goal_id) ?? null
+      : null;
+    const isoSchoolDays = schoolDayLabelsToIso(schoolDays);
+    // Fresh occupancy per lesson so multiple stranded lessons can stack
+    // on the same destination day — see contract above.
+    const occupancy = new Map<string, number>();
+    const newDate = pickNextAvailableDate({
+      fromDate: blockEnd,
+      schoolDays: isoSchoolDays,
+      lessonsPerDay: 1,
+      vacations: vacRanges,
+      occupancy,
+    });
+    updates.push({ id: r.id, newDate });
+  }
+
+  for (let i = 0; i < updates.length; i += 20) {
+    await Promise.all(
+      updates.slice(i, i + 20).map(({ id, newDate }) =>
+        supabase
+          .from("lessons")
+          .update({
+            scheduled_date: newDate,
+            date: newDate,
+            scheduled_source: "vacation_resched",
+          })
+          .eq("id", id),
+      ),
+    );
+  }
+
+  return updates;
+}
