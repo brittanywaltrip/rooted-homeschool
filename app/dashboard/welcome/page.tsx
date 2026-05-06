@@ -18,18 +18,35 @@ export default function WelcomePage() {
   const router = useRouter()
   const [familyName, setFamilyName] = useState('')
   const [showContent, setShowContent] = useState(false)
+  // hasExistingData: true when the user added children or captured memories
+  // before upgrading. We use it to swap the welcome copy from onboarding
+  // ("Start Your Journey") to celebration ("Everything you've built is still
+  // here") so returning upgraders feel recognized, not re-onboarded.
+  const [hasExistingData, setHasExistingData] = useState(false)
 
   useEffect(() => { document.title = "Welcome \u00b7 Rooted"; }, []);
 
   useEffect(() => {
-    // Load family name
+    // Load family name + detect whether this user already has data in the
+    // app. Both queries run in parallel to keep the welcome render snappy.
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login'); return }
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('display_name, first_name, last_name')
-        .eq('id', session.user.id)
-        .maybeSingle()
+      const userId = session.user.id
+      const [{ data: profile }, { count: childrenCount }, { count: memoriesCount }] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('display_name, first_name, last_name')
+          .eq('id', userId)
+          .maybeSingle(),
+        supabase
+          .from('children')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId),
+        supabase
+          .from('memories')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId),
+      ])
       const p = profile as { display_name?: string; first_name?: string; last_name?: string } | null
       const name = p?.display_name
         || (p?.first_name && p?.last_name ? `${p.first_name} ${p.last_name}` : null)
@@ -37,6 +54,7 @@ export default function WelcomePage() {
         || session.user.user_metadata?.family_name
         || ''
       setFamilyName(name)
+      setHasExistingData((childrenCount ?? 0) > 0 || (memoriesCount ?? 0) > 0)
     })
 
     // Stagger content in
@@ -103,13 +121,26 @@ export default function WelcomePage() {
           />
         </div>
 
-        {/* Welcome heading */}
+        {/* Welcome heading. Returning upgraders (kids or memories already in
+            the app) get the "you're now Rooted+" celebration copy; brand-new
+            sign-ups who paid right away keep the original onboarding copy. */}
         <div className="mb-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5c7f63] mb-2">So glad you&apos;re here</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5c7f63] mb-2">
+            {hasExistingData ? 'Thank you' : "So glad you're here"}
+          </p>
           <h1 className="text-4xl font-bold text-[#2d2926] leading-tight mb-1" style={{ fontFamily: 'var(--font-display)' }}>
             {displayName}
           </h1>
-          <p className="text-lg text-[#5c7f63] font-medium">You&apos;re officially Rooted. 🌿</p>
+          {hasExistingData ? (
+            <>
+              <p className="text-lg text-[#5c7f63] font-medium">You&apos;re officially Rooted+ 🌿</p>
+              <p className="mt-2 text-sm text-[#7a6f65] leading-relaxed">
+                Everything you&apos;ve built is still here, and now you have unlimited access.
+              </p>
+            </>
+          ) : (
+            <p className="text-lg text-[#5c7f63] font-medium">You&apos;re officially Rooted. 🌿</p>
+          )}
         </div>
 
         {/* Brittany's note */}
