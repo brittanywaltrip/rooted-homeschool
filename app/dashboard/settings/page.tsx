@@ -1870,6 +1870,7 @@ export default function SettingsPage() {
                   const access = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
                   if (planType === 'founding_family') return '🌱 Rooted+ — $39/yr locked forever (Founding Family)';
                   if (planType === 'standard') return '🌿 Rooted+ — $59/yr';
+                  if (planType === 'monthly') return '🌿 Rooted+ — $6.99/mo';
                   if (access === 'trial') {
                     const left = getTrialDaysLeft(trialStartedAt);
                     return `🌿 Rooted+ Trial — ${left} day${left !== 1 ? 's' : ''} remaining`;
@@ -1889,7 +1890,7 @@ export default function SettingsPage() {
                 <p className="text-xs text-red-500 mt-1">Subscription cancelled</p>
               )}
             </div>
-            {(subscriptionStatus === 'active' || planType === 'founding_family' || planType === 'standard') ? (
+            {(subscriptionStatus === 'active' || planType === 'founding_family' || planType === 'standard' || planType === 'monthly') ? (
               <button
                 onClick={handleManageSubscription}
                 disabled={portalLoading}
