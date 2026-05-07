@@ -1340,11 +1340,20 @@ export default function PlanPage() {
       .order("lesson_number", { ascending: false })
       .limit(1)
       .maybeSingle();
-    const nextNumber = Math.max(
+    let nextNumber = Math.max(
       ((maxRow as { lesson_number: number | null } | null)?.lesson_number ?? 0) + 1,
       (goal.current_lesson ?? 0) + 1,
       1,
     );
+    // Cap at total_lessons so this path never inserts a row beyond the
+    // curriculum's defined size. healGoalIntegrity collapses any incomplete
+    // duplicate lesson_number on the next Plan load.
+    if (goal.total_lessons != null && nextNumber > goal.total_lessons) {
+      console.warn(
+        `[Plan/addLessonFromGroup] computed lesson_number ${nextNumber} exceeds goal.total_lessons ${goal.total_lessons} for goal ${goal.id}, capping at ${goal.total_lessons}`,
+      );
+      nextNumber = goal.total_lessons;
+    }
     // Copy subject_id from any sibling lesson in memory; no extra query needed.
     const siblingLesson = allLessons.find(l => l.curriculum_goal_id === goal.id);
     const subjectId = (siblingLesson as { subject_id?: string | null } | undefined)?.subject_id ?? null;

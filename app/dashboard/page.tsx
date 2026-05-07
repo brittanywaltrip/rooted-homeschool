@@ -2531,6 +2531,14 @@ export default function TodayPage() {
       );
     }
 
+    // Lessons here got un-completed (completed: false, completed_at: null), so
+    // current_lesson on every affected goal must be recomputed from actual
+    // rows. Without this the cache stays at the pre-uncomplete max and the
+    // queue projector keeps lessons hidden.
+    for (const goalId of goalIds) {
+      await recomputeCurrentLesson(supabase, goalId);
+    }
+
     setLessons([]);
     setRescheduleLesson(null);
     showRescheduleUndo("All of today's lessons rescheduled! Undo?", snapshot);

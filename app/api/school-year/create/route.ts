@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
       course_level: s.courseLevel,
       credits_value: s.creditsValue,
       start_date: s.startDate,
-      current_lesson: 1,
+      current_lesson: 0,
     }));
 
     const { error: goalsErr } = await supabaseAdmin
