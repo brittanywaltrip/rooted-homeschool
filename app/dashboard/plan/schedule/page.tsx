@@ -11,10 +11,10 @@ import PageHero from "@/app/components/PageHero";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-// UI-facing day labels (compact). Index 0 = Mon, 4 = Fri.
-const DAY_LABEL_SHORT = ["M", "T", "W", "Th", "F"] as const;
+// UI-facing day labels (compact). Index 0 = Mon, 6 = Sun.
+const DAY_LABEL_SHORT = ["M", "T", "W", "Th", "F", "Sa", "Su"] as const;
 // DB / scheduler day labels matching curriculum_goals.school_days.
-const DAY_LABEL = ["Mon", "Tue", "Wed", "Thu", "Fri"] as const;
+const DAY_LABEL = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
 const CHILD_COLORS = [
   "#5c7f63", "#7a9e7e", "#4a7a8a",
@@ -147,8 +147,11 @@ function blankRow(child_id: string, type: RowType): Row {
     child_id,
     pendingDelete: false,
     name: "",
-    active_days: [true, true, true, true, true],
-    per_day_counts: [1, 1, 1, 1, 1],
+    // Index 0..6 = Mon..Sun. Mon-Fri are on with 1 lesson each by default,
+    // Sat and Sun are off (count 0). active_days[i] and per_day_counts[i]
+    // stay in sync via toggleDay / cycleCount mutators below.
+    active_days: [true, true, true, true, true, false, false],
+    per_day_counts: [1, 1, 1, 1, 1, 0, 0],
     // Default to 30 minutes so the weekly-hours rollup renders as soon as
     // the user adds a row, and so curriculum_goals.default_minutes (NOT
     // NULL in the DB) always has a value at INSERT time.
@@ -177,17 +180,23 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
 
   const active_days: boolean[] = [];
   const per_day_counts: number[] = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 7; i++) {
     const label = DAY_LABEL[i];
-    const isActive = schoolDays.includes(label);
-    active_days.push(isActive);
-    let count = baseLpd;
-    if (overrides && Object.prototype.hasOwnProperty.call(overrides, label)) {
-      const v = overrides[label];
-      if (typeof v === "number" && Number.isFinite(v) && v >= 1) {
-        count = Math.floor(v);
+    let isActive = schoolDays.includes(label);
+    let count = 0;
+    if (isActive) {
+      count = baseLpd;
+      if (overrides && Object.prototype.hasOwnProperty.call(overrides, label)) {
+        const v = overrides[label];
+        if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+          count = Math.floor(v);
+        }
       }
+      // An override value of 0 means "no lessons that day" — treat as off
+      // so active_days and per_day_counts stay in sync (count 0 ⇔ off).
+      if (count === 0) isActive = false;
     }
+    active_days.push(isActive);
     per_day_counts.push(count);
   }
 
@@ -220,24 +229,28 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
 }
 
 function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
-  const hasWeekend = a.days.some((d) => d > 4);
+  // Weekend days are first-class in the builder now (Sat/Sun toggles), so
+  // hasWeekend is no longer a read-only criterion. Non-weekly frequency
+  // and multi-child membership remain managed-elsewhere.
   const isMultiChild = a.child_ids.length > 1;
   const isNonWeekly = a.frequency !== "weekly";
-  const readOnly = hasWeekend || isMultiChild || isNonWeekly;
+  const readOnly = isMultiChild || isNonWeekly;
   let reason: string | null = null;
   if (readOnly) {
     const reasons: string[] = [];
     if (isNonWeekly) reasons.push(a.frequency);
-    if (hasWeekend) reasons.push("weekend day");
     if (isMultiChild) reasons.push("shared across kids");
     reason = `Managed elsewhere (${reasons.join(", ")})`;
   }
 
   const active_days: boolean[] = [];
   const per_day_counts: number[] = [];
-  for (let i = 0; i < 5; i++) {
-    active_days.push(a.days.includes(i));
-    per_day_counts.push(1); // activities don't carry per-day counts; UI hides count badges anyway
+  for (let i = 0; i < 7; i++) {
+    const active = a.days.includes(i);
+    active_days.push(active);
+    // Activities don't carry per-day counts (UI hides the badge), but we
+    // still keep the array in sync with active_days so 0 == off everywhere.
+    per_day_counts.push(active ? 1 : 0);
   }
 
   // Default emoji by type if missing.
@@ -292,9 +305,16 @@ function compactCurriculumPerDay(row: Row): {
   lessons_per_day_overrides: Record<string, number> | null;
   school_days: string[];
 } {
+  // A day produces lessons iff it's BOTH toggled on and has count > 0.
+  // Either signal at "off" (active_days[i]=false OR per_day_counts[i]=0)
+  // excludes the day from school_days. The two are kept in sync by the
+  // toggleDay / cycleCount mutators, so this AND check is mostly belt-
+  // and-suspenders.
   const active: { idx: number; count: number }[] = [];
-  for (let i = 0; i < 5; i++) {
-    if (row.active_days[i]) active.push({ idx: i, count: Math.max(1, row.per_day_counts[i]) });
+  for (let i = 0; i < 7; i++) {
+    if (row.active_days[i] && row.per_day_counts[i] > 0) {
+      active.push({ idx: i, count: row.per_day_counts[i] });
+    }
   }
   if (active.length === 0) {
     // Defensive: validation should prevent this, but never write empty
@@ -319,13 +339,17 @@ function compactCurriculumPerDay(row: Row): {
 
 function activeDayIndices(row: Row): number[] {
   const out: number[] = [];
-  for (let i = 0; i < 5; i++) if (row.active_days[i]) out.push(i);
+  for (let i = 0; i < 7; i++) {
+    if (row.active_days[i] && row.per_day_counts[i] > 0) out.push(i);
+  }
   return out;
 }
 
 function lessonsPerWeek(row: Row): number {
   let sum = 0;
-  for (let i = 0; i < 5; i++) if (row.active_days[i]) sum += Math.max(1, row.per_day_counts[i]);
+  for (let i = 0; i < 7; i++) {
+    if (row.active_days[i] && row.per_day_counts[i] > 0) sum += row.per_day_counts[i];
+  }
   return sum;
 }
 
@@ -363,7 +387,11 @@ function rowIsValid(row: Row): boolean {
   if (row.readOnly) return true;
   if (!row.child_id) return false;
   if (row.name.trim().length === 0) return false;
-  if (activeDayIndices(row).length === 0) return false;
+  // At least one day must have count > 0. Toggling a day off via the
+  // toggle button or cycling its count to 0 are both "this day is off"
+  // signals; either one zeroes the count, so this single check covers
+  // both paths.
+  if (row.per_day_counts.every((c) => c <= 0)) return false;
   if (row.type === "curriculum") {
     if (!row.total_lessons || row.total_lessons <= 0) return false;
     if (row.start_at_lesson < 1) return false;
@@ -540,9 +568,18 @@ export default function ScheduleBuilderPage() {
       prev.map((r) => {
         if (r.localId !== localId) return r;
         if (r.readOnly) return r;
-        const next = r.active_days.slice();
-        next[dayIdx] = !next[dayIdx];
-        return { ...r, active_days: next };
+        const nextActive = r.active_days.slice();
+        const nextCounts = r.per_day_counts.slice();
+        nextActive[dayIdx] = !nextActive[dayIdx];
+        // Keep counts in sync so 0 ⇔ off everywhere. Turning on bumps a
+        // 0 count to 1 (a default lesson). Turning off zeroes the count
+        // so validity / save consistently see the day as off.
+        if (nextActive[dayIdx]) {
+          if (nextCounts[dayIdx] === 0) nextCounts[dayIdx] = 1;
+        } else {
+          nextCounts[dayIdx] = 0;
+        }
+        return { ...r, active_days: nextActive, per_day_counts: nextCounts };
       }),
     );
     markDirty();
@@ -553,10 +590,15 @@ export default function ScheduleBuilderPage() {
       prev.map((r) => {
         if (r.localId !== localId) return r;
         if (r.readOnly || r.type !== "curriculum") return r;
-        const next = r.per_day_counts.slice();
-        const cur = next[dayIdx] || 1;
-        next[dayIdx] = cur >= 3 ? 1 : cur + 1;
-        return { ...r, per_day_counts: next };
+        const nextCounts = r.per_day_counts.slice();
+        const cur = nextCounts[dayIdx] ?? 0;
+        // Cycle 0 → 1 → 2 → 3 → 0. Hitting 0 also flips the toggle off so
+        // the UI / validity / save all agree this day produces no lessons.
+        const nextCount = cur >= 3 ? 0 : cur + 1;
+        nextCounts[dayIdx] = nextCount;
+        const nextActive = r.active_days.slice();
+        nextActive[dayIdx] = nextCount > 0;
+        return { ...r, per_day_counts: nextCounts, active_days: nextActive };
       }),
     );
     markDirty();
@@ -883,20 +925,39 @@ export default function ScheduleBuilderPage() {
             hours: 0,
           }));
 
-        if (toInsert.length === 0) continue;
-
-        for (let i = 0; i < toInsert.length; i += 100) {
-          const { error: lessonErr } = await supabase
-            .from("lessons")
-            .insert(toInsert.slice(i, i + 100));
-          if (lessonErr) {
-            console.error(
-              "[ScheduleBuilder] lesson insert error for goal",
-              goalId,
-              ":",
-              lessonErr.message,
-            );
+        if (toInsert.length > 0) {
+          for (let i = 0; i < toInsert.length; i += 100) {
+            const { error: lessonErr } = await supabase
+              .from("lessons")
+              .insert(toInsert.slice(i, i + 100));
+            if (lessonErr) {
+              console.error(
+                "[ScheduleBuilder] lesson insert error for goal",
+                goalId,
+                ":",
+                lessonErr.message,
+              );
+            }
           }
+        }
+
+        // Cleanup: if the user reduced total_lessons on an edit, any rows
+        // previously inserted past the new ceiling become stale. Delete
+        // only INCOMPLETE rows so historical completions are preserved
+        // (Invariant 3: backfilled / completed lessons stay put).
+        const { error: cleanupErr } = await supabase
+          .from("lessons")
+          .delete()
+          .eq("curriculum_goal_id", goalId)
+          .gt("lesson_number", row.total_lessons)
+          .eq("completed", false);
+        if (cleanupErr) {
+          console.error(
+            "[ScheduleBuilder] lesson cleanup error for goal",
+            goalId,
+            ":",
+            cleanupErr.message,
+          );
         }
       }
 
@@ -1268,16 +1329,16 @@ function RowCard(props: {
         <p className="text-[10px] font-medium uppercase tracking-wide text-[#7a6f65] mb-1.5">
           Days
         </p>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
           {DAY_LABEL_SHORT.map((label, idx) => {
             const active = row.active_days[idx];
             const count = row.per_day_counts[idx];
             return (
-              <div key={label} className="flex flex-col items-center gap-1 w-9">
+              <div key={label} className="flex flex-col items-center gap-1 w-8">
                 <button
                   onClick={() => props.onToggleDay(row.localId, idx)}
                   disabled={isReadOnly}
-                  className="w-9 h-8 rounded-md text-xs font-medium transition-colors"
+                  className="w-8 h-8 rounded-md text-xs font-medium transition-colors"
                   style={{
                     background: active ? "var(--g-accent)" : "transparent",
                     color: active ? "white" : "#b5aca4",
@@ -1453,6 +1514,8 @@ function PreviewView(props: {
     { idx: 2, short: "Wed", full: "Wednesday" },
     { idx: 3, short: "Thu", full: "Thursday" },
     { idx: 4, short: "Fri", full: "Friday" },
+    { idx: 5, short: "Sat", full: "Saturday" },
+    { idx: 6, short: "Sun", full: "Sunday" },
   ];
 
   // Build per-child / per-day cells
@@ -1462,7 +1525,13 @@ function PreviewView(props: {
     );
     const cellsByDay = days.map((d) => {
       const cells = childRows
-        .filter((r) => r.active_days[d.idx])
+        .filter((r) => {
+          if (!r.active_days[d.idx]) return false;
+          // For curriculum rows, a count of 0 means no lessons that day
+          // even if the toggle is somehow still on (defensive).
+          if (r.type === "curriculum" && (r.per_day_counts[d.idx] ?? 0) <= 0) return false;
+          return true;
+        })
         .map((r) => {
           const pending =
             r.type === "curriculum" && isFutureDate(r.start_date, props.today);
