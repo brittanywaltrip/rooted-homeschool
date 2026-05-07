@@ -147,11 +147,15 @@ function blankRow(child_id: string, type: RowType): Row {
     child_id,
     pendingDelete: false,
     name: "",
-    // Index 0..6 = Mon..Sun. Mon-Fri are on with 1 lesson each by default,
-    // Sat and Sun are off (count 0). active_days[i] and per_day_counts[i]
-    // stay in sync via toggleDay / cycleCount mutators below.
+    // Index 0..6 = Mon..Sun. Mon-Fri toggled on, Sat/Sun toggled off by
+    // default. active_days[i] and per_day_counts[i] are independent
+    // visual signals: OFF days always carry count=1 as a sensible
+    // default for the next toggle-on; the count=0 state is meaningful
+    // only when active_days[i] is true (a day in the schedule that
+    // explicitly produces 0 lessons today). A day produces lessons iff
+    // active_days[i] AND per_day_counts[i] > 0.
     active_days: [true, true, true, true, true, false, false],
-    per_day_counts: [1, 1, 1, 1, 1, 0, 0],
+    per_day_counts: [1, 1, 1, 1, 1, 1, 1],
     // Default to 30 minutes so the weekly-hours rollup renders as soon as
     // the user adds a row, and so curriculum_goals.default_minutes (NOT
     // NULL in the DB) always has a value at INSERT time.
@@ -182,9 +186,13 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
   const per_day_counts: number[] = [];
   for (let i = 0; i < 7; i++) {
     const label = DAY_LABEL[i];
-    let isActive = schoolDays.includes(label);
-    let count = 0;
+    const isActive = schoolDays.includes(label);
+    let count: number;
     if (isActive) {
+      // Day is in the schedule. Pull from the override map if set,
+      // otherwise fall back to lessons_per_day. A keyed value of 0 is
+      // preserved as a meaningful "in the schedule, but 0 lessons today"
+      // state; the toggle stays on.
       count = baseLpd;
       if (overrides && Object.prototype.hasOwnProperty.call(overrides, label)) {
         const v = overrides[label];
@@ -192,9 +200,11 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
           count = Math.floor(v);
         }
       }
-      // An override value of 0 means "no lessons that day" — treat as off
-      // so active_days and per_day_counts stay in sync (count 0 ⇔ off).
-      if (count === 0) isActive = false;
+    } else {
+      // Day is not in the schedule. Counts default to 1 so toggling the
+      // day on later restores a usable lesson count without an extra
+      // click. The count value is invisible while the toggle is off.
+      count = 1;
     }
     active_days.push(isActive);
     per_day_counts.push(count);
@@ -246,11 +256,11 @@ function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
   const active_days: boolean[] = [];
   const per_day_counts: number[] = [];
   for (let i = 0; i < 7; i++) {
-    const active = a.days.includes(i);
-    active_days.push(active);
-    // Activities don't carry per-day counts (UI hides the badge), but we
-    // still keep the array in sync with active_days so 0 == off everywhere.
-    per_day_counts.push(active ? 1 : 0);
+    active_days.push(a.days.includes(i));
+    // Activities don't track per-day counts (the count badge is hidden
+    // for non-curriculum rows). Default to 1 so the row has a sensible
+    // count value if the user later toggles type to curriculum.
+    per_day_counts.push(1);
   }
 
   // Default emoji by type if missing.
@@ -387,11 +397,19 @@ function rowIsValid(row: Row): boolean {
   if (row.readOnly) return true;
   if (!row.child_id) return false;
   if (row.name.trim().length === 0) return false;
-  // At least one day must have count > 0. Toggling a day off via the
-  // toggle button or cycling its count to 0 are both "this day is off"
-  // signals; either one zeroes the count, so this single check covers
-  // both paths.
-  if (row.per_day_counts.every((c) => c <= 0)) return false;
+  // At least one day must be toggled on AND have a non-zero count.
+  // Toggling a day off and cycling its count to 0 are independent
+  // visual signals; either at "off" excludes the day from producing
+  // lessons, so a row needs at least one day that's clean on both
+  // axes.
+  let anyProducingDay = false;
+  for (let i = 0; i < 7; i++) {
+    if (row.active_days[i] && row.per_day_counts[i] > 0) {
+      anyProducingDay = true;
+      break;
+    }
+  }
+  if (!anyProducingDay) return false;
   if (row.type === "curriculum") {
     if (!row.total_lessons || row.total_lessons <= 0) return false;
     if (row.start_at_lesson < 1) return false;
@@ -571,13 +589,14 @@ export default function ScheduleBuilderPage() {
         const nextActive = r.active_days.slice();
         const nextCounts = r.per_day_counts.slice();
         nextActive[dayIdx] = !nextActive[dayIdx];
-        // Keep counts in sync so 0 ⇔ off everywhere. Turning on bumps a
-        // 0 count to 1 (a default lesson). Turning off zeroes the count
-        // so validity / save consistently see the day as off.
-        if (nextActive[dayIdx]) {
-          if (nextCounts[dayIdx] === 0) nextCounts[dayIdx] = 1;
-        } else {
-          nextCounts[dayIdx] = 0;
+        // Toggle is a separate visual affordance from cycling the count
+        // to 0. Toggling off always resets the count to 1 so the next
+        // toggle-on resumes from a clean default — the count=0 state is
+        // only meaningful while the day is toggled on. Toggling on
+        // leaves the count where it was; if the user previously cycled
+        // it to 0, the badge will read "0" until they cycle it again.
+        if (!nextActive[dayIdx]) {
+          nextCounts[dayIdx] = 1;
         }
         return { ...r, active_days: nextActive, per_day_counts: nextCounts };
       }),
@@ -590,15 +609,13 @@ export default function ScheduleBuilderPage() {
       prev.map((r) => {
         if (r.localId !== localId) return r;
         if (r.readOnly || r.type !== "curriculum") return r;
+        // Cycle 0 → 1 → 2 → 3 → 0. The badge stays visible while the
+        // toggle is on, so the user sees "0" as a distinct state. The
+        // toggle is left untouched; cycling does not turn the day off.
         const nextCounts = r.per_day_counts.slice();
         const cur = nextCounts[dayIdx] ?? 0;
-        // Cycle 0 → 1 → 2 → 3 → 0. Hitting 0 also flips the toggle off so
-        // the UI / validity / save all agree this day produces no lessons.
-        const nextCount = cur >= 3 ? 0 : cur + 1;
-        nextCounts[dayIdx] = nextCount;
-        const nextActive = r.active_days.slice();
-        nextActive[dayIdx] = nextCount > 0;
-        return { ...r, per_day_counts: nextCounts, active_days: nextActive };
+        nextCounts[dayIdx] = cur >= 3 ? 0 : cur + 1;
+        return { ...r, per_day_counts: nextCounts };
       }),
     );
     markDirty();
