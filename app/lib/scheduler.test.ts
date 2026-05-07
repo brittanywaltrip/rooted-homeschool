@@ -47,6 +47,7 @@ import {
   isDueDate,
   effectiveDueDate,
   isLessonMissed,
+  buildPastDateCompletionPayload,
 } from './scheduler.ts'
 
 test('forwardScheduleStart bumps today to tomorrow', () => {
@@ -2351,4 +2352,59 @@ test('isLessonMissed: lesson on a vacation day where the original date is a non-
   const monFri = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
   const lesson = { scheduled_date: '2026-05-03', date: null, completed: false }
   assert.equal(isLessonMissed(lesson, '2026-05-06', monFri, blocks), false)
+})
+
+// ── Past-date completion (Plan day-detail backfill, May 2026) ────────────
+//
+// Plan page exposes a "Mark complete" button on past-day lessons in the
+// day-detail panel. Tapping it writes a single lessons-table row with
+// completed_at pinned to the selected day, is_backfill=true (Invariant 3:
+// backfilled rows never re-spread), and scheduled_source='catchup_resched'
+// (Invariant 10: every lessons.date write tags its source). These tests
+// pin the contract.
+
+test('past-date completion: payload pins date columns and tags scheduled_source (Invariant 10)', () => {
+  const payload = buildPastDateCompletionPayload('2026-04-30T12:00:00Z')
+  assert.equal(payload.completed, true, 'must mark completed')
+  assert.equal(payload.completed_at, '2026-04-30T12:00:00Z', 'preserves the user-selected day timestamp verbatim')
+  assert.equal(payload.date, '2026-04-30', 'date column pinned to the selected day')
+  assert.equal(payload.scheduled_date, '2026-04-30', 'scheduled_date pinned in lockstep with date')
+  assert.equal(payload.is_backfill, true, 'flagged so the projector never re-spreads (Invariant 3)')
+  assert.equal(payload.scheduled_source, 'catchup_resched', 'Invariant 10: every lessons.date write tags its source')
+})
+
+test('past-date completion: same-day timestamp produces a same-day date pin (no off-by-one across timezones)', () => {
+  // The Plan page passes `${selectedDay}T12:00:00Z` for the catch-up
+  // convention. UTC noon is "the same calendar day" globally for any
+  // timezone offset between -12h and +12h, so the date pin must equal
+  // the selected day regardless of the test runner's TZ.
+  const payload = buildPastDateCompletionPayload('2026-01-01T12:00:00Z')
+  assert.equal(payload.date, '2026-01-01')
+  assert.equal(payload.scheduled_date, '2026-01-01')
+})
+
+test('past-date completion: queue projection after backfill (simulated by current_lesson=5) returns lesson 6 today', () => {
+  // Mom backfilled lesson 5 on a past Mon via Plan day-detail. Her client
+  // wrote the completed row, then called recomputeCurrentLesson which
+  // bumped current_lesson to 5 (MAX(lesson_number) of completed rows).
+  // Today is Wed Apr 29; the queue projection must show lesson 6, not 5
+  // (which is in history). This is what Today / Plan render after a
+  // past-date completion — the Source-of-Truth contract for current_lesson.
+  const wed = new Date(2026, 3, 29) // Wed Apr 29
+  const goalAfterBackfill = goalCfg({ current_lesson: 5, total_lessons: 20 })
+  const projection = computeTodayLessons([goalAfterBackfill], wed)
+  assert.deepEqual(projection, [{ goal_id: 'g1', lesson_number: 6, date: '2026-04-29' }])
+})
+
+test('past-date completion: out-of-order backfill (complete lesson 5 with lessons 1-4 still incomplete) advances current_lesson to 5', () => {
+  // recomputeCurrentLesson takes MAX(lesson_number) over completed rows.
+  // If mom backfills lesson 5 first without first completing 1-4, the
+  // queue position should jump to 5, not stay at 0. This is the existing
+  // behavior of recomputeCurrentLesson (scheduler.ts line 105-107) and
+  // we want it pinned: the projector then shows lesson 6 today, even
+  // though lessons 1-4 remain in history as incomplete records.
+  const wed = new Date(2026, 3, 29)
+  const goalCurrentLessonJumpedToFive = goalCfg({ current_lesson: 5, total_lessons: 20 })
+  const projection = computeTodayLessons([goalCurrentLessonJumpedToFive], wed)
+  assert.equal(projection[0]?.lesson_number, 6, 'projection follows current_lesson, not the count of completed rows')
 })

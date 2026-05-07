@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar, RotateCcw, Check } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
@@ -17,7 +17,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, healGoalIntegrity, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, healGoalIntegrity, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, buildPastDateCompletionPayload, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { addDays as addDaysYmd } from "@/app/lib/timezone";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
@@ -820,15 +820,28 @@ export default function PlanPage() {
 
   // ── Toggle ────────────────────────────────────────────────────────────────
 
-  async function toggleLesson(id: string, current: boolean) {
+  // `completedAt` (ISO string) is set only when the caller is the past-day
+  // "Mark complete" button in the day-detail panel. In that path the row's
+  // date columns are pinned to the selected day, is_backfill is set so the
+  // projector never re-spreads the row, and scheduled_source is tagged
+  // per Invariant 10. The regular flip path (uncheck via "Mark not done")
+  // leaves `completedAt` undefined and writes today's timestamp + null on
+  // uncheck, matching pre-existing behavior.
+  async function toggleLesson(id: string, current: boolean, completedAt?: string) {
     setLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     setMonthLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
-    // Keep completed ↔ completed_at invariant (Bug 2).
-    await supabase.from("lessons").update({
-      completed: !current,
-      completed_at: !current ? new Date().toISOString() : null,
-    }).eq("id", id);
-    // Recompute goal progress from rows (Bug 3).
+    // Build the update payload. Past-day backfill goes through the helper
+    // in scheduler.ts so Invariant 10 (scheduled_source) and Invariant 3
+    // (is_backfill) stay enforced in one place.
+    const updatePayload = !current && completedAt
+      ? buildPastDateCompletionPayload(completedAt)
+      : {
+          completed: !current,
+          completed_at: !current ? new Date().toISOString() : null,
+        };
+    await supabase.from("lessons").update(updatePayload).eq("id", id);
+    // Recompute goal progress from rows (Bug 3) — this is what drives Today
+    // to show the correct next lesson after a past-date completion.
     const lesson = lessons.find(l => l.id === id) ?? monthLessons.find(l => l.id === id);
     if (lesson?.curriculum_goal_id) {
       await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
@@ -2536,6 +2549,15 @@ export default function PlanPage() {
                             </button>
                           ) : (
                             <>
+                              {selectedDay < todayStr && (
+                                <button
+                                  onClick={() => toggleLesson(l.id, false, `${selectedDay}T12:00:00Z`)}
+                                  aria-label={`Mark complete on ${selectedDay}`}
+                                  className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                                >
+                                  <Check size={14} /> Mark complete
+                                </button>
+                              )}
                               <button
                                 onClick={() => skipPlanLesson(l)}
                                 aria-label="Skip this lesson"

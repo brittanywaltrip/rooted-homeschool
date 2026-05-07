@@ -1199,6 +1199,45 @@ export function monotonicCompletedAt(
 }
 
 /**
+ * Build the lessons-table UPDATE payload for marking a single lesson
+ * complete on a specific past day (backfill via the Plan page day-detail
+ * "Mark complete" button).
+ *
+ * Pins the row's date columns to the user-selected day, flags is_backfill
+ * so the projector never re-spreads the row (Invariant 3), and tags
+ * scheduled_source = 'catchup_resched' per Invariant 10.
+ *
+ * Use ONLY for past-day completions. The regular "complete today" path
+ * (Today page tap, Plan page "mark not done" undo) writes
+ * `completed_at = new Date().toISOString()` directly without any of the
+ * date-pinning or backfill flags — that path is correct as-is.
+ *
+ * `completedAt` is an ISO 8601 string. The first 10 chars (YYYY-MM-DD)
+ * become the row's `date` and `scheduled_date`. Callers should pass
+ * `${selectedDay}T12:00:00Z` to match the catch-up modal convention.
+ */
+export interface PastDateCompletionPayload {
+  completed: true;
+  completed_at: string;
+  date: string;
+  scheduled_date: string;
+  is_backfill: true;
+  scheduled_source: 'catchup_resched';
+}
+
+export function buildPastDateCompletionPayload(completedAt: string): PastDateCompletionPayload {
+  const day = completedAt.slice(0, 10);
+  return {
+    completed: true,
+    completed_at: completedAt,
+    date: day,
+    scheduled_date: day,
+    is_backfill: true,
+    scheduled_source: 'catchup_resched',
+  };
+}
+
+/**
  * Vercel-toggleable kill switch for the queue rescheduler. When this returns
  * false, the trigger sites (saveVacationBlock, skipRestOfToday, wizard
  * saveEdit reshuffle) short-circuit the lesson re-spread but still perform
