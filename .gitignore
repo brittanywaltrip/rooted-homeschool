@@ -54,3 +54,8 @@ android/captures
 
 # @capacitor/assets PWA output (root-level, broken paths in generated manifest)
 /icons
+
+# Playwright — generated reports + saved auth state with live tokens
+playwright-report/
+test-results/
+e2e/.auth/

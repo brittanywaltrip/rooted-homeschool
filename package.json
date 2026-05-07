@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --test 'lib/**/*.test.ts' 'app/lib/**/*.test.ts' 'app/components/**/*.test.ts' 'scripts/**/*.test.ts'",
+    "test:e2e": "node --env-file-if-exists=.env.local node_modules/@playwright/test/cli.js test e2e/smoke/",
+    "test:e2e:ui": "node --env-file-if-exists=.env.local node_modules/@playwright/test/cli.js test e2e/smoke/ --ui",
     "audit:stripe-linkage": "node --env-file=.env.local scripts/audit-stripe-linkage.ts",
     "backfill:commission-amounts": "node --env-file=.env.local scripts/backfill-commission-amounts.ts",
     "cleanup:bunched": "node --env-file=.env.local scripts/cleanup-bunched-lessons.ts",
@@ -44,6 +46,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
