@@ -16,7 +16,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, healGoalIntegrity, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { addDays as addDaysYmd } from "@/app/lib/timezone";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -623,10 +623,20 @@ export default function PlanPage() {
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
     setChildren(capitalizeChildNames(kids ?? []));
     setSubjects((subs as Subject[]) ?? []);
-    setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
+    const activeGoals = (goals as unknown as CurriculumGoal[]) ?? [];
+    setCurriculumGoals(activeGoals);
+
+    // Fire-and-forget integrity heal on every Plan load. Quietly removes
+    // duplicate lesson rows and backfills missing completed_at timestamps
+    // for any active goal (see healGoalIntegrity in app/lib/scheduler.ts).
+    // Must NOT be awaited — the render path uses the freshly loaded
+    // `activeGoals` array regardless of whether the heal has finished.
+    activeGoals.forEach((g) => {
+      healGoalIntegrity(supabase, g.id).catch(console.error);
+    });
 
     const vacationBlocks: SchedVacationBlock[] = (vacs ?? []) as SchedVacationBlock[];
-    setLessons(await loadLessonsForRange(effectiveUserId, ws, we, s, e, todayStr, (goals ?? []) as unknown as CurriculumGoal[], vacationBlocks));
+    setLessons(await loadLessonsForRange(effectiveUserId, ws, we, s, e, todayStr, activeGoals, vacationBlocks));
     setLoading(false);
   }, [weekStart, effectiveUserId]);
 
