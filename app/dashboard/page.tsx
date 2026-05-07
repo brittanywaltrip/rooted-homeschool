@@ -407,6 +407,7 @@ export default function TodayPage() {
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [showExtraLessons, setShowExtraLessons] = useState(false);
+  const [showPhotoLimitModal, setShowPhotoLimitModal] = useState(false);
   type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; lesson_number?: number | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
   const [upcomingLessons, setUpcomingLessons] = useState<UpcomingLesson[]>([]);
   const [extraChecked, setExtraChecked] = useState<Set<string>>(new Set());
@@ -1255,6 +1256,13 @@ export default function TodayPage() {
     window.addEventListener("rooted:children-updated", handler);
     return () => window.removeEventListener("rooted:children-updated", handler);
   }, [loadData]);
+
+  // Open the photo-limit modal when the FAB (in layout.tsx) hits the cap.
+  useEffect(() => {
+    const handler = () => setShowPhotoLimitModal(true);
+    window.addEventListener("rooted:photo-limit-reached", handler);
+    return () => window.removeEventListener("rooted:photo-limit-reached", handler);
+  }, []);
 
   // ── First memory magic moment ──────────────────────────────────────────────
   useEffect(() => {
@@ -2605,13 +2613,21 @@ export default function TodayPage() {
     setSavingBook(false); setShowBookModal(false);
     posthog.capture('book_logged', { user_plan: isPro ? 'paid' : 'free' });
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
+    loadDataBusy.current = false;
     await loadData();
+    await refreshTodayStory();
     checkAndAwardBadges(user.id);
     onLogAction({ userId: user.id, childId: bookChild || undefined, actionType: "book" });
   }
 
   async function saveDrawing() {
     if (!drawingTitle.trim()) return;
+    const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+    if (accessLevel === 'free' && totalPhotos >= 50) {
+      setShowPhotoLimitModal(true);
+      setSavingDrawing(false);
+      return;
+    }
     setSavingDrawing(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingDrawing(false); return; }
@@ -2636,7 +2652,9 @@ export default function TodayPage() {
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing", drawingChild || null);
+    loadDataBusy.current = false;
     await loadData();
+    await refreshTodayStory();
     checkAndAwardBadges(user.id);
     onLogAction({ userId: user.id, childId: drawingChild || undefined, actionType: "drawing" });
   }
@@ -2670,7 +2688,9 @@ export default function TodayPage() {
     }).eq("id", editSheet.id);
     setEditSaving(false); setEditSheet(null);
     showCaptureToast("✏️ Updated 🌿", null);
+    loadDataBusy.current = false;
     await loadData();
+    await refreshTodayStory();
   }
 
   async function deleteFromEditSheet() {
@@ -2679,7 +2699,9 @@ export default function TodayPage() {
     await supabase.from("memories").delete().eq("id", editSheet.id);
     setEditDeleting(false); setEditSheet(null);
     showCaptureToast("🗑️ Deleted", null);
+    loadDataBusy.current = false;
     await loadData();
+    await refreshTodayStory();
   }
 
   // ── Activity edit/delete ──────────────────────────────────────────────────
@@ -3490,6 +3512,12 @@ export default function TodayPage() {
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (!file) return;
+              const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+              if (accessLevel === 'free' && totalPhotos >= 50) {
+                setShowPhotoLimitModal(true);
+                if (e.target) e.target.value = "";
+                return;
+              }
               setShowCaptureMenu(false);
               setShowMemoryPicker(false);
               try {
@@ -3515,7 +3543,9 @@ export default function TodayPage() {
                 showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null, memType, null);
                 captureTypeRef.current = "photo"; // reset
                 setTotalMemories(prev => prev + 1);
+                loadDataBusy.current = false;
                 await loadData();
+                await refreshTodayStory();
                 checkAndAwardBadges(user.id);
                 onLogAction({ userId: user.id, actionType: memType === "drawing" ? "drawing" : "memory" });
               } finally {
@@ -3960,7 +3990,9 @@ export default function TodayPage() {
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild(""); setFtMinutes("");
+                  loadDataBusy.current = false;
                   await loadData();
+                  await refreshTodayStory();
                 }}
                 className="flex-1 py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors">
                 {ftSaving ? "Saving…" : ftType === "project" ? "Save Project 🌿" : "Save Field Trip 🌿"}
@@ -4820,7 +4852,9 @@ export default function TodayPage() {
                     setWinChild("");
                     setWinMinutes("");
                     setShowWinSheet(false);
+                    loadDataBusy.current = false;
                     await loadData();
+                    await refreshTodayStory();
                   } catch (err) {
                     console.error("Win save error:", err);
                     showCaptureToast("Save failed — try again", null);
@@ -4920,6 +4954,22 @@ export default function TodayPage() {
             </div>
           </div>
         </>
+      )}
+
+      {showPhotoLimitModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowPhotoLimitModal(false)}>
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="text-3xl mb-3">📷</div>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-2">You&apos;ve reached 50 photos</h2>
+            <p className="text-sm text-[#7a6f65] mb-5">Upgrade to Rooted+ to keep saving photos and drawings. Your other memories — wins, books, field trips — are always unlimited.</p>
+            <a href="/dashboard/settings?tab=account" className="block w-full py-3 rounded-xl text-white font-semibold text-sm bg-[#2D5A3D] hover:opacity-90 transition-opacity">
+              Upgrade to Rooted+
+            </a>
+            <button onClick={() => setShowPhotoLimitModal(false)} className="mt-3 text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors">
+              Maybe later
+            </button>
+          </div>
+        </div>
       )}
 
       </div>

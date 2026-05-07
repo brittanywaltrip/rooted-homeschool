@@ -10,6 +10,8 @@ import PageHero from "@/app/components/PageHero";
 import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
 import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import AppointmentWizard, { type EditableAppointment } from "@/app/components/AppointmentWizard";
+import ExportGateModal from "@/app/components/ExportGateModal";
+import { getUserAccess } from "@/lib/user-access";
 import Toast from "@/components/Toast";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -444,6 +446,7 @@ export default function PlanPage() {
 
   // ── Curriculum management ─────────────────────────────────────────────────
   const [downloadingReport, setDownloadingReport] = useState(false);
+  const [showReportExportGate, setShowReportExportGate] = useState(false);
   const [reportChildId, setReportChildId] = useState<string>("");
   useEffect(() => { if (children.length > 0 && !reportChildId) setReportChildId(children[0].id); }, [children]); // eslint-disable-line react-hooks/exhaustive-deps
   const [reportRange, setReportRange] = useState<string>("full");
@@ -451,6 +454,8 @@ export default function PlanPage() {
   const [reportEndDate, setReportEndDate] = useState("");
   const [includeActivities, setIncludeActivities] = useState(true);
   const [planType, setPlanType] = useState<string | null>(null);
+  const [isPro, setIsPro] = useState(false);
+  const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const isFreeUser = !planType || planType === "free" || previewFree;
 
@@ -610,7 +615,7 @@ export default function PlanPage() {
     const s = toDateStr(ws), e = toDateStr(we);
     const todayStr = toDateStr(new Date());
     const [{ data: profile }, { data: kids }, { data: subs }, { data: goals }, { data: vacs }] = await Promise.all([
-      supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
+      supabase.from("profiles").select("onboarded, school_days, plan_type, is_pro, trial_started_at").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji, lessons_per_day, start_date").eq("user_id", effectiveUserId).eq("archived", false).order("created_at"),
@@ -619,6 +624,8 @@ export default function PlanPage() {
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
     setProfileSchoolDays((profile as { school_days?: string[] } | null)?.school_days ?? []);
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
+    setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
+    setTrialStartedAt((profile as { trial_started_at?: string | null } | null)?.trial_started_at ?? null);
     setChildren(capitalizeChildNames(kids ?? []));
     setSubjects((subs as Subject[]) ?? []);
     const activeGoals = (goals as unknown as CurriculumGoal[]) ?? [];
@@ -3151,7 +3158,7 @@ export default function PlanPage() {
                 ))}
               </div>
               <button
-                onClick={downloadReport}
+                onClick={() => { if (getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt }) === 'free') { setShowReportExportGate(true); } else { downloadReport(); } }}
                 disabled={downloadingReport}
                 className="flex items-center gap-1.5 text-xs font-semibold bg-[#2D5A3D] hover:opacity-90 disabled:opacity-60 text-white px-4 py-2.5 rounded-xl transition-colors shrink-0 ml-auto"
               >
@@ -3808,6 +3815,15 @@ export default function PlanPage() {
             <button onClick={undoLessonAdd} className="text-white font-semibold underline text-sm">Undo</button>
           </div>
         </div>
+      )}
+
+      {showReportExportGate && (
+        <ExportGateModal
+          title="Save your progress"
+          body="Download your homeschool hours, lessons, and daily activity log."
+          cta="Download Report"
+          onClose={() => setShowReportExportGate(false)}
+        />
       )}
     </div>
     </>
