@@ -17,6 +17,7 @@ import SignedImage from "@/components/SignedImage";
 import { DashboardLayoutProvider, useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { LeafAnimationProvider, useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
+import { getUserAccess } from "@/lib/user-access";
 
 const navItems = [
   { label: "Today",     href: "/dashboard",           icon: Sun      },
@@ -94,6 +95,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [isAdmin,   setIsAdmin]   = useState(false);
   const [profileData, setProfileData] = useState<{ first_name?: string | null; family_photo_url?: string | null }>({});
+  const [isPro, setIsPro] = useState(false);
+  const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
 
   // ── Floating camera FAB state ────────────────────────────────────────────
   const fabFileRef = useRef<HTMLInputElement>(null);
@@ -129,7 +132,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       // Load family name + subscription status
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, subscription_status, family_photo_url, first_name, onboarded")
+        .select("display_name, subscription_status, family_photo_url, first_name, onboarded, is_pro, trial_started_at")
         .eq("id", session.user.id)
         .maybeSingle();
 
@@ -146,6 +149,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         sessionStorage.removeItem("rooted_partner");
         setPartnerCtx({ isPartner: false, effectiveUserId: session.user.id, ownerName: "" });
         if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
+        setIsPro((profile as any).is_pro ?? false);
+        setTrialStartedAt((profile as any).trial_started_at ?? null);
         setChecking(false);
         return;
       }
@@ -189,6 +194,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         ownerName: "",
       });
       if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
+      setIsPro((profile as any).is_pro ?? false);
+      setTrialStartedAt((profile as any).trial_started_at ?? null);
 
       // Check for unread family notifications
       const { count } = await supabase
@@ -250,6 +257,22 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   }
   async function saveFabPhoto() {
     if (!fabFile || fabSaving) return;
+    // Photo limit gate
+    const { data: { user: gateUser } } = await supabase.auth.getUser();
+    if (gateUser) {
+      const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+      if (accessLevel === 'free') {
+        const { count } = await supabase
+          .from("memories")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", gateUser.id)
+          .in("type", ["photo", "drawing"]);
+        if ((count ?? 0) >= 50) {
+          window.dispatchEvent(new CustomEvent("rooted:photo-limit-reached"));
+          return;
+        }
+      }
+    }
     setFabSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();

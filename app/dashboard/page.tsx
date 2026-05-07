@@ -1257,6 +1257,13 @@ export default function TodayPage() {
     return () => window.removeEventListener("rooted:children-updated", handler);
   }, [loadData]);
 
+  // Open the photo-limit modal when the FAB (in layout.tsx) hits the cap.
+  useEffect(() => {
+    const handler = () => setShowPhotoLimitModal(true);
+    window.addEventListener("rooted:photo-limit-reached", handler);
+    return () => window.removeEventListener("rooted:photo-limit-reached", handler);
+  }, []);
+
   // ── First memory magic moment ──────────────────────────────────────────────
   useEffect(() => {
     if (loading) return;
