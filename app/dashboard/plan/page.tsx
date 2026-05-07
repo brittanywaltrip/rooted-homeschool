@@ -561,6 +561,10 @@ export default function PlanPage() {
   const [editingAppt, setEditingAppt] = useState<EditableAppointment | null>(null);
   const [showApptCreate, setShowApptCreate] = useState(false);
   const [showAddLessonPicker, setShowAddLessonPicker] = useState(false);
+  // Confirmation modal that fires when "+ Add lesson" is clicked on a day
+  // that's inside a vacation block. The picker only opens after the user
+  // taps "Add anyway".
+  const [showVacationAddConfirm, setShowVacationAddConfirm] = useState(false);
   // When true, the Add Lesson dialog swaps from the curriculum picker view
   // to the one-off custom-lesson form. Frame, title, and date stay the same.
   const [customLessonView, setCustomLessonView] = useState(false);
@@ -1262,6 +1266,18 @@ export default function PlanPage() {
   // inline ("Reading · Reading Lesson 1"). subject_id stays null because
   // looking up / creating subject rows on the fly is the legacy curriculum
   // flow's responsibility — one-off lessons don't need a goal/subject FK.
+  // Entry point for the "+ Add lesson" button (both empty-day and
+  // populated-day variants). Routes through a vacation confirmation
+  // when selectedDay is inside a vacation block; otherwise opens the
+  // picker directly. The "Add anyway" path defers to the same opener.
+  function tryOpenAddLessonPicker() {
+    if (isDateInBlocks(selectedDay, vacationBlocks)) {
+      setShowVacationAddConfirm(true);
+      return;
+    }
+    setShowAddLessonPicker(true);
+  }
+
   function resetCustomLessonForm() {
     setCustomLessonView(false);
     setCustomSubject("");
@@ -2427,7 +2443,7 @@ export default function PlanPage() {
                   <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
                     <button
                       type="button"
-                      onClick={() => setShowAddLessonPicker(true)}
+                      onClick={tryOpenAddLessonPicker}
                       className="min-h-[36px] text-[12px] font-medium text-[#2D5A3D] rounded-full px-3.5 py-1.5 hover:bg-[#f0f7f1] transition-colors"
                       style={{ background: "white", border: "1px solid #2D5A3D" }}
                     >
@@ -2684,7 +2700,7 @@ export default function PlanPage() {
             {!isPartner && (
               <button
                 type="button"
-                onClick={() => setShowAddLessonPicker(true)}
+                onClick={tryOpenAddLessonPicker}
                 className="text-[13px] text-[#7a6f65] hover:text-[#5a4f45] font-medium mt-2 pl-1"
               >
                 + Add lesson
@@ -3640,6 +3656,43 @@ export default function PlanPage() {
         editingAppointment={editingAppt}
         initialDate={!editingAppt && showApptCreate ? selectedDay : undefined}
       />
+
+      {/* ── Vacation-day "+ Add lesson" confirmation ───────── */}
+      {showVacationAddConfirm && (() => {
+        const dayDate = new Date(selectedDay + "T00:00:00");
+        const dayLabel = dayDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+        const vacName = getVacationName(selectedDay, vacationBlocks) ?? "a break";
+        return (
+          <>
+            <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[80]" onClick={() => setShowVacationAddConfirm(false)} />
+            <div className="fixed inset-0 z-[81] flex items-center justify-center p-4">
+              <div className="bg-[#fefcf9] rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+                <div className="text-3xl text-center mb-3">🌴</div>
+                <h2 className="text-base font-bold text-[#2d2926] text-center mb-2" style={{ fontFamily: "var(--font-display)" }}>
+                  This day is a vacation
+                </h2>
+                <p className="text-sm text-[#7a6f65] text-center mb-5 leading-relaxed">
+                  {dayLabel} is marked as {vacName}. Add a lesson anyway?
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowVacationAddConfirm(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => { setShowVacationAddConfirm(false); setShowAddLessonPicker(true); }}
+                    className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
+                  >
+                    Add anyway
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* ── Add lesson picker (empty-day action) ───────────── */}
       {showAddLessonPicker && (() => {
