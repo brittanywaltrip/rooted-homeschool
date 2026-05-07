@@ -1825,24 +1825,27 @@ test('Invariant 9 — null/missing profiles.timezone falls back to America/New_Y
 
 // ── Invariant 10 — scheduled_source is set on every lesson date write ─────
 
-test("Invariant 10 — wizard create writes scheduled_source='wizard_create' on every new lesson row", () => {
-  const src = loadRepoFile('app/components/CurriculumWizard.tsx')
-  const body = extractFunctionBody(src, /async function generate\s*\(/)
-  // generate() has two insert paths: the main schedule rows and the
-  // backfill rows. Both must tag scheduled_source='wizard_create'.
+test("Invariant 10 — schedule builder save writes scheduled_source='wizard_create' on every new lesson row", () => {
+  // The legacy CurriculumWizard had two creation paths (generate +
+  // saveEdit) tagging wizard_create / wizard_edit. The Schedule Builder
+  // (May 2026) collapsed both into one idempotent save flow on the new
+  // /dashboard/plan/schedule page: pre-checks existing lesson_numbers,
+  // INSERTs only the missing rows. There is no separate wizard_edit
+  // path under the queue model — UPDATEs in handleSave touch
+  // curriculum_goals.archived / activities.is_active only, never
+  // lessons.scheduled_date.
+  const src = loadRepoFile('app/dashboard/plan/schedule/page.tsx')
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
   const matches = (body.match(/scheduled_source:\s*"wizard_create"/g) || []).length
-  assert.ok(matches >= 2, `expected scheduled_source='wizard_create' at least twice (main + backfill); found ${matches}`)
-  // No other source label leaks into wizard create.
-  assert.ok(!body.includes('scheduled_source: "wizard_edit"'), 'generate() must not write wizard_edit')
-})
-
-test("Invariant 10 — wizard saveEdit writes scheduled_source='wizard_edit' on touched rows", () => {
-  const src = loadRepoFile('app/components/CurriculumWizard.tsx')
-  const body = extractFunctionBody(src, /async function saveEdit\s*\(/)
-  // saveEdit has three write paths that touch lesson dates: regenerate
-  // inserts, reshuffle updates, and backfill inserts. All must tag wizard_edit.
-  const matches = (body.match(/scheduled_source:\s*"wizard_edit"/g) || []).length
-  assert.ok(matches >= 3, `expected scheduled_source='wizard_edit' at least three times (regen + reshuffle + backfill); found ${matches}`)
+  assert.ok(
+    matches >= 1,
+    `expected scheduled_source='wizard_create' on the schedule builder lesson INSERT; found ${matches}`,
+  )
+  // No other source label leaks into the create path.
+  assert.ok(
+    !body.includes('scheduled_source: "wizard_edit"'),
+    'handleSave must not write wizard_edit; the schedule builder has one save path',
+  )
 })
 
 test("Invariant 10 — vacation block insert writes scheduled_source='vacation_resched' on touched rows", () => {
@@ -1868,8 +1871,7 @@ test('Invariant 10 — no code path leaves scheduled_source NULL after writing l
   // lessons.update / lessons.insert that touches scheduled_date or date
   // also names scheduled_source somewhere in the same payload.
   const sites: { file: string; fn: RegExp }[] = [
-    { file: 'app/components/CurriculumWizard.tsx', fn: /async function generate\s*\(/ },
-    { file: 'app/components/CurriculumWizard.tsx', fn: /async function saveEdit\s*\(/ },
+    { file: 'app/dashboard/plan/schedule/page.tsx', fn: /async function handleSave\s*\(/ },
     { file: 'app/dashboard/plan/page.tsx',          fn: /async function saveVacationBlock\s*\(/ },
     { file: 'app/dashboard/page.tsx',               fn: /async function handleCatchUpSubmit\s*\(/ },
     { file: 'app/dashboard/page.tsx',               fn: /async function skipRestOfToday\s*\(/ },

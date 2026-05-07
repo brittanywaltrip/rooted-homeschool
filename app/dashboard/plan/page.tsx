@@ -7,7 +7,6 @@ import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar, Rota
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
-import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
 import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
 import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import AppointmentWizard, { type EditableAppointment } from "@/app/components/AppointmentWizard";
@@ -443,7 +442,6 @@ export default function PlanPage() {
   const [savingEdit,    setSavingEdit]    = useState(false);
 
   // ── Curriculum management ─────────────────────────────────────────────────
-  const [showCreateWizard,  setShowCreateWizard]  = useState(false);
   const [downloadingReport, setDownloadingReport] = useState(false);
   const [reportChildId, setReportChildId] = useState<string>("");
   useEffect(() => { if (children.length > 0 && !reportChildId) setReportChildId(children[0].id); }, [children]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -504,7 +502,6 @@ export default function PlanPage() {
       router.replace("/dashboard/plan/schedule");
     }
   }, [searchParams, router]);
-  const [editWizardData,    setEditWizardData]    = useState<CurriculumWizardEditData | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
   const [planToastMsg, setPlanToastMsg] = useState<string | null>(null);
 
@@ -3368,17 +3365,6 @@ export default function PlanPage() {
           </div>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          CURRICULUM WIZARD (create / edit)
-      ══════════════════════════════════════════════════ */}
-      {showCreateWizard && (
-        <CurriculumWizard
-          mode="create"
-          schoolYearId={viewingYearId}
-          onClose={() => setShowCreateWizard(false)}
-          onSaved={() => { loadData(); loadAllLessons(); }}
-        />
-      )}
       {showCreateYear && effectiveUserId && (
         <CreateSchoolYearModal
           userId={effectiveUserId}
@@ -3400,16 +3386,6 @@ export default function PlanPage() {
           onClose={() => setEditingActivity(null)}
           onSaved={() => { setEditingActivity(null); loadActivities(); }}
           schoolYearId={viewingYearId}
-        />
-      )}
-      {editWizardData && (
-        <CurriculumWizard
-          mode="edit"
-          editData={editWizardData}
-          schoolYearId={viewingYearId}
-          onClose={() => setEditWizardData(null)}
-          onSaved={() => { loadData(); loadAllLessons(); }}
-          showToast={(msg) => setPlanToastMsg(msg)}
         />
       )}
 
