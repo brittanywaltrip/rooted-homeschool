@@ -149,7 +149,10 @@ function blankRow(child_id: string, type: RowType): Row {
     name: "",
     active_days: [true, true, true, true, true],
     per_day_counts: [1, 1, 1, 1, 1],
-    minutes_per_lesson: null,
+    // Default to 30 minutes so the weekly-hours rollup renders as soon as
+    // the user adds a row, and so curriculum_goals.default_minutes (NOT
+    // NULL in the DB) always has a value at INSERT time.
+    minutes_per_lesson: 30,
     start_date: null,
     subject: "",
     total_lessons: null,
@@ -679,7 +682,10 @@ export default function ScheduleBuilderPage() {
             school_days,
             start_date: row.start_date,
             start_at_lesson: Math.max(1, row.start_at_lesson),
-            default_minutes: row.minutes_per_lesson,
+            // default_minutes is NOT NULL in DB; fall back to 30 if the user
+            // cleared the field. Same fallback applies on UPDATE so an empty
+            // input never null-trips the constraint.
+            default_minutes: row.minutes_per_lesson ?? 30,
             archived: false,
           };
 
@@ -880,6 +886,7 @@ export default function ScheduleBuilderPage() {
             rows={rows}
             today={today}
             todayStr={todayStr}
+            onBackToEdit={() => setView("builder")}
           />
         )}
 
@@ -890,8 +897,12 @@ export default function ScheduleBuilderPage() {
         )}
       </div>
 
-      {/* Sticky bottom bar */}
-      <div className="fixed bottom-0 inset-x-0 border-t border-[#e8e2d9] bg-white px-4 py-3 z-30">
+      {/* Sticky bottom bar.
+          pr-20 keeps the right-side button clear of the global floating
+          camera FAB (rendered fixed at bottom-right elsewhere in the
+          dashboard). Without it the FAB sits directly on top of the
+          Save / Preview button on mobile. */}
+      <div className="fixed bottom-0 inset-x-0 border-t border-[#e8e2d9] bg-white px-4 pr-20 py-3 z-30">
         <div className="max-w-5xl mx-auto flex items-center gap-2">
           {view === "builder" && (
             <>
@@ -1051,7 +1062,7 @@ function BuilderView(props: {
                 key={c}
                 aria-label={`Color ${c}`}
                 onClick={() => props.setNewChildColor(c)}
-                className="w-7 h-7 rounded-full border-2 transition-all"
+                className="w-7 h-7 rounded border-2 transition-all"
                 style={{
                   backgroundColor: c,
                   borderColor: props.newChildColor === c ? "#2d2926" : "transparent",
@@ -1174,7 +1185,7 @@ function RowCard(props: {
                 <button
                   onClick={() => props.onToggleDay(row.localId, idx)}
                   disabled={isReadOnly}
-                  className="w-8 h-8 rounded-full text-xs font-medium transition-colors"
+                  className="w-9 h-8 rounded-md text-xs font-medium transition-colors"
                   style={{
                     background: active ? "var(--g-accent)" : "transparent",
                     color: active ? "white" : "#b5aca4",
@@ -1188,7 +1199,7 @@ function RowCard(props: {
                     onClick={() => props.onCycleCount(row.localId, idx)}
                     disabled={isReadOnly}
                     aria-label={`Lessons on ${DAY_LABEL[idx]}`}
-                    className="w-6 h-5 rounded text-[10px] font-medium"
+                    className="w-6 h-5 rounded-sm text-[10px] font-medium"
                     style={{
                       background: "var(--g-accent)",
                       color: "white",
@@ -1342,6 +1353,7 @@ function PreviewView(props: {
   rows: Row[];
   today: Date;
   todayStr: string;
+  onBackToEdit: () => void;
 }) {
   const days: { idx: number; short: string; full: string }[] = [
     { idx: 0, short: "Mon", full: "Monday" },
@@ -1474,6 +1486,19 @@ function PreviewView(props: {
           </ul>
         </div>
       )}
+
+      {/* Back-to-edit link in the content flow. The sticky bottom bar has
+          one too, but on mobile the floating camera FAB can sit on top of
+          the bar so an in-content link guarantees the user always has a
+          visible way back. */}
+      <div className="text-center">
+        <button
+          onClick={props.onBackToEdit}
+          className="text-sm text-[var(--g-brand)] underline underline-offset-2 hover:opacity-80"
+        >
+          ← Back to edit
+        </button>
+      </div>
     </div>
   );
 }
