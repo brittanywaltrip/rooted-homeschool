@@ -14,6 +14,7 @@ import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, co
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
 import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
+import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
@@ -2290,7 +2291,17 @@ export default function TodayPage() {
       setShowMissedSheet(false);
       setMissedSheetSubmitting(false);
       const n = missedLessons.length;
-      showRescheduleUndo(`Schedule pushed back ${n} day${n !== 1 ? "s" : ""}! Undo?`, snapshot);
+      // Build a date-aware diff message that names which dates lost
+      // lessons and where they landed. Snapshot covers both the missed
+      // rows being filled in (no prior date → not counted as a "shift")
+      // and the future rows being pushed forward.
+      const oldByLessonId = new Map<string, string>();
+      for (const s of snapshot) {
+        const old = s.scheduled_date ?? s.date;
+        if (old) oldByLessonId.set(s.id, old);
+      }
+      const message = buildPushBackMessage(oldByLessonId, updates, n);
+      showRescheduleUndo(message, snapshot);
       await loadData();
     });
   }
@@ -2441,7 +2452,16 @@ export default function TodayPage() {
       // Remove the current lesson from Today view if it was pushed
       setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setRescheduleLesson(null);
-      showRescheduleUndo(`${snapshot.length} lessons pushed back! Undo?`, snapshot);
+      // Date-aware diff message. Snapshot has both `date` and
+      // `scheduled_date`; the original date is `scheduled_date ?? date`.
+      // This action is "push by 1 school day" so daysPushed = 1.
+      const oldByLessonId = new Map<string, string>();
+      for (const s of snapshot) {
+        const old = s.scheduled_date ?? s.date;
+        if (old) oldByLessonId.set(s.id, old);
+      }
+      const message = buildPushBackMessage(oldByLessonId, updates, 1);
+      showRescheduleUndo(message, snapshot);
     });
   }
 

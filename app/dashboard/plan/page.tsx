@@ -16,6 +16,7 @@ import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
 import { recomputeCurrentLesson, healGoalIntegrity, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { addDays as addDaysYmd } from "@/app/lib/timezone";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -1487,7 +1488,12 @@ export default function PlanPage() {
     }
 
     setPlanRescheduleLesson(null);
-    showPlanRescheduleUndo(`Schedule pushed back ${n} day${n !== 1 ? "s" : ""}`, undoData);
+    // Build a date-aware diff message: which dates lost lessons and where
+    // those lessons landed. Falls back to the legacy generic line when
+    // nothing actually moved (rare empty-update case).
+    const oldByLessonId = new Map(undoData.map((u) => [u.lessonId, u.date]));
+    const message = buildPushBackMessage(oldByLessonId, updates, n);
+    showPlanRescheduleUndo(message, undoData);
     loadData(); loadAllLessons();
   }
 
