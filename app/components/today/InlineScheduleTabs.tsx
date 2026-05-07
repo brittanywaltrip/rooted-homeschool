@@ -202,7 +202,8 @@ export default function InlineScheduleTabs({
         supabase
           .from("curriculum_goals")
           .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
-          .eq("user_id", user.id),
+          .eq("user_id", user.id)
+          .eq("archived", false),
         supabase
           .from("vacation_blocks")
           .select("start_date, end_date")

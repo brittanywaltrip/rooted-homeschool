@@ -7,7 +7,6 @@ import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar, Rota
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
-import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
 import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
 import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import AppointmentWizard, { type EditableAppointment } from "@/app/components/AppointmentWizard";
@@ -16,7 +15,8 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, healGoalIntegrity, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { addDays as addDaysYmd } from "@/app/lib/timezone";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -340,8 +340,13 @@ function addWeekdays(date: Date, days: number): Date {
   return result;
 }
 
+// Thin wrapper around the canonical isVacationDay helper so existing
+// callers in this file keep their (dateStr, blocks) signature. The
+// scheduler.ts helper is the single source of truth for "is this day
+// inside a vacation block" — do not reintroduce a parallel
+// implementation here.
 function isDateInBlocks(dateStr: string, blocks: { start_date: string; end_date: string }[]): boolean {
-  return blocks.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
+  return isVacationDay(dateStr, blocks as SchedVacationBlock[]);
 }
 
 function getVacationName(dateStr: string, blocks: VacationBlock[]): string | null {
@@ -438,7 +443,6 @@ export default function PlanPage() {
   const [savingEdit,    setSavingEdit]    = useState(false);
 
   // ── Curriculum management ─────────────────────────────────────────────────
-  const [showCreateWizard,  setShowCreateWizard]  = useState(false);
   const [downloadingReport, setDownloadingReport] = useState(false);
   const [reportChildId, setReportChildId] = useState<string>("");
   useEffect(() => { if (children.length > 0 && !reportChildId) setReportChildId(children[0].id); }, [children]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -493,12 +497,12 @@ export default function PlanPage() {
   useEffect(() => { document.title = "Plan · Rooted"; posthog.capture('page_viewed', { page: 'plan' }); }, []);
 
   useEffect(() => {
+    // Legacy onboarding deep-link `?openWizard=true` now routes to the
+    // unified Schedule Builder.
     if (searchParams.get("openWizard") === "true") {
-      setShowCreateWizard(true);
-      router.replace("/dashboard/plan");
+      router.replace("/dashboard/plan/schedule");
     }
   }, [searchParams, router]);
-  const [editWizardData,    setEditWizardData]    = useState<CurriculumWizardEditData | null>(null);
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<CurriculumGroup | null>(null);
   const [planToastMsg, setPlanToastMsg] = useState<string | null>(null);
 
@@ -609,7 +613,7 @@ export default function PlanPage() {
       supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji, lessons_per_day, start_date").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji, lessons_per_day, start_date").eq("user_id", effectiveUserId).eq("archived", false).order("created_at"),
       supabase.from("vacation_blocks").select("start_date, end_date").eq("user_id", effectiveUserId),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
@@ -617,10 +621,20 @@ export default function PlanPage() {
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
     setChildren(capitalizeChildNames(kids ?? []));
     setSubjects((subs as Subject[]) ?? []);
-    setCurriculumGoals((goals as unknown as CurriculumGoal[]) ?? []);
+    const activeGoals = (goals as unknown as CurriculumGoal[]) ?? [];
+    setCurriculumGoals(activeGoals);
+
+    // Fire-and-forget integrity heal on every Plan load. Quietly removes
+    // duplicate lesson rows and backfills missing completed_at timestamps
+    // for any active goal (see healGoalIntegrity in app/lib/scheduler.ts).
+    // Must NOT be awaited — the render path uses the freshly loaded
+    // `activeGoals` array regardless of whether the heal has finished.
+    activeGoals.forEach((g) => {
+      healGoalIntegrity(supabase, g.id).catch(console.error);
+    });
 
     const vacationBlocks: SchedVacationBlock[] = (vacs ?? []) as SchedVacationBlock[];
-    setLessons(await loadLessonsForRange(effectiveUserId, ws, we, s, e, todayStr, (goals ?? []) as unknown as CurriculumGoal[], vacationBlocks));
+    setLessons(await loadLessonsForRange(effectiveUserId, ws, we, s, e, todayStr, activeGoals, vacationBlocks));
     setLoading(false);
   }, [weekStart, effectiveUserId]);
 
@@ -689,7 +703,8 @@ export default function PlanPage() {
     const [{ data: goalsData }, { data: vacsData }] = await Promise.all([
       supabase.from("curriculum_goals")
         .select("id, total_lessons, lessons_per_day, school_days, current_lesson, start_date")
-        .eq("user_id", effectiveUserId),
+        .eq("user_id", effectiveUserId)
+        .eq("archived", false),
       supabase.from("vacation_blocks")
         .select("start_date, end_date")
         .eq("user_id", effectiveUserId),
@@ -916,6 +931,14 @@ export default function PlanPage() {
     // The kill switch (NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED=false) skips this
     // re-spread but still keeps the vacation row above. See
     // docs/CURRICULUM-SCHEDULING.md, May 3 regression notes.
+    //
+    // "Leave my schedule as is" intentionally does NOT touch lessons. The
+    // queue projector skips vacation days when computing what's next, so
+    // a lesson whose stored scheduled_date sits inside the break is
+    // never "stranded" on the visible calendar — it simply re-projects to
+    // the first valid school day after the block. Moving the row in the
+    // DB to mirror that projection was tried and reverted: it produced
+    // orphans that drifted out of sync with the queue (May 6, 2026).
     if (vacReschedule === "shift" && isQueueEnabled()) {
       // Forward-dated incomplete lessons (>= today). is_backfill rows are
       // excluded explicitly so Invariant 3 holds even if a backfilled row
@@ -1015,10 +1038,19 @@ export default function PlanPage() {
   }
 
   // ── Missed lessons (needed by reschedule functions) ─────────────────────
+  // A lesson is missed iff its EFFECTIVE due date (the stored
+  // scheduled_date pushed forward through any intervening vacation
+  // blocks and non-school days) is strictly before today. Lessons
+  // whose stored date sits inside a vacation block are NOT missed —
+  // vacation pushes them past the break to the next valid school day,
+  // exactly the same way `computeNextLessonsForGoal` projects forward.
   const missedLessons = allLessons
     .filter(l => {
-      const d = l.scheduled_date ?? l.date;
-      return d && d < todayStr && !l.completed;
+      const goal = l.curriculum_goal_id
+        ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) ?? null
+        : null;
+      const schoolDays = goal?.school_days ?? null;
+      return isLessonMissed(l, todayStr, schoolDays, vacationBlocks as SchedVacationBlock[]);
     })
     .sort((a, b) => ((a.scheduled_date ?? a.date) ?? "").localeCompare((b.scheduled_date ?? b.date) ?? ""));
 
@@ -1309,11 +1341,20 @@ export default function PlanPage() {
       .order("lesson_number", { ascending: false })
       .limit(1)
       .maybeSingle();
-    const nextNumber = Math.max(
+    let nextNumber = Math.max(
       ((maxRow as { lesson_number: number | null } | null)?.lesson_number ?? 0) + 1,
       (goal.current_lesson ?? 0) + 1,
       1,
     );
+    // Cap at total_lessons so this path never inserts a row beyond the
+    // curriculum's defined size. healGoalIntegrity collapses any incomplete
+    // duplicate lesson_number on the next Plan load.
+    if (goal.total_lessons != null && nextNumber > goal.total_lessons) {
+      console.warn(
+        `[Plan/addLessonFromGroup] computed lesson_number ${nextNumber} exceeds goal.total_lessons ${goal.total_lessons} for goal ${goal.id}, capping at ${goal.total_lessons}`,
+      );
+      nextNumber = goal.total_lessons;
+    }
     // Copy subject_id from any sibling lesson in memory; no extra query needed.
     const siblingLesson = allLessons.find(l => l.curriculum_goal_id === goal.id);
     const subjectId = (siblingLesson as { subject_id?: string | null } | undefined)?.subject_id ?? null;
@@ -1447,7 +1488,12 @@ export default function PlanPage() {
     }
 
     setPlanRescheduleLesson(null);
-    showPlanRescheduleUndo(`Schedule pushed back ${n} day${n !== 1 ? "s" : ""}`, undoData);
+    // Build a date-aware diff message: which dates lost lessons and where
+    // those lessons landed. Falls back to the legacy generic line when
+    // nothing actually moved (rare empty-update case).
+    const oldByLessonId = new Map(undoData.map((u) => [u.lessonId, u.date]));
+    const message = buildPushBackMessage(oldByLessonId, updates, n);
+    showPlanRescheduleUndo(message, undoData);
     loadData(); loadAllLessons();
   }
 
@@ -1532,10 +1578,16 @@ export default function PlanPage() {
     }
   }, [curricGroups]);
 
-  // Catch-up: uncompleted lessons before today this week
+  // Catch-up: uncompleted lessons before today this week. Same vacation-aware
+  // rule as `missedLessons` above — a lesson sitting on a vacation day was
+  // pushed forward past the break and is not "from earlier" until the
+  // pushed-forward date is also in the past.
   const pastIncompleteLessons = lessons.filter(l => {
-    const d = l.scheduled_date ?? l.date;
-    return d && d < todayStr && !l.completed;
+    const goal = l.curriculum_goal_id
+      ? curriculumGoals.find(g => g.id === l.curriculum_goal_id) ?? null
+      : null;
+    const schoolDays = goal?.school_days ?? null;
+    return isLessonMissed(l, todayStr, schoolDays, vacationBlocks as SchedVacationBlock[]);
   });
   const hasCatchUp = pastIncompleteLessons.length > 0;
 
@@ -1598,7 +1650,7 @@ export default function PlanPage() {
       const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }] = await Promise.all([
         supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label), is_backfill").eq("user_id", effectiveUserId),
         supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", effectiveUserId),
-        supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", effectiveUserId),
+        supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", effectiveUserId).eq("archived", false),
         supabase.from("activity_logs").select("activity_id, date, minutes_spent, completed, is_backfill").eq("user_id", effectiveUserId).eq("completed", true),
         supabase.from("activities").select("id, name, emoji, child_ids").eq("user_id", effectiveUserId),
       ]);
@@ -1934,9 +1986,19 @@ export default function PlanPage() {
               const isSelected = key === selectedDay;
               const isVacation = isDateInBlocks(key, vacationBlocks);
               const dayLessons = lessonsByDay[key] ?? [];
-              const hasLessons = dayLessons.length > 0;
-              // Unique children with lessons this day
-              const dayChildIds = [...new Set(dayLessons.map(l => l.child_id).filter(Boolean))];
+              // Vacation days never display lesson dots — the vacation
+              // tint + 🌴 emoji are the single visual signal for those
+              // cells. A row's stored scheduled_date can fall inside a
+              // break (e.g. wizard rows pre-generated before the user
+              // added the vacation, or legacy orphans), and we don't
+              // move those rows in the DB — the queue projector is the
+              // source of truth. Empty out the per-day data here so no
+              // child-color dot ever sneaks onto a break cell, even if
+              // the conditional below is refactored.
+              const hasLessons = !isVacation && dayLessons.length > 0;
+              const dayChildIds = isVacation
+                ? []
+                : [...new Set(dayLessons.map(l => l.child_id).filter(Boolean))];
               const dayChildren = dayChildIds.map(id => children.find(c => c.id === id)).filter(Boolean) as Child[];
 
               let bg = "transparent";
@@ -2746,22 +2808,10 @@ export default function PlanPage() {
                           })()}
                         </div>
 
-                        {/* Edit link */}
+                        {/* Edit link → Schedule Builder */}
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditWizardData({
-                              goalId: group.goalId ?? undefined,
-                              childId: group.childId ?? "",
-                              curricName: group.curricName,
-                              subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
-                              totalLessons: group.goalData?.total_lessons ?? group.totalCount,
-                              currentLesson: group.goalData?.current_lesson ?? completedFromRows,
-                              targetDate: group.goalData?.target_date ?? "",
-                              schoolDays: group.goalData?.school_days ?? [],
-                              lessonStartTime: group.goalData?.scheduled_start_time ?? null,
-                            });
-                          }}
+                          onClick={() => router.push("/dashboard/plan/schedule")}
                           style={{ fontSize: 11, color: "var(--g-brand)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                         >
                           Edit →
@@ -2854,7 +2904,7 @@ export default function PlanPage() {
           {/* + Add curriculum / + Add activity */}
           <div className="flex gap-3 mt-3">
             <button
-              onClick={() => setShowCreateWizard(true)}
+              onClick={() => router.push("/dashboard/plan/schedule")}
               className="flex-1 border-2 border-dashed border-[#e0ddd8] rounded-2xl p-4 text-center text-[#5c7f63] font-medium text-sm cursor-pointer hover:bg-[#faf9f7] transition-colors"
             >
               + Add curriculum
@@ -2870,7 +2920,7 @@ export default function PlanPage() {
           {/* Prompt cards */}
           {!allLessons.some(l => (l as unknown as { is_backfill?: boolean }).is_backfill) && (
             <button
-              onClick={() => setShowCreateWizard(true)}
+              onClick={() => router.push("/dashboard/plan/schedule")}
               className="w-full bg-[#F8F7F4] border border-[#e8e5e0] rounded-xl p-4 flex items-start gap-3 text-left hover:bg-[#f0ede8] transition-colors mt-3"
             >
               <span className="text-xl shrink-0">📚</span>
@@ -2974,7 +3024,7 @@ export default function PlanPage() {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center mb-5">
             <button
-              onClick={() => setShowCreateWizard(true)}
+              onClick={() => router.push("/dashboard/plan/schedule")}
               className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
             >
               Set Up Curriculum →
@@ -3330,17 +3380,6 @@ export default function PlanPage() {
           </div>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          CURRICULUM WIZARD (create / edit)
-      ══════════════════════════════════════════════════ */}
-      {showCreateWizard && (
-        <CurriculumWizard
-          mode="create"
-          schoolYearId={viewingYearId}
-          onClose={() => setShowCreateWizard(false)}
-          onSaved={() => { loadData(); loadAllLessons(); }}
-        />
-      )}
       {showCreateYear && effectiveUserId && (
         <CreateSchoolYearModal
           userId={effectiveUserId}
@@ -3362,16 +3401,6 @@ export default function PlanPage() {
           onClose={() => setEditingActivity(null)}
           onSaved={() => { setEditingActivity(null); loadActivities(); }}
           schoolYearId={viewingYearId}
-        />
-      )}
-      {editWizardData && (
-        <CurriculumWizard
-          mode="edit"
-          editData={editWizardData}
-          schoolYearId={viewingYearId}
-          onClose={() => setEditWizardData(null)}
-          onSaved={() => { loadData(); loadAllLessons(); }}
-          showToast={(msg) => setPlanToastMsg(msg)}
         />
       )}
 
@@ -3683,7 +3712,7 @@ export default function PlanPage() {
                     <p className="text-sm text-[#2d2926]">No curriculum set up yet</p>
                     <div className="flex flex-col items-center gap-2">
                       <button
-                        onClick={() => { setShowAddLessonPicker(false); setShowCreateWizard(true); }}
+                        onClick={() => { setShowAddLessonPicker(false); router.push("/dashboard/plan/schedule"); }}
                         className="px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
                       >
                         + Add curriculum

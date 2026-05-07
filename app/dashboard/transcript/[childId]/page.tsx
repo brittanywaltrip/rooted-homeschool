@@ -595,7 +595,8 @@ export default function TranscriptBuilderPage() {
       .from("curriculum_goals")
       .select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes, course_level, credits_value")
       .eq("user_id", userId)
-      .eq("child_id", childId);
+      .eq("child_id", childId)
+      .eq("archived", false);
     const goalsList = (freshGoals ?? []) as CurriculumGoal[];
     setGoals(goalsList);
     const count = await syncCoursesFromPlan(userId, childId, courses, goalsList);
@@ -636,7 +637,7 @@ export default function TranscriptBuilderPage() {
       supabase.from("children").select("id, name, color, birthday").eq("id", childId).maybeSingle(),
       supabase.from("transcript_settings").select("*").eq("user_id", user.id).eq("child_id", childId).maybeSingle(),
       supabase.from("transcript_courses").select("*").eq("user_id", user.id).eq("child_id", childId).order("school_year", { ascending: false }).order("course_name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes, course_level, credits_value").eq("user_id", user.id).eq("child_id", childId),
+      supabase.from("curriculum_goals").select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes, course_level, credits_value").eq("user_id", user.id).eq("child_id", childId).eq("archived", false),
       supabase.from("profiles").select("display_name, first_name, last_name, state, is_pro, trial_started_at").eq("id", user.id).maybeSingle(),
     ]);
 

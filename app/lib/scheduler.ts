@@ -602,12 +602,48 @@ export interface CurriculumGoalConfig {
   // lessons would land on today and bleed into the visible range filter,
   // showing a half-empty calendar (Bug B, 2026-05-03).
   start_date?: string | null;
+  // Per-weekday lesson count overrides keyed by the same label convention as
+  // `school_days` ("Mon".."Sun"). Null/undefined means "use lessons_per_day
+  // for every active day" (the existing behavior). When set, a day present
+  // in the map uses the keyed count; days absent fall back to
+  // lessons_per_day. A keyed value of 0 means the day is in school_days but
+  // produces no lessons for this goal (e.g. Tuesday is a co-op day with no
+  // home curriculum work).
+  //
+  // Under overrides, Invariant 2 ("lessons_per_day is a hard ceiling")
+  // becomes a PER-DAY ceiling — Thursday's ceiling can legitimately be 2
+  // while Friday's stays 1. The projector reads this map directly; the
+  // legacy `lessons_per_day` column is kept in sync as a flat fallback for
+  // any read paths that don't yet honor overrides.
+  lessons_per_day_overrides?: Record<string, number> | null;
 }
 
 export interface ProjectedLesson {
   goal_id: string;
   lesson_number: number;
   date: string; // YYYY-MM-DD
+}
+
+/**
+ * How many lessons of this goal should land on `date`?
+ *
+ * Reads `lessons_per_day_overrides` first — if the date's weekday label
+ * (Mon..Sun) is keyed with a finite non-negative integer, that count wins
+ * (including 0). Anything else falls back to `lessons_per_day`, clamped to
+ * at least 1 to preserve the "every day produces something" invariant on
+ * goals without overrides. The Mon=0..Sun=6 day-index conversion matches
+ * `DAY_LABELS` and the rest of the projector.
+ */
+export function lessonsPerDayForDate(date: Date, goal: CurriculumGoalConfig): number {
+  const overrides = goal.lessons_per_day_overrides;
+  if (overrides) {
+    const label = DAY_LABELS[(date.getDay() + 6) % 7];
+    const v = overrides[label];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+      return Math.floor(v);
+    }
+  }
+  return Math.max(1, goal.lessons_per_day);
 }
 
 /**
@@ -632,6 +668,128 @@ export function isBreakDay(date: Date, vacationBlocks: VacationBlock[] | null | 
     if (dateStr >= b.start_date && dateStr <= b.end_date) return true;
   }
   return false;
+}
+
+/**
+ * Canonical "is this date a vacation day?" check. Accepts either a
+ * YYYY-MM-DD string or a Date so callers don't have to normalize before
+ * asking. Inclusive on both block endpoints.
+ *
+ * Use this anywhere code asks "should this calendar day be excluded
+ * from the schedule?" — including the missed/overdue lesson banner,
+ * the catch-up gap calculator, calendar cell rendering, and any code
+ * that walks days forward to land on the next school day. There must
+ * be exactly one definition of "is this day in a vacation" in the
+ * codebase (the same rule of thumb as Invariant 8 for date picking).
+ */
+export function isVacationDay(
+  date: string | Date,
+  vacationBlocks: VacationBlock[] | null | undefined,
+): boolean {
+  if (!vacationBlocks || vacationBlocks.length === 0) return false;
+  const dateStr = typeof date === "string" ? date : toDateStr(date);
+  for (const b of vacationBlocks) {
+    if (dateStr >= b.start_date && dateStr <= b.end_date) return true;
+  }
+  return false;
+}
+
+/**
+ * Is work "due" on this date for this curriculum? True iff the date's
+ * weekday is in the curriculum's `school_days` AND the date is not
+ * inside any vacation block. Empty/null `school_days` falls back to
+ * Mon-Fri so the check never silently treats every day as off.
+ *
+ * Use this whenever you need to ask "should there have been a lesson
+ * on this calendar day?" — most importantly when computing whether a
+ * past-dated lesson is missed/overdue. A lesson scheduled on a
+ * vacation day is not missed; vacation pushes it forward (see
+ * `effectiveDueDate`).
+ */
+export function isDueDate(
+  date: string | Date,
+  curriculum: { school_days?: string[] | null },
+  vacationBlocks: VacationBlock[] | null | undefined,
+): boolean {
+  if (isVacationDay(date, vacationBlocks)) return false;
+  const dateStr = typeof date === "string" ? date : toDateStr(date);
+  // Anchor at noon to avoid DST/timezone edge cases when JS reads the wall date.
+  const d = new Date(dateStr + "T12:00:00");
+  return isSchoolDay(d, curriculum.school_days);
+}
+
+/**
+ * Walk forward from `originalDate` (YYYY-MM-DD) until landing on a
+ * date that is BOTH a school day for the curriculum AND not inside a
+ * vacation block. Returns YYYY-MM-DD.
+ *
+ * Used to answer "when is this lesson actually due, given the user's
+ * current vacation blocks?" The originally stored `scheduled_date`
+ * may now fall inside a vacation block (e.g. mom added the vacation
+ * after the wizard pre-generated the lesson rows), in which case the
+ * lesson is effectively pushed forward to the next valid school day
+ * after the block ends.
+ *
+ * Cascades: if the day after a vacation is a weekend or another
+ * vacation block, keep walking until a real school day is found.
+ *
+ * If `originalDate` is already a valid school day with no vacation
+ * conflict, returns it unchanged.
+ *
+ * `school_days` falls back to Mon-Fri when null/empty (Invariant 5).
+ */
+export function effectiveDueDate(
+  originalDate: string,
+  schoolDays: string[] | null | undefined,
+  vacationBlocks: VacationBlock[] | null | undefined,
+): string {
+  let cursor = originalDate;
+  for (let i = 0; i < 3650; i++) {
+    if (
+      !isVacationDay(cursor, vacationBlocks) &&
+      isSchoolDay(new Date(cursor + "T12:00:00"), schoolDays)
+    ) {
+      return cursor;
+    }
+    cursor = addDays(cursor, 1);
+  }
+  return cursor;
+}
+
+/**
+ * Convenience wrapper used by every "is this lesson missed?" call site
+ * in the app. A lesson is missed iff:
+ *
+ *   1. it is incomplete, AND
+ *   2. it has a stored scheduled_date (or date), AND
+ *   3. its EFFECTIVE due date — i.e. the originally scheduled date
+ *      pushed forward through any intervening vacation blocks /
+ *      non-school days — is strictly before `todayStr`.
+ *
+ * Why effective-date instead of raw scheduled_date: if mom added a
+ * vacation block AFTER the wizard pre-generated lesson rows, those
+ * rows still carry their original scheduled_date — which may now sit
+ * inside the vacation. Treating those as missed would be wrong; the
+ * lesson is effectively pushed past the vacation and isn't missed
+ * unless that pushed-forward date is also already in the past.
+ */
+export interface MissedLessonInput {
+  scheduled_date?: string | null;
+  date?: string | null;
+  completed: boolean;
+}
+
+export function isLessonMissed(
+  lesson: MissedLessonInput,
+  todayStr: string,
+  schoolDays: string[] | null | undefined,
+  vacationBlocks: VacationBlock[] | null | undefined,
+): boolean {
+  if (lesson.completed) return false;
+  const d = lesson.scheduled_date ?? lesson.date ?? null;
+  if (!d) return false;
+  const effective = effectiveDueDate(d, schoolDays, vacationBlocks);
+  return effective < todayStr;
 }
 
 /**
@@ -692,7 +850,6 @@ export function computeNextLessonsForGoal(
   if (goal.current_lesson >= goal.total_lessons) return [];
 
   const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
-  const perDay = Math.max(1, goal.lessons_per_day);
   const out: ProjectedLesson[] = [];
 
   const cursor = new Date(fromDate);
@@ -723,16 +880,23 @@ export function computeNextLessonsForGoal(
   let safety = 0;
   while (cursor < endDate && nextLesson <= goal.total_lessons && safety < 3650) {
     if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
-      const dateStr = toDateStr(cursor);
-      const isFirstDay = dateStr === fromDateStr;
-      let lessonStart = isFirstDay
-        ? Math.max(1, goal.current_lesson - completedTodayCount + 1)
-        : nextLesson;
-      for (let s = 0; s < perDay && lessonStart <= goal.total_lessons; s++) {
-        out.push({ goal_id: goal.id, lesson_number: lessonStart, date: dateStr });
-        lessonStart++;
+      // Per-day capacity. Without overrides this collapses to lessons_per_day
+      // for every iteration (preserves prior behavior). With overrides set,
+      // each weekday has its own ceiling — Thursday=2 / Friday=1 etc. — and
+      // a keyed 0 means this day produces nothing for this goal.
+      const perDayHere = lessonsPerDayForDate(cursor, goal);
+      if (perDayHere > 0) {
+        const dateStr = toDateStr(cursor);
+        const isFirstDay = dateStr === fromDateStr;
+        let lessonStart = isFirstDay
+          ? Math.max(1, goal.current_lesson - completedTodayCount + 1)
+          : nextLesson;
+        for (let s = 0; s < perDayHere && lessonStart <= goal.total_lessons; s++) {
+          out.push({ goal_id: goal.id, lesson_number: lessonStart, date: dateStr });
+          lessonStart++;
+        }
+        nextLesson = lessonStart;
       }
-      nextLesson = lessonStart;
     }
     cursor.setDate(cursor.getDate() + 1);
     safety++;
@@ -767,7 +931,6 @@ export function computeFinishDate(
   if (goal.current_lesson >= goal.total_lessons) return null;
 
   const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
-  const perDay = Math.max(1, goal.lessons_per_day);
   const remaining = goal.total_lessons - goal.current_lesson;
 
   const cursor = new Date(fromDate);
@@ -779,10 +942,12 @@ export function computeFinishDate(
 
   while (slotsRemaining > 0 && safety < 3650) {
     if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
+      // Same per-day rule as computeNextLessonsForGoal: overrides win when set.
+      const perDayHere = lessonsPerDayForDate(cursor, goal);
       const isFirstDay = toDateStr(cursor) === fromDateStr;
       const slotsThisDay = isFirstDay
-        ? Math.max(0, perDay - completedTodayCount)
-        : perDay;
+        ? Math.max(0, perDayHere - completedTodayCount)
+        : perDayHere;
       if (slotsThisDay > 0) {
         const consumed = Math.min(slotsThisDay, slotsRemaining);
         slotsRemaining -= consumed;
@@ -1045,4 +1210,112 @@ export function monotonicCompletedAt(
  */
 export function isQueueEnabled(): boolean {
   return (process.env.NEXT_PUBLIC_SCHEDULER_QUEUE_ENABLED ?? "true") !== "false";
+}
+
+/**
+ * Move every incomplete lesson whose scheduled_date sits inside the
+ * given vacation block to the first available school day after the
+ * block ends. Cascades through back-to-back vacation blocks and
+ * non-school weekdays via `pickNextAvailableDate`.
+ *
+ * Use this anywhere a vacation block is created or its dates are
+ * widened. The wider "shift everything forward" behavior on the Plan
+ * page modal is a superset of this and remains its own code path; this
+ * helper is the minimum guarantee that no lesson is left stranded on
+ * a break day.
+ *
+ * Rules enforced:
+ *   - Only `completed_at IS NULL` rows move (Invariant 3 — never touch
+ *     completed lessons).
+ *   - Only rows whose stored `scheduled_date` falls inside [blockStart,
+ *     blockEnd] (inclusive) move; lessons outside the range are not
+ *     touched.
+ *   - The destination date is the first day strictly after `blockEnd`
+ *     that is BOTH a school day for the lesson's goal AND not inside
+ *     ANY of the user's vacation blocks (the freshly saved block must
+ *     already be in `allVacations`).
+ *   - school_days null/empty falls back to Mon-Fri (Invariant 5).
+ *   - Multiple lessons in the block can land on the same destination
+ *     date; per-call occupancy is intentionally fresh per lesson.
+ *
+ * Pure-ish: all DB I/O is internal. Returns the list of updates that
+ * were issued so callers can refresh local state without re-fetching.
+ */
+export async function rescheduleLessonsInVacationBlock(
+  supabase: SupabaseClient,
+  userId: string,
+  blockStart: string,
+  blockEnd: string,
+  allVacations: VacationBlock[],
+): Promise<{ id: string; newDate: string }[]> {
+  const { data: stranded } = await supabase
+    .from("lessons")
+    .select("id, scheduled_date, curriculum_goal_id")
+    .eq("user_id", userId)
+    .is("completed_at", null)
+    .gte("scheduled_date", blockStart)
+    .lte("scheduled_date", blockEnd);
+
+  const rows = (stranded ?? []) as {
+    id: string;
+    scheduled_date: string | null;
+    curriculum_goal_id: string | null;
+  }[];
+  if (rows.length === 0) return [];
+
+  const goalIds = Array.from(
+    new Set(rows.map((r) => r.curriculum_goal_id).filter((g): g is string => !!g)),
+  );
+  const goalSchoolDays = new Map<string, string[] | null>();
+  if (goalIds.length > 0) {
+    const { data: goals } = await supabase
+      .from("curriculum_goals")
+      .select("id, school_days")
+      .in("id", goalIds);
+    for (const g of (goals ?? []) as { id: string; school_days: string[] | null }[]) {
+      goalSchoolDays.set(g.id, g.school_days);
+    }
+  }
+
+  const vacRanges: VacationRange[] = allVacations.map((v) => ({
+    start: v.start_date,
+    end: v.end_date,
+  }));
+
+  const updates: { id: string; newDate: string }[] = [];
+  for (const r of rows) {
+    if (!r.scheduled_date) continue;
+    const schoolDays = r.curriculum_goal_id
+      ? goalSchoolDays.get(r.curriculum_goal_id) ?? null
+      : null;
+    const isoSchoolDays = schoolDayLabelsToIso(schoolDays);
+    // Fresh occupancy per lesson so multiple stranded lessons can stack
+    // on the same destination day — see contract above.
+    const occupancy = new Map<string, number>();
+    const newDate = pickNextAvailableDate({
+      fromDate: blockEnd,
+      schoolDays: isoSchoolDays,
+      lessonsPerDay: 1,
+      vacations: vacRanges,
+      occupancy,
+    });
+    updates.push({ id: r.id, newDate });
+  }
+
+  for (let i = 0; i < updates.length; i += 20) {
+    await Promise.all(
+      updates.slice(i, i + 20).map(({ id, newDate }) =>
+        supabase
+          .from("lessons")
+          .update({
+            scheduled_date: newDate,
+            date: newDate,
+            scheduled_source: "vacation_resched",
+          })
+          .eq("id", id),
+      ),
+    );
+  }
+
+  return updates;
 }

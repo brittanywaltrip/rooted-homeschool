@@ -188,6 +188,7 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
         supabase.from("curriculum_goals")
           .select("id, curriculum_name, scheduled_start_time, child_id, total_lessons, current_lesson, school_year_id")
           .eq("user_id", user.id)
+          .eq("archived", false)
           .order("created_at"),
       ]);
       const activeKids = kids ?? [];

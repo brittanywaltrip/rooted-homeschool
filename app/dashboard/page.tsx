@@ -14,6 +14,7 @@ import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, co
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
 import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
+import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
@@ -685,7 +686,7 @@ export default function TodayPage() {
       // Curriculum goals — full config for queue-based scheduling. The same
       // query also feeds the icon emoji + per-goal school_days lookups that
       // used to be its only purpose.
-      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date").eq("user_id", effectiveUserId),
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date").eq("user_id", effectiveUserId).eq("archived", false),
       // Lessons completed today per goal (local-day window). The queue
       // projector subtracts these from today's slot allocation so that
       // marking complete keeps today's slot count stable instead of
@@ -1776,7 +1777,8 @@ export default function TodayPage() {
       supabase
         .from("curriculum_goals")
         .select("id, total_lessons, lessons_per_day, school_days, current_lesson, child_id, subject_label, start_date")
-        .eq("user_id", effectiveUserId),
+        .eq("user_id", effectiveUserId)
+        .eq("archived", false),
       supabase
         .from("vacation_blocks")
         .select("start_date, end_date")
@@ -2054,7 +2056,8 @@ export default function TodayPage() {
       .from("curriculum_goals")
       .select("id, curriculum_name, current_lesson, total_lessons, child_id, default_minutes, school_days")
       .eq("user_id", user.id)
-      .eq("child_id", childId);
+      .eq("child_id", childId)
+      .eq("archived", false);
     const activeGoals = (goals ?? []).filter(
       (g: { current_lesson: number; total_lessons: number }) => g.current_lesson < g.total_lessons
     );
@@ -2288,7 +2291,17 @@ export default function TodayPage() {
       setShowMissedSheet(false);
       setMissedSheetSubmitting(false);
       const n = missedLessons.length;
-      showRescheduleUndo(`Schedule pushed back ${n} day${n !== 1 ? "s" : ""}! Undo?`, snapshot);
+      // Build a date-aware diff message that names which dates lost
+      // lessons and where they landed. Snapshot covers both the missed
+      // rows being filled in (no prior date → not counted as a "shift")
+      // and the future rows being pushed forward.
+      const oldByLessonId = new Map<string, string>();
+      for (const s of snapshot) {
+        const old = s.scheduled_date ?? s.date;
+        if (old) oldByLessonId.set(s.id, old);
+      }
+      const message = buildPushBackMessage(oldByLessonId, updates, n);
+      showRescheduleUndo(message, snapshot);
       await loadData();
     });
   }
@@ -2439,7 +2452,16 @@ export default function TodayPage() {
       // Remove the current lesson from Today view if it was pushed
       setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setRescheduleLesson(null);
-      showRescheduleUndo(`${snapshot.length} lessons pushed back! Undo?`, snapshot);
+      // Date-aware diff message. Snapshot has both `date` and
+      // `scheduled_date`; the original date is `scheduled_date ?? date`.
+      // This action is "push by 1 school day" so daysPushed = 1.
+      const oldByLessonId = new Map<string, string>();
+      for (const s of snapshot) {
+        const old = s.scheduled_date ?? s.date;
+        if (old) oldByLessonId.set(s.id, old);
+      }
+      const message = buildPushBackMessage(oldByLessonId, updates, 1);
+      showRescheduleUndo(message, snapshot);
     });
   }
 
@@ -2527,6 +2549,14 @@ export default function TodayPage() {
           }).eq("id", id)
         )
       );
+    }
+
+    // Lessons here got un-completed (completed: false, completed_at: null), so
+    // current_lesson on every affected goal must be recomputed from actual
+    // rows. Without this the cache stays at the pre-uncomplete max and the
+    // queue projector keeps lessons hidden.
+    for (const goalId of goalIds) {
+      await recomputeCurrentLesson(supabase, goalId);
     }
 
     setLessons([]);
@@ -2843,6 +2873,47 @@ export default function TodayPage() {
 
       <div className="max-w-2xl mx-auto px-5 pt-4 pb-7 space-y-5">
 
+      {/* ═══════════════════════════════════════════════════════════
+          VACATION BANNER — when today is inside an active vacation
+          block. Lessons still render below; this just sets the tone.
+          STEP 1 (vacation_blocks fetch) and STEP 2 (activeVacation
+          state) live in loadData; banner only reads activeVacation.
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && activeVacation && (() => {
+        // Resume date = end_date + 1 calendar day. We don't try to
+        // walk to the next school_days entry — Brittany's spec
+        // explicitly allowed the simple +1 approximation.
+        const resumeDate = new Date(activeVacation.end_date + "T00:00:00");
+        resumeDate.setDate(resumeDate.getDate() + 1);
+        const resumeLabel = resumeDate.toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        });
+        return (
+          <div
+            className="rounded-2xl px-4 py-3.5 flex items-start gap-3"
+            style={{
+              background: "#faf6f0",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.07)",
+            }}
+          >
+            <span className="text-xl shrink-0 leading-none mt-0.5" aria-hidden>☀️</span>
+            <div className="flex-1 min-w-0">
+              <p
+                className="text-[15px] font-medium text-[#2d2926] leading-snug"
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                {activeVacation.name}
+              </p>
+              <p className="text-[12px] text-[#7a6f65] mt-0.5 leading-snug">
+                Enjoy your break — school resumes {resumeLabel}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Getting Started — first 30 days, until both curriculum + memory exist */}
       {!loading && (() => {
         const hasCurriculum = curriculumGoalsCount > 0;
@@ -2993,6 +3064,11 @@ export default function TodayPage() {
          ═══════════════════════════════════════════════════════════ */}
       {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && (
         <div>
+          {activeVacation && (
+            <p className="text-[11px] text-[#9a8f85] mb-2 px-0.5">
+              Logging is optional today
+            </p>
+          )}
           <TodaySchedule
             lessons={lessons as never}
             activities={todayActivities as never}
