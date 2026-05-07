@@ -140,7 +140,8 @@ export default function CalendarPage() {
       supabase
         .from("curriculum_goals")
         .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
-        .eq("user_id", effectiveUserId),
+        .eq("user_id", effectiveUserId)
+        .eq("archived", false),
       supabase
         .from("app_events")
         .select("id, type, created_at, payload")

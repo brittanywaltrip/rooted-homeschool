@@ -602,12 +602,48 @@ export interface CurriculumGoalConfig {
   // lessons would land on today and bleed into the visible range filter,
   // showing a half-empty calendar (Bug B, 2026-05-03).
   start_date?: string | null;
+  // Per-weekday lesson count overrides keyed by the same label convention as
+  // `school_days` ("Mon".."Sun"). Null/undefined means "use lessons_per_day
+  // for every active day" (the existing behavior). When set, a day present
+  // in the map uses the keyed count; days absent fall back to
+  // lessons_per_day. A keyed value of 0 means the day is in school_days but
+  // produces no lessons for this goal (e.g. Tuesday is a co-op day with no
+  // home curriculum work).
+  //
+  // Under overrides, Invariant 2 ("lessons_per_day is a hard ceiling")
+  // becomes a PER-DAY ceiling — Thursday's ceiling can legitimately be 2
+  // while Friday's stays 1. The projector reads this map directly; the
+  // legacy `lessons_per_day` column is kept in sync as a flat fallback for
+  // any read paths that don't yet honor overrides.
+  lessons_per_day_overrides?: Record<string, number> | null;
 }
 
 export interface ProjectedLesson {
   goal_id: string;
   lesson_number: number;
   date: string; // YYYY-MM-DD
+}
+
+/**
+ * How many lessons of this goal should land on `date`?
+ *
+ * Reads `lessons_per_day_overrides` first — if the date's weekday label
+ * (Mon..Sun) is keyed with a finite non-negative integer, that count wins
+ * (including 0). Anything else falls back to `lessons_per_day`, clamped to
+ * at least 1 to preserve the "every day produces something" invariant on
+ * goals without overrides. The Mon=0..Sun=6 day-index conversion matches
+ * `DAY_LABELS` and the rest of the projector.
+ */
+export function lessonsPerDayForDate(date: Date, goal: CurriculumGoalConfig): number {
+  const overrides = goal.lessons_per_day_overrides;
+  if (overrides) {
+    const label = DAY_LABELS[(date.getDay() + 6) % 7];
+    const v = overrides[label];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+      return Math.floor(v);
+    }
+  }
+  return Math.max(1, goal.lessons_per_day);
 }
 
 /**
@@ -814,7 +850,6 @@ export function computeNextLessonsForGoal(
   if (goal.current_lesson >= goal.total_lessons) return [];
 
   const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
-  const perDay = Math.max(1, goal.lessons_per_day);
   const out: ProjectedLesson[] = [];
 
   const cursor = new Date(fromDate);
@@ -845,16 +880,23 @@ export function computeNextLessonsForGoal(
   let safety = 0;
   while (cursor < endDate && nextLesson <= goal.total_lessons && safety < 3650) {
     if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
-      const dateStr = toDateStr(cursor);
-      const isFirstDay = dateStr === fromDateStr;
-      let lessonStart = isFirstDay
-        ? Math.max(1, goal.current_lesson - completedTodayCount + 1)
-        : nextLesson;
-      for (let s = 0; s < perDay && lessonStart <= goal.total_lessons; s++) {
-        out.push({ goal_id: goal.id, lesson_number: lessonStart, date: dateStr });
-        lessonStart++;
+      // Per-day capacity. Without overrides this collapses to lessons_per_day
+      // for every iteration (preserves prior behavior). With overrides set,
+      // each weekday has its own ceiling — Thursday=2 / Friday=1 etc. — and
+      // a keyed 0 means this day produces nothing for this goal.
+      const perDayHere = lessonsPerDayForDate(cursor, goal);
+      if (perDayHere > 0) {
+        const dateStr = toDateStr(cursor);
+        const isFirstDay = dateStr === fromDateStr;
+        let lessonStart = isFirstDay
+          ? Math.max(1, goal.current_lesson - completedTodayCount + 1)
+          : nextLesson;
+        for (let s = 0; s < perDayHere && lessonStart <= goal.total_lessons; s++) {
+          out.push({ goal_id: goal.id, lesson_number: lessonStart, date: dateStr });
+          lessonStart++;
+        }
+        nextLesson = lessonStart;
       }
-      nextLesson = lessonStart;
     }
     cursor.setDate(cursor.getDate() + 1);
     safety++;
@@ -889,7 +931,6 @@ export function computeFinishDate(
   if (goal.current_lesson >= goal.total_lessons) return null;
 
   const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
-  const perDay = Math.max(1, goal.lessons_per_day);
   const remaining = goal.total_lessons - goal.current_lesson;
 
   const cursor = new Date(fromDate);
@@ -901,10 +942,12 @@ export function computeFinishDate(
 
   while (slotsRemaining > 0 && safety < 3650) {
     if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
+      // Same per-day rule as computeNextLessonsForGoal: overrides win when set.
+      const perDayHere = lessonsPerDayForDate(cursor, goal);
       const isFirstDay = toDateStr(cursor) === fromDateStr;
       const slotsThisDay = isFirstDay
-        ? Math.max(0, perDay - completedTodayCount)
-        : perDay;
+        ? Math.max(0, perDayHere - completedTodayCount)
+        : perDayHere;
       if (slotsThisDay > 0) {
         const consumed = Math.min(slotsThisDay, slotsRemaining);
         slotsRemaining -= consumed;

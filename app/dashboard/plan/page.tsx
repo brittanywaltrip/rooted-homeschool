@@ -498,9 +498,10 @@ export default function PlanPage() {
   useEffect(() => { document.title = "Plan · Rooted"; posthog.capture('page_viewed', { page: 'plan' }); }, []);
 
   useEffect(() => {
+    // Legacy onboarding deep-link `?openWizard=true` now routes to the
+    // unified Schedule Builder.
     if (searchParams.get("openWizard") === "true") {
-      setShowCreateWizard(true);
-      router.replace("/dashboard/plan");
+      router.replace("/dashboard/plan/schedule");
     }
   }, [searchParams, router]);
   const [editWizardData,    setEditWizardData]    = useState<CurriculumWizardEditData | null>(null);
@@ -614,7 +615,7 @@ export default function PlanPage() {
       supabase.from("profiles").select("onboarded, school_days, plan_type").eq("id", effectiveUserId).maybeSingle(),
       supabase.from("children").select("id, name, color").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji, lessons_per_day, start_date").eq("user_id", effectiveUserId).order("created_at"),
+      supabase.from("curriculum_goals").select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, created_at, default_minutes, scheduled_start_time, school_year_id, icon_emoji, lessons_per_day, start_date").eq("user_id", effectiveUserId).eq("archived", false).order("created_at"),
       supabase.from("vacation_blocks").select("start_date, end_date").eq("user_id", effectiveUserId),
     ]);
     setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? false);
@@ -694,7 +695,8 @@ export default function PlanPage() {
     const [{ data: goalsData }, { data: vacsData }] = await Promise.all([
       supabase.from("curriculum_goals")
         .select("id, total_lessons, lessons_per_day, school_days, current_lesson, start_date")
-        .eq("user_id", effectiveUserId),
+        .eq("user_id", effectiveUserId)
+        .eq("archived", false),
       supabase.from("vacation_blocks")
         .select("start_date, end_date")
         .eq("user_id", effectiveUserId),
@@ -1626,7 +1628,7 @@ export default function PlanPage() {
       const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }] = await Promise.all([
         supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label), is_backfill").eq("user_id", effectiveUserId),
         supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", effectiveUserId),
-        supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", effectiveUserId),
+        supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", effectiveUserId).eq("archived", false),
         supabase.from("activity_logs").select("activity_id, date, minutes_spent, completed, is_backfill").eq("user_id", effectiveUserId).eq("completed", true),
         supabase.from("activities").select("id, name, emoji, child_ids").eq("user_id", effectiveUserId),
       ]);
@@ -2784,22 +2786,10 @@ export default function PlanPage() {
                           })()}
                         </div>
 
-                        {/* Edit link */}
+                        {/* Edit link → Schedule Builder */}
                         <button
                           type="button"
-                          onClick={() => {
-                            setEditWizardData({
-                              goalId: group.goalId ?? undefined,
-                              childId: group.childId ?? "",
-                              curricName: group.curricName,
-                              subjectLabel: group.goalData?.subject_label ?? group.subjectName ?? null,
-                              totalLessons: group.goalData?.total_lessons ?? group.totalCount,
-                              currentLesson: group.goalData?.current_lesson ?? completedFromRows,
-                              targetDate: group.goalData?.target_date ?? "",
-                              schoolDays: group.goalData?.school_days ?? [],
-                              lessonStartTime: group.goalData?.scheduled_start_time ?? null,
-                            });
-                          }}
+                          onClick={() => router.push("/dashboard/plan/schedule")}
                           style={{ fontSize: 11, color: "var(--g-brand)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                         >
                           Edit →
@@ -2892,7 +2882,7 @@ export default function PlanPage() {
           {/* + Add curriculum / + Add activity */}
           <div className="flex gap-3 mt-3">
             <button
-              onClick={() => setShowCreateWizard(true)}
+              onClick={() => router.push("/dashboard/plan/schedule")}
               className="flex-1 border-2 border-dashed border-[#e0ddd8] rounded-2xl p-4 text-center text-[#5c7f63] font-medium text-sm cursor-pointer hover:bg-[#faf9f7] transition-colors"
             >
               + Add curriculum
@@ -2908,7 +2898,7 @@ export default function PlanPage() {
           {/* Prompt cards */}
           {!allLessons.some(l => (l as unknown as { is_backfill?: boolean }).is_backfill) && (
             <button
-              onClick={() => setShowCreateWizard(true)}
+              onClick={() => router.push("/dashboard/plan/schedule")}
               className="w-full bg-[#F8F7F4] border border-[#e8e5e0] rounded-xl p-4 flex items-start gap-3 text-left hover:bg-[#f0ede8] transition-colors mt-3"
             >
               <span className="text-xl shrink-0">📚</span>
@@ -3012,7 +3002,7 @@ export default function PlanPage() {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center mb-5">
             <button
-              onClick={() => setShowCreateWizard(true)}
+              onClick={() => router.push("/dashboard/plan/schedule")}
               className="inline-flex items-center gap-1.5 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
             >
               Set Up Curriculum →
@@ -3721,7 +3711,7 @@ export default function PlanPage() {
                     <p className="text-sm text-[#2d2926]">No curriculum set up yet</p>
                     <div className="flex flex-col items-center gap-2">
                       <button
-                        onClick={() => { setShowAddLessonPicker(false); setShowCreateWizard(true); }}
+                        onClick={() => { setShowAddLessonPicker(false); router.push("/dashboard/plan/schedule"); }}
                         className="px-4 py-2 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
                       >
                         + Add curriculum

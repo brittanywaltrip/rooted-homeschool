@@ -820,6 +820,116 @@ test('queue: projection stops at total_lessons even with daysAhead remaining', (
   ])
 })
 
+// ── lessons_per_day_overrides (Schedule Builder, 2026-05) ──────────────
+//
+// New per-weekday capacity map keyed by "Mon".."Sun" labels. When set, the
+// projector uses that count for matching days and falls back to
+// lessons_per_day for unkeyed days. Invariant 2 ("lessons_per_day is a
+// hard ceiling") becomes a per-day ceiling under overrides.
+
+test('queue: overrides bump Thursday to 2 while other days stay at 1', () => {
+  // Mon Apr 27 .. Fri May 1, lessons_per_day=1 with override Thu=2.
+  // Expected weekly slot count: 1+1+1+2+1 = 6.
+  const mon = new Date(2026, 3, 27)
+  const goal = goalCfg({
+    total_lessons: 100,
+    lessons_per_day: 1,
+    lessons_per_day_overrides: { Thu: 2 },
+  })
+  const out = computeNextLessonsForGoal(goal, mon, 5)
+  assert.deepEqual(out, [
+    { goal_id: 'g1', lesson_number: 1, date: '2026-04-27' },
+    { goal_id: 'g1', lesson_number: 2, date: '2026-04-28' },
+    { goal_id: 'g1', lesson_number: 3, date: '2026-04-29' },
+    { goal_id: 'g1', lesson_number: 4, date: '2026-04-30' },
+    { goal_id: 'g1', lesson_number: 5, date: '2026-04-30' },
+    { goal_id: 'g1', lesson_number: 6, date: '2026-05-01' },
+  ])
+})
+
+test('queue: full M..F override map wins over lessons_per_day', () => {
+  // {"Mon":1,"Tue":1,"Wed":1,"Thu":2,"Fri":1} with lessons_per_day=99.
+  // The lessons_per_day fallback should never be consulted because every
+  // active weekday is keyed.
+  const mon = new Date(2026, 3, 27)
+  const goal = goalCfg({
+    total_lessons: 100,
+    lessons_per_day: 99,
+    lessons_per_day_overrides: { Mon: 1, Tue: 1, Wed: 1, Thu: 2, Fri: 1 },
+  })
+  const out = computeNextLessonsForGoal(goal, mon, 5)
+  assert.equal(out.length, 6, 'six slots in the week — Thursday is the only doubled day')
+  assert.deepEqual(out.map((l) => l.date), [
+    '2026-04-27', '2026-04-28', '2026-04-29', '2026-04-30', '2026-04-30', '2026-05-01',
+  ])
+})
+
+test('queue: override of 0 on a school day produces nothing for that day', () => {
+  // Mom uses Tuesday for co-op only — 0 home lessons on Tue, 1 on others.
+  // Tuesday remains in school_days (so the day is "in session" for other
+  // goals / activities), but THIS goal doesn't generate a slot there.
+  const mon = new Date(2026, 3, 27)
+  const goal = goalCfg({
+    lessons_per_day: 1,
+    lessons_per_day_overrides: { Tue: 0 },
+  })
+  const out = computeNextLessonsForGoal(goal, mon, 5)
+  assert.deepEqual(out, [
+    { goal_id: 'g1', lesson_number: 1, date: '2026-04-27' }, // Mon
+    // Tue skipped
+    { goal_id: 'g1', lesson_number: 2, date: '2026-04-29' }, // Wed
+    { goal_id: 'g1', lesson_number: 3, date: '2026-04-30' }, // Thu
+    { goal_id: 'g1', lesson_number: 4, date: '2026-05-01' }, // Fri
+  ])
+})
+
+test('queue: null/undefined overrides preserves prior lessons_per_day behavior', () => {
+  // Regression guard: callers that don't set the overrides field must see
+  // exactly the pre-overrides projection.
+  const mon = new Date(2026, 3, 27)
+  const goal = goalCfg({ lessons_per_day: 2 })
+  const baseline = computeNextLessonsForGoal(goal, mon, 1)
+  const withNull = computeNextLessonsForGoal(
+    { ...goal, lessons_per_day_overrides: null },
+    mon,
+    1,
+  )
+  assert.deepEqual(withNull, baseline, 'null overrides matches absent overrides')
+})
+
+test('queue: computeFinishDate honors per-day overrides', () => {
+  // 21 lessons at 6/week (Thu=2, M/T/W/F=1) starting Mon Apr 27.
+  // Week 1 covers lessons 1-6 (finishes Fri May 1).
+  // Week 2 covers 7-12 (finishes Fri May 8).
+  // Week 3 covers 13-18 (finishes Fri May 15).
+  // Week 4 covers 19-21: Mon=19, Tue=20, Wed=21 → finish Wed May 20.
+  const mon = new Date(2026, 3, 27)
+  const goal = goalCfg({
+    total_lessons: 21,
+    lessons_per_day: 1,
+    lessons_per_day_overrides: { Thu: 2 },
+  })
+  const finish = computeFinishDate(goal, mon)
+  assert.ok(finish, 'finish date is non-null')
+  assert.equal(toDateStr(finish!), '2026-05-20')
+})
+
+test('queue: override on a day NOT in school_days has no effect', () => {
+  // school_days excludes Saturday. Override sets Sat=5. The cursor never
+  // lands on a Saturday because isSchoolDayIdx gates it out, so the
+  // override never fires and the projection remains Mon-Fri at 1/day.
+  const mon = new Date(2026, 3, 27)
+  const goal = goalCfg({
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessons_per_day_overrides: { Sat: 5 },
+  })
+  const out = computeNextLessonsForGoal(goal, mon, 7)
+  assert.deepEqual(out.map((l) => l.date), [
+    '2026-04-27', '2026-04-28', '2026-04-29', '2026-04-30', '2026-05-01',
+  ])
+})
+
 // ── Vacation blocks (Path A queue scheduling, 2026-05) ─────────────────
 //
 // Brittany's product rule: "i need the vacation thing to work so that

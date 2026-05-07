@@ -124,6 +124,7 @@ export default function NewYearPage() {
             .from("curriculum_goals")
             .select("id, child_id, subject_label, curriculum_name, icon_emoji, school_days, default_minutes, total_lessons, course_level, credits_value")
             .eq("school_year_id", fromYearId)
+            .eq("archived", false)
             .order("subject_label", { ascending: true }),
           supabase
             .from("children")

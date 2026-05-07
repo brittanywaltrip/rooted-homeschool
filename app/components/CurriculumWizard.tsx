@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { X, BookOpen } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
@@ -137,9 +138,15 @@ function WizardProgress({ step, total }: { step: number; total: number }) {
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Legacy implementation (preserved for git history) ───────────────────
+//
+// The default export below replaces this with a redirect to
+// /dashboard/plan/schedule (Schedule Builder, May 2026). Every entry point
+// to the old wizard was rewired, so this implementation is no longer
+// reachable. It can be removed in a follow-up cleanup commit; for now it
+// stays so the diff that introduced the redirect is reviewable line-by-line.
 
-export default function CurriculumWizard({
+function _CurriculumWizardLegacyImpl({
   mode,
   editData,
   initialChildId,
@@ -2393,3 +2400,22 @@ export default function CurriculumWizard({
     </div>
   );
 }
+
+// ─── Default export: Schedule Builder redirect ────────────────────────────
+//
+// Every "Add curriculum" / edit-pencil click in the app routes directly to
+// /dashboard/plan/schedule now. This wrapper handles any caller that still
+// mounts <CurriculumWizard> (deep links, third-party tabs, future bugs) by
+// bouncing the navigation to the new builder.
+export default function CurriculumWizard(_props: Props) {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/dashboard/plan/schedule");
+  }, [router]);
+  return null;
+}
+
+// Keep the unused-function rule quiet: the legacy impl above is preserved
+// intentionally for one cleanup commit. Reading the identifier here is a
+// no-op at runtime.
+void _CurriculumWizardLegacyImpl;

@@ -685,7 +685,7 @@ export default function TodayPage() {
       // Curriculum goals — full config for queue-based scheduling. The same
       // query also feeds the icon emoji + per-goal school_days lookups that
       // used to be its only purpose.
-      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date").eq("user_id", effectiveUserId),
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date").eq("user_id", effectiveUserId).eq("archived", false),
       // Lessons completed today per goal (local-day window). The queue
       // projector subtracts these from today's slot allocation so that
       // marking complete keeps today's slot count stable instead of
@@ -1776,7 +1776,8 @@ export default function TodayPage() {
       supabase
         .from("curriculum_goals")
         .select("id, total_lessons, lessons_per_day, school_days, current_lesson, child_id, subject_label, start_date")
-        .eq("user_id", effectiveUserId),
+        .eq("user_id", effectiveUserId)
+        .eq("archived", false),
       supabase
         .from("vacation_blocks")
         .select("start_date, end_date")
@@ -2054,7 +2055,8 @@ export default function TodayPage() {
       .from("curriculum_goals")
       .select("id, curriculum_name, current_lesson, total_lessons, child_id, default_minutes, school_days")
       .eq("user_id", user.id)
-      .eq("child_id", childId);
+      .eq("child_id", childId)
+      .eq("archived", false);
     const activeGoals = (goals ?? []).filter(
       (g: { current_lesson: number; total_lessons: number }) => g.current_lesson < g.total_lessons
     );
