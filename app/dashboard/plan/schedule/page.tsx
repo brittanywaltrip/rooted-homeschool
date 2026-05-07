@@ -6,7 +6,7 @@ import { Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { recomputeCurrentLesson } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, recomputeCurrentLesson } from "@/app/lib/scheduler";
 import PageHero from "@/app/components/PageHero";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -633,7 +633,11 @@ export default function ScheduleBuilderPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      const recomputeIds: string[] = [];
+      // Each entry pairs a saved curriculum_goals row with the local Row it
+      // came from. The lesson-generation pass below needs both the dbId (for
+      // the FK + dedup query) and the Row's name / child_id / school_days /
+      // counts (to project lesson dates).
+      const savedCurriculumGoals: Array<{ id: string; row: Row }> = [];
       const localCurriculumIds = new Set<string>();
       const localActivityIds = new Set<string>();
 
@@ -697,7 +701,7 @@ export default function ScheduleBuilderPage() {
               .eq("id", row.dbId);
             if (error) throw error;
             localCurriculumIds.add(row.dbId);
-            recomputeIds.push(row.dbId);
+            savedCurriculumGoals.push({ id: row.dbId, row });
           } else if (row.previouslySavedAs === "activities" && row.dbId) {
             // Type changed activity → curriculum: archive the activity row,
             // insert as new curriculum_goals row.
@@ -712,8 +716,9 @@ export default function ScheduleBuilderPage() {
               .select("id")
               .single();
             if (insErr || !inserted) throw insErr ?? new Error("insert failed");
-            localCurriculumIds.add((inserted as { id: string }).id);
-            recomputeIds.push((inserted as { id: string }).id);
+            const newId = (inserted as { id: string }).id;
+            localCurriculumIds.add(newId);
+            savedCurriculumGoals.push({ id: newId, row });
           } else {
             // Brand-new row.
             const { data: inserted, error } = await supabase
@@ -722,8 +727,9 @@ export default function ScheduleBuilderPage() {
               .select("id")
               .single();
             if (error || !inserted) throw error ?? new Error("insert failed");
-            localCurriculumIds.add((inserted as { id: string }).id);
-            recomputeIds.push((inserted as { id: string }).id);
+            const newId = (inserted as { id: string }).id;
+            localCurriculumIds.add(newId);
+            savedCurriculumGoals.push({ id: newId, row });
           }
         } else {
           // Destination = activities (coop or activity rows)
@@ -803,9 +809,95 @@ export default function ScheduleBuilderPage() {
 
       // 3. Recompute current_lesson on every curriculum row we wrote so
       //    start_at_lesson is honored on the read side (queue projector
-      //    starts at current_lesson + 1).
-      for (const id of recomputeIds) {
-        await recomputeCurrentLesson(supabase, id);
+      //    starts at current_lesson + 1) — and then materialize lesson rows
+      //    in the lessons table.
+      //
+      //    Why pre-generate: the Plan page reads concrete lesson rows by
+      //    (curriculum_goal_id, lesson_number) for its weekly grid. Without
+      //    these rows it shows "No curriculum added yet" even after a save.
+      //    The legacy CurriculumWizard pre-generated lessons for the same
+      //    reason; the Schedule Builder mirrors that flow.
+      //
+      //    No unique constraint exists on (curriculum_goal_id, lesson_number),
+      //    so we pre-check the lessons table and only insert numbers that
+      //    don't already exist. This keeps re-saves of the same goal
+      //    idempotent.
+      const { data: vacationData } = await supabase
+        .from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", effectiveUserId);
+      const vacations = (vacationData ?? []) as { start_date: string; end_date: string }[];
+      const todayMid = todayDate();
+
+      for (const { id: goalId, row } of savedCurriculumGoals) {
+        // Recompute first so we know where the queue stands. The return
+        // value is the post-recompute current_lesson; for brand-new goals
+        // it equals max(start_at_lesson - 1, 0). For UPDATE flows it can be
+        // higher if the user has completed lessons past start_at_lesson.
+        const newCurrent = await recomputeCurrentLesson(supabase, goalId);
+        const currentLesson = newCurrent ?? Math.max(0, row.start_at_lesson - 1);
+
+        if (!row.total_lessons || row.total_lessons <= 0) continue;
+        const { lessons_per_day, lessons_per_day_overrides, school_days } =
+          compactCurriculumPerDay(row);
+        if (school_days.length === 0) continue;
+
+        const goalConfig = {
+          id: goalId,
+          school_days,
+          lessons_per_day,
+          lessons_per_day_overrides,
+          current_lesson: currentLesson,
+          total_lessons: row.total_lessons,
+          start_date: row.start_date,
+        };
+
+        // Project until total_lessons is reached. The 3650 daysAhead is the
+        // scheduler's internal safety bound; computeNextLessonsForGoal stops
+        // earlier once the queue runs out. start_date in the future is
+        // honored inside the projector.
+        const upcoming = computeNextLessonsForGoal(goalConfig, todayMid, 3650, vacations);
+        if (upcoming.length === 0) continue;
+
+        const { data: existingLessons } = await supabase
+          .from("lessons")
+          .select("lesson_number")
+          .eq("curriculum_goal_id", goalId)
+          .not("lesson_number", "is", null);
+        const existingNums = new Set(
+          ((existingLessons ?? []) as { lesson_number: number }[]).map((l) => l.lesson_number),
+        );
+
+        const toInsert = upcoming
+          .filter((l) => !existingNums.has(l.lesson_number))
+          .map((l) => ({
+            user_id: effectiveUserId,
+            child_id: row.child_id,
+            curriculum_goal_id: goalId,
+            lesson_number: l.lesson_number,
+            title: `${row.name.trim()} — Lesson ${l.lesson_number}`,
+            scheduled_date: l.date,
+            date: l.date,
+            scheduled_source: "wizard_create",
+            completed: false,
+            hours: 0,
+          }));
+
+        if (toInsert.length === 0) continue;
+
+        for (let i = 0; i < toInsert.length; i += 100) {
+          const { error: lessonErr } = await supabase
+            .from("lessons")
+            .insert(toInsert.slice(i, i + 100));
+          if (lessonErr) {
+            console.error(
+              "[ScheduleBuilder] lesson insert error for goal",
+              goalId,
+              ":",
+              lessonErr.message,
+            );
+          }
+        }
       }
 
       setDirty(false);
