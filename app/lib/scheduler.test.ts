@@ -48,6 +48,8 @@ import {
   effectiveDueDate,
   isLessonMissed,
   buildPastDateCompletionPayload,
+  nthSchoolDay,
+  planPushBackNDays,
 } from './scheduler.ts'
 
 test('forwardScheduleStart bumps today to tomorrow', () => {
@@ -2407,4 +2409,108 @@ test('past-date completion: out-of-order backfill (complete lesson 5 with lesson
   const goalCurrentLessonJumpedToFive = goalCfg({ current_lesson: 5, total_lessons: 20 })
   const projection = computeTodayLessons([goalCurrentLessonJumpedToFive], wed)
   assert.equal(projection[0]?.lesson_number, 6, 'projection follows current_lesson, not the count of completed rows')
+})
+
+// ── Reschedule modal: vacation-aware "next school day" (May 2026) ────────
+//
+// Repro from staging: today=Mon May 4, school_days=Mon-Fri, vacation
+// "California Trip" covers May 3 – May 17. Modal subtitle was showing
+// "Adds to Friday May 8" (inside the vacation) because nthSchoolDay was
+// vacation-blind. The same blindness affected the action handlers
+// (planAddToNextSchoolDays / planPushBackNDays) — clicking would land
+// the lesson on May 8 too. Both display and action now take an optional
+// `vacations` parameter that skips dates inside any vacation block.
+
+test('nthSchoolDay: with no vacations, behaves as before (legacy callers unaffected)', () => {
+  // Mon May 4 → next school day is Tue May 5 (Mon-Fri, no vacations).
+  const next = nthSchoolDay('2026-05-04', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], 1)
+  assert.equal(next, '2026-05-05')
+})
+
+test('nthSchoolDay: with empty vacations array explicitly, also matches legacy behavior', () => {
+  const next = nthSchoolDay('2026-05-04', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], 1, [])
+  assert.equal(next, '2026-05-05')
+})
+
+test('nthSchoolDay: vacation block covering the entire normal "next" week pushes to first school day after the block', () => {
+  // California Trip repro. Today = Mon May 4. Vacation covers May 3 – May 17.
+  // Mon-Fri school days. Without vacation awareness the answer is May 5 (Tue).
+  // With awareness it must be May 18 (Mon, the first school day after May 17).
+  const vac = [{ start: '2026-05-03', end: '2026-05-17' }]
+  const next = nthSchoolDay('2026-05-04', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], 1, vac)
+  assert.equal(next, '2026-05-18', 'first school day strictly after the vacation block')
+})
+
+test('nthSchoolDay: vacation block partially overlapping next school day still pushes correctly', () => {
+  // Today = Wed May 6. Vacation covers May 7 – May 8 (Thu+Fri). Next
+  // school day must be Mon May 11, not Thu May 7 or Fri May 8.
+  const vac = [{ start: '2026-05-07', end: '2026-05-08' }]
+  const next = nthSchoolDay('2026-05-06', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], 1, vac)
+  assert.equal(next, '2026-05-11')
+})
+
+test('nthSchoolDay: N=3 with vacation in the middle of the requested run skips the break', () => {
+  // Today = Mon May 4. Vacation May 6 – May 8. Asking for the 3rd school
+  // day after today: Tue May 5 = 1, May 11 = 2 (Wed/Thu/Fri all in
+  // vacation), Tue May 12 = 3.
+  const vac = [{ start: '2026-05-06', end: '2026-05-08' }]
+  const third = nthSchoolDay('2026-05-04', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], 3, vac)
+  assert.equal(third, '2026-05-12')
+})
+
+test('planAddToNextSchoolDays: with vacations, missed lesson lands after the vacation block', () => {
+  // Repro: missed lesson currently on Apr 27. Today May 4. Vacation
+  // May 3 – May 17. Action should place the lesson on May 18, not May 5.
+  const missed: ReschedulableLesson[] = [
+    { id: 'L1', scheduled_date: '2026-04-27', curriculum_goal_id: 'g1' },
+  ]
+  const vac = [{ start: '2026-05-03', end: '2026-05-17' }]
+  const result = planAddToNextSchoolDays(
+    missed,
+    () => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    '2026-05-04',
+    new Map(),
+    () => 1,
+    vac,
+  )
+  assert.equal(result.updates.length, 1)
+  assert.equal(result.updates[0].newDate, '2026-05-18', 'must skip the vacation block')
+})
+
+test('planAddToNextSchoolDays: without vacations arg, retains pre-fix vacation-blind behavior (backward compat)', () => {
+  const missed: ReschedulableLesson[] = [
+    { id: 'L1', scheduled_date: '2026-04-27', curriculum_goal_id: 'g1' },
+  ]
+  // No vacations passed — same as legacy callers
+  const result = planAddToNextSchoolDays(
+    missed,
+    () => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    '2026-05-04',
+    new Map(),
+    () => 1,
+  )
+  assert.equal(result.updates[0].newDate, '2026-05-05', 'legacy callers (no vacations arg) still get the next weekday')
+})
+
+test('planPushBackNDays: with vacations, future lessons hop over the vacation block when shifted', () => {
+  // 1 missed lesson on Apr 27, today May 4. Future lesson on May 5 (Tue).
+  // Vacation May 6 – May 17. Pushing back 1 school day: future lesson
+  // on May 5 should move to May 18 (next school day after the break),
+  // NOT to May 6 (the naive "+1 weekday" answer).
+  const missed: ReschedulableLesson[] = [
+    { id: 'M1', scheduled_date: '2026-04-27', curriculum_goal_id: 'g1' },
+  ]
+  const future: ReschedulableLesson[] = [
+    { id: 'F1', scheduled_date: '2026-05-05', curriculum_goal_id: 'g1' },
+  ]
+  const vac = [{ start: '2026-05-06', end: '2026-05-17' }]
+  const result = planPushBackNDays(
+    missed,
+    future,
+    () => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    '2026-05-04',
+    vac,
+  )
+  const futureUpdate = result.updates.find((u) => u.id === 'F1')
+  assert.equal(futureUpdate?.newDate, '2026-05-18', 'future lesson must skip the vacation when pushed back')
 })

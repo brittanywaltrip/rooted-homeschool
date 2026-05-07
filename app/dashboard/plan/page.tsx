@@ -1453,12 +1453,18 @@ export default function PlanPage() {
       return goal?.lessons_per_day ?? 1;
     };
 
+    // Vacation-aware date picking: skip days inside any vacation block.
+    // Without this, "next school day" would land on a date inside California
+    // Trip etc. The planner forwards `vacationRanges` to nthSchoolDay.
+    const vacationRanges = vacationBlocks.map((b) => ({ start: b.start_date, end: b.end_date }));
+
     const { updates, undoData } = libPlanAddToNextSchoolDays(
       target,
       getSchoolDaysForLesson,
       todayStr,
       density,
       getLessonsPerDay,
+      vacationRanges,
     );
 
     for (let i = 0; i < updates.length; i += 20) {
@@ -1492,11 +1498,14 @@ export default function PlanPage() {
     const targetIds = new Set(target.map(l => l.id));
     const filteredFutureLessons = futureLessons.filter(l => !targetIds.has(l.id));
 
+    const vacationRanges = vacationBlocks.map((b) => ({ start: b.start_date, end: b.end_date }));
+
     const { updates, undoData } = libPlanPushBackNDays(
       target,
       filteredFutureLessons,
       getSchoolDaysForLesson,
       todayStr,
+      vacationRanges,
     );
 
     for (let i = 0; i < updates.length; i += 20) {
@@ -3441,22 +3450,37 @@ export default function PlanPage() {
         const n = missedLessons.length || 1;
         const isSingle = n === 1;
 
+        // Vacation-aware "next school day" lookup. Without this the modal
+        // would propose a date inside the user's vacation block (e.g. May 8
+        // showing up while California Trip covers May 3 – May 17). Using
+        // the SAME vacationRanges shape that the action handlers pass to
+        // libPlanAddToNextSchoolDays / libPlanPushBackNDays — subtitle
+        // and action stay in lockstep.
+        const vacationRanges = vacationBlocks.map((b) => ({ start: b.start_date, end: b.end_date }));
+
         // Option 1 subtitle
-        const opt1NextDay = nthSchoolDay(todayStr, schoolDays, 1);
+        const opt1NextDay = nthSchoolDay(todayStr, schoolDays, 1, vacationRanges);
         const opt1Label = new Date(opt1NextDay + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
         const opt1ExistingCount = allLessons.filter(l => (l.scheduled_date ?? l.date) === opt1NextDay && l.id !== planRescheduleLesson.id).length;
         let opt1Subtitle: string;
         if (isSingle) {
           opt1Subtitle = `Adds to ${opt1Label} · you'll have ${opt1ExistingCount + 1} lesson${opt1ExistingCount + 1 !== 1 ? "s" : ""}`;
         } else {
-          const firstLabel = new Date(nthSchoolDay(todayStr, schoolDays, 1) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-          const lastLabel = new Date(nthSchoolDay(todayStr, schoolDays, n) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          const firstLabel = new Date(nthSchoolDay(todayStr, schoolDays, 1, vacationRanges) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          const lastLabel = new Date(nthSchoolDay(todayStr, schoolDays, n, vacationRanges) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
           opt1Subtitle = `Adds ${n} lessons across ${firstLabel} – ${lastLabel}`;
         }
 
-        // Option 2 subtitle
+        // Option 2 subtitle. Multi-lesson is always a missed-lesson case
+        // (missedLessons.length > 0). Single-lesson case can be either:
+        //   - past-due → user is recovering a missed lesson → "missed lesson"
+        //   - future → user is moving an already-scheduled lesson → "to make room"
+        const lessonScheduledDate = planRescheduleLesson.scheduled_date ?? planRescheduleLesson.date;
+        const isPastDue = lessonScheduledDate ? lessonScheduledDate < todayStr : false;
         const opt2Subtitle = isSingle
-          ? "Shifts all upcoming lessons back 1 school day and fits your missed lesson in"
+          ? (isPastDue
+              ? "Shifts all upcoming lessons back 1 school day and fits your missed lesson in"
+              : "Shifts all upcoming lessons back 1 school day to make room")
           : `Shifts all upcoming lessons back ${n} school days and fits your ${n} missed lessons in`;
 
         // Conflict confirmation state
