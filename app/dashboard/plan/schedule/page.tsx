@@ -1072,7 +1072,7 @@ export default function ScheduleBuilderPage() {
           camera FAB (rendered fixed at bottom-right elsewhere in the
           dashboard). Without it the FAB sits directly on top of the
           Save / Preview button on mobile. */}
-      <div className="fixed bottom-0 inset-x-0 border-t border-[#e8e2d9] bg-white px-4 pr-20 py-3 z-30">
+      <div className="fixed bottom-[3.75rem] md:bottom-0 inset-x-0 border-t border-[#e8e2d9] bg-white px-4 pr-20 py-3 z-50 pb-[env(safe-area-inset-bottom,0px)]">
         <div className="max-w-5xl mx-auto flex items-center gap-2">
           {view === "builder" && (
             <>

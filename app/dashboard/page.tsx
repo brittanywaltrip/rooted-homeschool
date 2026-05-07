@@ -2605,7 +2605,9 @@ export default function TodayPage() {
     setSavingBook(false); setShowBookModal(false);
     posthog.capture('book_logged', { user_plan: isPro ? 'paid' : 'free' });
     showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
+    loadDataBusy.current = false;
     await loadData();
+    await refreshTodayStory();
     checkAndAwardBadges(user.id);
     onLogAction({ userId: user.id, childId: bookChild || undefined, actionType: "book" });
   }
@@ -2636,7 +2638,9 @@ export default function TodayPage() {
     setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
     setSavingDrawing(false); setShowDrawingSheet(false);
     showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing", drawingChild || null);
+    loadDataBusy.current = false;
     await loadData();
+    await refreshTodayStory();
     checkAndAwardBadges(user.id);
     onLogAction({ userId: user.id, childId: drawingChild || undefined, actionType: "drawing" });
   }
@@ -2670,7 +2674,9 @@ export default function TodayPage() {
     }).eq("id", editSheet.id);
     setEditSaving(false); setEditSheet(null);
     showCaptureToast("✏️ Updated 🌿", null);
+    loadDataBusy.current = false;
     await loadData();
+    await refreshTodayStory();
   }
 
   async function deleteFromEditSheet() {
@@ -2679,7 +2685,9 @@ export default function TodayPage() {
     await supabase.from("memories").delete().eq("id", editSheet.id);
     setEditDeleting(false); setEditSheet(null);
     showCaptureToast("🗑️ Deleted", null);
+    loadDataBusy.current = false;
     await loadData();
+    await refreshTodayStory();
   }
 
   // ── Activity edit/delete ──────────────────────────────────────────────────
@@ -3515,7 +3523,9 @@ export default function TodayPage() {
                 showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null, memType, null);
                 captureTypeRef.current = "photo"; // reset
                 setTotalMemories(prev => prev + 1);
+                loadDataBusy.current = false;
                 await loadData();
+                await refreshTodayStory();
                 checkAndAwardBadges(user.id);
                 onLogAction({ userId: user.id, actionType: memType === "drawing" ? "drawing" : "memory" });
               } finally {
@@ -3960,7 +3970,9 @@ export default function TodayPage() {
                   }
                   setFtSaving(false); setShowFieldTripSheet(false);
                   setFtTitle(""); setFtNote(""); setFtChild(""); setFtMinutes("");
+                  loadDataBusy.current = false;
                   await loadData();
+                  await refreshTodayStory();
                 }}
                 className="flex-1 py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors">
                 {ftSaving ? "Saving…" : ftType === "project" ? "Save Project 🌿" : "Save Field Trip 🌿"}
@@ -4820,7 +4832,9 @@ export default function TodayPage() {
                     setWinChild("");
                     setWinMinutes("");
                     setShowWinSheet(false);
+                    loadDataBusy.current = false;
                     await loadData();
+                    await refreshTodayStory();
                   } catch (err) {
                     console.error("Win save error:", err);
                     showCaptureToast("Save failed — try again", null);
