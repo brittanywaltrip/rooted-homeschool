@@ -1021,7 +1021,11 @@ export default function YearbookReadPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memories, children, contentMap, profile, yearbookKey, ybSettings]);
 
-  const maxPage = pages.length - 1;
+  const accessLevel = getUserAccess(profile);
+  const FREE_SPREAD_LIMIT = 4;
+  const displaySpreads = accessLevel === 'free' ? spreads.slice(0, FREE_SPREAD_LIMIT) : spreads;
+  const displayPages = accessLevel === 'free' ? pages.slice(0, FREE_SPREAD_LIMIT * 2) : pages;
+  const maxPage = displayPages.length - 1;
   maxPageRef.current = maxPage;
   const safePage = Math.min(currentPage, maxPage);
   const spreadIndex = Math.floor(safePage / 2);
@@ -1161,12 +1165,12 @@ export default function YearbookReadPage() {
               {/* Page header */}
               <div className="shrink-0 pt-4 pb-1.5 text-center relative" style={{ background: isDark ? "transparent" : undefined }}>
                 <p className="text-[8px] font-medium tracking-[0.15em] uppercase text-[rgba(254, 252, 249, 0.55)]">
-                  {pages[safePage]?.header}
+                  {displayPages[safePage]?.header}
                 </p>
                 {/* Edit shortcut */}
-                {pages[safePage]?.editHref && (
+                {displayPages[safePage]?.editHref && (
                   <Link
-                    href={pages[safePage].editHref!}
+                    href={displayPages[safePage].editHref!}
                     className="absolute top-3 right-3 w-[44px] h-[44px] flex items-center justify-center"
                     aria-label="Edit this page"
                   >
@@ -1177,15 +1181,24 @@ export default function YearbookReadPage() {
 
               {/* Page content */}
               <div className="flex-1 min-h-0 overflow-hidden relative">
-                {pages[safePage]?.content}
+                {displayPages[safePage]?.content}
               </div>
 
               {/* Page progress */}
               <div className="shrink-0 pb-2 pt-0.5 text-center" style={{ background: isDark ? "transparent" : undefined }}>
                 <p className={`text-[9px] ${isDark ? "text-white/35" : "text-[#b5aca4]"}`}>
-                  {safePage + 1} / {pages.length}
+                  {safePage + 1} / {displayPages.length}
                 </p>
               </div>
+
+              {accessLevel === 'free' && spreadIndex >= FREE_SPREAD_LIMIT - 1 && (
+                <div className="shrink-0 pb-3 px-4 text-center">
+                  <p className="text-xs text-[#9a8f85] mb-2">Previewing {FREE_SPREAD_LIMIT} of {spreads.length} spreads</p>
+                  <a href="/dashboard/settings?tab=account" className="inline-block px-4 py-2 rounded-lg text-xs font-semibold text-white bg-[#2D5A3D] hover:opacity-90 transition-opacity">
+                    Upgrade to see the full yearbook
+                  </a>
+                </div>
+              )}
             </motion.div>
           </AnimatePresence>
 
@@ -1289,9 +1302,9 @@ export default function YearbookReadPage() {
               style={{ width: 800, height: 560, boxShadow: "0 4px 30px rgba(0,0,0,0.15)", background: "#FAFAF7" }}
             >
               {getUserAccess(profile) === 'free' && <PreviewWatermark />}
-              <div className="w-1/2 h-full">{spreads[spreadIndex]?.leftContent}</div>
+              <div className="w-1/2 h-full">{displaySpreads[spreadIndex]?.leftContent}</div>
               <Spine />
-              <div className="w-1/2 h-full">{spreads[spreadIndex]?.rightContent}</div>
+              <div className="w-1/2 h-full">{displaySpreads[spreadIndex]?.rightContent}</div>
             </motion.div>
           </AnimatePresence>
 
@@ -1300,7 +1313,7 @@ export default function YearbookReadPage() {
               setDirection(1);
               setCurrentPage(Math.min((spreadIndex + 1) * 2, maxPage));
             }}
-            disabled={spreadIndex >= spreads.length - 1}
+            disabled={spreadIndex >= displaySpreads.length - 1}
             className="w-12 h-12 rounded-full flex items-center justify-center text-[#c4b89a] hover:bg-[#4d453f] disabled:opacity-30 transition-colors"
             style={{ background: "#3d3530" }}
           >
@@ -1311,9 +1324,18 @@ export default function YearbookReadPage() {
         {/* Desktop progress */}
         <div className="mt-4 text-center">
           <p className="text-[10px] text-[#9a8f85]">
-            {spreadIndex + 1} / {spreads.length}
+            {spreadIndex + 1} / {displaySpreads.length}
           </p>
         </div>
+
+        {accessLevel === 'free' && spreadIndex >= FREE_SPREAD_LIMIT - 1 && (
+          <div className="mt-3 text-center">
+            <p className="text-xs text-[#9a8f85] mb-2">Previewing {FREE_SPREAD_LIMIT} of {spreads.length} spreads</p>
+            <a href="/dashboard/settings?tab=account" className="inline-block px-4 py-2 rounded-lg text-xs font-semibold text-white bg-[#2D5A3D] hover:opacity-90 transition-opacity">
+              Upgrade to see the full yearbook
+            </a>
+          </div>
+        )}
       </div>
 
       {/* ── Print-only stacked layout ─────────────────────────

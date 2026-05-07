@@ -407,6 +407,7 @@ export default function TodayPage() {
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [showExtraLessons, setShowExtraLessons] = useState(false);
+  const [showPhotoLimitModal, setShowPhotoLimitModal] = useState(false);
   type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; lesson_number?: number | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
   const [upcomingLessons, setUpcomingLessons] = useState<UpcomingLesson[]>([]);
   const [extraChecked, setExtraChecked] = useState<Set<string>>(new Set());
@@ -2614,6 +2615,12 @@ export default function TodayPage() {
 
   async function saveDrawing() {
     if (!drawingTitle.trim()) return;
+    const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+    if (accessLevel === 'free' && totalPhotos >= 50) {
+      setShowPhotoLimitModal(true);
+      setSavingDrawing(false);
+      return;
+    }
     setSavingDrawing(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingDrawing(false); return; }
@@ -3498,6 +3505,12 @@ export default function TodayPage() {
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (!file) return;
+              const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+              if (accessLevel === 'free' && totalPhotos >= 50) {
+                setShowPhotoLimitModal(true);
+                if (e.target) e.target.value = "";
+                return;
+              }
               setShowCaptureMenu(false);
               setShowMemoryPicker(false);
               try {
@@ -4934,6 +4947,22 @@ export default function TodayPage() {
             </div>
           </div>
         </>
+      )}
+
+      {showPhotoLimitModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowPhotoLimitModal(false)}>
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="text-3xl mb-3">📷</div>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-2">You&apos;ve reached 50 photos</h2>
+            <p className="text-sm text-[#7a6f65] mb-5">Upgrade to Rooted+ to keep saving photos and drawings. Your other memories — wins, books, field trips — are always unlimited.</p>
+            <a href="/dashboard/settings?tab=account" className="block w-full py-3 rounded-xl text-white font-semibold text-sm bg-[#2D5A3D] hover:opacity-90 transition-opacity">
+              Upgrade to Rooted+
+            </a>
+            <button onClick={() => setShowPhotoLimitModal(false)} className="mt-3 text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors">
+              Maybe later
+            </button>
+          </div>
+        </div>
       )}
 
       </div>
