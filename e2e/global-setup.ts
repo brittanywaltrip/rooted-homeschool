@@ -9,8 +9,8 @@ import path from 'node:path';
 //   NEXT_PUBLIC_SUPABASE_URL
 //   NEXT_PUBLIC_SUPABASE_ANON_KEY
 //   SUPABASE_SERVICE_ROLE_KEY
-//   TEST_USER_EMAIL
-//   TEST_USER_PASSWORD
+//   PLAYWRIGHT_EMAIL
+//   PLAYWRIGHT_PASSWORD
 function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`[global-setup] missing required env var: ${name}`);
@@ -29,8 +29,8 @@ export default async function globalSetup(config: FullConfig) {
   const SUPABASE_URL = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
   const SUPABASE_ANON_KEY = requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY');
   const SERVICE_ROLE_KEY = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
-  const TEST_EMAIL = requireEnv('TEST_USER_EMAIL');
-  const TEST_PASSWORD = requireEnv('TEST_USER_PASSWORD');
+  const TEST_EMAIL = requireEnv('PLAYWRIGHT_EMAIL');
+  const TEST_PASSWORD = requireEnv('PLAYWRIGHT_PASSWORD');
 
   // ── Sign in via @supabase/ssr with a captured-cookie adapter.
   // Supabase calls setAll with the auth cookies it wants the browser
