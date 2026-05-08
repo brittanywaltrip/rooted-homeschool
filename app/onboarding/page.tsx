@@ -8,6 +8,7 @@ import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
 import { capitalizeName } from "@/lib/utils";
 import { normalizeAffiliateCode } from "@/lib/referrals";
+import { posthog } from "@/lib/posthog";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -405,6 +406,12 @@ export default function OnboardingPage() {
       localStorage.removeItem("rooted_referral_code");
       localStorage.removeItem("rooted_ref");
     } catch {}
+
+    // Track signup conversion
+    posthog.capture('user_signed_up', {
+      referred_by: referredBy ?? null,
+      has_referral: !!referredBy,
+    });
   }, []);
 
   // ── Complete onboarding when celebration step renders ────────────────
