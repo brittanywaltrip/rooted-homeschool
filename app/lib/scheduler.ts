@@ -1,10 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays, isoDowFromYmd } from "./timezone.ts";
 
-// Day index conventions: Mon=0..Sun=6 for school_days bool arrays. All
-// conversions from JS getDay() go through day-of-week.ts helpers.
+// Day index conventions: Mon=0..Sun=6 for school_days / school_days bool arrays
+// (matches the wizard and plan page). getDay() → Sun=0..Sat=6, so translate with
+// (d.getDay() + 6) % 7.
 
-const DAY_LABELS = SCHOOL_DAY_LABELS;
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 const DAY_LABEL_TO_IDX: Record<string, number> = {
   Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6,
 };
@@ -35,7 +36,7 @@ export function schoolDaysToBool(days: string[] | null | undefined): boolean[] {
 }
 
 export function isSchoolDayIdx(date: Date, schoolDaysBool: boolean[]): boolean {
-  const idx = nativeToSchoolDayIdx(date.getDay());
+  const idx = (date.getDay() + 6) % 7;
   return !!schoolDaysBool[idx];
 }
 
@@ -84,14 +85,13 @@ export async function recomputeCurrentLesson(
 ): Promise<number | null> {
   const { data: goal } = await supabase
     .from("curriculum_goals")
-    .select("total_lessons, start_at_lesson, completed_at")
+    .select("total_lessons, start_at_lesson")
     .eq("id", goalId)
     .maybeSingle();
   if (!goal) return null;
 
   const total = (goal as { total_lessons: number | null }).total_lessons ?? 0;
   const startAt = (goal as { start_at_lesson: number | null }).start_at_lesson ?? 1;
-  const completedAt = (goal as { completed_at: string | null }).completed_at;
 
   const { data: completedRows } = await supabase
     .from("lessons")
@@ -107,17 +107,9 @@ export async function recomputeCurrentLesson(
   let value = Math.max(floor, maxCompleted);
   if (total > 0) value = Math.min(value, total);
 
-  // First-time completion: stamp completed_at when value reaches total.
-  // Never cleared if the user later edits backwards — completed_at is a
-  // historical record of the first completion.
-  const updates: { current_lesson: number; completed_at?: string } = { current_lesson: value };
-  if (total > 0 && value >= total && !completedAt) {
-    updates.completed_at = new Date().toISOString();
-  }
-
   await supabase
     .from("curriculum_goals")
-    .update(updates)
+    .update({ current_lesson: value })
     .eq("id", goalId);
 
   return value;
@@ -230,7 +222,7 @@ export function collectSchoolDaySlots(
   let safety = 0;
   while (result.length < count && safety < 3650) {
     const dateStr = toDateStr(cursor);
-    const idx = nativeToSchoolDayIdx(cursor.getDay());
+    const idx = (cursor.getDay() + 6) % 7;
     const inVac = vacationBlocks.some((b) => dateStr >= b.start_date && dateStr <= b.end_date);
     if (schoolDaysBool[idx] && !inVac) {
       for (let s = 0; s < perDay && result.length < count; s++) {

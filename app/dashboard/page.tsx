@@ -24,8 +24,6 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import ListsSection from "@/app/components/ListsSection";
-import DailyListCard, { type DailyListItem } from "@/app/components/Today/DailyListCard";
-import DailyPrintSheet from "@/app/components/PlanV2/DailyPrintSheet";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import TodaySchedule from "@/app/components/today/TodaySchedule";
@@ -38,9 +36,6 @@ import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
-import TodayLessonCard from "@/app/components/TodayLessonCard";
-import DayDetailPanelV2 from "@/app/components/PlanV2/DayDetailPanel";
-import { useFeatureFlag } from "@/app/lib/feature-flags";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -182,6 +177,22 @@ function toTitleCase(name: string) {
   return name.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase());
 }
 
+function getSubjectStyle(subjectName: string | undefined): { bg: string; text: string } {
+  if (!subjectName) return { bg: "#f0ede8", text: "#5c5248" };
+  const n = subjectName.toLowerCase();
+  if (n.includes("math") || n.includes("algebra") || n.includes("geometry") || n.includes("calculus"))
+    return { bg: "#e4f0f4", text: "#1a4a5a" };
+  if (n.includes("read") || n.includes("language") || n.includes("english") || n.includes("writing") || n.includes("grammar") || n.includes("lit") || n.includes("spelling") || n.includes("phonics"))
+    return { bg: "#f0e8f4", text: "#4a2a5a" };
+  if (n.includes("science") || n.includes("biology") || n.includes("chemistry") || n.includes("physics") || n.includes("nature"))
+    return { bg: "#e8f0e9", text: "var(--g-deep)" };
+  if (n.includes("history") || n.includes("social") || n.includes("geography") || n.includes("civics") || n.includes("government"))
+    return { bg: "#fef0e4", text: "#7a4a1a" };
+  if (n.includes("art") || n.includes("music") || n.includes("drama") || n.includes("theater") || n.includes("craft") || n.includes("draw"))
+    return { bg: "#fce8ec", text: "#7a2a36" };
+  return { bg: "#f0ede8", text: "#5c5248" };
+}
+
 /** Parse "HH:MM:SS" or "HH:MM" time string into total minutes from midnight */
 function parseTimeToMinutes(t: string | null): number | null {
   if (!t) return null;
@@ -254,31 +265,10 @@ export default function TodayPage() {
   const { isPartner, effectiveUserId } = usePartner();
   const { setHideFab } = useDashboardLayout();
   const { earnLeaf } = useLeafAnimationContext();
-  const newPlanViewEnabled = useFeatureFlag("new_plan_view");
 
   // Family activity notifications
   const [familyNotifs, setFamilyNotifs] = useState<FamilyNotification[]>([]);
   const [familyNotifsDismissed, setFamilyNotifsDismissed] = useState(false);
-
-  // Daily List card state — items are mirrored up so the print sheet can
-  // include them. activeDailyPrint flips on while a print job is in flight.
-  const [dailyListItems, setDailyListItems] = useState<DailyListItem[]>([]);
-  const [activeDailyPrint, setActiveDailyPrint] = useState(false);
-
-  const handlePrintDailyList = useCallback(() => {
-    if (typeof window === "undefined") return;
-    setActiveDailyPrint(true);
-    document.body.classList.add("print-mode-daily");
-    const cleanup = () => {
-      document.body.classList.remove("print-mode-daily");
-      setActiveDailyPrint(false);
-      window.removeEventListener("afterprint", cleanup);
-    };
-    window.addEventListener("afterprint", cleanup);
-    // Defer to next frame so React paints activeDailyPrint=true (which
-    // mounts the off-screen sheet) before the browser snapshots for print.
-    window.requestAnimationFrame(() => window.print());
-  }, []);
 
   const [familyName,      setFamilyName]      = useState("");
   const [firstName,       setFirstName]       = useState("");
@@ -3363,17 +3353,6 @@ export default function TodayPage() {
       {/* Appointments section removed — merged into unified timeline above */}
 
       {/* ═══════════════════════════════════════════════════════════
-          TODAY'S LIST — single auto-created daily checklist
-         ═══════════════════════════════════════════════════════════ */}
-      {!loading ? (
-        <DailyListCard
-          getToken={getToken}
-          onItemsChange={setDailyListItems}
-          onPrint={handlePrintDailyList}
-        />
-      ) : null}
-
-      {/* ═══════════════════════════════════════════════════════════
           MY LISTS — collapsible inline lists
          ═══════════════════════════════════════════════════════════ */}
       {!loading && lists.length > 0 && (
@@ -4994,31 +4973,6 @@ export default function TodayPage() {
       )}
 
       </div>
-
-      {/* Off-screen Daily print sheet — mounted only while a daily print is
-          in flight. Reuses the print isolation CSS in globals.css; the
-          body class set by handlePrintDailyList flips its visibility. */}
-      {activeDailyPrint ? (
-        <div className="plan-print-host">
-          <DailyPrintSheet
-            date={new Date()}
-            childLabel={
-              children.length === 1
-                ? `${children[0].name}'s Plan`
-                : "All Kids"
-            }
-            lessons={[]}
-            appointments={[]}
-            kids={children.map((c) => ({
-              id: c.id,
-              name: c.name,
-              color: c.color,
-              sort_order: null,
-            }))}
-            dailyListItems={dailyListItems}
-          />
-        </div>
-      ) : null}
     </>
   );
 }

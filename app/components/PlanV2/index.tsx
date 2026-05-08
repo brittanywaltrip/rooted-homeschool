@@ -30,7 +30,13 @@ import BackfillPanel, { type BackfillEntry } from "./BackfillPanel";
 import ActivitiesPanel, { type ActivityRow } from "./ActivitiesPanel";
 import ProgressReportDialog from "./ProgressReportDialog";
 import { downloadProgressReport, type ReportRangePreset } from "@/lib/progress-report";
-import CurriculumWizard, { type CurriculumWizardEditData } from "@/app/components/CurriculumWizard";
+// Legacy CurriculumWizard was replaced by /dashboard/plan/schedule (Schedule
+// Builder). The component file is now an 18-line redirect with no edit
+// callback shape, so we keep a local type alias for the wizardEditData
+// state below — and the wizardOpen branch routes the user through the
+// new Schedule Builder rather than mounting the deleted modal inline.
+import CurriculumWizard from "@/app/components/CurriculumWizard";
+type CurriculumWizardEditData = Record<string, unknown>;
 import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
 import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import { useSchoolYears } from "@/lib/useSchoolYears";
@@ -3428,16 +3434,14 @@ export default function PlanV2() {
           onDelete={vacationModalExisting ? handleVacationDelete : undefined}
         />
 
-        {/* Curriculum wizard — create + edit. Shared with the legacy page. */}
-        {wizardOpen ? (
-          <CurriculumWizard
-            mode={wizardEditData ? "edit" : "create"}
-            editData={wizardEditData ?? undefined}
-            onClose={() => { setWizardOpen(false); setWizardEditData(null); }}
-            onSaved={handleWizardSaved}
-            showToast={flashNotice}
-          />
-        ) : null}
+        {/* Curriculum wizard mount — the inline create/edit modal was
+            replaced by the route-based Schedule Builder. The current
+            CurriculumWizard component is a redirect to /dashboard/plan/schedule;
+            mounting it triggers the redirect and lands the user there. The
+            edit-data round-trip is lost (Schedule Builder loads its own state
+            from the DB) — acceptable for the feature-flag-off default and
+            until PlanV2's wizard wiring is reworked against Schedule Builder. */}
+        {wizardOpen ? <CurriculumWizard /> : null}
 
         {/* Activity setup modal — create + edit. */}
         {activityModalOpen ? (
