@@ -163,17 +163,17 @@ export default function FamilyViewPage() {
       setViewerNameFromServer(data.viewerName);
 
       // Decide on the name prompt now that we know the invite's viewer_name.
-      // localStorage wins; otherwise pre-seed from viewer_name if mom set it;
-      // only fall back to the popup when neither is available.
       const existingName = getLocalName();
-      if (!existingName) {
-        if (data.viewerName && data.viewerName.trim()) {
-          const seeded = data.viewerName.trim();
-          localStorage.setItem("rooted_family_name", seeded);
-          setGuestName(seeded);
-        } else {
-          setShowNamePrompt(true);
-        }
+      if (data.viewerName && data.viewerName.trim()) {
+        // Always seed from the invite's viewer_name — the token is person-specific,
+        // so the server-side name wins over any stale localStorage value from a
+        // previous visit (e.g. a different family member's link opened on same device).
+        const seeded = data.viewerName.trim();
+        localStorage.setItem("rooted_family_name", seeded);
+        setGuestName(seeded);
+      } else if (!existingName) {
+        // No viewer_name set on the invite and nothing in localStorage → ask who they are.
+        setShowNamePrompt(true);
       }
 
       setLoading(false);
