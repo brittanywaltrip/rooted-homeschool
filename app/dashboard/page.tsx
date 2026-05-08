@@ -3916,6 +3916,13 @@ export default function TodayPage() {
                   }
                 }
 
+                // Remove lesson numbers the user is actually logging — they're not skipped
+                for (const l of upcomingLessons) {
+                  if (extraChecked.has(l.id) && l.lesson_number != null) {
+                    skippedNums.delete(l.lesson_number);
+                  }
+                }
+
                 if (skippedNums.size === 0) return null;
 
                 const sorted = Array.from(skippedNums).sort((a, b) => a - b);
