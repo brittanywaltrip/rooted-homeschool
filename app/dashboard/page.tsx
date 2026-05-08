@@ -411,10 +411,6 @@ export default function TodayPage() {
   type UpcomingLesson = { id: string; title: string; child_id: string; scheduled_date: string; curriculum_goal_id: string | null; lesson_number?: number | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
   const [upcomingLessons, setUpcomingLessons] = useState<UpcomingLesson[]>([]);
   const [extraChecked, setExtraChecked] = useState<Set<string>>(new Set());
-  // Per-goal current_lesson snapshot, captured when the modal opens so
-  // the out-of-order warning can compute "what would be skipped" against
-  // the same source of truth the queue uses. Refreshed each open.
-  const [goalCurrentLessonMap, setGoalCurrentLessonMap] = useState<Map<string, number>>(new Map());
   const [savingExtra, setSavingExtra] = useState(false);
   const [ftTitle, setFtTitle] = useState("");
   const [ftNote, setFtNote] = useState("");
@@ -1805,12 +1801,6 @@ export default function TodayPage() {
         .not("curriculum_goal_id", "is", null),
     ]);
     const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null; child_id: string | null; subject_label: string | null; start_date: string | null }[];
-    // Snapshot current_lesson per goal for the out-of-order warning.
-    // Captured at modal-open time so the warning is consistent with the
-    // queue projection the user is looking at.
-    const currentLessonMap = new Map<string, number>();
-    for (const g of goals) currentLessonMap.set(g.id, g.current_lesson ?? 0);
-    setGoalCurrentLessonMap(currentLessonMap);
     const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
       .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
     // Today's per-goal completion count anchors today's projected slots
@@ -3900,28 +3890,42 @@ export default function TodayPage() {
               })()}
             </div>
             <div className="px-5 py-4 border-t border-[#f0ede8]">
-              {/* Out-of-order selection warning. Informational only, no
-                  blocking. Aggregates skipped lesson_numbers across all
-                  checked lessons (per goal) into a single line. The save
-                  path is unchanged. */}
+              {/* Out-of-order selection warning. Derives the next-expected
+                  lesson per goal directly from upcomingLessons (the lowest
+                  lesson_number for each goal_id IS what mom would log next),
+                  so we don't depend on a separate current_lesson state map
+                  that may not be populated on first render. Informational
+                  only; the save path is unchanged. */}
               {(() => {
-                const skipped = new Set<number>();
+                const skippedNums = new Set<number>();
+
                 for (const lesson of upcomingLessons) {
                   if (!extraChecked.has(lesson.id)) continue;
                   if (!lesson.curriculum_goal_id || lesson.lesson_number == null) continue;
-                  const cur = goalCurrentLessonMap.get(lesson.curriculum_goal_id) ?? 0;
-                  const expectedNext = cur + 1;
-                  if (lesson.lesson_number > expectedNext) {
-                    for (let n = expectedNext; n < lesson.lesson_number; n++) skipped.add(n);
+
+                  // Find the lowest lesson_number for this goal = next expected lesson
+                  const lowestForGoal = upcomingLessons
+                    .filter(l => l.curriculum_goal_id === lesson.curriculum_goal_id && l.lesson_number != null)
+                    .reduce((min, l) => (l.lesson_number! < min ? l.lesson_number! : min), lesson.lesson_number!);
+
+                  // If selected lesson is not the next expected, everything between is skipped
+                  if (lesson.lesson_number > lowestForGoal) {
+                    for (let n = lowestForGoal; n < lesson.lesson_number; n++) {
+                      skippedNums.add(n);
+                    }
                   }
                 }
-                if (skipped.size === 0) return null;
-                const sorted = Array.from(skipped).sort((a, b) => a - b);
+
+                if (skippedNums.size === 0) return null;
+
+                const sorted = Array.from(skippedNums).sort((a, b) => a - b);
                 const lo = sorted[0];
                 const hi = sorted[sorted.length - 1];
-                const message = sorted.length === 1
-                  ? `Heads up, this skips lesson ${lo}. It won't appear as completed in your plan.`
-                  : `Heads up, this skips lesson ${lo}. Lessons ${lo} through ${hi} won't appear as completed in your plan.`;
+                const message =
+                  sorted.length === 1
+                    ? `Heads up, this skips lesson ${lo}. It won't appear as completed in your plan.`
+                    : `Heads up, this skips lessons ${lo} through ${hi}. They won't appear as completed in your plan.`;
+
                 return (
                   <p className="text-[12px] text-[#a06b00] bg-[#fef9e8] border border-[#f0dda8] rounded-lg px-3 py-2 mb-3 leading-snug">
                     {message}
