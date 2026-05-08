@@ -238,17 +238,30 @@ export function collectSchoolDaySlots(
 /**
  * Returns the Nth school day strictly after afterDate (1-indexed: N=1 → next
  * school day). schoolDays uses the Mon=0..Sun=6 label convention.
+ *
+ * `vacations` is optional — when provided, dates inside any vacation range
+ * are skipped (treated as non-school days). Default `[]` keeps the legacy
+ * behavior for callers that don't pass it. Both endpoints inclusive.
  */
-export function nthSchoolDay(afterDate: string, schoolDays: string[], n: number): string {
+export function nthSchoolDay(
+  afterDate: string,
+  schoolDays: string[],
+  n: number,
+  vacations: VacationRange[] = [],
+): string {
   const activeDays = new Set(schoolDays.map((d) => DAY_LABEL_TO_IDX[d] ?? -1));
   const cursor = new Date(afterDate + "T12:00:00");
   let found = 0;
   for (let i = 0; i < 365; i++) {
     cursor.setDate(cursor.getDate() + 1);
-    if (activeDays.has((cursor.getDay() + 6) % 7)) {
-      found++;
-      if (found === n) return toDateStr(cursor);
+    const idx = (cursor.getDay() + 6) % 7;
+    if (!activeDays.has(idx)) continue;
+    if (vacations.length > 0) {
+      const dateStr = toDateStr(cursor);
+      if (vacations.some((v) => dateStr >= v.start && dateStr <= v.end)) continue;
     }
+    found++;
+    if (found === n) return toDateStr(cursor);
   }
   return toDateStr(cursor);
 }
@@ -303,6 +316,7 @@ export function planAddToNextSchoolDays(
   todayStr: string,
   existingByGoalDate: Map<string, number>,
   getLessonsPerDay: (lesson: ReschedulableLesson) => number,
+  vacations: VacationRange[] = [],
 ): {
   updates: { id: string; newDate: string }[];
   undoData: { lessonId: string; date: string }[];
@@ -317,7 +331,7 @@ export function planAddToNextSchoolDays(
     const schoolDays = getSchoolDaysForLesson(lesson);
     const cap = Math.max(1, getLessonsPerDay(lesson));
     const keyPrefix = lesson.curriculum_goal_id ?? `__no_goal__${lesson.id}`;
-    let cursor = nthSchoolDay(todayStr, schoolDays, 1);
+    let cursor = nthSchoolDay(todayStr, schoolDays, 1, vacations);
     let safety = 0;
     while (safety < 365) {
       const key = `${keyPrefix}|${cursor}`;
@@ -326,7 +340,7 @@ export function planAddToNextSchoolDays(
         density.set(key, (density.get(key) ?? 0) + 1);
         break;
       }
-      cursor = nthSchoolDay(cursor, schoolDays, 1);
+      cursor = nthSchoolDay(cursor, schoolDays, 1, vacations);
       safety++;
     }
   }
@@ -346,6 +360,7 @@ export function planPushBackNDays(
   futureLessons: ReschedulableLesson[],
   getSchoolDaysForLesson: (lesson: ReschedulableLesson) => string[],
   todayStr: string,
+  vacations: VacationRange[] = [],
 ): {
   updates: { id: string; newDate: string }[];
   undoData: { lessonId: string; date: string }[];
@@ -359,13 +374,13 @@ export function planPushBackNDays(
   for (const lesson of futureLessons) {
     const schoolDays = getSchoolDaysForLesson(lesson);
     const orig = lesson.scheduled_date ?? lesson.date ?? todayStr;
-    const newDate = nthSchoolDay(orig, schoolDays, n);
+    const newDate = nthSchoolDay(orig, schoolDays, n, vacations);
     futureUpdates.push({ id: lesson.id, newDate });
   }
   const missedUpdates: { id: string; newDate: string }[] = [];
   for (let i = 0; i < n; i++) {
     const schoolDays = getSchoolDaysForLesson(missed[i]);
-    const slot = nthSchoolDay(todayStr, schoolDays, i + 1);
+    const slot = nthSchoolDay(todayStr, schoolDays, i + 1, vacations);
     missedUpdates.push({ id: missed[i].id, newDate: slot });
   }
   return { updates: [...futureUpdates, ...missedUpdates], undoData };
@@ -1196,6 +1211,45 @@ export function monotonicCompletedAt(
 ): string | null {
   if (prev) return prev;
   return candidate ?? null;
+}
+
+/**
+ * Build the lessons-table UPDATE payload for marking a single lesson
+ * complete on a specific past day (backfill via the Plan page day-detail
+ * "Mark complete" button).
+ *
+ * Pins the row's date columns to the user-selected day, flags is_backfill
+ * so the projector never re-spreads the row (Invariant 3), and tags
+ * scheduled_source = 'catchup_resched' per Invariant 10.
+ *
+ * Use ONLY for past-day completions. The regular "complete today" path
+ * (Today page tap, Plan page "mark not done" undo) writes
+ * `completed_at = new Date().toISOString()` directly without any of the
+ * date-pinning or backfill flags — that path is correct as-is.
+ *
+ * `completedAt` is an ISO 8601 string. The first 10 chars (YYYY-MM-DD)
+ * become the row's `date` and `scheduled_date`. Callers should pass
+ * `${selectedDay}T12:00:00Z` to match the catch-up modal convention.
+ */
+export interface PastDateCompletionPayload {
+  completed: true;
+  completed_at: string;
+  date: string;
+  scheduled_date: string;
+  is_backfill: true;
+  scheduled_source: 'catchup_resched';
+}
+
+export function buildPastDateCompletionPayload(completedAt: string): PastDateCompletionPayload {
+  const day = completedAt.slice(0, 10);
+  return {
+    completed: true,
+    completed_at: completedAt,
+    date: day,
+    scheduled_date: day,
+    is_backfill: true,
+    scheduled_source: 'catchup_resched',
+  };
 }
 
 /**

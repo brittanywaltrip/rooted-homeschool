@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar, RotateCcw, Check } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
@@ -17,7 +17,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, healGoalIntegrity, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, healGoalIntegrity, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, buildPastDateCompletionPayload, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { addDays as addDaysYmd } from "@/app/lib/timezone";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
@@ -561,6 +561,10 @@ export default function PlanPage() {
   const [editingAppt, setEditingAppt] = useState<EditableAppointment | null>(null);
   const [showApptCreate, setShowApptCreate] = useState(false);
   const [showAddLessonPicker, setShowAddLessonPicker] = useState(false);
+  // Confirmation modal that fires when "+ Add lesson" is clicked on a day
+  // that's inside a vacation block. The picker only opens after the user
+  // taps "Add anyway".
+  const [showVacationAddConfirm, setShowVacationAddConfirm] = useState(false);
   // When true, the Add Lesson dialog swaps from the curriculum picker view
   // to the one-off custom-lesson form. Frame, title, and date stay the same.
   const [customLessonView, setCustomLessonView] = useState(false);
@@ -820,15 +824,28 @@ export default function PlanPage() {
 
   // ── Toggle ────────────────────────────────────────────────────────────────
 
-  async function toggleLesson(id: string, current: boolean) {
+  // `completedAt` (ISO string) is set only when the caller is the past-day
+  // "Mark complete" button in the day-detail panel. In that path the row's
+  // date columns are pinned to the selected day, is_backfill is set so the
+  // projector never re-spreads the row, and scheduled_source is tagged
+  // per Invariant 10. The regular flip path (uncheck via "Mark not done")
+  // leaves `completedAt` undefined and writes today's timestamp + null on
+  // uncheck, matching pre-existing behavior.
+  async function toggleLesson(id: string, current: boolean, completedAt?: string) {
     setLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     setMonthLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
-    // Keep completed ↔ completed_at invariant (Bug 2).
-    await supabase.from("lessons").update({
-      completed: !current,
-      completed_at: !current ? new Date().toISOString() : null,
-    }).eq("id", id);
-    // Recompute goal progress from rows (Bug 3).
+    // Build the update payload. Past-day backfill goes through the helper
+    // in scheduler.ts so Invariant 10 (scheduled_source) and Invariant 3
+    // (is_backfill) stay enforced in one place.
+    const updatePayload = !current && completedAt
+      ? buildPastDateCompletionPayload(completedAt)
+      : {
+          completed: !current,
+          completed_at: !current ? new Date().toISOString() : null,
+        };
+    await supabase.from("lessons").update(updatePayload).eq("id", id);
+    // Recompute goal progress from rows (Bug 3) — this is what drives Today
+    // to show the correct next lesson after a past-date completion.
     const lesson = lessons.find(l => l.id === id) ?? monthLessons.find(l => l.id === id);
     if (lesson?.curriculum_goal_id) {
       await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
@@ -1249,6 +1266,18 @@ export default function PlanPage() {
   // inline ("Reading · Reading Lesson 1"). subject_id stays null because
   // looking up / creating subject rows on the fly is the legacy curriculum
   // flow's responsibility — one-off lessons don't need a goal/subject FK.
+  // Entry point for the "+ Add lesson" button (both empty-day and
+  // populated-day variants). Routes through a vacation confirmation
+  // when selectedDay is inside a vacation block; otherwise opens the
+  // picker directly. The "Add anyway" path defers to the same opener.
+  function tryOpenAddLessonPicker() {
+    if (isDateInBlocks(selectedDay, vacationBlocks)) {
+      setShowVacationAddConfirm(true);
+      return;
+    }
+    setShowAddLessonPicker(true);
+  }
+
   function resetCustomLessonForm() {
     setCustomLessonView(false);
     setCustomSubject("");
@@ -1440,12 +1469,18 @@ export default function PlanPage() {
       return goal?.lessons_per_day ?? 1;
     };
 
+    // Vacation-aware date picking: skip days inside any vacation block.
+    // Without this, "next school day" would land on a date inside California
+    // Trip etc. The planner forwards `vacationRanges` to nthSchoolDay.
+    const vacationRanges = vacationBlocks.map((b) => ({ start: b.start_date, end: b.end_date }));
+
     const { updates, undoData } = libPlanAddToNextSchoolDays(
       target,
       getSchoolDaysForLesson,
       todayStr,
       density,
       getLessonsPerDay,
+      vacationRanges,
     );
 
     for (let i = 0; i < updates.length; i += 20) {
@@ -1479,11 +1514,14 @@ export default function PlanPage() {
     const targetIds = new Set(target.map(l => l.id));
     const filteredFutureLessons = futureLessons.filter(l => !targetIds.has(l.id));
 
+    const vacationRanges = vacationBlocks.map((b) => ({ start: b.start_date, end: b.end_date }));
+
     const { updates, undoData } = libPlanPushBackNDays(
       target,
       filteredFutureLessons,
       getSchoolDaysForLesson,
       todayStr,
+      vacationRanges,
     );
 
     for (let i = 0; i < updates.length; i += 20) {
@@ -2405,7 +2443,7 @@ export default function PlanPage() {
                   <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
                     <button
                       type="button"
-                      onClick={() => setShowAddLessonPicker(true)}
+                      onClick={tryOpenAddLessonPicker}
                       className="min-h-[36px] text-[12px] font-medium text-[#2D5A3D] rounded-full px-3.5 py-1.5 hover:bg-[#f0f7f1] transition-colors"
                       style={{ background: "white", border: "1px solid #2D5A3D" }}
                     >
@@ -2536,6 +2574,15 @@ export default function PlanPage() {
                             </button>
                           ) : (
                             <>
+                              {selectedDay < todayStr && (
+                                <button
+                                  onClick={() => toggleLesson(l.id, false, `${selectedDay}T12:00:00Z`)}
+                                  aria-label={`Mark complete on ${selectedDay}`}
+                                  className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                                >
+                                  <Check size={14} /> Mark complete
+                                </button>
+                              )}
                               <button
                                 onClick={() => skipPlanLesson(l)}
                                 aria-label="Skip this lesson"
@@ -2653,7 +2700,7 @@ export default function PlanPage() {
             {!isPartner && (
               <button
                 type="button"
-                onClick={() => setShowAddLessonPicker(true)}
+                onClick={tryOpenAddLessonPicker}
                 className="text-[13px] text-[#7a6f65] hover:text-[#5a4f45] font-medium mt-2 pl-1"
               >
                 + Add lesson
@@ -3419,22 +3466,37 @@ export default function PlanPage() {
         const n = missedLessons.length || 1;
         const isSingle = n === 1;
 
+        // Vacation-aware "next school day" lookup. Without this the modal
+        // would propose a date inside the user's vacation block (e.g. May 8
+        // showing up while California Trip covers May 3 – May 17). Using
+        // the SAME vacationRanges shape that the action handlers pass to
+        // libPlanAddToNextSchoolDays / libPlanPushBackNDays — subtitle
+        // and action stay in lockstep.
+        const vacationRanges = vacationBlocks.map((b) => ({ start: b.start_date, end: b.end_date }));
+
         // Option 1 subtitle
-        const opt1NextDay = nthSchoolDay(todayStr, schoolDays, 1);
+        const opt1NextDay = nthSchoolDay(todayStr, schoolDays, 1, vacationRanges);
         const opt1Label = new Date(opt1NextDay + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
         const opt1ExistingCount = allLessons.filter(l => (l.scheduled_date ?? l.date) === opt1NextDay && l.id !== planRescheduleLesson.id).length;
         let opt1Subtitle: string;
         if (isSingle) {
           opt1Subtitle = `Adds to ${opt1Label} · you'll have ${opt1ExistingCount + 1} lesson${opt1ExistingCount + 1 !== 1 ? "s" : ""}`;
         } else {
-          const firstLabel = new Date(nthSchoolDay(todayStr, schoolDays, 1) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-          const lastLabel = new Date(nthSchoolDay(todayStr, schoolDays, n) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          const firstLabel = new Date(nthSchoolDay(todayStr, schoolDays, 1, vacationRanges) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          const lastLabel = new Date(nthSchoolDay(todayStr, schoolDays, n, vacationRanges) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
           opt1Subtitle = `Adds ${n} lessons across ${firstLabel} – ${lastLabel}`;
         }
 
-        // Option 2 subtitle
+        // Option 2 subtitle. Multi-lesson is always a missed-lesson case
+        // (missedLessons.length > 0). Single-lesson case can be either:
+        //   - past-due → user is recovering a missed lesson → "missed lesson"
+        //   - future → user is moving an already-scheduled lesson → "to make room"
+        const lessonScheduledDate = planRescheduleLesson.scheduled_date ?? planRescheduleLesson.date;
+        const isPastDue = lessonScheduledDate ? lessonScheduledDate < todayStr : false;
         const opt2Subtitle = isSingle
-          ? "Shifts all upcoming lessons back 1 school day and fits your missed lesson in"
+          ? (isPastDue
+              ? "Shifts all upcoming lessons back 1 school day and fits your missed lesson in"
+              : "Shifts all upcoming lessons back 1 school day to make room")
           : `Shifts all upcoming lessons back ${n} school days and fits your ${n} missed lessons in`;
 
         // Conflict confirmation state
@@ -3594,6 +3656,43 @@ export default function PlanPage() {
         editingAppointment={editingAppt}
         initialDate={!editingAppt && showApptCreate ? selectedDay : undefined}
       />
+
+      {/* ── Vacation-day "+ Add lesson" confirmation ───────── */}
+      {showVacationAddConfirm && (() => {
+        const dayDate = new Date(selectedDay + "T00:00:00");
+        const dayLabel = dayDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+        const vacName = getVacationName(selectedDay, vacationBlocks) ?? "a break";
+        return (
+          <>
+            <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[80]" onClick={() => setShowVacationAddConfirm(false)} />
+            <div className="fixed inset-0 z-[81] flex items-center justify-center p-4">
+              <div className="bg-[#fefcf9] rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+                <div className="text-3xl text-center mb-3">🌴</div>
+                <h2 className="text-base font-bold text-[#2d2926] text-center mb-2" style={{ fontFamily: "var(--font-display)" }}>
+                  This day is a vacation
+                </h2>
+                <p className="text-sm text-[#7a6f65] text-center mb-5 leading-relaxed">
+                  {dayLabel} is marked as {vacName}. Add a lesson anyway?
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowVacationAddConfirm(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => { setShowVacationAddConfirm(false); setShowAddLessonPicker(true); }}
+                    className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
+                  >
+                    Add anyway
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* ── Add lesson picker (empty-day action) ───────────── */}
       {showAddLessonPicker && (() => {

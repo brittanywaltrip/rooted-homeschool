@@ -3890,6 +3890,55 @@ export default function TodayPage() {
               })()}
             </div>
             <div className="px-5 py-4 border-t border-[#f0ede8]">
+              {/* Out-of-order selection warning. Derives the next-expected
+                  lesson per goal directly from upcomingLessons (the lowest
+                  lesson_number for each goal_id IS what mom would log next),
+                  so we don't depend on a separate current_lesson state map
+                  that may not be populated on first render. Informational
+                  only; the save path is unchanged. */}
+              {(() => {
+                const skippedNums = new Set<number>();
+
+                for (const lesson of upcomingLessons) {
+                  if (!extraChecked.has(lesson.id)) continue;
+                  if (!lesson.curriculum_goal_id || lesson.lesson_number == null) continue;
+
+                  // Find the lowest lesson_number for this goal = next expected lesson
+                  const lowestForGoal = upcomingLessons
+                    .filter(l => l.curriculum_goal_id === lesson.curriculum_goal_id && l.lesson_number != null)
+                    .reduce((min, l) => (l.lesson_number! < min ? l.lesson_number! : min), lesson.lesson_number!);
+
+                  // If selected lesson is not the next expected, everything between is skipped
+                  if (lesson.lesson_number > lowestForGoal) {
+                    for (let n = lowestForGoal; n < lesson.lesson_number; n++) {
+                      skippedNums.add(n);
+                    }
+                  }
+                }
+
+                // Remove lesson numbers the user is actually logging — they're not skipped
+                for (const l of upcomingLessons) {
+                  if (extraChecked.has(l.id) && l.lesson_number != null) {
+                    skippedNums.delete(l.lesson_number);
+                  }
+                }
+
+                if (skippedNums.size === 0) return null;
+
+                const sorted = Array.from(skippedNums).sort((a, b) => a - b);
+                const lo = sorted[0];
+                const hi = sorted[sorted.length - 1];
+                const message =
+                  sorted.length === 1
+                    ? `Heads up, this skips lesson ${lo}. It won't appear as completed in your plan.`
+                    : `Heads up, this skips lessons ${lo} through ${hi}. They won't appear as completed in your plan.`;
+
+                return (
+                  <p className="text-[12px] text-[#a06b00] bg-[#fef9e8] border border-[#f0dda8] rounded-lg px-3 py-2 mb-3 leading-snug">
+                    {message}
+                  </p>
+                );
+              })()}
               <button
                 onClick={confirmExtraLessons}
                 disabled={extraChecked.size === 0 || savingExtra}
