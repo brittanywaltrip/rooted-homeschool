@@ -5,7 +5,8 @@ import { ChevronLeft, ChevronRight, Plus, MousePointerSquareDashed, X } from "lu
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   pointerWithin,
   useSensor,
   useSensors,
@@ -212,9 +213,14 @@ export default function PlanV2() {
   // fires when the undo window expires. Snapshot lets Undo restore them.
   const pendingBulkDeleteRef = useRef<{ rows: PlanV2Lesson[]; timer: number } | null>(null);
 
-  // Sensors — activate after 8px of movement so taps still register as clicks.
+  // Sensors split by input type so desktop and touch can have different
+  // activation constraints. Mouse: 8px distance keeps taps as clicks while
+  // letting drag start naturally. Touch: 250ms hold (tolerance 5px) so a
+  // normal scroll gesture never activates a drag — users must intentionally
+  // long-press a pill to pick it up.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
   );
 
   // ── School-days + catch-up / push-back / vacation modal state ───────────
