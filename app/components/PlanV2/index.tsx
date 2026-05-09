@@ -1323,8 +1323,9 @@ export default function PlanV2() {
 
   // ── Move a single lesson to a new date ────────────────────────────────────
   // Shared by drag-drop AND the mobile/desktop reschedule dialog. Handles
-  // vacation rejection, weekend warn-but-allow, optimistic state, rollback on
-  // DB failure, and the universal undo bar entry.
+  // vacation warn-but-allow, weekend warn-but-allow, optimistic state,
+  // rollback on DB failure, and the universal undo bar entry. The
+  // auto-scheduler still skips vacation days; this only governs manual moves.
   const performMove = useCallback(
     async (lessonId: string, fromDateStr: string, toDateStr: string, actor: "user" | "drag" = "user") => {
       if (fromDateStr === toDateStr) return;
@@ -1333,8 +1334,7 @@ export default function PlanV2() {
         (b) => toDateStr >= b.start_date && toDateStr <= b.end_date,
       );
       if (inVacation) {
-        flashNotice("That day is blocked off as a vacation — pick another day.");
-        return;
+        flashNotice("Heads up, this day is marked as vacation.");
       }
 
       const source = lessons.find((l) => l.id === lessonId);
@@ -1438,7 +1438,6 @@ export default function PlanV2() {
       const oData = over.data.current as { type?: string; dateStr?: string; isVacation?: boolean } | undefined;
       if (aData?.type !== "lesson" || oData?.type !== "day") return;
       if (!aData.lessonId || !aData.sourceDateStr || !oData.dateStr) return;
-      if (oData.isVacation) return;
       void performMove(aData.lessonId, aData.sourceDateStr, oData.dateStr, "drag");
     },
     [performMove],
