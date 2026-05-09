@@ -15,12 +15,28 @@ export type EditableAppointment = {
   recurrence_rule: { frequency: string; days: number[] } | null;
 };
 
+/** Optional metadata passed to the parent after a save/delete completes.
+ * Additive — callers that used `onSaved: () => void` still work because
+ * this parameter is optional. Added so audit-log wiring in PlanV2 can
+ * differentiate create vs update vs delete without the parent having to
+ * inspect state it no longer owns. */
+export type AppointmentSavedInfo = {
+  kind: "create" | "update" | "delete";
+  id?: string;
+  title?: string;
+  date?: string;
+};
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (info?: AppointmentSavedInfo) => void;
   editingAppointment?: EditableAppointment | null;
   initialDate?: string;
+  /** When editing a specific instance of a recurring series, the caller
+   * passes its instance_date here so the wizard can prompt for scope
+   * (this / future / series) on save. */
+  editingInstanceDate?: string;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -77,7 +93,7 @@ function todayStr(): string {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function AppointmentWizard({ isOpen, onClose, onSaved, editingAppointment, initialDate }: Props) {
+export default function AppointmentWizard({ isOpen, onClose, onSaved, editingAppointment, initialDate, editingInstanceDate }: Props) {
   const isEdit = !!editingAppointment;
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [children, setChildren] = useState<Child[]>([]);
@@ -105,6 +121,12 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // When editing a recurring instance, clicking Save shows a scope chooser
+  // before any DB write. `scopePending` = true while the chooser is open.
+  const [scopePending, setScopePending] = useState(false);
+  // Toggle for the 3-option delete prompt (recurring only).
+  const [deleteScopePending, setDeleteScopePending] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -164,12 +186,25 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
   function toggleDay(idx: number) { setDays((prev) => prev.includes(idx) ? prev.filter((d) => d !== idx) : [...prev, idx]); }
   const effectiveDuration = customDuration ? (parseInt(customDuration) || 60) : duration;
 
-  async function handleSave() {
+  // Whether the user is editing a SPECIFIC instance of a recurring series.
+  // Only when true do we prompt for scope before the DB write.
+  const isEditingRecurringInstance = isEdit && !!editingAppointment?.is_recurring && !!editingInstanceDate;
+
+  function handleSave() {
+    if (isEditingRecurringInstance) {
+      setScopePending(true);
+      return;
+    }
+    void commitSave(undefined);
+  }
+
+  async function commitSave(scope: "this" | "future" | "series" | undefined) {
+    setScopePending(false);
     setSaving(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) { setSaving(false); return; }
-      const payload = {
+      const payload: Record<string, unknown> = {
         ...(isEdit ? { id: editingAppointment!.id } : {}),
         title, emoji, date,
         time: allDay ? null : (time || null),
@@ -180,6 +215,10 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
         is_recurring: isRecurring,
         recurrence_rule: isRecurring ? { frequency, days } : null,
       };
+      if (scope && editingInstanceDate) {
+        payload.scope = scope;
+        payload.instance_date = editingInstanceDate;
+      }
       const res = await fetch("/api/appointments", {
         method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
@@ -187,11 +226,61 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
       });
       if (res.ok) {
         setSaved(true);
-        onSaved();
+        let createdId: string | undefined;
+        if (!isEdit) {
+          try {
+            const body = (await res.clone().json()) as { id?: string } | null;
+            createdId = body?.id;
+          } catch { /* non-JSON response — audit log will log without id */ }
+        }
+        onSaved({
+          kind: isEdit ? "update" : "create",
+          id: isEdit ? editingAppointment!.id : createdId,
+          title,
+          date,
+        });
         setTimeout(() => { setSaved(false); onClose(); }, 900);
       }
     } catch { /* ignore */ }
     setSaving(false);
+  }
+
+  function handleDelete() {
+    if (!isEdit) return;
+    if (isEditingRecurringInstance) {
+      setDeleteScopePending(true);
+      return;
+    }
+    void commitDelete(undefined);
+  }
+
+  async function commitDelete(scope: "this" | "future" | "series" | undefined) {
+    setDeleteScopePending(false);
+    setDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setDeleting(false); return; }
+      const body: Record<string, unknown> = { id: editingAppointment!.id };
+      if (scope && editingInstanceDate) {
+        body.scope = scope;
+        body.instance_date = editingInstanceDate;
+      }
+      const res = await fetch("/api/appointments", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        onSaved({
+          kind: "delete",
+          id: editingAppointment!.id,
+          title: editingAppointment!.title,
+          date: editingAppointment!.date,
+        });
+        onClose();
+      }
+    } catch { /* ignore */ }
+    setDeleting(false);
   }
 
   const dateLabel = date ? new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "";
@@ -426,10 +515,16 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    <button onClick={handleSave} disabled={saving}
+                    <button onClick={handleSave} disabled={saving || deleting}
                       className="w-full py-3 rounded-xl text-white text-sm font-medium transition-colors disabled:opacity-50" style={{ background: ACCENT }}>
                       {saving ? "Saving..." : isEdit ? "Save changes" : "Save appointment"}
                     </button>
+                    {isEdit && (
+                      <button onClick={handleDelete} disabled={saving || deleting}
+                        className="w-full py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 bg-white text-[#b91c1c] border border-[#fecaca] hover:bg-[#fef2f2]">
+                        {deleting ? "Deleting..." : "Delete"}
+                      </button>
+                    )}
                     <button onClick={() => setStep(2)} className="text-sm text-[#8B7E74] hover:text-[#2d2926] transition-colors text-center">&larr; Back</button>
                   </div>
                 </>
@@ -438,6 +533,100 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
           )}
         </div>
       </div>
+
+      {/* Scope chooser — recurring-instance edit/delete only. Appears above the
+          wizard sheet; does NOT close it. Cancel dismisses the chooser; picking
+          a scope calls commitSave/commitDelete which closes the wizard on
+          success. */}
+      {(scopePending || deleteScopePending) && (
+        <ScopeChooser
+          mode={scopePending ? "edit" : "delete"}
+          onPick={(scope) => {
+            if (scopePending) void commitSave(scope);
+            else void commitDelete(scope);
+          }}
+          onCancel={() => { setScopePending(false); setDeleteScopePending(false); }}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── Scope chooser ───────────────────────────────────────────────────────────
+
+function ScopeChooser({
+  mode, onPick, onCancel,
+}: {
+  mode: "edit" | "delete";
+  onPick: (scope: "this" | "future" | "series") => void;
+  onCancel: () => void;
+}) {
+  const verb = mode === "edit" ? "Apply changes to" : "Delete";
+  const labels = mode === "edit"
+    ? { this: "This occurrence only", future: "This and all future", series: "Entire series" }
+    : { this: "This occurrence only", future: "This and all future", series: "Entire series" };
+  const destructive = mode === "delete";
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]" onClick={onCancel} aria-hidden />
+      <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-3 pointer-events-none">
+        <div
+          className="bg-white rounded-2xl shadow-xl w-full max-w-sm pointer-events-auto overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-5 pt-4 pb-2">
+            <h2 className="text-base font-bold text-[#2d2926]">
+              {mode === "edit" ? "Edit recurring appointment" : "Delete recurring appointment"}
+            </h2>
+            <p className="text-xs text-[#7a6f65] mt-0.5">{verb}:</p>
+          </div>
+          <div className="px-3 pb-3 pt-1 space-y-1.5">
+            <button
+              type="button"
+              onClick={() => onPick("this")}
+              className={`w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                destructive
+                  ? "bg-white text-[#b91c1c] border border-[#fecaca] hover:bg-[#fef2f2]"
+                  : "bg-[#f8f7f4] text-[#2d2926] hover:bg-[#f0ede8]"
+              }`}
+            >
+              {labels.this}
+            </button>
+            <button
+              type="button"
+              onClick={() => onPick("future")}
+              className={`w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                destructive
+                  ? "bg-white text-[#b91c1c] border border-[#fecaca] hover:bg-[#fef2f2]"
+                  : "bg-[#f8f7f4] text-[#2d2926] hover:bg-[#f0ede8]"
+              }`}
+            >
+              {labels.future}
+            </button>
+            <button
+              type="button"
+              onClick={() => onPick("series")}
+              className={`w-full text-left px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+                destructive
+                  ? "bg-[#b91c1c] text-white hover:bg-[#991b1b]"
+                  : "text-white hover:opacity-90"
+              }`}
+              style={destructive ? undefined : { background: "#7C3AED" }}
+            >
+              {labels.series}
+            </button>
+          </div>
+          <div className="px-3 pb-4">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="w-full text-sm text-[#8B7E74] hover:text-[#2d2926] py-2 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }

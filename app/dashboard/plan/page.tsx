@@ -22,6 +22,8 @@ import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { addDays as addDaysYmd } from "@/app/lib/timezone";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
+import { useFeatureFlag } from "@/app/lib/feature-flags";
+import PlanV2 from "@/app/components/PlanV2";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -395,6 +397,13 @@ function calcPaceStatus(
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PlanPage() {
+  // PlanV2 gate. Default OFF — when the flag is on, the legacy v1 layout
+  // below is bypassed entirely and PlanV2 renders. Read once at the top of
+  // the component before any other state reads so v2 path early-returns
+  // without doing v1 setup work.
+  const newPlanViewEnabled = useFeatureFlag("new_plan_view");
+  if (newPlanViewEnabled) return <PlanV2 />;
+
   const { isPartner, effectiveUserId } = usePartner();
   const router = useRouter();
   const searchParams = useSearchParams();
