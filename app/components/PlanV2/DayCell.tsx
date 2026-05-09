@@ -123,13 +123,14 @@ export default function DayCell(props: Props) {
   const visibleLessons = lessons.slice(0, remainingLessonCap);
   const overflowCount = totalItems - visibleAppts.length - visibleLessons.length;
 
-  // Droppable registration. Disabled when the cell is in a vacation block,
-  // when select mode is on (drag is suppressed to avoid gesture conflict),
-  // or when move-target mode is on (cell-click is the interaction).
+  // Droppable registration. Disabled in select mode (drag is suppressed to
+  // avoid gesture conflict) and in move-target mode (cell-click is the
+  // interaction). Vacation cells stay enabled so manual drops can land with
+  // a soft warn-but-allow; the auto-scheduler still skips vacation days.
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `day:${dateStr}`,
     data: { type: "day", dateStr, isVacation: !!vacation, isWeekend },
-    disabled: !dndEnabled || !!vacation || !!selectMode || !!moveTargetMode,
+    disabled: !dndEnabled || !!selectMode || !!moveTargetMode,
   });
 
   const cellBg =
@@ -138,8 +139,9 @@ export default function DayCell(props: Props) {
     : "#ffffff";
   const borderColor = isToday ? "#5c7f63" : "#ece8e0";
 
-  // Visual states during a drag.
-  const dragValidHint = !!isDragActive && !vacation && dndEnabled && !selectMode && !moveTargetMode;
+  // Visual states during a drag. Vacation cells get the same hover hint
+  // because they accept drops too (with a soft warn).
+  const dragValidHint = !!isDragActive && dndEnabled && !selectMode && !moveTargetMode;
   const dragHovered = dragValidHint && isOver;
 
   // Visual states during move-target mode. Valid targets glow green-dashed;
