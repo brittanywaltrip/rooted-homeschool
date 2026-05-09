@@ -167,22 +167,29 @@ export default function WeekStrip(props: Props) {
       className="w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2D5A3D] focus-visible:ring-offset-2 rounded-lg"
     >
       {/* Day-of-week + date headers — date number is also rendered larger
-          inside each DayCell, so we keep this header slim. */}
+          inside each DayCell, so we keep this header slim. Each label is
+          a button that opens the day-detail sheet for that date (reuses
+          the same handler the cell body uses). */}
       <div className="grid grid-cols-7 gap-1 pb-1.5">
         {cells.map((d, i) => {
-          const isToday = toDateStr(d) === todayStr;
+          const dateStr = toDateStr(d);
+          const isToday = dateStr === todayStr;
+          const dateLabel = d.toLocaleDateString("en-US", {
+            weekday: "long", month: "long", day: "numeric",
+          });
           return (
-            <div
+            <button
               key={i}
-              className="text-center"
+              type="button"
+              onClick={() => onCellClick?.(dateStr)}
+              aria-label={`Open day details for ${dateLabel}`}
+              className="text-center rounded hover:bg-[#faf8f4] transition-colors py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2D5A3D]"
               style={{ color: isToday ? "#2D5A3D" : "#6B7363" }}
             >
-              <p
-                style={{ fontSize: 18, lineHeight: 1, margin: 0 }}
-              >
+              <p style={{ fontSize: 18, lineHeight: 1, margin: 0 }}>
                 {HEADERS[i]}
               </p>
-            </div>
+            </button>
           );
         })}
       </div>
