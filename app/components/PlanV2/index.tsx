@@ -2583,43 +2583,6 @@ export default function PlanV2() {
         className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto"
         style={{ background: "#F8F7F4" }}
       >
-        {/* Paper-planner flourish — Caveat headline + hand-drawn squiggle
-            underline + corner leaves. Sits below the formal PageHero title;
-            communicates the warmer aesthetic without duplicating the H1. */}
-        <div className="relative pt-2 pb-3">
-          <p
-            style={{ fontSize: 36, lineHeight: 1, color: "#2E3A2A" }}
-          >
-            {headerSeasonalEmoji} your plan
-          </p>
-          <svg
-            aria-hidden
-            viewBox="0 0 240 8"
-            preserveAspectRatio="none"
-            style={{ width: 240, height: 8, marginTop: 4, color: "var(--leaf-sage, #7C9070)" }}
-          >
-            <path
-              d="M 2 5 C 30 1, 60 7, 95 4 S 165 1, 200 5 S 232 6, 238 4"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              fill="none"
-              strokeLinecap="round"
-            />
-          </svg>
-          <div
-            aria-hidden
-            style={{
-              position: "absolute",
-              top: -6,
-              right: -6,
-              opacity: 0.4,
-              pointerEvents: "none",
-            }}
-          >
-            <CornerLeaves position="top-right" color="var(--leaf-sage, #7C9070)" />
-          </div>
-        </div>
-
         {/* PlanV2 preview badge — removed when the flag rolls out broadly. */}
         <div
           className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5 rounded-full w-fit"

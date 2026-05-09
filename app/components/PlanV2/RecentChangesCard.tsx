@@ -125,7 +125,7 @@ export default function RecentChangesCard(props: RecentChangesCardProps) {
         <InlineLeaf size={18} color="var(--leaf-sage, #7C9070)" />
         <div className="flex-1 min-w-0">
           <p
-            className="font-handwritten leading-tight"
+            className="font-semibold leading-tight"
             style={{ fontSize: 22, color: "var(--ink-primary, #2d2926)" }}
           >
             Recent changes
@@ -166,7 +166,7 @@ export default function RecentChangesCard(props: RecentChangesCardProps) {
                     </div>
                   ) : null}
                   <p
-                    className="font-handwritten mb-1.5"
+                    className="font-medium mb-1.5"
                     style={{ fontSize: 18, lineHeight: 1, color: "var(--ink-soft, #6B7363)" }}
                   >
                     {g.label}
