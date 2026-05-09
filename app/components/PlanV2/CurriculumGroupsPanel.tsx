@@ -32,6 +32,10 @@ export type CurriculumGoal = {
   current_lesson: number;
   target_date: string | null;
   school_days: string[] | null;
+  /** YYYY-MM-DD. When set and > today, the goal renders in the "Upcoming"
+   *  pending section below the active goals — no schedule is projected
+   *  yet, the pace pill is replaced by a "Starts {date}" badge. */
+  start_date?: string | null;
 };
 
 export type PaceStatus = {
@@ -160,6 +164,22 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
     });
   }
 
+  // Split into active vs pending. Goals with start_date > today's local
+  // YYYY-MM-DD render below in a muted "Upcoming" section. start_date
+  // values are stored as YYYY-MM-DD strings, so a lexical compare is
+  // sufficient — no Date math needed.
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+  const activeGoals: CurriculumGoal[] = [];
+  const pendingGoals: CurriculumGoal[] = [];
+  for (const g of goals) {
+    const sd = g.start_date && g.start_date.trim().length > 0 ? g.start_date : null;
+    if (sd && sd > todayStr) pendingGoals.push(g);
+    else activeGoals.push(g);
+  }
+
   return (
     <section className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
       <header className="flex items-center gap-2 px-4 py-3 border-b border-[#f0ede8]">
@@ -187,7 +207,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
         </div>
       ) : (
         <ul className="divide-y divide-[#f0ede8]">
-          {goals.map((goal) => {
+          {activeGoals.map((goal) => {
             const goalLessons = (lessonsByGoal.get(goal.id) ?? []).sort((a, b) => {
               const da = a.scheduled_date ?? a.date ?? "";
               const db = b.scheduled_date ?? b.date ?? "";
@@ -296,6 +316,84 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
               </li>
             );
           })}
+
+          {pendingGoals.length > 0 ? (
+            <>
+              <li className="px-4 py-2 bg-[#faf8f4]">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[#9a8e84]">
+                  Upcoming
+                </p>
+              </li>
+              {pendingGoals.map((goal) => {
+                const childMeta = goal.child_id ? kidsById.get(goal.child_id) : undefined;
+                const color = resolveChildColor(childMeta?.child ?? null, childMeta?.index ?? 0);
+                const startsLabel = goal.start_date
+                  ? new Date(`${goal.start_date}T00:00:00`).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })
+                  : "";
+                return (
+                  <li key={goal.id}>
+                    <div className="px-4 py-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {/* Width-matched spacer for the missing expand toggle so
+                            the title column lines up with active rows. */}
+                        <div aria-hidden className="shrink-0 w-6 h-6" />
+                        <span
+                          aria-hidden
+                          className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white opacity-50 pointer-events-none"
+                          style={{ backgroundColor: color }}
+                        >
+                          {childMeta?.child?.name.charAt(0).toUpperCase() ?? "·"}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[13px] font-semibold leading-tight truncate" style={{ color: "#9a8e84" }}>
+                            {goal.subject_label ? <span>{goal.subject_label} · </span> : null}
+                            {goal.curriculum_name}
+                          </p>
+                          <p className="text-[11px] mt-0.5" style={{ color: "#9a8e84" }}>
+                            {childMeta?.child?.name ?? "Unassigned"}
+                          </p>
+                        </div>
+                        <span
+                          className="shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 whitespace-nowrap"
+                          style={{ color: "#9a8e84", background: "#f0ede8" }}
+                        >
+                          Starts {startsLabel}
+                        </span>
+                      </div>
+
+                      {/* Empty progress bar — pending goals have no completion
+                          to render. opacity-50 + pointer-events-none mute it. */}
+                      <div className="mt-2 h-1.5 bg-[#f0ede8] rounded-full overflow-hidden opacity-50 pointer-events-none" />
+
+                      {/* Edit + Delete only — Log past hours doesn't apply to a
+                          goal that hasn't started. Reduced-opacity row keeps
+                          the actions reachable per spec. */}
+                      <div className="mt-2 flex items-center gap-2 flex-wrap opacity-60">
+                        <button
+                          type="button"
+                          onClick={() => onEdit(goal)}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-[#5c7f63] hover:text-[var(--g-deep)] px-2 py-1 rounded-lg hover:bg-[#e8f0e9] transition-colors"
+                        >
+                          <Pencil size={11} /> Edit goal
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDelete(goal, 0)}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-[#b91c1c] hover:text-[#991b1b] px-2 py-1 rounded-lg hover:bg-[#fef2f2] transition-colors"
+                        >
+                          <Trash2 size={11} /> Delete goal
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </>
+          ) : null}
         </ul>
       )}
     </section>
