@@ -74,6 +74,7 @@ import {
 } from "@/lib/audit-log";
 import { resolveChildColor } from "./colors";
 import { PillShell } from "./LessonPill";
+import { AppointmentPillShell } from "./AppointmentPill";
 import { useIsMobile } from "./useIsMobile";
 import { hapticTap } from "./haptic";
 import type { PlanV2Appointment, PlanV2Lesson } from "./types";
@@ -1423,6 +1424,91 @@ export default function PlanV2() {
     [lessons, vacationBlocks, setLessons, reload, flagLanded, recordEvent],
   );
 
+  // ── Appointment move (drag-drop on non-recurring instances) ────────────────
+  // Recurring instances are non-draggable at the pill level; this handler
+  // also guards in case anything ever sneaks through.
+  const performApptMove = useCallback(
+    async (apptId: string, fromDateStr: string, toDateStr: string) => {
+      if (fromDateStr === toDateStr) return;
+
+      const source = appointments.find((a) => a.id === apptId);
+      if (!source) return;
+      if (source.is_recurring) {
+        flashNotice("Recurring appointments must be moved from the editor.");
+        return;
+      }
+
+      const inVacation = vacationBlocks.some(
+        (b) => toDateStr >= b.start_date && toDateStr <= b.end_date,
+      );
+      if (inVacation) {
+        flashNotice("Heads up, this day is marked as vacation.");
+      }
+
+      const label = source.title && source.title.trim().length > 0 ? source.title : "Appointment";
+      const toLabel = new Date(`${toDateStr}T12:00:00`).toLocaleDateString("en-US", {
+        weekday: "short", month: "short", day: "numeric",
+      });
+
+      // Optimistic update: appointments are filtered into day cells by
+      // instance_date, so both the canonical `date` and the expanded
+      // `instance_date` need to move for the pill to land in the new cell.
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a.id === apptId ? { ...a, date: toDateStr, instance_date: toDateStr } : a,
+        ),
+      );
+      hapticTap(20);
+
+      try {
+        const { error } = await supabase
+          .from("appointments")
+          .update({ date: toDateStr })
+          .eq("id", apptId);
+        if (error) throw error;
+      } catch {
+        setAppointments((prev) =>
+          prev.map((a) =>
+            a.id === apptId ? { ...a, date: fromDateStr, instance_date: fromDateStr } : a,
+          ),
+        );
+        flashNotice("Couldn't save — check your connection and try again.");
+        return;
+      }
+
+      setUndoAction({
+        message: `Moved "${label}" to ${toLabel}`,
+        key: `appt:${apptId}:${toDateStr}:${Date.now()}`,
+        onUndo: async () => {
+          setAppointments((prev) =>
+            prev.map((a) =>
+              a.id === apptId ? { ...a, date: fromDateStr, instance_date: fromDateStr } : a,
+            ),
+          );
+          hapticTap(20);
+          try {
+            await supabase
+              .from("appointments")
+              .update({ date: fromDateStr })
+              .eq("id", apptId);
+          } catch {
+            flashNotice("Couldn't undo — check your connection.");
+          }
+          reload();
+        },
+      });
+
+      recordEvent("appointment.updated", {
+        appointment_id: apptId,
+        title: label,
+        changes: { date: { from: fromDateStr, to: toDateStr } },
+      });
+
+      reload();
+    },
+    [appointments, vacationBlocks, setAppointments, reload, recordEvent],
+  );
+
   // ── DnD handlers ───────────────────────────────────────────────────────────
   const handleDragStart = useCallback((e: DragStartEvent) => {
     setActiveDragId(String(e.active.id));
@@ -1434,13 +1520,23 @@ export default function PlanV2() {
       setActiveDragId(null);
       const { active, over } = e;
       if (!over) return;
-      const aData = active.data.current as { type?: string; lessonId?: string; sourceDateStr?: string } | undefined;
+      const aData = active.data.current as
+        | { type?: string; lessonId?: string; apptId?: string; sourceDateStr?: string }
+        | undefined;
       const oData = over.data.current as { type?: string; dateStr?: string; isVacation?: boolean } | undefined;
-      if (aData?.type !== "lesson" || oData?.type !== "day") return;
-      if (!aData.lessonId || !aData.sourceDateStr || !oData.dateStr) return;
-      void performMove(aData.lessonId, aData.sourceDateStr, oData.dateStr, "drag");
+      if (oData?.type !== "day" || !oData.dateStr) return;
+      if (!aData?.sourceDateStr) return;
+
+      if (aData.type === "lesson" && aData.lessonId) {
+        void performMove(aData.lessonId, aData.sourceDateStr, oData.dateStr, "drag");
+        return;
+      }
+      if (aData.type === "appointment" && aData.apptId) {
+        void performApptMove(aData.apptId, aData.sourceDateStr, oData.dateStr);
+        return;
+      }
     },
-    [performMove],
+    [performMove, performApptMove],
   );
 
   const handleDragCancel = useCallback(() => {
@@ -1449,10 +1545,21 @@ export default function PlanV2() {
 
   // Look up the currently-dragged lesson for the overlay.
   const activeLesson = useMemo<PlanV2Lesson | null>(() => {
-    if (!activeDragId) return null;
-    const id = activeDragId.startsWith("lesson:") ? activeDragId.slice("lesson:".length) : activeDragId;
+    if (!activeDragId || !activeDragId.startsWith("lesson:")) return null;
+    const id = activeDragId.slice("lesson:".length);
     return lessons.find((l) => l.id === id) ?? null;
   }, [activeDragId, lessons]);
+
+  // Drag id for an appointment is `appt:${id}:${sourceDateStr}` — split on
+  // the first colon only since dates contain no colons but ids might.
+  const activeAppt = useMemo<PlanV2Appointment | null>(() => {
+    if (!activeDragId || !activeDragId.startsWith("appt:")) return null;
+    const rest = activeDragId.slice("appt:".length);
+    const lastColon = rest.lastIndexOf(":");
+    const id = lastColon >= 0 ? rest.slice(0, lastColon) : rest;
+    const dateStr = lastColon >= 0 ? rest.slice(lastColon + 1) : null;
+    return appointments.find((a) => a.id === id && (!dateStr || a.instance_date === dateStr)) ?? null;
+  }, [activeDragId, appointments]);
 
   // ── Select-mode helpers ───────────────────────────────────────────────────
 
@@ -3048,7 +3155,9 @@ export default function PlanV2() {
                           ariaLabel=""
                         />
                       );
-                    })() : null}
+                    })() : activeAppt ? (
+                      <AppointmentPillShell appt={activeAppt} ariaLabel="" overlay />
+                    ) : null}
                   </DragOverlay>
                 </DndContext>
               )}

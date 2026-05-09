@@ -326,6 +326,8 @@ export default function DayCell(props: Props) {
             <AppointmentPill
               key={`a-${a.id}-${a.instance_date}`}
               appt={a}
+              sourceDateStr={a.instance_date}
+              draggable={dndEnabled !== false && !selectMode}
               onClick={() => onAppointmentClick?.(a)}
             />
           ))}
