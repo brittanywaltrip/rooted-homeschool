@@ -396,14 +396,12 @@ function calcPaceStatus(
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function PlanPage() {
+function PlanV1() {
   // PlanV2 gate. Default OFF — when the flag is on, the legacy v1 layout
-  // below is bypassed entirely and PlanV2 renders. Read once at the top of
-  // the component before any other state reads so v2 path early-returns
-  // without doing v1 setup work.
-  const newPlanViewEnabled = useFeatureFlag("new_plan_view");
-  if (newPlanViewEnabled) return <PlanV2 />;
-
+  // below is bypassed entirely and PlanV2 renders. The gate now lives in
+  // the PlanPage wrapper at the bottom of this file; this component is
+  // pure v1 so its hook order stays stable regardless of flag value
+  // (Rules of Hooks).
   const { isPartner, effectiveUserId } = usePartner();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -3936,4 +3934,9 @@ export default function PlanPage() {
     </div>
     </>
   );
+}
+
+export default function PlanPage() {
+  const newPlanViewEnabled = useFeatureFlag("new_plan_view");
+  return newPlanViewEnabled ? <PlanV2 /> : <PlanV1 />;
 }
