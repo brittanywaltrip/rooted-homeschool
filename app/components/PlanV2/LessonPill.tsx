@@ -138,7 +138,7 @@ function DraggableLessonPill(p: DraggableProps) {
     data: { type: "lesson", lessonId: p.lesson.id, sourceDateStr: p.sourceDateStr },
   });
 
-  const longPress = useLongPress(() => p.onLongPress?.(), { holdMs: 150 });
+  const longPress = useLongPress(() => p.onLongPress?.(), { holdMs: 300 });
 
   // Merge @dnd-kit pointer listeners with long-press tracking. dnd-kit's
   // listener MUST run first — otherwise PointerSensor never sees the
@@ -211,7 +211,7 @@ function DraggableLessonPill(p: DraggableProps) {
 // ── Plain wrapper with just long-press + click ─────────────────────────────
 
 function NonDraggablePill(p: Omit<ShellProps, "overlay" | "dragging"> & { onLongPress?: () => void }) {
-  const longPress = useLongPress(() => p.onLongPress?.(), { holdMs: 150 });
+  const longPress = useLongPress(() => p.onLongPress?.(), { holdMs: 300 });
   return (
     <div
       onPointerDown={(e) => {

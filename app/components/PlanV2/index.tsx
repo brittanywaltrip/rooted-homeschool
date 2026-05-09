@@ -214,13 +214,13 @@ export default function PlanV2() {
   const pendingBulkDeleteRef = useRef<{ rows: PlanV2Lesson[]; timer: number } | null>(null);
 
   // Sensors split by input type so desktop and touch can have different
-  // activation constraints. Mouse: 8px distance keeps taps as clicks while
-  // letting drag start naturally. Touch: 250ms hold (tolerance 5px) so a
-  // normal scroll gesture never activates a drag — users must intentionally
-  // long-press a pill to pick it up.
+  // activation constraints. Mouse: 15px distance keeps taps as clicks while
+  // letting drag start naturally and avoids accidental drags during slow
+  // pointer drift. Touch: 100ms hold (tolerance 5px) — short enough to feel
+  // immediate while still letting scroll gestures slide past the pill.
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 15 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } }),
   );
 
   // ── School-days + catch-up / push-back / vacation modal state ───────────
