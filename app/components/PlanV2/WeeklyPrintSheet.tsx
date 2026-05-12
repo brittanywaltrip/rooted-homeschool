@@ -1,70 +1,107 @@
 "use client";
 
-import type { PlanV2Appointment, PlanV2Child, PlanV2Lesson } from "./types";
-import { CheckCircle, CornerLeaves, InlineLeaf, SectionDivider } from "./print-decorations";
+import type { PlanV2Appointment, PlanV2Child, PlanV2Lesson, PlanV2Vacation } from "./types";
 import { resolveChildColor } from "./colors";
 
-/* ============================================================================
- * WeeklyPrintSheet — 7-day teacher-book layout, landscape letter.
- *
- * Sunday on the left, Saturday on the right (matches MonthGrid + WeekStrip).
- * Each column shows date header, lessons grouped by child color, then
- * appointments. Light "Week of …" summary bar at the top.
- * ==========================================================================*/
+/* WeeklyPrintSheet. Landscape letter, day-block layout. Each school day in
+ * the week renders as a stacked block with a date pill and per-kid lesson
+ * lists. Weekends and break days are skipped per the spec. */
 
-const PAPER_BG = "#FAF7F0";
-const INK = "#2d2926";
-const MUTED = "#7a6f65";
-const BRAND = "#3d5c42";
+const INK = "#1a2c22";
+const MUTED = "#555";
+const HAIRLINE = "#ede9e1";
+const RULE = "#d5d0c8";
+const SUMMARY_BG = "#f8f6f1";
+const SUMMARY_BORDER = "#e8e3d9";
+const NOTE_BG = "#f4faf4";
+const NOTE_BORDER = "#5c7f63";
+const DAY_PILL_BG = "#f0ece3";
+
+const DB_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; // Mon=0..Sun=6
+const DAY_NAMES_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+type Goal = { id: string; total_lessons: number | null };
 
 export interface WeeklyPrintSheetProps {
-  weekStart: Date; // Sunday
-  childLabel: string;
-  lessons: PlanV2Lesson[];        // Already filtered to the week + child filter
+  weekStart: Date; // Monday on or before today (or any week the user navigated to)
+  childLabel: string;          // kept for backwards-compat; not rendered
+  familyName: string;
+  lessons: PlanV2Lesson[];     // already filtered to the week + child filter
   appointments: PlanV2Appointment[];
   kids: PlanV2Child[];
+  curriculumGoals: Goal[];
+  schoolDays: string[];        // profile.school_days, e.g. ["Mon","Tue","Wed","Thu","Fri"]
+  vacationBlocks: PlanV2Vacation[];
 }
 
-function toDateStr(d: Date): string {
+function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function formatTime(t: string | null): string {
-  if (!t) return "all day";
-  const [h, m] = t.split(":").map(Number);
-  const h12 = ((h + 11) % 12) + 1;
-  const suf = h >= 12 ? "p" : "a";
-  return m === 0 ? `${h12}${suf}` : `${h12}:${String(m).padStart(2, "0")}${suf}`;
+function lessonSubject(l: PlanV2Lesson): string {
+  return l.subjects?.name ?? "Lesson";
 }
 
-function lessonTitle(l: PlanV2Lesson): string {
+function lessonTitleText(l: PlanV2Lesson): string {
   if (l.title && l.title.trim().length > 0) return l.title;
   if (l.lesson_number) return `Lesson ${l.lesson_number}`;
   return "Lesson";
 }
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+function todayPrintedLabel(): string {
+  return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function mondayOf(d: Date): Date {
+  const x = new Date(d); x.setHours(0, 0, 0, 0);
+  const offset = (x.getDay() + 6) % 7;
+  x.setDate(x.getDate() - offset);
+  return x;
+}
 
 export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
-  const { weekStart, childLabel, lessons, appointments, kids } = props;
-  const childById = new Map(kids.map((k, i) => [k.id, { child: k, index: i }]));
+  const { weekStart, familyName, lessons, appointments, kids, curriculumGoals, schoolDays, vacationBlocks } = props;
+  const childIndex = new Map(kids.map((k, i) => [k.id, { child: k, index: i }]));
+  const goalById = new Map(curriculumGoals.map((g) => [g.id, g]));
 
-  // Build the 7 day cells.
-  const days: { date: Date; dateStr: string }[] = [];
+  const start = mondayOf(weekStart);
+  const end = new Date(start); end.setDate(end.getDate() + 6);
+
+  const todayStr = ymd(new Date());
+  const isInWeek = todayStr >= ymd(start) && todayStr <= ymd(end);
+
+  const headerRange = `Week of ${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${end.getFullYear()}`;
+
+  // Build the visible day list: 7 days minus weekends (per profile.school_days)
+  // and minus break days. School-day check is by 3-letter label (Mon..Sun).
+  const schoolDaySet = new Set(schoolDays);
+  const isBreakDay = (key: string) =>
+    vacationBlocks.some((b) => key >= b.start_date && key <= b.end_date);
+
+  const days: { date: Date; key: string; label: string; isToday: boolean }[] = [];
   for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);
-    days.push({ date: d, dateStr: toDateStr(d) });
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    const key = ymd(d);
+    const labelKey = DB_DAY_LABELS[i]; // Mon=0..Sun=6
+    if (!schoolDaySet.has(labelKey)) continue;
+    if (isBreakDay(key)) continue;
+    days.push({
+      date: d,
+      key,
+      label: `${DAY_NAMES_FULL[i]}, ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+      isToday: key === todayStr,
+    });
   }
 
-  // Bucket lessons + appointments by date string.
   const lessonsByDay = new Map<string, PlanV2Lesson[]>();
   for (const l of lessons) {
-    const d = l.scheduled_date ?? l.date;
-    if (!d) continue;
-    const arr = lessonsByDay.get(d) ?? [];
+    const k = l.scheduled_date ?? l.date;
+    if (!k) continue;
+    const arr = lessonsByDay.get(k) ?? [];
     arr.push(l);
-    lessonsByDay.set(d, arr);
+    lessonsByDay.set(k, arr);
   }
+
   const apptsByDay = new Map<string, PlanV2Appointment[]>();
   for (const a of appointments) {
     const arr = apptsByDay.get(a.instance_date) ?? [];
@@ -72,8 +109,9 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
     apptsByDay.set(a.instance_date, arr);
   }
 
-  const weekEnd = days[6].date;
-  const weekLabel = `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  const totalLessons = lessons.length;
+  const totalKids = kids.length;
+  const totalAppts = appointments.length;
 
   return (
     <div
@@ -82,189 +120,308 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
         position: "relative",
         width: "11in",
         minHeight: "8.5in",
-        background: PAPER_BG,
+        background: "#ffffff",
         color: INK,
-        padding: "0.45in 0.5in",
+        padding: "0.45in 0.55in 1in",
         boxSizing: "border-box",
-        fontFamily: "'Cormorant Garamond', Georgia, serif",
-        overflow: "hidden",
+        fontFamily: "Arial, Helvetica, sans-serif",
       }}
     >
-      <CornerLeaves position="top-right" />
-      <CornerLeaves position="bottom-left" />
+      <PrintHeader familyName={familyName} dateLabel={headerRange} />
+      <PrintSummaryBar lessons={totalLessons} kids={totalKids} appts={totalAppts} />
 
-      {/* Heading */}
-      <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-        <div>
-          <p
-            className="font-handwritten"
-            style={{ fontSize: 36, lineHeight: 1, color: BRAND, margin: 0 }}
-          >
-            Week of {weekLabel}
+      {/* Day blocks */}
+      <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+        {days.length === 0 ? (
+          <p style={{ margin: 0, fontSize: 12, fontStyle: "italic", color: "#aaa" }}>
+            No school days this week.
           </p>
-          <p
-            className="font-handwritten"
-            style={{ fontSize: 22, color: MUTED, margin: "4px 0 0", lineHeight: 1 }}
-          >
-            {childLabel}
-          </p>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            background: "#ffffff",
-            border: `0.5px solid ${MUTED}80`,
-            borderRadius: 999,
-            padding: "4px 14px",
-          }}
-        >
-          <InlineLeaf size={14} />
-          <span style={{ fontSize: 12, color: MUTED, fontVariantNumeric: "tabular-nums" }}>
-            {lessons.length} lesson{lessons.length === 1 ? "" : "s"} · {appointments.length} appt
-            {appointments.length === 1 ? "" : "s"}
-          </span>
-        </div>
-      </header>
-
-      <SectionDivider />
-
-      {/* 7 day columns */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(7, 1fr)",
-          gap: 6,
-          marginTop: 6,
-        }}
-      >
-        {days.map(({ date, dateStr }, i) => {
-          const dayLessons = (lessonsByDay.get(dateStr) ?? []).slice().sort((a, b) => {
-            const ca = a.child_id ?? "";
-            const cb = b.child_id ?? "";
-            return ca.localeCompare(cb);
-          });
-          const dayAppts = apptsByDay.get(dateStr) ?? [];
-          return (
-            <div
-              key={dateStr}
-              style={{
-                background: "#ffffff",
-                border: `0.5px solid ${MUTED}50`,
-                borderRadius: 8,
-                padding: "8px 6px 10px",
-                minHeight: "6.5in",
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-              }}
-            >
-              {/* Day header */}
-              <div style={{ textAlign: "center" }}>
-                <p
-                  className="font-handwritten"
-                  style={{ fontSize: 18, lineHeight: 1, color: BRAND, margin: 0 }}
+        ) : (
+          days.map((day) => {
+            const dayLessons = lessonsByDay.get(day.key) ?? [];
+            const dayAppts = apptsByDay.get(day.key) ?? [];
+            // Group by child in kids order
+            const byKid = new Map<string, PlanV2Lesson[]>();
+            const unassigned: PlanV2Lesson[] = [];
+            for (const l of dayLessons) {
+              if (l.child_id && childIndex.has(l.child_id)) {
+                const arr = byKid.get(l.child_id) ?? [];
+                arr.push(l);
+                byKid.set(l.child_id, arr);
+              } else unassigned.push(l);
+            }
+            const isInWeekToday = isInWeek && day.isToday;
+            return (
+              <section key={day.key}>
+                {/* Day pill header */}
+                <div
+                  style={{
+                    display: "inline-block",
+                    background: DAY_PILL_BG,
+                    color: INK,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    borderRadius: 4,
+                    padding: "3px 9px",
+                  }}
                 >
-                  {DAY_NAMES[i]}
-                </p>
-                <p style={{ fontSize: 22, fontWeight: 600, lineHeight: 1, margin: "2px 0 0", color: INK }}>
-                  {date.getDate()}
-                </p>
-              </div>
+                  {day.label}{isInWeekToday ? " · Today" : ""}
+                </div>
 
-              <div style={{ borderTop: `0.5px dashed ${MUTED}80`, marginTop: 2 }} />
-
-              {/* Lessons */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                {dayLessons.length === 0 ? (
-                  <p style={{ fontSize: 10, color: `${MUTED}90`, fontStyle: "italic", textAlign: "center", margin: "8px 0" }}>
-                    free day
-                  </p>
-                ) : (
-                  dayLessons.map((l) => {
-                    const meta = l.child_id ? childById.get(l.child_id) : undefined;
-                    const childColor = resolveChildColor(meta?.child ?? null, meta?.index ?? 0);
-                    return (
-                      <div
-                        key={l.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          gap: 4,
-                          paddingLeft: 4,
-                          borderLeft: `2px solid ${childColor}`,
-                        }}
-                      >
-                        <div style={{ marginTop: 1 }}>
-                          <CheckCircle filled={l.completed} size={12} color={BRAND} />
-                        </div>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: 11,
-                            lineHeight: 1.25,
-                            color: INK,
-                            textDecoration: l.completed ? "line-through" : "none",
-                            wordBreak: "break-word",
-                          }}
+                {/* Per-kid blocks */}
+                <div style={{ marginTop: 6, paddingLeft: 6 }}>
+                  {(() => {
+                    const renderedKids: React.ReactNode[] = [];
+                    let firstRendered = true;
+                    kids.forEach((k, i) => {
+                      const items = byKid.get(k.id);
+                      if (!items || items.length === 0) return;
+                      renderedKids.push(
+                        <KidBlock
+                          key={k.id}
+                          kid={k}
+                          color={resolveChildColor(k, i)}
+                          dividerAbove={!firstRendered}
                         >
-                          {lessonTitle(l)}
+                          {items.map((l) => (
+                            <LessonRow
+                              key={l.id}
+                              lesson={l}
+                              color={resolveChildColor(k, i)}
+                              totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
+                            />
+                          ))}
+                        </KidBlock>
+                      );
+                      firstRendered = false;
+                    });
+                    if (unassigned.length > 0) {
+                      renderedKids.push(
+                        <KidBlock
+                          key="__unassigned"
+                          kid={{ id: "__unassigned", name: "Unassigned", color: null, sort_order: null } as PlanV2Child}
+                          color="#7a6f65"
+                          dividerAbove={!firstRendered}
+                        >
+                          {unassigned.map((l) => (
+                            <LessonRow
+                              key={l.id}
+                              lesson={l}
+                              color="#7a6f65"
+                              totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
+                            />
+                          ))}
+                        </KidBlock>
+                      );
+                    }
+                    if (renderedKids.length === 0) {
+                      return (
+                        <p style={{ margin: "6px 0 0", fontSize: 11, fontStyle: "italic", color: "#aaa" }}>
+                          Nothing scheduled
                         </p>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+                      );
+                    }
+                    return renderedKids;
+                  })()}
 
-              {/* Appointments */}
-              {dayAppts.length > 0 ? (
-                <>
-                  <div style={{ borderTop: `0.5px dashed ${MUTED}40`, marginTop: 2 }} />
-                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    {dayAppts.map((a) => (
-                      <div
-                        key={`${a.id}-${a.instance_date}`}
-                        style={{
-                          display: "flex",
-                          alignItems: "baseline",
-                          gap: 4,
-                          fontSize: 10,
-                          color: "#5c4a78",
-                        }}
-                      >
-                        <span style={{ fontSize: 9, color: BRAND, fontVariantNumeric: "tabular-nums" }}>
-                          {formatTime(a.time)}
-                        </span>
-                        <span style={{ flex: 1, minWidth: 0, lineHeight: 1.2 }}>
-                          {a.title}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : null}
-            </div>
-          );
-        })}
+                  {/* Inline appointment list under the day */}
+                  {dayAppts.length > 0 ? (
+                    <div style={{ marginTop: 4, paddingTop: 4, borderTop: `1px solid ${HAIRLINE}` }}>
+                      {dayAppts.map((a) => (
+                        <p key={`${a.id}-${a.instance_date}`} style={{ margin: "2px 0", fontSize: 10, color: MUTED }}>
+                          <span style={{ color: "#5c4a78", fontWeight: 600 }}>📅 {a.title}</span>
+                          <span style={{ color: "#aaa" }}>
+                            {a.time ? ` · ${a.time}` : ""}{a.location ? ` · ${a.location}` : ""}
+                          </span>
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+            );
+          })
+        )}
       </div>
 
-      {/* Footer */}
-      <footer
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: "0.25in",
-          textAlign: "center",
-          fontSize: 9,
-          color: MUTED,
-          letterSpacing: "0.12em",
-          textTransform: "lowercase",
-        }}
-      >
-        rooted.
-      </footer>
+      <NotesSection sublabel="For whoever is teaching this week" lineCount={3} />
+      <PrintFooter />
     </div>
+  );
+}
+
+// ── Shared print primitives (inlined per sheet) ─────────────────────────────
+
+function PrintHeader({ familyName, dateLabel }: { familyName: string; dateLabel: string }) {
+  return (
+    <header
+      style={{
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "space-between",
+        gap: 16,
+        paddingBottom: 10,
+        borderBottom: `1.5px solid ${INK}`,
+      }}
+    >
+      <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: 28, width: "auto" }} />
+      <div style={{ textAlign: "right" }}>
+        <p style={{ margin: 0, fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED }}>
+          {familyName}
+        </p>
+        <p style={{ margin: "2px 0 0", fontSize: 13, fontWeight: 600, color: INK }}>
+          {dateLabel}
+        </p>
+      </div>
+    </header>
+  );
+}
+
+function PrintSummaryBar({ lessons, kids, appts }: { lessons: number; kids: number; appts: number }) {
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 14,
+        background: SUMMARY_BG,
+        border: `1px solid ${SUMMARY_BORDER}`,
+        borderRadius: 999,
+        padding: "5px 14px",
+        fontSize: 11,
+        color: MUTED,
+      }}
+    >
+      <SummaryItem n={lessons} label={lessons === 1 ? "lesson" : "lessons"} />
+      <span aria-hidden style={{ color: "#cfc9c0" }}>·</span>
+      <SummaryItem n={kids} label={kids === 1 ? "kid" : "kids"} />
+      {appts > 0 ? (
+        <>
+          <span aria-hidden style={{ color: "#cfc9c0" }}>·</span>
+          <SummaryItem n={appts} label={appts === 1 ? "appointment" : "appointments"} />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function SummaryItem({ n, label }: { n: number; label: string }) {
+  return (
+    <span>
+      <strong style={{ color: INK, fontWeight: 700 }}>{n}</strong>{" "}
+      {label}
+    </span>
+  );
+}
+
+function KidBlock({
+  kid, color, dividerAbove, children,
+}: {
+  kid: PlanV2Child;
+  color: string;
+  dividerAbove: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ marginTop: dividerAbove ? 4 : 0, paddingTop: dividerAbove ? 4 : 0, borderTop: dividerAbove ? `1px solid ${HAIRLINE}` : "none" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+        <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color }}>
+          {kid.name}
+        </span>
+      </div>
+      <div style={{ paddingLeft: 14 }}>{children}</div>
+    </div>
+  );
+}
+
+function LessonRow({
+  lesson, color, totalLessons,
+}: {
+  lesson: PlanV2Lesson;
+  color: string;
+  totalLessons: number | null;
+}) {
+  const subject = lessonSubject(lesson);
+  const title = lessonTitleText(lesson);
+  const showProgress = lesson.lesson_number != null && totalLessons != null && totalLessons > 0;
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "3px 0" }}>
+      <span
+        aria-hidden
+        style={{
+          width: 13,
+          height: 13,
+          border: `1.5px solid ${color}`,
+          borderRadius: 3,
+          flexShrink: 0,
+          marginTop: 1,
+        }}
+      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: INK }}>{subject}</p>
+        <p style={{ margin: "1px 0 0", fontSize: 10, color: MUTED }}>{title}</p>
+        {showProgress ? (
+          <p style={{ margin: "1px 0 0", fontSize: 9, color: "#aaa" }}>
+            Lesson {lesson.lesson_number} of {totalLessons}
+          </p>
+        ) : null}
+        {lesson.notes ? (
+          <p
+            style={{
+              margin: "3px 0 1px",
+              padding: "3px 7px",
+              fontSize: 10,
+              fontStyle: "italic",
+              fontFamily: "Georgia, serif",
+              color: NOTE_BORDER,
+              background: NOTE_BG,
+              borderLeft: `2px solid ${NOTE_BORDER}`,
+            }}
+          >
+            {lesson.notes}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function NotesSection({ sublabel, lineCount }: { sublabel: string; lineCount: number }) {
+  return (
+    <section style={{ marginTop: 18, paddingTop: 8, borderTop: `1px solid ${HAIRLINE}` }}>
+      <p style={{ margin: 0, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: NOTE_BORDER }}>
+        Notes
+      </p>
+      <p style={{ margin: "2px 0 0", fontSize: 10, fontStyle: "italic", color: "#aaa" }}>
+        {sublabel}
+      </p>
+      <div style={{ marginTop: 8 }}>
+        {Array.from({ length: lineCount }).map((_, i) => (
+          <div key={i} style={{ borderBottom: `0.5px solid ${RULE}`, height: 22 }} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PrintFooter() {
+  return (
+    <footer
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: "0.3in",
+        textAlign: "center",
+        fontSize: 10,
+        color: "#aaa",
+      }}
+    >
+      rootedhomeschoolapp.com · printed {todayPrintedLabel()}
+    </footer>
   );
 }

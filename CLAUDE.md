@@ -79,6 +79,19 @@ Memory book FIRST. Planner second. Memories lead emotionally.
 ALWAYS work on staging branch. NEVER push direct to main.
 Merge staging → main when batch is tested and ready.
 
+## Before merging to main
+Run `npm run test:e2e` against staging. The Playwright suite at
+`e2e/smoke/` covers auth, dashboard, plan, schedule builder, memories,
+yearbook, and the four critical paths (curriculum create / edit /
+delete, lesson completion). All tests must pass before any staging →
+main merge.
+
+The suite reads `PLAYWRIGHT_EMAIL` and `PLAYWRIGHT_PASSWORD` from
+`.env.local` (gitignored). The optional `SUPABASE_SERVICE_ROLE_KEY`
+unlocks DB-side assertions in the curriculum-CRUD tests and the
+data-integrity audit; without it those checks skip cleanly. Never
+hardcode the test password in a spec file.
+
 ## Admin emails
 - garfieldbrittany@gmail.com
 - hello@rootedhomeschoolapp.com

@@ -460,7 +460,7 @@ input:-webkit-autofill:focus {
 @media print {
   body.print-mode-daily,
   body.print-mode-weekly,
-  body.print-mode-monthly { background: #FAF7F0 !important; }
+  body.print-mode-monthly { background: #ffffff !important; }
 
   body.print-mode-daily .plan-print-host,
   body.print-mode-weekly .plan-print-host,

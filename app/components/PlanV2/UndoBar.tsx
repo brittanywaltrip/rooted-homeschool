@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
  * UndoBar — single global undo slot.
  *
  * Replaces per-feature bars (planRescheduleUndo 8s, apptUndo 5s) with one
- * 30s pill. The bar slides in within ~200ms of the action so it doesn't
+ * 5s pill. The bar slides in within ~200ms of the action so it doesn't
  * feel laggy.
  *
  * Single-slot by design: a second action during an active window overwrites
@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from "react";
  * the bar manages its own countdown + slide-in animation.
  * ==========================================================================*/
 
-const UNDO_WINDOW_MS = 30_000;
+const UNDO_WINDOW_MS = 5_000;
 const COUNTDOWN_TICK_MS = 200;
 
 export interface UndoAction {

@@ -46,6 +46,7 @@ import { useSchoolYears } from "@/lib/useSchoolYears";
 import { getUSHolidaysForYear } from "@/lib/us-holidays";
 import PlanPrintDialog, { type PlanPrintMode } from "./PlanPrintDialog";
 import DailyPrintSheet from "./DailyPrintSheet";
+import DailyPrintPDF from "./DailyPrintPDF";
 import WeeklyPrintSheet from "./WeeklyPrintSheet";
 import MonthlyPrintSheet from "./MonthlyPrintSheet";
 import { CornerLeaves } from "./print-decorations";
@@ -240,6 +241,10 @@ export default function PlanV2() {
   // Mirrors the Year Planner's pattern: trial counts as paid.
   const [isPro, setIsPro] = useState<boolean>(false);
   const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
+  // Family name used as the print-sheet header label. Schema field is
+  // display_name (set during onboarding as "The {LastName} Family"); we
+  // fall back to "{first_name} Family" if display_name is unset.
+  const [familyName, setFamilyName] = useState<string>("Family Plan");
 
   useEffect(() => {
     if (!effectiveUserId) return;
@@ -247,17 +252,26 @@ export default function PlanV2() {
     (async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("school_days, is_pro, trial_started_at")
+        .select("school_days, is_pro, trial_started_at, display_name, first_name")
         .eq("id", effectiveUserId)
         .maybeSingle();
       if (cancelled) return;
       const row = data as
-        | { school_days?: string[] | null; is_pro?: boolean | null; trial_started_at?: string | null }
+        | {
+            school_days?: string[] | null;
+            is_pro?: boolean | null;
+            trial_started_at?: string | null;
+            display_name?: string | null;
+            first_name?: string | null;
+          }
         | null;
       const sd = row?.school_days;
       setSchoolDays(sd && sd.length > 0 ? sd : DEFAULT_SCHOOL_DAYS);
       setIsPro(!!row?.is_pro);
       setTrialStartedAt(row?.trial_started_at ?? null);
+      const dn = row?.display_name?.trim();
+      const fn = row?.first_name?.trim();
+      setFamilyName(dn && dn.length > 0 ? dn : fn && fn.length > 0 ? `${fn} Family` : "Family Plan");
     })();
     return () => { cancelled = true; };
   }, [effectiveUserId]);
@@ -1085,15 +1099,64 @@ export default function PlanV2() {
     });
   }, [effectiveUserId, kids]);
 
-  // ── Print handler — sets body class, calls window.print(), cleans up ────
-  // The print sheets render off-screen always; @media print + the body
-  // class flips visibility for exactly one sheet.
+  // ── Print handler ────────────────────────────────────────────────────────
+  // Daily uses @react-pdf/renderer to download a real PDF (colors render
+  // reliably, no browser print dialog). Weekly + monthly still use the
+  // legacy window.print() flow until their migration prompts run.
   const canPrintPaid = canExport({ is_pro: isPro, trial_started_at: trialStartedAt });
-  const handlePickPrintMode = useCallback((mode: PlanPrintMode) => {
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const handlePickPrintMode = useCallback(async (mode: PlanPrintMode) => {
     if ((mode === "weekly" || mode === "monthly") && !canPrintPaid) {
       // The dialog renders these tiles as Links to /upgrade for free
       // users, so onPick should never fire — but defensive belt+braces.
       window.location.href = "/upgrade";
+      return;
+    }
+    if (mode === "daily") {
+      setPdfGenerating(true);
+      try {
+        const todayDate = new Date();
+        const todayKey = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
+        // Apply child + day filters inline so we don't depend on
+        // filteredLessons / filteredAppointments which are declared later
+        // in the component (TDZ would error otherwise).
+        const allKidsSelected = childFilter.size === 0 || childFilter.size === kids.length;
+        const todayKids = allKidsSelected ? kids : kids.filter((k) => childFilter.has(k.id));
+        const childKeep = (cid: string | null) => allKidsSelected || (cid != null && childFilter.has(cid));
+        const todayLessons = lessons.filter((l) => (l.scheduled_date ?? l.date) === todayKey && childKeep(l.child_id));
+        const todayAppts = appointments.filter((a) => {
+          if (a.instance_date !== todayKey) return false;
+          if (allKidsSelected) return true;
+          if (!a.child_ids || a.child_ids.length === 0) return true;
+          return a.child_ids.some((id) => childFilter.has(id));
+        });
+
+        const { pdf } = await import("@react-pdf/renderer");
+        const blob = await pdf(
+          <DailyPrintPDF
+            date={todayDate}
+            familyName={familyName}
+            lessons={todayLessons}
+            appointments={todayAppts}
+            kids={todayKids}
+            curriculumGoals={curriculumGoals}
+          />,
+        ).toBlob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `rooted-daily-${todayKey}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setPrintDialogOpen(false);
+      } catch (e) {
+        console.error("[plan-v2] daily PDF generation failed", e);
+        flashNotice("Couldn't generate the PDF, please try again.");
+      } finally {
+        setPdfGenerating(false);
+      }
       return;
     }
     setPrintDialogOpen(false);
@@ -1109,7 +1172,7 @@ export default function PlanV2() {
     // Defer to next frame so React has flushed the activePrintMode-driven
     // re-render before the print preview snapshots the DOM.
     window.requestAnimationFrame(() => window.print());
-  }, [canPrintPaid]);
+  }, [canPrintPaid, childFilter, kids, lessons, appointments, familyName, curriculumGoals]);
 
   // Default: every child selected. Once data loads, ensure filter includes all
   // current child IDs.
@@ -2027,7 +2090,7 @@ export default function PlanV2() {
     setLessons((prev) => prev.filter((l) => !rowIdSet.has(l.id)));
     hapticTap(20);
 
-    // Defer the DB delete to the end of the 30s undo window. If the user
+    // Defer the DB delete to the end of the 5s undo window. If the user
     // taps Undo first, the timer is cleared and the rows are restored.
     const timer = window.setTimeout(async () => {
       pendingBulkDeleteRef.current = null;
@@ -2037,7 +2100,7 @@ export default function PlanV2() {
         /* silent — next reload reconciles */
       }
       reload();
-    }, 30_000);
+    }, 5_000);
     pendingBulkDeleteRef.current = { rows, timer };
 
     setUndoAction({
@@ -2937,10 +3000,6 @@ export default function PlanV2() {
                 >
                   <FileText size={14} />
                 </button>
-                {/* Print button hidden per request — restore the button
-                    JSX below to re-enable. PlanPrintDialog mount,
-                    handlePickPrintMode, and the print sheets remain wired. */}
-                {/*
                 <button
                   type="button"
                   onClick={() => setPrintDialogOpen(true)}
@@ -2949,7 +3008,6 @@ export default function PlanV2() {
                 >
                   <Printer size={14} />
                 </button>
-                */}
               </div>
             </div>
 
@@ -3579,6 +3637,7 @@ export default function PlanV2() {
           canPrintPaid={canPrintPaid}
           onClose={() => setPrintDialogOpen(false)}
           onPick={handlePickPrintMode}
+          generating={pdfGenerating}
         />
 
         {/* Print sheets — always rendered in DOM, hidden on screen via the
@@ -3618,27 +3677,35 @@ export default function PlanV2() {
                 <DailyPrintSheet
                   date={todayDate}
                   childLabel={childLabel}
+                  familyName={familyName}
                   lessons={todayLessons}
                   appointments={todayAppts}
                   kids={filteredKids}
+                  curriculumGoals={curriculumGoals}
                 />
               ) : null}
               {activePrintMode === "weekly" ? (
                 <WeeklyPrintSheet
                   weekStart={weekStart}
                   childLabel={childLabel}
+                  familyName={familyName}
                   lessons={weekLessons}
                   appointments={weekAppts}
                   kids={filteredKids}
+                  curriculumGoals={curriculumGoals}
+                  schoolDays={schoolDays}
+                  vacationBlocks={vacationBlocks}
                 />
               ) : null}
               {activePrintMode === "monthly" ? (
                 <MonthlyPrintSheet
                   monthStart={monthStart}
                   childLabel={childLabel}
+                  familyName={familyName}
                   lessons={filteredLessons}
                   appointments={filteredAppointments}
                   vacationBlocks={vacationBlocks}
+                  curriculumGoals={curriculumGoals}
                   kids={filteredKids}
                 />
               ) : null}
