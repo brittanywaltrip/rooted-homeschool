@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Pencil, Plus, MousePointerSquareDashed, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -191,6 +191,8 @@ export default function PlanV2() {
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [activePrintMode, setActivePrintMode] = useState<PlanPrintMode | null>(null);
   const [childFilter, setChildFilter] = useState<Set<string>>(new Set());
+  // Bottom-sheet visibility for the "All kids ▾" filter trigger in the toolbar.
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [openDayStr, setOpenDayStr] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -2846,31 +2848,31 @@ export default function PlanV2() {
 
                 <div className="flex-1" />
 
-                {/* Child filter chips, right-aligned in the date row */}
-                {kids.length > 0 ? (
-                  <div className="flex flex-wrap items-center justify-end gap-1.5">
-                    {kids.map((c, i) => {
-                      const active = childFilter.has(c.id);
-                      const color = resolveChildColor(c, i);
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => toggleChild(c.id)}
-                          aria-pressed={active}
-                          className="text-[11px] font-semibold px-2.5 py-1 rounded-full transition-all whitespace-nowrap"
-                          style={{
-                            backgroundColor: active ? color : "#f4f0e8",
-                            color: active ? "#ffffff" : "#7a6f65",
-                            border: `1px solid ${active ? color : "#e8e2d9"}`,
-                          }}
-                        >
-                          {c.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
+                {/* Child filter — single trigger that opens a bottom sheet.
+                    Active state when one or more (but not all) kids are picked. */}
+                {kids.length > 0 ? (() => {
+                  const selectedKids = kids.filter((k) => childFilter.has(k.id));
+                  const isFiltered = selectedKids.length > 0 && selectedKids.length < kids.length;
+                  const label = !isFiltered
+                    ? "All kids"
+                    : selectedKids.length === 1
+                      ? selectedKids[0].name
+                      : `${selectedKids[0].name} +${selectedKids.length - 1}`;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setFilterSheetOpen(true)}
+                      aria-pressed={isFiltered}
+                      className={`text-[12px] font-semibold px-3 py-1.5 rounded-full transition-all whitespace-nowrap inline-flex items-center gap-1 ${
+                        isFiltered
+                          ? "bg-[#2D5A3D] text-white border border-[#2D5A3D]"
+                          : "bg-white text-[#5C5346] border border-[#e8e2d9] hover:bg-[#faf8f4]"
+                      }`}
+                    >
+                      {label} <ChevronDown size={13} />
+                    </button>
+                  );
+                })() : null}
               </div>
 
               {/* Row 2 — action buttons in 3 clusters with vertical dividers.
@@ -2925,20 +2927,22 @@ export default function PlanV2() {
 
                 <div aria-hidden="true" className="w-px h-5 bg-[#e8e2d9] mx-1 self-center" />
 
-                {/* Group 3 — Utilities */}
+                {/* Group 3 — Utilities (icon-only to keep the row compact) */}
                 <button
                   type="button"
                   onClick={() => setReportDialogOpen(true)}
+                  aria-label="Report"
                   className="pencil-btn"
                 >
-                  📄 Report
+                  <FileText size={14} />
                 </button>
                 <button
                   type="button"
                   onClick={() => setPrintDialogOpen(true)}
+                  aria-label="Print"
                   className="pencil-btn"
                 >
-                  🖨️ Print
+                  <Printer size={14} />
                 </button>
               </div>
             </div>
@@ -3645,6 +3649,85 @@ export default function PlanV2() {
               __html: `@media print { @page { size: letter landscape; margin: 0.3in; } }`,
             }}
           />
+        ) : null}
+
+        {/* Child filter bottom sheet — toolbar trigger sets filterSheetOpen.
+            Multi-select; "All" clears the set (which the filter logic above
+            treats as "show everyone"). */}
+        {filterSheetOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+            onClick={() => setFilterSheetOpen(false)}
+          >
+            <div
+              className="w-full max-w-md bg-white rounded-t-2xl p-5 pb-8 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-label="Filter by child"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[14px] font-semibold text-[#2D2A26]">Filter by child</p>
+                <button
+                  type="button"
+                  onClick={() => setFilterSheetOpen(false)}
+                  aria-label="Close"
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-[#7a6f65] hover:bg-[#f0ede8]"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => setChildFilter(new Set())}
+                  aria-pressed={childFilter.size === 0 || childFilter.size === kids.length}
+                  className={`w-full flex items-center gap-3 text-left px-4 py-3 rounded-xl text-[14px] transition-colors ${
+                    childFilter.size === 0 || childFilter.size === kids.length
+                      ? "bg-[#e8f0e9] text-[#2D5A3D] font-semibold"
+                      : "bg-[#faf8f4] text-[#2D2A26] hover:bg-[#f0ede8]"
+                  }`}
+                >
+                  <span aria-hidden="true" className="w-4 h-4 rounded-full bg-[#7a6f65] inline-block" />
+                  <span className="flex-1">All kids</span>
+                  {(childFilter.size === 0 || childFilter.size === kids.length) ? (
+                    <span aria-hidden="true">✓</span>
+                  ) : null}
+                </button>
+                {kids.map((c, i) => {
+                  const active = childFilter.has(c.id);
+                  const color = resolveChildColor(c, i);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => toggleChild(c.id)}
+                      aria-pressed={active}
+                      className={`w-full flex items-center gap-3 text-left px-4 py-3 rounded-xl text-[14px] transition-colors ${
+                        active
+                          ? "bg-[#e8f0e9] text-[#2D5A3D] font-semibold"
+                          : "bg-[#faf8f4] text-[#2D2A26] hover:bg-[#f0ede8]"
+                      }`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="w-4 h-4 rounded-full inline-block"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span className="flex-1">{c.name}</span>
+                      {active ? <span aria-hidden="true">✓</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setFilterSheetOpen(false)}
+                className="w-full mt-4 py-3 rounded-xl bg-[#2D5A3D] hover:bg-[#244830] text-white text-[14px] font-semibold transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
         ) : null}
 
         {/* Create School Year modal — opened from the toolbar CTA when the
