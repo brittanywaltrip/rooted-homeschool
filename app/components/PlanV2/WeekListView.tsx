@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Calendar, Check, ChevronLeft, ChevronRight, GripVertical, Pencil, X } from "lucide-react";
 import { resolveChildColor } from "./colors";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
@@ -170,8 +170,9 @@ export default function WeekListView(props: Props) {
         </button>
       </div>
 
-      {/* 7 day sections, each its own distinct card. */}
-      <div className="space-y-3">
+      {/* 7 day sections wrapped in a single outer card so the week reads
+          as one cohesive schedule block. Internal dividers separate days. */}
+      <div className="rounded-2xl border border-[#e8e5e0] bg-white shadow-sm overflow-hidden">
         {days.map((day, idx) => {
           const key = ymd(day);
           const isToday = key === todayStr;
@@ -183,10 +184,9 @@ export default function WeekListView(props: Props) {
           const headerLabel = `${DAY_NAMES_FULL[idx].toUpperCase()}, ${dateLabel.toUpperCase()}`;
 
           return (
-            <div
-              key={key}
-              className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3"
-            >
+            <Fragment key={key}>
+              {idx > 0 ? <div className="border-t border-[#e8e5e0]" /> : null}
+              <div className="px-4 py-3">
               {/* Day header */}
               <div className="flex items-center justify-between gap-2 mb-2">
                 <p
@@ -430,7 +430,8 @@ export default function WeekListView(props: Props) {
                   + Add lesson
                 </button>
               ) : null}
-            </div>
+              </div>
+            </Fragment>
           );
         })}
       </div>
