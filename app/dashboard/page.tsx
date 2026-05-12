@@ -628,29 +628,47 @@ export default function TodayPage() {
     const lastYear = otdNow.getFullYear() - 1;
     const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
     const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
-    // Profile fetched first so we can derive the user's TZ before issuing
-    // queries that depend on a "today in user's local time" boundary. The
-    // extra round trip is cheaper than the alternative — querying with a
-    // wrong-TZ window silently shifts which lessons count as "completed
-    // today", which shifts the queue projector by one slot. profiles.timezone
-    // is the source of truth (added 2026-05-03); falls back to America/New_York
-    // via the timezone.ts helpers when null.
+    // Browser TZ is the ground truth for the user's actual location.
+    // profiles.timezone was added 2026-05-03 with a DEFAULT of
+    // America/New_York for all 1,747 existing rows and has never been
+    // self-updated, so reading it as the source of truth is wrong for
+    // anyone outside NY. Use the browser detection here, then self-heal
+    // the stored column in the background once we know what it should
+    // be.
+    const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    setUserTz(browserTz);
+
+    // Profile fetched up front so the rest of loadData can read its
+    // fields and so we can compare its stored timezone against the
+    // browser-detected value for the self-heal write below.
     const profileResult = await supabase
       .from("profiles")
       .select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, last_catchup_dismissed_at, timezone")
       .eq("id", effectiveUserId)
       .maybeSingle();
     const tzFromProfile = (profileResult.data as { timezone?: string | null } | null)?.timezone ?? null;
-    setUserTz(tzFromProfile);
 
-    // Local-day window for today's per-goal completion counts. Computed in
-    // the user's TZ (NOT browser-local) so a Pacific-time mom's late-night
-    // completions don't roll into "today" the next morning UTC. The queue
-    // projector subtracts these from today's slot allocation so marking
-    // complete doesn't pull a fresh lesson onto today.
-    const todayInUserTz = todayInTz(tzFromProfile);
-    const todayStartIso = startOfDayInTzAsUtc(todayInUserTz, tzFromProfile).toISOString();
-    const tomorrowStartIso = startOfDayInTzAsUtc(addDaysYmd(todayInUserTz, 1), tzFromProfile).toISOString();
+    // Self-heal: if profiles.timezone disagrees with the browser-detected
+    // TZ, push an update in the background. Fire-and-forget so first paint
+    // is never blocked. The constraint at profiles_timezone_format accepts
+    // standard IANA strings; unusual values (e.g. "Etc/GMT+5") may bounce
+    // — silently ignored, browserTz is still used in-page.
+    if (browserTz && tzFromProfile !== browserTz) {
+      void supabase
+        .from("profiles")
+        .update({ timezone: browserTz })
+        .eq("id", effectiveUserId)
+        .then(() => {}, () => {});
+    }
+
+    // Local-day window for today's per-goal completion counts. Computed
+    // in the browser's TZ so a Pacific-time mom's late-night completions
+    // don't roll into "today" the next morning UTC. The queue projector
+    // subtracts these from today's slot allocation so marking complete
+    // doesn't pull a fresh lesson onto today.
+    const todayInUserTz = todayInTz(browserTz);
+    const todayStartIso = startOfDayInTzAsUtc(todayInUserTz, browserTz).toISOString();
+    const tomorrowStartIso = startOfDayInTzAsUtc(addDaysYmd(todayInUserTz, 1), browserTz).toISOString();
     const [
       authResult,
       childrenResult,
@@ -1798,14 +1816,14 @@ export default function TodayPage() {
     // skipping vacation blocks, and shows lessons grouped by kid then
     // subject in ascending lesson_number order.
     //
-    // The completedToday window is bounded in the user's stored TZ
-    // (loadData populates userTz from profiles.timezone). If userTz is
-    // still null (Log Extra opened before loadData resolved), the
-    // helpers fall back to America/New_York — same behavior as the
-    // scheduler invariant test.
-    const todayUserTz = todayInTz(userTz);
-    const todayStartIso = startOfDayInTzAsUtc(todayUserTz, userTz).toISOString();
-    const tomorrowStartIso = startOfDayInTzAsUtc(addDaysYmd(todayUserTz, 1), userTz).toISOString();
+    // The completedToday window is bounded in the browser's TZ (the
+    // ground truth for the user's actual location). Derived inline so
+    // this handler doesn't depend on loadData having populated userTz
+    // state first.
+    const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const todayUserTz = todayInTz(browserTz);
+    const todayStartIso = startOfDayInTzAsUtc(todayUserTz, browserTz).toISOString();
+    const tomorrowStartIso = startOfDayInTzAsUtc(addDaysYmd(todayUserTz, 1), browserTz).toISOString();
     const [{ data: goalsRaw }, { data: vacsRaw }, { data: completedTodayRaw }] = await Promise.all([
       supabase
         .from("curriculum_goals")
